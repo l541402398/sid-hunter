@@ -1,0 +1,32 @@
+# Local agent state and OS metadata (never publish personal memory/sessions).
+.DS_Store
+.workbuddy/
+.codebuddy/
+
+# Secrets, local dependency installs, and runtime state.
+.env*
+node_modules/
+*.log
+*.pid
+*.pid.lock
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*session-token*
+*session_token*
+*credentials*
+*profile*/
+Singleton*
+
+# Derived test reports/screenshots; source scripts remain versioned.
+/demo/*.png
+/demo/*.jpg
+/demo/*results*.json
+/demo/*report*.json
+/online/*.png
+/online/*.jpg
+/online/*results*.json
+/online/*report*.json

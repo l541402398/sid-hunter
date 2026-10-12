@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>S-ID：年终生存战 · 本地可玩 Demo</title>
+<link rel="stylesheet" href="styles.css">
+<script src="main.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">S<span>·</span>ID</span><div><h1>S-ID：年终生存战</h1><p>YEAR-END SURVIVAL / 像素办公室</p></div></div>
+    <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">19</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">1</b></span><span class="local-badge">20 位模拟玩家 · 本地 DEMO</span></div>
+  </header>
+  <nav class="toolbar" aria-label="公共功能">
+    <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span>20</span></button><button id="log-toggle" aria-expanded="false">≡ 公共日志 <span id="log-count">1</span></button></div>
+    <div class="toolbar-right"><span class="private-hint">按住查看 · 松开即隐藏</span><button id="my-info" class="my-button" aria-label="按住查看我的信息">我的信息 <kbd>按住</kbd></button></div>
+  </nav>
+  <main class="stage" id="stage">
+    <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，点击角色或公开标签选择目标。"></canvas>
+    <div class="world-chip"><span class="live-square"></span><span id="zone-name">接待区</span><small>无门连通 / 横向四屏</small></div>
+    <div class="map-foot"><span id="coordinate">01 / 04</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看公开档案</span></div>
+    <aside id="roster" class="panel roster" hidden>
+      <div class="panel-heading"><div><small>PUBLIC DIRECTORY</small><h2>玩家名单</h2></div><button id="roster-close" class="icon-button" aria-label="收起玩家名单">×</button></div>
+      <label class="search-label"><span>姓名 / 四项公开颜色 / 已公开隐藏属性</span><input id="search" placeholder="搜索姓名、银白、深蓝、口头禅、番茄面…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+      <p class="panel-note">仅匹配已公开信息 · 可搜三个隐藏属性字段名（口头禅 / 爱吃的食物 / 喜欢的运动）或已公开的值 · 未公开项不命中也不显示 · 命中来源最多两条，标在姓名下方 · 关闭名单或按 Esc 保留筛选词，重置清空 · 点击行内任意位置可选远处目标</p><div id="roster-items" class="roster-items"></div>
+    </aside>
+    <aside id="logs" class="panel logs" hidden>
+      <div class="panel-heading"><div><small>OFFICE FEED</small><h2>公共日志</h2></div><button id="log-close" class="icon-button" aria-label="收起公共日志">×</button></div>
+      <p class="panel-note">时间倒序 · 仅公开变化，不公布操作者</p><ol id="log-items"></ol>
+    </aside>
+    <section id="target" class="panel target" hidden aria-label="目标公开档案"></section>
+    <section id="candidates" class="panel candidates" hidden aria-label="重叠角色候选"></section>
+    <section id="mine" class="panel mine" hidden aria-label="按住时显示我的信息"></section>
+  </main>
+  <section class="bad-section"><button id="bad-toggle" class="bad-toggle" aria-expanded="false"><span><i class="dot red"></i> 匿名坏人线索 <small>身份不公开</small></span><span id="bad-toggle-label">展开 ＋</span></button><div id="bad-slots" class="bad-slots" hidden></div></section>
+  <footer class="footer"><span><i class="dot blue"></i> 离线模拟 · 不联网 / 不存档 / 不使用真实员工数据</span><span>重叠组：接待区右侧 <i>·</i> 技能不受距离限制 <i>·</i> 重置恢复次数</span></footer>
+  <details class="instructions"><summary>试玩说明与规则</summary><div><p>你是「小序」。办公室横向约四屏，家具阻挡，人物可以互相穿过。左上名单和右侧日志默认收起；接待区右侧有固定三人重叠，点击后先选候选。名单选远处玩家不会移动你的镜头。</p><p>选中目标后，普通界面只有中性「私密操作」入口。<strong>点击展开私密操作，再次点击收起</strong>，可直接输入或粘贴S-ID，无需按住Shift。收起、关闭档案、切出窗口、Esc或切换目标会清空私密内容和未提交操作，已提交不会回滚。展开期间技能可被旁人看到，请注意周围视线。</p><p>好人：探查公开一项未知隐藏属性；指认坏人扣1血，指认好人则公开自己一段S-ID。坏人：探查公开一段目标S-ID；击杀需手动输入完整S-ID且精确匹配。有效指认/击杀即使错误也进入12秒冷却，格式错误不消耗；探查8秒冷却、每人初始2次，不自动恢复。以上时间仅为Demo值，不代表正式规则。</p><p>按住「我的信息」（键盘聚焦后按住空格或Enter也可）才显示自己完整资料；其中可切换自己的测试阵营与重置模拟。我的信息同时显示发色、上衣颜色、裤子颜色、鞋颜色的准确名称及色块。点击地图脚下S-ID、名单或档案中的S-ID可复制当前显示的文本，未公开段仍为***；重叠的S-ID先选候选再复制。淘汰人物不再出现在地图，但仍可通过名单查看。姓名和S-ID标签固定跟随人物，不进行避让或边缘吸附，靠边时可能裁切，重叠可通过候选名单选择。重置不记住输入、不保存数据；没有正式胜负和积分系统。</p></div></details>
+</div>
+<div id="copy-toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
