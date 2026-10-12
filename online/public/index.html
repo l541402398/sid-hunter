@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>S-ID：年终生存战 · 局域网联机</title>
+<link rel="stylesheet" href="styles.css">
+<script src="/shared/world.js" defer></script>
+<script src="game.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">S<span>·</span>ID</span><div><h1>S-ID：年终生存战</h1><p>YEAR-END SURVIVAL / 局域网联机试玩</p></div></div>
+    <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span></div>
+  </header>
+  <nav class="toolbar" aria-label="公共功能">
+    <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="log-toggle" aria-expanded="false">≡ 公共日志 <span id="log-count">0</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button></div>
+    <div class="toolbar-right"><span class="private-hint">点击开闭 · 眼睛独立显示</span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false">我的信息</button></div>
+  </nav>
+  <main class="stage" id="stage">
+    <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，点击角色或公开标签选择目标。"></canvas>
+    <div class="world-chip"><span class="live-square"></span><span id="zone-name">接待区</span><small>无门连通 / 横向四屏</small></div>
+    <div class="map-foot"><span id="coordinate">01 / 04</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看公开档案</span></div>
+    <div id="offline-banner" class="offline-banner" hidden></div>
+    <aside id="roster" class="panel roster" hidden>
+      <div class="panel-heading"><div><small>PUBLIC DIRECTORY</small><h2>玩家名单</h2></div><button id="roster-close" class="icon-button" aria-label="收起玩家名单">×</button></div>
+      <label class="search-label"><span>姓名 / 颜色 / 已公开隐藏属性</span><input id="search" placeholder="搜索姓名、银白、先喝口水、口头禅…" autocomplete="off" spellcheck="false"></label>
+      <p class="panel-note">仅搜索已公开信息 · 未公开隐藏属性（***）不会被搜到</p>
+      <div id="roster-items" class="roster-items"></div>
+    </aside>
+    <aside id="logs" class="panel logs" hidden>
+      <div class="panel-heading"><div><small>OFFICE FEED</small><h2>公共日志</h2></div><button id="log-close" class="icon-button" aria-label="收起公共日志">×</button></div>
+      <p class="panel-note">时间倒序 · 仅公开变化，不公布操作者</p><ol id="log-items"></ol>
+    </aside>
+    <section id="target" class="panel target" hidden aria-label="目标公开档案"></section>
+    <section id="candidates" class="panel candidates" hidden aria-label="重叠角色候选"></section>
+    <section id="mine" class="panel mine" hidden aria-label="我的信息，秘密字段可独立切换显示"></section>
+    <section id="offline-summary" class="panel offline-summary" hidden aria-label="离线期间事件摘要"></section>
+  </main>
+  <section class="lan-section"><span class="lan-line"><i class="dot blue"></i> 局域网试玩 · 把下面地址发给同事即可加入</span><code id="lan-address">读取中…</code><span class="lan-note">服务端权威：位置、技能结算、公开状态与淘汰都由服务端计算；主持人接口仅限本机。</span></section>
+  <footer class="footer"><span><i class="dot blue"></i> 局域网模拟 · 不联网 / 不上传 / 不使用真实员工数据</span><span>技能任意距离（含离线者） <i>·</i> 次数上限2次并按周期恢复 <i>·</i> 离线不淘汰、不释放</span></footer>
+  <details class="instructions"><summary>操作与联机说明</summary><div><p>WASD / 方向键移动；家具挡路，人物互穿。点击角色或名单查看公开档案，重叠时先选目标；技能任意距离，禁止自选或操作已淘汰目标。</p><p>好人：探查、指认；坏人：探查、指认、刺探、击杀。探查 / 指认对两种阵营效果相同；刺探公开目标SID段，击杀要求完整SID精确匹配。各技能独立2次，试玩90秒恢复1次、满停止，探查/刺探短冷却8秒，指认/击杀12秒。新版四技能需服务端重启后生效，当前进行中的旧局不会自动重开。</p><p>点击展开私密操作，再点收起；点击「我的信息」打开或关闭；S-ID、口头禅、食物、运动各自点击眼睛显示或隐藏。身份眼睛同时隐藏血量和技能信息，避免通过技能数量推断好坏身份。每次打开默认全隐藏；关闭、Esc、切出页面或进入规则页销毁私密DOM。开发重置仅开发开关启用且本机服务授权后可见，需二次确认清空本局；当前旧服务未启用，不代表已经可用。地图保留离线标签，离线者原地保留且照常恢复、可被施技；公共日志不写上下线状态，不暴露操作者、指认对错或击杀方式。局域网剪贴板不可用时可选中文字手动复制。</p></div></details>
+  <section id="dev-management" class="dev-management" hidden aria-labelledby="dev-title"><h2 id="dev-title">开发管理 · 危险操作</h2><p>仅本机开发授权可用。重置会清空本局全部玩家与数据，不会自动加入新局。</p><button id="dev-reset" class="dev-reset" hidden aria-haspopup="dialog" aria-controls="reset-confirm">开发重置</button></section>
+  <dialog id="reset-confirm" class="reset-confirm" aria-labelledby="reset-title" aria-describedby="reset-impact"><h2 id="reset-title">确认清空本局？</h2><p id="reset-impact">开发重置将清空：</p><ul><li>全部玩家与身份凭证</li><li>公共日志与私密事件</li><li>技能次数、冷却及恢复状态</li><li>本局存活、淘汰与结束状态</li></ul><p>所有人返回加入页；只有主动加入才进入新局。此操作无法撤销。</p><div class="reset-actions"><button id="reset-cancel" type="button">取消</button><button id="reset-accept" class="dev-reset" type="button">确认清空全部数据</button></div><p class="hold-note">按 Esc 或切出页面即取消，不发送重置请求。</p></dialog>
+  <dialog id="rules-view" class="rules-view" aria-labelledby="rules-title" aria-describedby="rules-live">
+    <header class="rules-head"><div><span class="eyebrow">FIELD GUIDE / 办公室生存手册</span><h2 id="rules-title">读懂线索，保护你的 S-ID</h2><p id="rules-live">阅读规则时游戏仍在继续</p></div><button id="rules-close" type="button">返回游戏 <kbd>Esc</kbd></button></header>
+    <div class="rules-body">
+      <section class="rule-section"><span class="rule-number">01 / 目标</span><h3>保护 S-ID，存活到最后</h3><div class="rule-split" aria-label="双方目标"><article class="rule-note playtest"><strong>好人目标</strong><p>保护好自己，指认坏人。</p></article><article class="rule-note formal"><strong>坏人目标</strong><p>隐藏好自己，击杀他人。</p></article></div><div class="rule-split"><article class="rule-note formal"><strong>正式规则 · 仅剩 100 人或时间结束</strong><p>正式游戏时长待公布；当前试玩尚未实现限时结束。</p></article><article class="rule-note playtest"><strong>当前试玩 · 从多人降至 2 人</strong><p>至少发生一次淘汰才自动结束；仅两人加入不会立刻结束。</p></article></div></section>
+      <section class="rule-section"><span class="rule-number">02 / 编码</span><h3>三段编码，是你的秘密</h3><div class="rule-flow sid-flow"><div><small>完整示例 · 非真实玩家</small><code>A7C-9K2-3M8</code></div><b aria-hidden="true">→</b><div><small>只公开中间一段</small><code>***-9K2-***</code></div><b aria-hidden="true">→</b><div><small>击杀输入完整编码</small><strong>精确匹配 → 淘汰</strong></div></div><p>每段3位大写字母或数字；未知段显示 ***。不能用残缺编码击杀。</p></section>
+      <section class="rule-section"><span class="rule-number">03 / 角色档案</span><h3>4 项人人看得见，3 项需要探查</h3><div class="rule-avatar-grid"><svg class="rules-avatar" viewBox="0 0 160 180" role="img" aria-label="虚构像素角色：银白头发、深蓝上衣、炭灰裤子、白色鞋"><rect width="160" height="180" rx="14" fill="#302c31"/><ellipse cx="80" cy="159" rx="37" ry="8" fill="#17181f"/><g shape-rendering="crispEdges" stroke="#171822" stroke-width="3"><path d="M49 25h62v54H49z" fill="#d3dce9"/><path d="M56 49h48v37H56z" fill="#eabb94"/><path d="M44 88h72v43H44z" fill="#5686bc"/><path d="M50 130h24v24H50zM86 130h24v24H86z" fill="#505d70"/><path d="M43 152h32v8H43zM85 152h32v8H85z" fill="#e3e7e8"/></g><path d="M65 60h7v7h-7zM89 60h7v7h-7z" fill="#222337"/><path d="M72 76h16v3H72z" fill="#a8706a"/><path d="M53 29h42v6H53z" fill="#edf2f9"/></svg><div><h4>公开属性 · 外观线索</h4><div class="rule-color-grid"><div><i style="background:#d3dce9"></i>头发颜色 <strong>银白</strong></div><div><i style="background:#5686bc"></i>上衣颜色 <strong>深蓝</strong></div><div><i style="background:#505d70"></i>裤子颜色 <strong>炭灰</strong></div><div><i style="background:#e3e7e8"></i>鞋颜色 <strong>白色</strong></div></div><h4>隐藏属性 · 未公开前无法搜索</h4><div class="rule-masks"><div>口头禅 <code>***</code></div><div>爱吃的食物 <code>***</code></div><div>喜欢的运动 <code>***</code></div></div></div></div></section>
+      <section class="rule-section"><span class="rule-number">04 / 技能</span><h3>好人 2 种，坏人 4 种</h3><div class="mini-flow" aria-label="技能操作路径"><span>地图/名单</span><b aria-hidden="true">→</b><span>档案</span><b aria-hidden="true">→</b><span>展开私密</span><b aria-hidden="true">→</b><span>技能</span></div><p>坏人也能使用相同的探查和指认来隐藏身份；档案公开层不显示身份或技能。以下展示双方规则，不代表你的身份。</p><div class="rule-skill-grid"><article><span class="rule-badge">好人 + 坏人</span><h4>探查 <small>8秒短冷却</small></h4><div class="mini-flow"><span>目标</span><b>→</b><span>公开 1 项未知隐藏属性</span></div></article><article><span class="rule-badge">好人 + 坏人</span><h4>指认 <small>12秒短冷却</small></h4><div class="mini-flow"><span>坏人目标</span><b>→</b><span>扣 1 血，归零淘汰</span></div><div class="mini-flow"><span>好人目标</span><b>→</b><span>自己公开 1 段 SID</span></div></article><article><span class="rule-badge bad">仅坏人</span><h4>刺探 <small>8秒短冷却</small></h4><div class="mini-flow"><span>目标</span><b>→</b><span>公开 1 段未知 SID</span></div></article><article><span class="rule-badge bad">仅坏人</span><h4>击杀 <small>12秒短冷却</small></h4><div class="mini-flow"><span>完整 SID</span><b>→</b><span>精确匹配 → 淘汰</span></div><p>格式错误不扣次；编码不匹配则扣次并进入冷却。</p></article></div><p>技能任意距离，离线者同样可被施技；不能选择自己或已淘汰目标。</p></section>
+      <section class="rule-section"><span class="rule-number">05 / 储存与恢复</span><h3>每一种技能，独立储存 2 次</h3><div class="rule-flow charge-flow"><div><small>初始 / 上限</small><strong>● ● <em>2/2</em></strong></div><b>→</b><div><small>用掉 1 次</small><strong>● ○ <em>1/2</em></strong></div><b>→</b><div><small>周期结束 +1</small><strong>● ● <em>2/2</em></strong></div><b>→</b><div><small>已满</small><strong>停止恢复</strong></div></div><div class="rule-split"><p class="rule-note playtest">开发试玩：90 秒恢复 1 次</p><p class="rule-note formal">正式规则：20 分钟恢复 1 次</p></div><p>按真实时间推进，离线照常恢复；继续使用不会重置正在进行的恢复。次数恢复与短冷却同时存在。</p></section>
+      <section class="rule-section pending-rule"><span class="rule-number">06 / 坏人线索</span><h3>线索规则待补充</h3><div class="mini-flow"><span class="unknown-tile">定期随机公布</span><b>→</b><span class="unknown-tile">坏人相关线索</span><b>→</b><span class="unknown-tile">辅助辨认</span></div><p>具体周期、数量和线索内容待补充；当前试玩未开放</p></section>
+      <section class="rule-section pending-rule"><span class="rule-number">07 / 积分</span><h3>积分明细待公布</h3><div class="mini-flow"><span class="unknown-tile">? 行为</span><b>→</b><span class="unknown-tile">? 分值</span><b>→</b><span class="unknown-tile">? 结算</span></div><p>规则待补充／当前试玩未开放。当前没有积分发放或排行榜，不把占位写成已实现。</p></section>
+    </div>
+  </dialog>
+  <div id="join-page" class="join-overlay" hidden>
+    <form id="join-form" class="join-panel">
+      <span class="eyebrow">LAN PLAYTEST</span>
+      <h2>加入办公室</h2>
+      <p>昵称可留空，留空由系统分配虚构姓名。第一位加入者是坏人，其后全部是好人。</p>
+      <input id="nickname" maxlength="8" placeholder="昵称（可留空）" autocomplete="off" spellcheck="false">
+      <button type="submit">进入办公室</button>
+      <small id="join-error"></small>
+    </form>
+  </div>
+  <div id="copy-toast" class="copy-toast" hidden role="status" aria-live="polite"></div>
+</div>
+</body>
+</html>
