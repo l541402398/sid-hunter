@@ -98,7 +98,7 @@
   const RPS_ZH = {rock:'石头',paper:'布',scissors:'剪刀'};
   let wheelClaims = new Set();
   let rpsChoice = 'rock', rpsUntil = 0, rpsResult = '', gamesBuilt = false;
-  let attackUntil = 0, combatText = '', swingUntil = 0, facing = {x:1,y:0};
+  let attackUntil = 0, combatText = '', swingUntil = 0, swingDirection = 'right', facing = {x:1,y:0};
   // 结束判定与排行榜：finished 后禁用移动/探索/小游戏/攻击。startedAt 为开局 clock（当前恒为 0）。
   let finished = false, finishReason = null, ranking = null, hadBad = false, startedAt = 0;
   // 大转盘：可重复转动，wheelSpins 记录已转次数（首次免费，之后按 WORLD.wheelSpinCost 阶梯收费）。
@@ -116,7 +116,7 @@
       traitPublic:{saying:i%3===0,food:i%4===0,sport:false},
       probes:2,probeUntil:0,actionUntil:0,
       chips:3,stunUntil:0,freezeUntil:0,score:0,
-      walk:0,moving:false
+      walk:0,moving:false,spriteFacing:'front'
     }));
     self = players[0]; self.role=mode; self.hp=mode==='bad'?2:1; self.score=0;
     players[5].traitPublic={saying:true,food:true,sport:true};
@@ -129,7 +129,7 @@
     chips=0;searched.clear();clues=[];clueKeys.clear();closeExploration();
     // 清空本地娱乐互动：转盘领取、猜拳冷却与结果、J 互动冷却、眩晕/僵直与朝向。
     wheelClaims.clear();rpsChoice='rock';rpsUntil=0;rpsResult='';
-    attackUntil=0;combatText='';swingUntil=0;facing={x:1,y:0};
+    attackUntil=0;combatText='';swingUntil=0;swingDirection='right';facing={x:1,y:0};
     // 重置结束判定、排行榜与大转盘：关闭覆盖层、清零已转次数。
     wheelSpins=0;closeWheel();
     finished=false;finishReason=null;ranking=null;hadBad=players.some(p=>p.role==='bad');startedAt=0;
@@ -699,9 +699,10 @@
     if(finished)return combatText='本局已结束，无法使用互动。',{ok:false,hitId:null,resultText:combatText,cooldownMs:0};
     if(!self.alive)return combatText='已淘汰，无法使用互动。',{ok:false,hitId:null,resultText:combatText,cooldownMs:0};
     if(wait>0)return combatText=`互动冷却中，剩余 ${wait} 秒。`,{ok:false,hitId:null,resultText:combatText,cooldownMs:wait*1000};
-    attackUntil=clock+cd/1000;swingUntil=clock+.26; // 空挥也进入冷却
+    attackUntil=clock+cd/1000;swingUntil=clock+WORLD.ATTACK_ANIMATION_MS/1000; // 空挥也进入冷却
+    swingDirection=WORLD.spriteDirection(facing.x,facing.y,self.spriteFacing);
     const target=attackTarget();
-    if(!target)return combatText=`互动空挥，未命中目标，进入${Math.round(cd/1000)}秒冷却。`,{ok:false,hitId:null,resultText:combatText,cooldownMs:cd};
+    if(!target)return combatText=`互动空挥，未命中目标，进入${cd/1000}秒冷却。`,{ok:false,hitId:null,resultText:combatText,cooldownMs:cd};
     const stunMs=WORLD.PLAY_CONFIG.stunMs,freezeMs=WORLD.PLAY_CONFIG.freezeMs;
     target.stunUntil=clock*1000+stunMs;target.freezeUntil=clock*1000+freezeMs;
     addScore(WORLD.SCORE.interactHit);
@@ -856,8 +857,9 @@
         const ny=Math.max(WORLD.MIN_Y,Math.min(WORLD.MAX_Y,self.y+dy));if(!collides(self.x,ny))self.y=ny;
       }
       // 行走相位按实际位移累积：撞墙时不播放迈步，只保留待机呼吸。
-      const moved=Math.hypot(self.x-ox,self.y-oy);
+      const actualDx=self.x-ox,actualDy=self.y-oy,moved=Math.hypot(actualDx,actualDy);
       self.walk+=moved;self.moving=moved>0.02;
+      if(moved>1e-6)self.spriteFacing=WORLD.spriteDirection(actualDx,actualDy,self.spriteFacing);
     }else self.moving=false;
     cameraX=Math.max(0,Math.min(W-VW,self.x-VW/2));
   }
@@ -1080,52 +1082,11 @@
   // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
   // 命中框（x±21, y-53~y+8）与名牌偏移保持不变，外观升级不影响任何交互判定。
   function sprite(p) {
-    const x=Math.round(p.x),c=p.colors;
-    const hi=Math.max(0,palettes.hair.findIndex(o=>o[0]===c.hair[0]));
-    const skin=SKIN[hi],skinLo=shade(skin,-.24);
-    const hair=c.hair[1],hairHi=shade(hair,.3),hairLo=shade(hair,-.3);
-    const top=c.top[1],topHi=shade(top,.24),topLo=shade(top,-.3);
-    const pants=c.pants[1],pantsHi=shade(pants,.18),pantsLo=shade(pants,-.26);
-    const shoes=c.shoes[1],shoeLo=shade(shoes,-.32);
-    const OL='#1c1620';
-    const ph=p.walk*.13,sw=p.moving?Math.sin(ph):0;
+    const x=Math.round(p.x),ph=p.walk*.13;
     const bob=p.moving?-Math.round(Math.abs(Math.sin(ph))*2):Math.round(Math.sin(clock*1.5+(p.spriteIndex??p.id)*1.9)*.7);
-    const yb=Math.round(p.y)+bob;
-    const liftL=Math.max(0,sw)*2,liftR=Math.max(0,-sw)*2,arm=Math.round(-sw*1.6);
-    const a=p.alive?1:.4;
-    ctx.globalAlpha=.3*a;rect(x-11,p.y+2,22,5,'#0f0a12');rect(x-8,p.y+1,16,6,'#0f0a12');
-    ctx.globalAlpha=a;
-    const parts=[
-      [x-11,yb-3-liftL,10,4,shoes],[x+1,yb-3-liftR,10,4,shoes],
-      [x-9,yb-12,7,9-liftL,pantsLo],[x+2,yb-12,7,9-liftR,pantsLo],
-      [x-10,yb-17,20,6,pants],
-      [x-11,yb-31,22,16,top],
-      [x-16,yb-30+arm,5,12,topLo],[x+11,yb-30-arm,5,12,topLo],
-      [x-16,yb-19+arm,5,5,skin],[x+11,yb-19-arm,5,5,skin],
-      [x-4,yb-34,8,5,skinLo],
-      [x-10,yb-47,20,16,skin],
-      [x-11,yb-49,22,7,hair]
-    ];
-    const style=hi%4;
-    if(style===1)parts.push([x-13,yb-44,3,16,hair],[x+10,yb-44,3,16,hair]);
-    else parts.push([x-12,yb-44,3,10,hairLo],[x+9,yb-44,3,10,hairLo]);
-    if(style===2)parts.push([x+11,yb-43,4,12,hairLo]);
-    if(style===3)parts.push([x-5,yb-53,10,5,hair]);
-    for(const q of parts)rect(q[0]-1,q[1]-1,q[2]+2,q[3]+2,OL);
-    for(const q of parts)rect(q[0],q[1],q[2],q[3],q[4]);
-    rect(x-9,yb-48,9,2,hairHi);
-    rect(x-11,yb-31,22,2,topHi);rect(x-11,yb-17,22,2,topLo);
-    rect(x-11,yb-31,2,16,shade(top,.1));rect(x+9,yb-31,2,16,topLo);
-    rect(x-1,yb-31,2,5,shade(top,-.45));rect(x-10,yb-17,20,1,shade(pants,-.5));
-    rect(x-9,yb-12,7,2,pantsHi);rect(x+2,yb-12,7,2,pantsHi);
-    rect(x-11,yb-liftL,10,1,shoeLo);rect(x+1,yb-liftR,10,1,shoeLo);
-    rect(x-11,yb-40,1,4,skinLo);rect(x+10,yb-40,1,4,skinLo);
-    rect(x-8,yb-45,4,1,hairLo);rect(x+4,yb-45,4,1,hairLo);
-    rect(x-7,yb-43,3,3,'#2b2230');rect(x+4,yb-43,3,3,'#2b2230');
-    rect(x-7,yb-43,1,1,'#f4f8ff');rect(x+4,yb-43,1,1,'#f4f8ff');
-    rect(x-1,yb-39,2,1,skinLo);
-    rect(x-3,yb-36,6,1,'#a8706a');rect(x-4,yb-37,1,1,'#a8706a');rect(x+3,yb-37,1,1,'#a8706a');
-    ctx.globalAlpha=1;
+    const yb=Math.round(p.y)+bob,a=p.alive?1:.4;
+    const attackAge=p===self&&clock<swingUntil ? Math.max(0,WORLD.ATTACK_ANIMATION_MS-(swingUntil-clock)*1000) : null;
+    WORLD.drawCharacterBody(ctx,p,clock,attackAge,swingDirection);
     // 眩晕/僵直视觉：头顶星形 + 冰蓝覆盖 + 剩余秒数（自己同样支持，虽然 Demo 自己不会被命中）。
     const stunLeft=Math.max(0,(p.stunUntil||0)/1000-clock),freezeLeft=Math.max(0,(p.freezeUntil||0)/1000-clock);
     if(stunLeft>0||freezeLeft>0){
@@ -1205,12 +1166,6 @@
       ctx.font='10px ui-monospace,SFMono-Regular,monospace';
       ctx.fillStyle=active?'#a8cbe8':'#96adc8';
       ctx.fillText(l.npc?`${l.p.cost} 筹码 / 私密线索兑换`:l.p.sid,l.x+l.w/2,l.y+26);
-    }
-    // J 互动挥击弧：按 facing 在 self 上方画一个 260ms 的扇形。
-    if(clock<swingUntil){
-      const t=1-(swingUntil-clock)/.26,base=Math.atan2(facing.y,facing.x);
-      ctx.save();ctx.globalAlpha=.6*(1-t);ctx.strokeStyle='#ffd76a';ctx.lineWidth=3;
-      ctx.beginPath();ctx.arc(self.x,self.y-22,WORLD.PLAY_CONFIG.attackRange*.75,base-.6,base+.6);ctx.stroke();ctx.restore();
     }
     ctx.restore();
     $('zone-name').textContent=zones[Math.min(3,Math.floor(self.x/VW))];$('coordinate').textContent=`0${Math.min(4,Math.floor(self.x/VW)+1)} / 04`;
@@ -1293,7 +1248,7 @@
       },
       get furniture(){return furniture.map(f=>({...f,footprint:{...f.footprint},...(f.container?{container:{...f.container}}:{})}));},
       get npcs(){return WORLD.NPCS.map(n=>({...n}));},
-      snapshot:()=>({cameraX,clock,selectedId,exploration:explorationSnapshot(),covered:!!WORLD.coverFor(self,furniture),facing:{...facing},outlines:[...furniture.filter(f=>f.container).map(f=>({kind:'container',id:f.id,state:outlineState('container',f)})),...npcs.map(n=>({kind:'npc',id:n.id,state:outlineState('npc',n)}))],keys:[...keys],hold:holding(),myHeld,score:self.score,finishReason,ranking,rules:WORLD.RULES,scores:players.map(p=>({id:p.id,name:p.name,score:simScore(p),alive:p.alive})),projections:players.map(publicProjection),labels:labels.map(l=>({x:l.x,y:l.y,w:l.w,h:l.h,ids:l.ids})),mapIds:players.filter(p=>p.alive&&p.x>cameraX-40&&p.x<cameraX+VW+40).map(p=>p.id),self:{x:self.x,y:self.y,role:self.role,probes:self.probes,probeUntil:self.probeUntil,actionUntil:self.actionUntil,score:self.score},pending:pending?.kind,logs:logs.map(l=>l.text)}),
+      snapshot:()=>({cameraX,clock,selectedId,exploration:explorationSnapshot(),covered:!!WORLD.coverFor(self,furniture),facing:{...facing},outlines:[...furniture.filter(f=>f.container).map(f=>({kind:'container',id:f.id,state:outlineState('container',f)})),...npcs.map(n=>({kind:'npc',id:n.id,state:outlineState('npc',n)}))],keys:[...keys],hold:holding(),myHeld,score:self.score,finishReason,ranking,rules:WORLD.RULES,scores:players.map(p=>({id:p.id,name:p.name,score:simScore(p),alive:p.alive})),projections:players.map(publicProjection),labels:labels.map(l=>({x:l.x,y:l.y,w:l.w,h:l.h,ids:l.ids})),mapIds:players.filter(p=>p.alive&&p.x>cameraX-40&&p.x<cameraX+VW+40).map(p=>p.id),players:players.map(p=>({id:p.id,x:p.x,y:p.y,spriteFacing:p.spriteFacing,walk:p.walk,moving:p.moving})),self:{x:self.x,y:self.y,spriteFacing:self.spriteFacing,walk:self.walk,moving:self.moving,role:self.role,probes:self.probes,probeUntil:self.probeUntil,actionUntil:self.actionUntil,score:self.score},pending:pending?.kind,logs:logs.map(l=>l.text)}),
       setPosition:(x,y)=>{self.x=x;self.y=y;step(0);draw();},
       advance:seconds=>{clock+=seconds;updateSkillStatus();},
       secret:id=>({sid:players[id].sid.join('-'),role:players[id].role,hp:players[id].hp,alive:players[id].alive}),

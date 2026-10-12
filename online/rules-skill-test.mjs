@@ -160,7 +160,7 @@ try {
   assert.notEqual(port,8787);
   server=spawn(NODE,[join(root,'server.js')],{env:{...process.env,HOST:'127.0.0.1',PORT:String(port),SID_TEST:'1'},stdio:'ignore'});
   await until('isolated server',async()=>{try{return (await fetch(base+'/api/state')).status===401;}catch{return false;}});
-  const debug=await freePort(); profile=await mkdtemp(join(tmpdir(),'sid-rules-'));
+  const debug=await freePort(); profile=await mkdtemp(join(root,'../outputs/sid-rules-'));
   chrome=spawn(CHROME,['--headless=new','--no-sandbox','--no-first-run','--no-default-browser-check',`--remote-debugging-port=${debug}`,'--remote-debugging-address=127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let page;
   await until('chrome',async()=>{try{page=(await (await fetch(`http://127.0.0.1:${debug}/json/list`)).json()).find(p=>p.type==='page');return !!page;}catch{return false;}});
@@ -267,7 +267,7 @@ try {
 finally {
   if(ws)ws.close();
   for(const proc of [chrome,server]) if(proc&&proc.exitCode===null){const done=new Promise(r=>proc.once('exit',r));proc.kill('SIGTERM');await Promise.race([done,pause(2500)]);if(proc.exitCode===null)proc.kill('SIGKILL');}
-  if(profile)await rm(profile,{recursive:true,force:true,maxRetries:3}).catch(()=>{});
+  // 保留 outputs 下的独立 Chrome profile，不递归删除。
   await writeFile(join(root,'rules-skill-test-results.json'),JSON.stringify({date:new Date().toISOString(),bind:'127.0.0.1',port,live8787Untouched:true,results,summary:{passed:results.filter(r=>r.pass).length,total:results.length},runtimeErrors:errors,limitations:['仅本机隔离随机端口与真实Chrome CDP测试，不是独立QA或跨设备验收','恢复边界使用服务端clockOffset加速，不等待真实90秒','bad指认bad分支用服务端内存目标fixture覆盖；正式加入规则仍仅首人为bad','未启动/停止/重置既有8787进程；四技能需主持人以后安排重启才在既有服务生效','旧self-test/qa脚本与报告未修改；不将旧报告算作新版本验收']},null,2));
   if(results.some(r=>!r.pass))process.exitCode=1;
   console.log(JSON.stringify({passed:results.filter(r=>r.pass).length,total:results.length}));

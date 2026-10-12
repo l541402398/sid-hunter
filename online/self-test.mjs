@@ -50,7 +50,7 @@ async function test(name, fn) {
 class Client {
   constructor(name) { this.name = name; this.id = 0; this.inflight = new Map(); }
   async launch() {
-    this.profile = await mkdtemp(join(tmpdir(), 'sid-online-'));
+    this.profile = await mkdtemp(join(root, '../outputs/sid-online-'));
     await this.spawn();
     await this.connect();
   }
@@ -135,7 +135,7 @@ class Client {
   }
   async close() {
     await this.killProcess();
-    if (this.profile) await rm(this.profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => { });
+    // 保留 outputs 下的独立 Chrome profile，不递归删除。
   }
 }
 

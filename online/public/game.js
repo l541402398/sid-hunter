@@ -1346,54 +1346,14 @@
   // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
   // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
   function sprite(p) {
-    const x = Math.round(p.x), c = p.colors, meId = selfId();
-    const hi = Math.max(0, palettes.hair.findIndex(o => o[0] === c.hair[0]));
-    const skin = SKIN[hi], skinLo = shade(skin, -.24);
-    const hair = c.hair[1], hairHi = shade(hair, .3), hairLo = shade(hair, -.3);
-    const top = c.top[1], topHi = shade(top, .24), topLo = shade(top, -.3);
-    const pants = c.pants[1], pantsHi = shade(pants, .18), pantsLo = shade(pants, -.26);
-    const shoes = c.shoes[1], shoeLo = shade(shoes, -.32);
-    const OL = '#1c1620';
-    const ph = p.walk * .13, sw = p.moving ? Math.sin(ph) : 0;
+    const x = Math.round(p.x), meId = selfId();
+    const ph = p.walk * .13;
     const bob = p.moving ? -Math.round(Math.abs(Math.sin(ph)) * 2) : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7);
     const yb = Math.round(p.y) + bob;
-    const liftL = Math.max(0, sw) * 2, liftR = Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
-    ctx.globalAlpha = .3 * a; rect(x - 11, p.y + 2, 22, 5, '#0f0a12'); rect(x - 8, p.y + 1, 16, 6, '#0f0a12');
-    ctx.globalAlpha = a;
-    const parts = [
-      [x - 11, yb - 3 - liftL, 10, 4, shoes], [x + 1, yb - 3 - liftR, 10, 4, shoes],
-      [x - 9, yb - 12, 7, 9 - liftL, pantsLo], [x + 2, yb - 12, 7, 9 - liftR, pantsLo],
-      [x - 10, yb - 17, 20, 6, pants],
-      [x - 11, yb - 31, 22, 16, top],
-      [x - 16, yb - 30 + arm, 5, 12, topLo], [x + 11, yb - 30 - arm, 5, 12, topLo],
-      [x - 16, yb - 19 + arm, 5, 5, skin], [x + 11, yb - 19 - arm, 5, 5, skin],
-      [x - 4, yb - 34, 8, 5, skinLo],
-      [x - 10, yb - 47, 20, 16, skin],
-      [x - 11, yb - 49, 22, 7, hair]
-    ];
-    const style = hi % 4;
-    if (style === 1) parts.push([x - 13, yb - 44, 3, 16, hair], [x + 10, yb - 44, 3, 16, hair]);
-    else parts.push([x - 12, yb - 44, 3, 10, hairLo], [x + 9, yb - 44, 3, 10, hairLo]);
-    if (style === 2) parts.push([x + 11, yb - 43, 4, 12, hairLo]);
-    if (style === 3) parts.push([x - 5, yb - 53, 10, 5, hair]);
-    for (const q of parts) rect(q[0] - 1, q[1] - 1, q[2] + 2, q[3] + 2, OL);
-    for (const q of parts) rect(q[0], q[1], q[2], q[3], q[4]);
-    rect(x - 9, yb - 48, 9, 2, hairHi);
-    rect(x - 11, yb - 31, 22, 2, topHi); rect(x - 11, yb - 17, 22, 2, topLo);
-    rect(x - 11, yb - 31, 2, 16, shade(top, .1)); rect(x + 9, yb - 31, 2, 16, topLo);
-    rect(x - 1, yb - 31, 2, 5, shade(top, -.45)); rect(x - 10, yb - 17, 20, 1, shade(pants, -.5));
-    rect(x - 9, yb - 12, 7, 2, pantsHi); rect(x + 2, yb - 12, 7, 2, pantsHi);
-    rect(x - 11, yb - liftL, 10, 1, shoeLo); rect(x + 1, yb - liftR, 10, 1, shoeLo);
-    rect(x - 11, yb - 40, 1, 4, skinLo); rect(x + 10, yb - 40, 1, 4, skinLo);
-    rect(x - 8, yb - 45, 4, 1, hairLo); rect(x + 4, yb - 45, 4, 1, hairLo);
-    rect(x - 7, yb - 43, 3, 3, '#2b2230'); rect(x + 4, yb - 43, 3, 3, '#2b2230');
-    rect(x - 7, yb - 43, 1, 1, '#f4f8ff'); rect(x + 4, yb - 43, 1, 1, '#f4f8ff');
-    rect(x - 1, yb - 39, 2, 1, skinLo);
-    rect(x - 3, yb - 36, 6, 1, '#a8706a'); rect(x - 4, yb - 37, 1, 1, '#a8706a'); rect(x + 3, yb - 37, 1, 1, '#a8706a');
-    ctx.globalAlpha = 1;
-    // 无伤害互动视觉：冰蓝覆盖层、头顶眩晕星、按朝向的挥击弧。全部由公开时间戳推导，纯视觉。
-    const now = serverNow();
+    const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
+    WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection);
+    // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
     if (p.freezeUntil && p.freezeUntil > now) {
       ctx.globalAlpha = .4 * a; rect(x - 13, yb - 55, 26, 62, '#bfe8ff');
       ctx.globalAlpha = .55 * a; ctx.strokeStyle = '#e8f7ff'; ctx.lineWidth = 1;
@@ -1403,18 +1363,6 @@
       for (let i = 0; i < 3; i++) {
         const ang = clock * 3 + i * (Math.PI * 2 / 3);
         stunStar(x + Math.cos(ang) * 9, yb - 59 + Math.round(Math.sin(ang) * 3));
-      }
-    }
-    if (p.lastAttackAt) {
-      const dt = now - p.lastAttackAt;
-      if (dt >= 0 && dt < 260) {
-        const f = p.facing || { x: 1, y: 0 };
-        const ang = Math.atan2(f.y, f.x), alpha = (1 - dt / 260) * .85 * a;
-        ctx.globalAlpha = alpha; ctx.strokeStyle = '#ffe6a8'; ctx.lineWidth = 3;
-        ctx.beginPath(); ctx.arc(x, yb - 24, 26, ang - 0.7, ang + 0.7); ctx.stroke();
-        ctx.globalAlpha = alpha * .9; ctx.strokeStyle = '#fff6dd'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.arc(x, yb - 24, 20, ang - 0.55, ang + 0.55); ctx.stroke();
-        ctx.globalAlpha = 1; ctx.lineWidth = 1;
       }
     }
     // 被家具遮挡时（含自己）隐藏脚下指示与选中框，避免把位置信息透出去。
@@ -1445,7 +1393,7 @@
   function drawList() {
     return [...players.filter(p => p.alive).map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
-      return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving };
+      return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving, spriteFacing: p.spriteFacing || 'front' };
     }), ...npcs];
   }
   function makeLabels(list) {

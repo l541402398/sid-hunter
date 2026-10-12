@@ -687,7 +687,7 @@ await waitFor('server D boot', async () => { try { return (await fetch(BASE_D + 
 class Client {
   constructor(name) { this.name = name; this.n = 0; this.inflight = new Map(); }
   async launch() {
-    this.profile = await mkdtemp(join(tmpdir(), 'sid-qa-'));
+    this.profile = await mkdtemp(join(ONLINE, '../outputs/sid-qa-'));
     this.debugPort = await freePort();
     this.proc = spawn(CHROME, ['--headless=new', '--no-sandbox', '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
       '--disable-component-update', '--disable-sync', `--remote-debugging-port=${this.debugPort}`, '--remote-debugging-address=127.0.0.1',
@@ -734,7 +734,7 @@ class Client {
   async close() {
     try { if (this.ws) this.ws.close(); } catch { }
     if (this.proc && this.proc.exitCode === null) { const ex = new Promise(r => this.proc.once('exit', r)); this.proc.kill('SIGKILL'); await Promise.race([ex, sleep(2000)]); }
-    if (this.profile) await rm(this.profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => { });
+    // 保留 outputs 下的独立 Chrome profile，不递归删除。
   }
 }
 

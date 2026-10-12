@@ -150,9 +150,10 @@ function createRoom(options = {}) {
       sessionId,
       input: { up: false, down: false, left: false, right: false },
       walk: 0,
+      spriteFacing: 'front',
       exploration: { chips: 0, clues: [], searched: [] },
       games: { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '' },
-      combat: { facing: { x: 1, y: 0 }, attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
+      combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
       skills: makeSkills(faction)
     };
     room.players.push(player);
@@ -212,7 +213,10 @@ function createRoom(options = {}) {
       if (!collides(nx, p.y)) p.x = nx;
       const ny = Math.max(WORLD.MIN_Y, Math.min(WORLD.MAX_Y, p.y + dy));
       if (!collides(p.x, ny)) p.y = ny;
-      p.walk += Math.hypot(p.x - oldX, p.y - oldY);
+      const actualDx = p.x - oldX, actualDy = p.y - oldY;
+      const moved = Math.hypot(actualDx, actualDy);
+      p.walk += moved;
+      if (moved > 1e-6) p.spriteFacing = WORLD.spriteDirection(actualDx, actualDy, p.spriteFacing);
     }
   }
   function queueEvent(playerId, event) {
@@ -255,8 +259,11 @@ function createRoom(options = {}) {
       score: p.score,
       x: p.x,
       y: p.y,
+      spriteFacing: p.spriteFacing,
       facing: { ...p.combat.facing },
       lastAttackAt: p.combat.lastAttackAt,
+      lastAttackFacing: { ...p.combat.lastAttackFacing },
+      lastAttackDirection: p.combat.lastAttackDirection,
       stunUntil: p.combat.stunUntil,
       freezeUntil: p.combat.freezeUntil,
       colors: p.colors,
@@ -277,6 +284,7 @@ function createRoom(options = {}) {
       alive: p.alive,
       score: p.score,
       traits: p.traits,
+      spriteFacing: p.spriteFacing,
       exploration: explorationProjection(p),
       games: gamesProjection(p),
       combat: combatProjection(p),
@@ -522,6 +530,7 @@ function createRoom(options = {}) {
   }
   function combatProjection(p) {
     return { facing: { ...p.combat.facing }, attackUntil: p.combat.attackUntil, lastAttackAt: p.combat.lastAttackAt,
+      lastAttackFacing: { ...p.combat.lastAttackFacing }, lastAttackDirection: p.combat.lastAttackDirection,
       stunUntil: p.combat.stunUntil, freezeUntil: p.combat.freezeUntil };
   }
   function mechanicsResponse(actor, ok, resultText, extra = {}) {
@@ -702,8 +711,10 @@ function createRoom(options = {}) {
     }
     room.processed.set(commandId, t);
     actor.combat.lastAttackAt = t;
+    actor.combat.lastAttackFacing = { ...actor.combat.facing };
+    actor.combat.lastAttackDirection = WORLD.spriteDirection(actor.combat.facing.x, actor.combat.facing.y, actor.spriteFacing);
     actor.combat.attackUntil = t + playConfig.attackCooldownMs;
-    let resultText = '攻击空挥，未命中目标，进入12秒冷却。';
+    let resultText = `攻击空挥，未命中目标，进入${playConfig.attackCooldownMs / 1000}秒冷却。`;
     if (target) {
       target.combat.stunUntil = t + playConfig.stunMs;
       target.combat.freezeUntil = t + playConfig.freezeMs;

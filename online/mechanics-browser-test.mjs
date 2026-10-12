@@ -340,7 +340,7 @@ try {
     return { decisive: { a: `${chipsABefore}→${A1.exploration.chips}`, b: `${chipsBBefore}→${B1.exploration.chips}` }, cooldownRejected: cooldownA.data.error, tieUnchanged: [aTieBefore, bTieBefore], cancelUnchanged: [aCancelBefore, bCancelBefore] };
   });
 
-  await test('联机 06 J 互动：无伤害命中 stun/freeze、hp 不变、筹码不变、12s 冷却、冻结禁移、空挥也冷却', async () => {
+  await test('联机 06 J 互动：无伤害命中 stun/freeze、hp 不变、筹码不变、共享 CD 冷却、冻结禁移、空挥也冷却', async () => {
     const A = token, B = target.sessionToken;
     // 命中：A 面向右，B 在 48px 锥内
     await moveTo(600, 280); await moveTo(628, 280, B);
@@ -353,8 +353,10 @@ try {
     assert.equal(hit.b.alive, bBefore.alive, 'B 存活状态不应改变');
     assert.equal((await state(A)).me.exploration.chips, aChipsBefore, 'A 筹码不应改变');
     const aAfter = (await state(A)).me;
+    const sharedCooldown = await ev('WORLD.PLAY_CONFIG.attackCooldownMs');
+    assert.equal(aAfter.combat.attackUntil - aAfter.combat.lastAttackAt, sharedCooldown, '命中冷却应等于共享 CD');
     const cdLeft = aAfter.combat.attackUntil - (await state()).serverTime;
-    assert.ok(cdLeft > 10000 && cdLeft <= 12000, `A 应进入约 12s 冷却，实测剩余 ${cdLeft}ms`);
+    assert.ok(cdLeft > 0 && cdLeft <= sharedCooldown, `A 应进入共享 ${sharedCooldown}ms 冷却，实测剩余 ${cdLeft}ms`);
     await waitFor('status 含无伤害', async () => /无伤害/.test(await ev(`document.querySelector('#combat-status').textContent`)));
     await waitFor('攻击按钮禁用并显示冷却', async () => (await ev(`document.querySelector('#attack-button').disabled`)) === true && /冷却 \d+s/.test(await ev(`document.querySelector('#attack-button').textContent`)));
     await screenshot(onlineShot); // 命中瞬间：B 带眩晕星/冰蓝僵直覆盖，底部显示无伤害与冷却
@@ -382,7 +384,9 @@ try {
     await ev(`document.querySelector('#office').focus()`); await key('j', 'KeyJ', 74);
     await waitFor('空挥反馈', async () => /空挥/.test(await ev(`document.querySelector('#combat-status').textContent`)));
     const aEmpty = (await state(A)).me;
-    assert.ok(aEmpty.combat.attackUntil - (await state()).serverTime > 10000, '空挥也应进入 12s 冷却');
+    assert.equal(aEmpty.combat.attackUntil - aEmpty.combat.lastAttackAt, sharedCooldown, '空挥冷却应等于共享 CD');
+    const emptyCdLeft = aEmpty.combat.attackUntil - (await state()).serverTime;
+    assert.ok(emptyCdLeft > 0 && emptyCdLeft <= sharedCooldown, '空挥也应进入共享 CD 冷却');
     await waitFor('空挥后按钮禁用', async () => /冷却 \d+s/.test(await ev(`document.querySelector('#attack-button').textContent`)));
     return { stunMs: hit.b.stunUntil - hit.s.serverTime, freezeMinusStun: hit.b.freezeUntil - hit.b.stunUntil, hitCooldownMs: cdLeft, emptySwingText: await ev(`document.querySelector('#combat-status').textContent`) };
   });
@@ -551,7 +555,7 @@ finally {
   results.push({ name: '仅新增验收脚本与 outputs；玩法源码未被改动', pass: gameChanged.length === 0, detail: gameChanged.length ? { changed: gameChanged } : { changed: [] } });
   results.push({ name: 'finally 关闭 Chrome 与 HTTP 子进程，保留临时 profile 不递归删除', pass: cleanup.chrome?.exited === true && cleanup.httpServer?.exited === true, detail: cleanup });
   const summary = { passed: results.filter(r => r.pass).length, failed: results.filter(r => !r.pass).length, total: results.length };
-  const report = { date: new Date().toISOString(), engine: 'Windows 系统 Chrome headless + managed Node，零依赖原生 CDP，真实 HTTP/SSE 与 DOM 输入', node: process.execPath, browser: browserVersion, host: '127.0.0.1', port, environment: { SID_DEV: '1', SID_TEST: '0' }, results, runtimeErrors, consoleErrors, fatalError: fatalError ?? null, summary, screenshots: [...new Set(screenshots)].map(p => resolve(p)), profile: resolve(profile), cleanup, sourceHashes: { frozenBefore, frozenAfter, gameChanged }, serverLog, chromeLog, unresolvedIssues: [...results.filter(r => !r.pass).map(r => ({ name: r.name, error: r.error ?? '断言未通过' })), ...(fatalError ? [fatalError] : [])], limitations: ['仅 Windows Chrome headless，不包含其他浏览器或物理设备', '转盘 prize 为服务端随机，断言只校验 0..3 与增量一致性', '联机猜拳/攻击冷却按真实时间等待（5s / 12s），用短轮询而非固定 sleep', '像素判定基于原生 getImageData，取样带已避开家具自带彩色装饰', '不清除用户目录；outputs/.browser-test-profile 保留，仅终止本脚本启动的进程'] };
+  const report = { date: new Date().toISOString(), engine: 'Windows 系统 Chrome headless + managed Node，零依赖原生 CDP，真实 HTTP/SSE 与 DOM 输入', node: process.execPath, browser: browserVersion, host: '127.0.0.1', port, environment: { SID_DEV: '1', SID_TEST: '0' }, results, runtimeErrors, consoleErrors, fatalError: fatalError ?? null, summary, screenshots: [...new Set(screenshots)].map(p => resolve(p)), profile: resolve(profile), cleanup, sourceHashes: { frozenBefore, frozenAfter, gameChanged }, serverLog, chromeLog, unresolvedIssues: [...results.filter(r => !r.pass).map(r => ({ name: r.name, error: r.error ?? '断言未通过' })), ...(fatalError ? [fatalError] : [])], limitations: ['仅 Windows Chrome headless，不包含其他浏览器或物理设备', '转盘 prize 为服务端随机，断言只校验 0..3 与增量一致性', '联机猜拳/攻击冷却按真实时间等待（5s / WORLD.PLAY_CONFIG.attackCooldownMs），用短轮询而非固定 sleep', '像素判定基于原生 getImageData，取样带已避开家具自带彩色装饰', '不清除用户目录；outputs/.browser-test-profile 保留，仅终止本脚本启动的进程'] };
   await writeFile(reportPath, JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ ...summary, fatalError: fatalError?.message ?? null, reportPath: resolve(reportPath), screenshots: report.screenshots, cleanup, gameChanged }, null, 2));
   if (summary.failed || fatalError) process.exitCode = 1;

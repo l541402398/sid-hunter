@@ -47,7 +47,7 @@ function assertPublicSafe(r) {
 }
 
 await test('共享契约、全部九种猜拳组合及浏览器导出', async () => {
-  assert.deepEqual(C, { rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, attackRange: 48, attackCooldownMs: 12000, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000 });
+  assert.deepEqual(C, { rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000 });
   const expected = [[0, -1, 1], [1, 0, -1], [-1, 1, 0]];
   for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) assert.equal(WORLD.rpsOutcome(choices[i], choices[j]), expected[i][j]);
   const source = await readFile(new URL('./shared/world.js', import.meta.url), 'utf8');
@@ -244,7 +244,8 @@ await test('30秒过期读取/请求/step清理，刷新保留pending轮盘结�
   assert.equal(r.room.challenges.size, 0); assert.equal(r.room.processed.size, 0); assert.equal(r.playerBySession(a.sessionId), null);
   const fresh = r.join(a.sessionId, '新局').player;
   assert.deepEqual(fresh.games, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '' });
-  assert.deepEqual(fresh.combat, { facing: { x: 1, y: 0 }, attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 });
+  assert.deepEqual(fresh.combat, { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 });
+  assert.equal(fresh.spriteFacing, 'front');
   fresh.x = npc.x; fresh.y = npc.y; assert.equal(play(r, 0, 'wheel', { commandId: oldNonce, entityId: npc.id }).ok, true);
 });
 await test('技能淘汰同步取消挑战，原技能日志与victim事件不变', () => {
@@ -301,16 +302,16 @@ await test('攻击足迹LOS、cover隐藏、离线与淘汰目标不命中', () 
     assert.equal(attack(r).hitId, undefined, mode); assert.equal(b.hp, 3);
   }
 });
-await test('攻击空挥也12秒CD，命中/空挥nonce永久防重与失败不消耗', () => {
+await test('攻击空挥也1.2秒CD，命中/空挥nonce永久防重与失败不消耗', () => {
   for (const hit of [false, true]) {
     const r = attackFixture(), a = r.find(0), b = r.find(1), id = nonce();
     if (!hit) b.x = 800;
     const skills = JSON.stringify(a.skills), result = attack(r, 0, { commandId: id });
-    assert.equal(result.ok, true); assert.equal(a.combat.attackUntil - a.combat.lastAttackAt, 12000);
+    assert.equal(result.ok, true); assert.equal(a.combat.attackUntil - a.combat.lastAttackAt, C.attackCooldownMs);
     const hp = b.hp, nextId = nonce();
     assert.equal(attack(r, 0, { commandId: nextId }).ok, false); assert.equal(r.room.processed.has(nextId), false);
     assert.equal(attack(r, 0, { commandId: id }).ok, false);
-    advance(r, 12001); assert.equal(attack(r, 0, { commandId: id }).ok, false); assert.equal(b.hp, hp);
+    advance(r, C.attackCooldownMs + 1); assert.equal(attack(r, 0, { commandId: id }).ok, false); assert.equal(b.hp, hp);
     // 超过旧技能清理阈值后，同局历史nonce仍不得被删除。
     advance(r, 600001);
     for (let i = 0; i < 3001; i++) r.room.processed.set(`other-${i}`, 0);
@@ -342,7 +343,7 @@ await test('J无伤害无淘汰，不改变日志事件技能筹码或猜拳pend
   assert.equal(pub.lastAttackAt, a.combat.lastAttackAt); assert.deepEqual(pub.facing, a.combat.facing);
   assert.equal(targetPub.stunUntil, a.combat.lastAttackAt + 800); assert.equal(targetPub.freezeUntil, a.combat.lastAttackAt + 1000);
   assert.equal(me.combat.stunUntil, targetPub.stunUntil); assert.equal(me.combat.freezeUntil, targetPub.freezeUntil); assertPublicSafe(r);
-  advance(r, 12001); assert.equal(attack(r).hitId, 1); assert.equal(b.hp, 1); assert.equal(b.alive, true);
+  advance(r, C.attackCooldownMs + 1); assert.equal(attack(r).hitId, 1); assert.equal(b.hp, 1); assert.equal(b.alive, true);
   assert.equal(r.room.eliminateEvents, 0); assert.equal(r.room.finished, false); assert.equal(r.room.challenges.size, 1);
   const q = fixture({}, 2); q.room.eliminateEvents = 1;
   assert.equal(attack(q).hitId, 1); assert.equal(q.room.finished, false); assert.equal(q.room.eliminateEvents, 1);
@@ -441,7 +442,7 @@ await test('多玩家J跳过已stun/freeze目标不延长，无替代目标空�
       target.combat[field] = clock + 1000;
       const until = { stunUntil: target.combat.stunUntil, freezeUntil: target.combat.freezeUntil };
       const result = attack(r, 2);
-      assert.equal(result.hitId, undefined); assert.equal(c.combat.attackUntil, clock + 12000);
+      assert.equal(result.hitId, undefined); assert.equal(c.combat.attackUntil, clock + C.attackCooldownMs);
       assert.equal(target.combat.stunUntil, until.stunUntil); assert.equal(target.combat.freezeUntil, until.freezeUntil);
     }
     const r = attackFixture(), b = r.find(1), c = r.find(2);
@@ -451,7 +452,7 @@ await test('多玩家J跳过已stun/freeze目标不延长，无替代目标空�
     assert.equal(attack(r, 0, { commandId: id }).ok, false); assert.deepEqual(b.combat, saved);
     clock += 500; c.x = 1700; r.find(3).x = 510;
     assert.equal(attack(r, 3).hitId, 1); assert.equal(b.combat.freezeUntil, clock + 1000);
-    clock += 12000;
+    clock += C.attackCooldownMs;
     assert.equal(attack(r, 0, { commandId: id }).ok, false); assert.equal(b.combat.freezeUntil, saved.freezeUntil + 1000);
     const q = attackFixture(); q.find(1).combat.freezeUntil = clock + 1000; q.find(2).x = 540;
     assert.equal(attack(q).hitId, 2); assert.equal(q.find(1).combat.freezeUntil, clock + 1000);
@@ -589,7 +590,7 @@ try {
     const id = nonce(), result = await request('/api/attack', { token: b, body: { commandId: id, targetId: users[2].playerId, facing: { x: 1, y: 0 }, x: 1, y: 1 } });
     assert.equal(result.status, 200); assert.equal(result.data.hitId, users[0].playerId);
     assert.match(result.data.resultText, /眩晕0\.8秒 \/ 僵直1秒，无伤害/); assert.ok(!('hp' in result.data));
-    assert.equal(result.data.combat.attackUntil - result.data.combat.lastAttackAt, 12000);
+    assert.equal(result.data.combat.attackUntil - result.data.combat.lastAttackAt, C.attackCooldownMs);
     assert.equal((await request('/api/attack', { token: b, body: { commandId: id } })).status, 400);
     assert.equal((await request('/api/attack', { token: b, body: { commandId: nonce() } })).status, 400);
     const victim = await state(a), other = await state(c);
