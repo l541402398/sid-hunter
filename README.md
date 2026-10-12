@@ -29,7 +29,7 @@ PORT=8787 node online/server.js
 | `online/server.js` | HTTP/SSE 服务、鉴权、开发管理接口、20Hz 快照调度 |
 | `online/public/` | 联机客户端（渲染、名单/日志、私密面板、转盘弹窗、排行榜与结算） |
 | `demo/` | 离线试玩客户端（同一套玩法在本地模拟） |
-| `outputs/` | 验收截图、验收记录、试玩副本与源码包 |
+| `outputs/` | 本地验收产物（截图、验收记录、试玩副本与源码包），已由 `.gitignore` 排除，不入库 |
 
 ## 玩法与操作
 
@@ -116,6 +116,63 @@ node online/exploration-browser-test.mjs   # 17 项
 
 最近一次结果：服务端 **29/25/15/11/14/30/35/23/23** 与浏览器 **19/17/17** 全部通过，页面全程无 JavaScript 异常。浏览器脚本零依赖，结束时关闭自身启动的 Chrome 与 HTTP 子进程，日志与截图写入 `outputs/`。
 
+## 公网部署（game.afann.xyz）
+
+线上实例与仓库同一份代码，服务器侧结构如下：
+
+| 项 | 值 |
+| --- | --- |
+| 代码目录 | `/opt/sid-hunter`（`git clone https://github.com/l541402398/sid-hunter.git`） |
+| 监听 | `127.0.0.1:8898`（**不直接对公网开放**，只由反向代理回源） |
+| 进程 | systemd 单元 `sid-hunter.service`（`User=lijuefan`、`Restart=always`、日志 `Append` 到 `/var/log/sid-hunter.log`） |
+| 反向代理 | 1Panel 内置 OpenResty 容器：`/opt/1panel/www/conf.d/game.afann.xyz.conf` + `/opt/1panel/www/sites/game.afann.xyz/proxy/root.conf` |
+| 证书 | 复用 1Panel 的 `*.afann.xyz` 泛域名证书（复制到 `/opt/1panel/www/sites/game.afann.xyz/ssl/`） |
+| 入口 | `https://game.afann.xyz`（80 端口 301 跳 443） |
+
+systemd 单元：
+
+```ini
+[Unit]
+Description=SID-Hunter 联机试玩服务（办公室社交推理）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lijuefan
+Group=lijuefan
+WorkingDirectory=/opt/sid-hunter/online
+Environment=NODE_ENV=production
+Environment=PORT=8898
+Environment=HOST=127.0.0.1
+Environment=SID_DEV=0
+Environment=SID_TEST=0
+ExecStart=/usr/local/bin/node /opt/sid-hunter/online/server.js
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/sid-hunter.log
+StandardError=append:/var/log/sid-hunter.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+反向代理要点（完整文件见服务器上的 `proxy/root.conf`）：
+
+- `/api/stream` 单独成一个 `location`，`proxy_buffering off` + `proxy_read_timeout 7200s` + `gzip off`，否则 20Hz SSE 会被缓冲或掐断。
+- `/api/dev/`、`/api/host/`、`/api/test/` 返回 404：开发重置、结束游戏与测试注入接口只在回环地址可用，公网不开源。
+- 其余路径统一 `proxy_pass http://127.0.0.1:8898` 并透传 `Host` / `X-Real-IP` / `X-Forwarded-For` / `X-Forwarded-Proto`。
+
+更新线上版本：
+
+```bash
+cd /opt/sid-hunter && git pull --ff-only
+sudo systemctl restart sid-hunter
+systemctl is-active sid-hunter && curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8898/
+```
+
+> 房间状态在内存里，`restart` 会清空当前对局，适合上线前重置。
+
 ## 已知限制
 
 - 「定期公布坏人线索」与「积分兑换/名次奖励」等细化规则仍未实现，界面中明确标注为待补充。
@@ -123,3 +180,5 @@ node online/exploration-browser-test.mjs   # 17 项
 - 房间仍是内存存储，服务端重启会清空当前游戏；未新增数据库持久化。
 - 源码修改不会自动替换正在运行的旧服务进程，需要重启服务才生效；本次未重启任何既有服务，也未做高并发压测。
 - 浏览器验收只覆盖 Windows 系统 Chrome。
+- 公网实例（`game.afann.xyz`）的 `/api/dev/`、`/api/host/`、`/api/test/` 在反向代理层就被 404 掉，因此线上无法用浏览器按钮重置或结束游戏；需要维护时在本机建立隧道（`ssh -p 5414 -L 8898:127.0.0.1:8898 lijuefan@64.90.30.206`）后以 `SID_DEV=1` 临时重启，或直接 `systemctl restart sid-hunter` 清空房间。
+- 线上 vhost 是手工写入 1Panel 的配置目录（`www/conf.d` + `www/sites`），未走 1Panel 站点管理界面，所以面板网站列表里不会出现该域名；证书复用泛域名证书，随 1Panel 续签更新时需要重新复制到站点 `ssl/` 目录。
