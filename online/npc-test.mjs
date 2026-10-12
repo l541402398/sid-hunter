@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import os from 'node:os';
+// Non-loopback verification intentionally remains an external QA case.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -74,6 +74,7 @@ try {
   if (!await waitReady(PORT)) throw new Error('主服务未启动');
   if (!await waitReady(PORT + 1)) throw new Error('对照服务未启动');
 
+  check('锤子/吓人冷却为1000ms且受惊750ms', WORLD.ACTION.hammerCooldownMs === 1000 && WORLD.ACTION.frightMs === 750);
   // ---------- ① 门禁 ----------
   const ndev = await npc(PORT + 1, null, { count: 1, csrfToken: 'x' });
   check('未开 SID_DEV → 403', ndev.status === 403, `${ndev.status} ${JSON.stringify(ndev.data)}`);
@@ -204,26 +205,8 @@ try {
     (await npc(PORT, j2.data.sessionToken, { count: 0, csrfToken: cap2.data.csrfToken })).data.npcs.length === 1,
     'count=0');
 
-  // ---------- 非 loopback 门禁（尽力验证，连不上则如实 SKIP）----------
-  const lan = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === 'IPv4' && !i.internal).map(i => i.address);
-  if (!lan.length) skip('非 loopback → 403', '本机无可用局域网 IPv4，无法建立非回环连接');
-  else {
-    const lanPort = PORT + 2;
-    const lanSrv = spawn(process.execPath, ['server.js'], {
-      cwd: HERE,
-      env: { ...process.env, SID_TEST: '1', SID_DEV: '1', PORT: String(lanPort), HOST: '0.0.0.0' },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    try {
-      const r = await fetch(`http://${lan[0]}:${lanPort}/api/dev/npc`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: `http://${lan[0]}:${lanPort}` },
-        body: JSON.stringify({ count: 1, csrfToken: 'x' })
-      });
-      check('非 loopback 来源 → 403', r.status === 403, `${r.status} via ${lan[0]}`);
-    } catch (e) {
-      skip('非 loopback → 403', `无法建立非回环连接：${e && e.message}`);
-    } finally { lanSrv.kill('SIGKILL'); }
-  }
+  // Current iteration permits isolated loopback servers only. Retain this uncovered case as SKIP.
+  skip('非 loopback → 403', '本轮测试仅允许loopback；既有独立QA结果不回填本脚本');
 } catch (error) {
   check('测试脚本异常中止', false, error && error.stack || error);
 } finally {

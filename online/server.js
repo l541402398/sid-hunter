@@ -130,8 +130,11 @@ function openStream(req, res, player) {
   }, 1000 / 20);
   function close() {
     clearInterval(timer);
-    if (ROOM.streams.get(player.id) === entry) ROOM.streams.delete(player.id);
-    if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
+    // A stale stream must not mark the newer connection offline.
+    if (ROOM.streams.get(player.id) === entry) {
+      ROOM.streams.delete(player.id);
+      if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
+    }
     try { res.end(); } catch { /* already closed */ }
   }
   req.on('close', close);
@@ -144,6 +147,7 @@ async function route(req, res, url) {
     const sid = sessionOf(req, url);
     const player = ROOM.playerBySession(sid);
     if (!player) return send(res, 401, { error: 'no identity' });
+    ROOM.prepareReconnect(player);
     player.online = true;
     player.lastSeen = ROOM.now();
     openStream(req, res, player);
@@ -162,7 +166,6 @@ async function route(req, res, url) {
     const body = await readBody(req);
     const player = ROOM.playerBySession(sessionOf(req));
     if (!player) return send(res, 401, { error: 'no identity' });
-    player.online = true;
     ROOM.setIntent(player.id, body);
     return send(res, 200, { ok: true });
   }
@@ -173,7 +176,6 @@ async function route(req, res, url) {
     const body = await readBody(req);
     const player = ROOM.playerBySession(sessionOf(req));
     if (!player) return send(res, 401, { error: 'no identity' });
-    player.online = true;
     const result = ROOM.performAction(player.id, body.kind);
     return send(res, result.ok ? 200 : 400, result);
   }
@@ -186,8 +188,8 @@ async function route(req, res, url) {
     const body = await readBody(req);
     const player = ROOM.playerBySession(sessionOf(req));
     if (!player) return send(res, 401, { error: 'no identity' });
-    ROOM.ack(player.id, body.eventIds);
-    return send(res, 200, { ok: true });
+    const result = ROOM.ack(player.id, body.eventIds, body.interaction);
+    return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/state' && req.method === 'GET') {
     const player = ROOM.playerBySession(sessionOf(req));

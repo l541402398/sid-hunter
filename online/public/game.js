@@ -60,6 +60,7 @@
   let sessionToken = null, stream = null, awaitingFirst = true, lastSkillTick = -1;
   let lastTargetSig = '', lastLogSig = '', lastRosterSig = '';
   const offlineEvents = new Set();
+  const confirmedDigests = new Set(); // only populated after server ACK succeeds
   const renderMap = new Map();
   const keys = new Set();
   let lastIntent = '', toastTimer;
@@ -149,6 +150,9 @@
       // The first snapshot after (re)connecting carries everything queued while offline.
       if (awaitingFirst) { for (const e of (s.me.pending || [])) offlineEvents.add(e.eventId); awaitingFirst = false; }
       me = s.me;
+      if (me.interactionSummary && confirmedDigests.has(`${me.interactionSummary.epoch}:${me.interactionSummary.id}`)) {
+        me = { ...me, interactionSummary: null };
+      }
       // Do not interrupt the already-running old round: render its two actual skills
       // with their correct effects until the host schedules a server restart.
       if (me.skills.action) me = { ...me, legacy: true, skills: me.faction === 'bad'
@@ -165,6 +169,7 @@
 
   // ---------- 名单 / 日志 / 目标档案 ----------
   function portrait(p) {
+    if (!p.alive) return '<svg class="portrait" viewBox="0 0 40 54" aria-label="幽灵 · 已淘汰"><path d="M6 46V24a14 14 0 0 1 28 0v22l-7-5-7 5-7-5-7 5Z" fill="#eeeae0" stroke="#a8a9af"/><circle cx="15" cy="25" r="2" fill="#424957"/><circle cx="25" cy="25" r="2" fill="#424957"/></svg>';
     const c = p.colors;
     const hi = Math.max(0, palettes.hair.findIndex(o => o[0] === c.hair[0]));
     const skin = SKIN[hi], hair = c.hair[1], style = hi % 4;
@@ -209,7 +214,7 @@
     return `<small class="roster-match">${text}${shown.length > 2 ? ` 等${shown.length}项` : ''}</small>`;
   }
   function row(p, hits) {
-    const tag = !p.alive ? '<span class="out-label">淘汰</span>'
+    const tag = !p.alive ? `<span class="out-label">幽灵 · 已淘汰${p.online === false ? ' · 离线' : ''}</span>`
       : p.id === selfId() ? '<span class="self-label">自己</span>'
         : p.online === false ? '<span class="offline-tag">离线</span>' : '';
     return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong><small>${sidHTML(p.sid)}</small>${matchHint(hits)}</span>${tag}</button>`;
@@ -252,7 +257,10 @@
     privateOpen = false; pending = null; privateResult = '';
     const block = $('private-content'); if (block) block.replaceChildren();
     const gate = $('private-gate'); if (gate) { gate.textContent = '展开私密操作'; gate.setAttribute('aria-expanded', 'false'); }
-    if (clearMy) closeMine();
+    if (clearMy) {
+      closeMine();
+      $('offline-summary').hidden = true; $('offline-summary').replaceChildren();
+    }
   }
   function clearAllInput() { keys.clear(); sendIntent(true); clearPrivate(true); }
   function select(id) {
@@ -264,7 +272,7 @@
     const p = selected();
     if (!p) { $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
-    const status = p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作';
+    const status = p.alive ? '存活 · 公开档案' : '幽灵 · 已淘汰 · 不可施技';
     $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     $('private-gate').onclick = () => {
@@ -275,7 +283,9 @@
   }
   // ---------- 私密操作（点击展开，不再依赖 Shift） ----------
   function holding() { return privateOpen; }
-  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - serverTime) / 1000));
+  // Private skill resources stop at the authoritative freeze time, even while ghosts keep moving.
+  const skillTime = () => me && me.skillsFrozenAt != null ? me.skillsFrozenAt : serverTime;
+  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - skillTime()) / 1000));
   const skillNames = { probe: '探查', accuse: '指认', spy: '刺探', kill: '击杀' };
   function availableSkills() {
     // Old running servers may still have action. Keep reading them until a planned restart.
@@ -289,7 +299,8 @@
   function canTarget(p) { return !!(p && me && p.id !== me.id && p.alive && me.alive && !finished); }
   function skillStatus(id, skill) {
     const cooldown = secondsLeft(skill.cooldownUntil);
-    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${cooldown ? `冷却 ${cooldown}s` : '就绪'} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '储存已满'}`;
+    const frozen = me && me.skillsFrozenAt != null;
+    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${cooldown ? `冷却 ${cooldown}s` : '就绪'} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s ${frozen ? '恢复剩余（冻结）' : '后 +1'}` : '储存已满'}${frozen ? ' · 技能资源已冻结' : ''}`;
   }
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
@@ -396,7 +407,7 @@
     sessionToken = null; devCsrf = null;
     localStorage.removeItem('sid_session_token'); localStorage.removeItem('sid_lan');
     players = []; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
-    renderMap.clear(); offlineEvents.clear(); lastRosterSig = lastTargetSig = lastLogSig = '';
+    renderMap.clear(); offlineEvents.clear(); confirmedDigests.clear(); lastRosterSig = lastTargetSig = lastLogSig = '';
     $('target').replaceChildren(); $('target').hidden = true;
     $('candidates').replaceChildren(); $('candidates').hidden = true;
     $('offline-summary').replaceChildren(); $('offline-summary').hidden = true;
@@ -459,8 +470,13 @@
   function pendingList() { return (me && me.pending) || []; }
   function updateOfflineUI() {
     const banner = $('offline-banner'), list = pendingList();
+    const digest = me && me.interactionSummary;
     const offlineCount = list.filter(e => offlineEvents.has(e.eventId)).length;
-    if (!list.length) { banner.hidden = true; banner.textContent = ''; return; }
+    if (!list.length && !digest) { banner.hidden = true; banner.textContent = ''; return; }
+    if (digest && !list.length) {
+      banner.hidden = false; banner.textContent = '有一份离线私密摘要 · 点击查看';
+      banner.onclick = () => renderSummary(1); return;
+    }
     banner.hidden = false;
     banner.textContent = offlineCount
       ? `离线期间有 ${offlineCount} 条涉及你的事件 · 点击查看详情`
@@ -469,19 +485,30 @@
   }
   function renderSummary(offlineCount) {
     const list = pendingList();
+    const digest = me && me.interactionSummary;
+    const digestText = digest ? `<li><p>离线期间被敲${digest.counts.hammer}次、被鬼吓${digest.counts.scare}次</p></li>` : '';
     const panel = $('offline-summary');
     panel.hidden = false;
-    panel.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DIGEST</small><h2>${offlineCount ? '离线期间事件' : '涉及你的事件'}</h2></div><button id="summary-close" class="icon-button" aria-label="关闭事件摘要">×</button></div><ul class="summary-list">${list.map(e => `<li><time>${new Date(e.occurredAt).toLocaleTimeString('zh-CN', { hour12: false })}</time><p>${escapeText(e.text)}</p></li>`).join('')}</ul><p class="hold-note">摘要只说明你身上发生了什么，不含操作者。关闭后不再重复提示。</p>`;
-    $('summary-close').onclick = () => { panel.hidden = true; panel.replaceChildren(); acknowledge(list); };
+    panel.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DIGEST</small><h2>${offlineCount ? '离线期间事件' : '涉及你的事件'}</h2></div><button id="summary-close" class="icon-button" aria-label="关闭事件摘要">×</button></div><ul class="summary-list">${digestText}${list.map(e => `<li><time>${new Date(e.occurredAt).toLocaleTimeString('zh-CN', { hour12: false })}</time><p>${escapeText(e.text)}</p></li>`).join('')}</ul><p class="hold-note">摘要只说明你身上发生了什么，不含操作者。关闭后不再重复提示。</p>`;
+    $('summary-close').onclick = () => { panel.hidden = true; panel.replaceChildren(); acknowledge(list, digest); };
   }
-  function acknowledge(list) {
+  async function acknowledge(list, digest) {
     const ids = list.map(e => e.eventId);
-    if (!ids.length) return;
-    const known = new Set(ids);
-    for (const id of known) offlineEvents.delete(id);
-    if (me) me.pending = pendingList().filter(e => !known.has(e.eventId));
-    updateOfflineUI();
-    api('/api/ack', { eventIds: ids }).catch(() => { });
+    if (!ids.length && !digest) return;
+    const owner = sessionToken;
+    try {
+      const response = await api('/api/ack', {
+        eventIds: ids, interaction: digest ? { id: digest.id, epoch: digest.epoch } : undefined
+      });
+      if (!response.ok || owner !== sessionToken || !me) return;
+      // Only remove local state after confirmed ACK. Failure/reconnect keeps the same digest available.
+      const known = new Set(ids);
+      for (const id of known) offlineEvents.delete(id);
+      me.pending = pendingList().filter(e => !known.has(e.eventId));
+      if (digest) confirmedDigests.add(`${digest.epoch}:${digest.id}`);
+      if (digest && me.interactionSummary && me.interactionSummary.id === digest.id) me.interactionSummary = null;
+      updateOfflineUI();
+    } catch { /* Keep unacknowledged payload; retry after reopening the summary. */ }
   }
 
   // ---------- 像素绘制 ----------
@@ -762,7 +789,29 @@
 
   // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
   // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
+  // Cached neutral ghost path, anchored at logical feet. No secret-derived shape or color.
+  const ghostPath = new Path2D();
+  ghostPath.moveTo(-14, 0); ghostPath.lineTo(-14, -26);
+  ghostPath.arc(0, -26, 14, Math.PI, 0);
+  ghostPath.lineTo(14, 0); ghostPath.lineTo(7, -5); ghostPath.lineTo(0, 0);
+  ghostPath.lineTo(-7, -5); ghostPath.closePath();
+  function ghostSprite(p) {
+    const x = Math.round(p.x), y = Math.round(p.y);
+    ctx.save(); ctx.translate(x, y);
+    ctx.globalAlpha = p.online === false ? .5 : .8;
+    ctx.fillStyle = p.online === false ? '#b1b3b8' : '#eeeae0';
+    ctx.strokeStyle = '#a8a9af'; ctx.lineWidth = 1; ctx.fill(ghostPath); ctx.stroke(ghostPath);
+    rect(-6, -25, 3, 4, '#424957'); rect(3, -25, 3, 4, '#424957');
+    if (p.visible !== false && serverTime - p.scareAt >= 0 && serverTime - p.scareAt < 300) {
+      ctx.strokeStyle = '#a8deee'; ctx.beginPath(); ctx.arc(0, -20, 19, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (p.id === selectedId || p.id === selfId()) {
+      ctx.strokeStyle = '#8fd0ff'; ctx.strokeRect(-17, -43, 34, 47);
+    }
+    ctx.restore();
+  }
   function sprite(p) {
+    if (!p.alive) { ghostSprite(p); return; }
     const x = Math.round(p.x), c = p.colors, meId = selfId();
     const hi = Math.max(0, palettes.hair.findIndex(o => o[0] === c.hair[0]));
     const skin = SKIN[hi], skinLo = shade(skin, -.24);
@@ -774,18 +823,20 @@
     const ph = p.walk * .13, sw = p.moving ? Math.sin(ph) : 0;
     const bob = p.moving ? -Math.round(Math.abs(Math.sin(ph)) * 2) : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7);
     // 可见性开关：不可见时服务端已把锤戏字段置 0，这里再以 visible 为准显式兜一层，
-    // 让「0 = 看不见」而不是「0 = 真的没晕」这件事在渲染层也是写明的，防止后人误读。
+    // visible:false 区分裁剪产生的 0 与可见目标的真实 0，防止把远处状态误读为真实无硬控。
     const seen = p.visible !== false;
     // 跳跃只在画面上把整身抬高：地面坐标（点击命中盒、名牌、阴影）一律不变。
     const z = seen ? (Number(p.z) || 0) : 0, zk = Math.min(1, z / ACTION.jumpHeight);
     const air = z > 0;
     const stunned = seen && serverTime < (Number(p.stunUntil) || 0);
+    const frightened = seen && serverTime < (Number(p.frightUntil) || 0);
+    const legShake = frightened ? Math.round(Math.sin(clock * 30)) : 0;
     const wobble = stunned ? Math.round(Math.sin(clock * 17) * 1.5) : 0;
     const yb = Math.round(p.y) + bob - z;
     const liftL = air ? 0 : Math.max(0, sw) * 2, liftR = air ? 0 : Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
     // 腾空时收腿：双脚并拢并抬高 2px。
     const tuck = air ? 2 : 0;
-    const fx1 = air ? x - 8 : x - 11, fx2 = air ? x - 2 : x + 1;
+    const fx1 = (air ? x - 8 : x - 11) + legShake, fx2 = (air ? x - 2 : x + 1) - legShake;
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
     // 地面阴影始终留在 p.y：随高度略微缩小并变淡，不跟着人一起抬高。
     const sf = 1 - .45 * zk;
@@ -796,7 +847,7 @@
     ctx.save(); if (wobble) ctx.translate(wobble, 0);
     const parts = [
       [fx1, yb - 3 - tuck, 10, 4, shoes], [fx2, yb - 3 - tuck, 10, 4, shoes],
-      [x - 9, yb - 12 - tuck, 7, 9 - liftL, pantsLo], [x + 2, yb - 12 - tuck, 7, 9 - liftR, pantsLo],
+      [x - 9 + legShake, yb - 12 - tuck, 7, 9 - liftL, pantsLo], [x + 2 - legShake, yb - 12 - tuck, 7, 9 - liftR, pantsLo],
       [x - 10, yb - 17, 20, 6, pants],
       [x - 11, yb - 31, 22, 16, top],
       [x - 16, yb - 30 + arm, 5, 12, topLo], [x + 11, yb - 30 - arm, 5, 12, topLo],
@@ -816,7 +867,7 @@
     rect(x - 11, yb - 31, 22, 2, topHi); rect(x - 11, yb - 17, 22, 2, topLo);
     rect(x - 11, yb - 31, 2, 16, shade(top, .1)); rect(x + 9, yb - 31, 2, 16, topLo);
     rect(x - 1, yb - 31, 2, 5, shade(top, -.45)); rect(x - 10, yb - 17, 20, 1, shade(pants, -.5));
-    rect(x - 9, yb - 12 - tuck, 7, 2, pantsHi); rect(x + 2, yb - 12 - tuck, 7, 2, pantsHi);
+    rect(x - 9 + legShake, yb - 12 - tuck, 7, 2, pantsHi); rect(x + 2 - legShake, yb - 12 - tuck, 7, 2, pantsHi);
     rect(fx1, yb - tuck, 10, 1, shoeLo); rect(fx2, yb - tuck, 10, 1, shoeLo);
     rect(x - 11, yb - 40, 1, 4, skinLo); rect(x + 10, yb - 40, 1, 4, skinLo);
     rect(x - 8, yb - 45, 4, 1, hairLo); rect(x + 4, yb - 45, 4, 1, hairLo);
@@ -831,6 +882,16 @@
       drawHitBurst(p, x, yb, a);
     }
     ctx.restore();
+    if (frightened) {
+      ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = '#88d6e9';
+      for (const dx of [-16, 16]) {
+        ctx.beginPath(); ctx.moveTo(x + dx, p.y - 8);
+        ctx.quadraticCurveTo(x + dx - 4, p.y - 2, x + dx, p.y);
+        ctx.quadraticCurveTo(x + dx + 4, p.y - 2, x + dx, p.y - 8); ctx.fill();
+      }
+      ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('受惊', x, p.y - 14);
+      ctx.restore();
+    }
     ctx.globalAlpha = 1;
     if (p.id === meId && p.id !== selectedId) {
       ctx.globalAlpha = .8 * a; ctx.strokeStyle = '#7cc4ff'; ctx.lineWidth = 1;
@@ -856,7 +917,7 @@
   // 命中框（x±21, y-53~y+8）与名牌偏移保持不变，外观升级不影响任何交互判定。
   let labels = [];
   function drawList() {
-    return players.filter(p => p.alive).map(p => {
+    return players.map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
       return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving, facing: r.facing };
     });
@@ -875,7 +936,11 @@
     ctx.drawImage(VIGNETTE, 0, 0);
     ctx.save(); ctx.translate(-Math.round(cameraX), 0);
     const list = drawList();
-    for (const p of list.filter(p => p.x > cameraX - 40 && p.x < cameraX + VW + 40).sort((a, b) => a.y - b.y || a.id - b.id)) sprite(p);
+    for (const p of list.filter(p => p.x > cameraX - 40 && p.x < cameraX + VW + 40).sort((a, b) => a.y - b.y || a.id - b.id)) {
+      ctx.save();
+      if (p.online === false) ctx.filter = 'grayscale(1)'; // offline-only; public color data unchanged
+      sprite(p); ctx.restore();
+    }
     makeLabels(list);
     ctx.textAlign = 'center';
     const meId = selfId();
@@ -889,7 +954,7 @@
       rect(l.x + 1, l.y + 5, 2, l.h - 10, accent);
       ctx.font = '12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       ctx.fillStyle = active ? '#eaf4ff' : '#e2e8f0';
-      ctx.fillText(l.p.name + (l.p.id === meId ? ' · 自己' : l.p.online === false ? ' · 离线' : ''), l.x + l.w / 2, l.y + 13);
+      ctx.fillText(l.p.name + (!l.p.alive ? ' · 幽灵' : l.p.id === meId ? ' · 自己' : '') + (l.p.online === false ? ' · 离线' : ''), l.x + l.w / 2, l.y + 13);
       ctx.font = '10px ui-monospace,SFMono-Regular,monospace';
       ctx.fillStyle = active ? '#a8cbe8' : '#96adc8';
       ctx.fillText(l.p.sid, l.x + l.w / 2, l.y + 26);
@@ -933,7 +998,7 @@
   }
   function showCandidates(ids) {
     clearPrivate(true);
-    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id && p.alive)).sort((a, b) => a - b);
+    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id)).sort((a, b) => a - b);
     $('candidates').hidden = false;
     $('candidates').innerHTML = `<div class="panel-heading"><div><small>OVERLAPPING PLAYERS</small><h2>请选择目标</h2></div><button id="candidate-close" class="icon-button" aria-label="关闭重叠候选">×</button></div><p>同一点击点有${list.length}位玩家，不会自动选人。</p>${list.map(id => row(players.find(p => p.id === id))).join('')}`;
     bindRows($('candidates'));
@@ -980,10 +1045,11 @@
   const actionToast = { text: '', at: 0 };
   async function sendAction(kind) {
     const r = await api('/api/action', { kind }).catch(() => ({ ok: false, error: '网络异常，动作未执行' }));
-    if (r.ok) return;
-    const msg = r.error || '动作被拒绝';
+    if (r.ok) { actionToast.text = ''; return; }
+    if (r.status !== 401 && r.status !== undefined) return; // cooldown/airborne/control/frozen: silent
+    const msg = r.status === 401 ? '连接身份已失效，请重新加入。' : '网络暂时不稳定。';
     const at = Date.now();
-    if (msg === actionToast.text && at - actionToast.at < 1000) return;
+    if (msg === actionToast.text) return; // one gentle error per failing connection episode
     actionToast.text = msg; actionToast.at = at;
     showToast(msg);
   }
@@ -991,11 +1057,11 @@
     if ($('rules-view').open || $('reset-confirm').open) return;
     if (e.key === 'Escape') { clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return; }
     if (isTyping()) return;
-    if (e.code === 'Space' || e.code === 'KeyJ') {
+    if (e.code === 'KeyK' || e.code === 'KeyJ') {
       // 服务端权威：这里只提交意图，命中与击晕一律由服务端判定。
       if (e.repeat || isActionTarget()) return;
       e.preventDefault();
-      sendAction(e.code === 'Space' ? 'jump' : 'hammer');
+      sendAction(e.code === 'KeyK' ? 'jump' : me && !me.alive ? 'scare' : 'hammer');
       return;
     }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) {

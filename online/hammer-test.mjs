@@ -74,6 +74,7 @@ let exitCode = 1;
 try {
   if (!await waitReady()) throw new Error('测试服务未能启动\n' + serverLog);
 
+  check('锤子冷却配置为1000ms', (await import('./shared/world.js')).default.ACTION.hammerCooldownMs === 1000);
   // ---------- 0. 两名玩家加入 ----------
   const ja = await join(), jb = await join();
   check('两名玩家加入成功', ja.data.ok && jb.data.ok, `A=${ja.data.playerId} B=${jb.data.playerId}`);
@@ -184,9 +185,9 @@ try {
     `A=${of(sa.data.players, idA).sid} B=${of(sa.data.players, idB).sid}`);
   const leaked = sa.data.players.flatMap(p => Object.keys(p).filter(k => ['faction', 'hp', 'skills', 'traits_raw', 'bumps_detail'].includes(k)));
   check('公共快照不含 faction / hp / skills 字段', leaked.length === 0, leaked.length ? `泄漏字段: ${[...new Set(leaked)].join(',')}` : '无');
-  const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt']);
+  const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt', 'frightUntil', 'scareAt', 'frightAt']);
   const extra = sa.data.players.flatMap(p => Object.keys(p).filter(k => !allowed.has(k)));
-  check('公共快照未新增隐藏字段（仅 z/stunUntil/bumps/bumpUntil/swingAt/hitAt）', extra.length === 0, extra.length ? `多余字段: ${[...new Set(extra)].join(',')}` : '无');
+  check('公共快照未新增隐藏字段（仅visible与锤戏/受惊必要字段）', extra.length === 0, extra.length ? `多余字段: ${[...new Set(extra)].join(',')}` : '无');
   const logCountNow = sa.data.logs.length;
   check('公共日志未新增条目（锤戏不写日志）', logCountNow === logCountBefore, `${logCountBefore} → ${logCountNow}`);
 

@@ -31,7 +31,7 @@ const randomSid = () => [0, 1, 2].map(() => randChar() + randChar() + randChar()
 const randomColors = () => Object.fromEntries(Object.entries(WORLD.PALETTES).map(([k, options]) => [k, pick(options)]));
 const randomTraits = () => Object.fromEntries(Object.keys(TRAIT_POOL).map(k => [k, pick(TRAIT_POOL[k])]));
 
-function createRoom() {
+function createRoom({ random = Math.random } = {}) {
   const room = {
     players: [],
     logs: [],
@@ -46,6 +46,35 @@ function createRoom() {
   const furniture = WORLD.makeFurniture();
   const now = () => Date.now() + room.clockOffset;
   const streams = new Map();
+  let interactionEpoch = randomUUID();
+  const offlineHits = new Map();
+  // Monotonic totals and acknowledged watermarks: an old ACK never clears new offline hits.
+  function hitLedger(p) {
+    if (!offlineHits.has(p.id)) offlineHits.set(p.id, {
+      totals: { hammer: 0, scare: 0 }, watermark: { hammer: 0, scare: 0 },
+      summary: null, sent: false, acknowledged: new Set()
+    });
+    return offlineHits.get(p.id);
+  }
+  function countOfflineHit(p, kind) {
+    if (!p.online && !p.npc) hitLedger(p).totals[kind]++;
+  }
+  function prepareReconnect(p) {
+    if (!p || p.npc) return null;
+    const ledger = hitLedger(p);
+    if (ledger.summary) return ledger.summary; // retry/reconnect reuses the exact ID and watermark
+    const counts = {
+      hammer: ledger.totals.hammer - ledger.watermark.hammer,
+      scare: ledger.totals.scare - ledger.watermark.scare
+    };
+    if (!counts.hammer && !counts.scare) return null;
+    ledger.summary = {
+      id: randomUUID(), epoch: interactionEpoch, counts,
+      watermark: { ...ledger.totals }
+    };
+    ledger.sent = false;
+    return ledger.summary;
+  }
 
   function collides(x, y) {
     return furniture.some(f => x + WORLD.BODY_HALF > f.x && x - WORLD.BODY_HALF < f.x + f.w &&
@@ -85,8 +114,8 @@ function createRoom() {
     return id === undefined ? null : find(id);
   }
   function localTime(ms) { return new Date(ms).toLocaleTimeString('zh-CN', { hour12: false }); }
-  function log(text) {
-    room.logs.unshift({ time: localTime(now()), text });
+  function log(text, t = now()) {
+    room.logs.unshift({ time: localTime(t), text });
     if (room.logs.length > 80) room.logs.pop();
   }
   function makeSkills(faction) {
@@ -100,6 +129,8 @@ function createRoom() {
   // Lazy settlement: no timer loop. Charges are rebuilt from absolute timestamps every
   // time a skill state is read, so offline time counts exactly like online time.
   function syncCharges(player, t) {
+    // Central write guard: reads, reconnects and future callers cannot advance frozen resources.
+    if (player.skillsFrozenAt !== null || !player.alive || room.finished) return;
     for (const skill of Object.values(player.skills)) {
       if (skill.chargesRemaining >= skill.maxCharges) { skill.nextChargeAt = 0; continue; }
       while (skill.nextChargeAt && t >= skill.nextChargeAt) {
@@ -108,6 +139,17 @@ function createRoom() {
       }
       if (skill.chargesRemaining >= skill.maxCharges) skill.nextChargeAt = 0;
     }
+  }
+  function freezeSkills(player, t) {
+    if (player.skillsFrozenAt !== null) return;
+    // Settle earned recovery BEFORE marking eliminated/finished, then preserve all skill timestamps.
+    syncCharges(player, t);
+    player.skillsFrozenAt = t;
+  }
+  function freezeRoom(t) {
+    if (room.finished) return;
+    for (const player of room.players) freezeSkills(player, t);
+    room.finished = true;
   }
   function consumeCharge(skill, t) {
     if (skill.chargesRemaining >= skill.maxCharges) skill.nextChargeAt = t + skill.chargeIntervalMs;
@@ -126,8 +168,7 @@ function createRoom() {
   function join(sessionId, nickname) {
     const existing = playerBySession(sessionId);
     if (existing) {
-      existing.online = true;
-      existing.lastSeen = now();
+      // Restore identity only; stream freezes the digest before setting online.
       return { player: existing, revived: true };
     }
     if (room.finished) return { error: '本局已结束，无法加入' };
@@ -154,6 +195,7 @@ function createRoom() {
       input: { up: false, down: false, left: false, right: false },
       walk: 0,
       skills: makeSkills(faction),
+      skillsFrozenAt: null,
       // 肢体互动状态。纯表播字段，不参与血量 / S-ID / 技能 / 淘汰结算。
       jumpStartedAt: 0,
       stunUntil: 0,
@@ -161,7 +203,8 @@ function createRoom() {
       bumpMax: 0,
       hammerCooldownUntil: 0,
       lastSwingAt: 0,
-      lastHitAt: 0
+      lastHitAt: 0,
+      frightUntil: 0, scareCooldownUntil: 0, scareAt: 0, frightAt: 0
     };
     room.players.push(player);
     room.sessions.set(sessionId, id);
@@ -217,8 +260,10 @@ function createRoom() {
         input: { up: false, down: false, left: false, right: false },
         walk: 0,
         skills: makeSkills('good'),
+        skillsFrozenAt: room.finished ? now() : null,
         jumpStartedAt: 0, stunUntil: 0, bumps: [], bumpMax: 0,
-        hammerCooldownUntil: 0, lastSwingAt: 0, lastHitAt: 0
+        hammerCooldownUntil: 0, lastSwingAt: 0, lastHitAt: 0,
+        frightUntil: 0, scareCooldownUntil: 0, scareAt: 0, frightAt: 0
       };
       room.players.push(player);
       room.pending.set(id, []);
@@ -229,7 +274,7 @@ function createRoom() {
   }
   function setOffline(id) {
     const p = find(id);
-    if (!p) return;
+    if (!p || p.npc) return;
     p.online = false;
     p.lastSeen = now();
     p.input = { up: false, down: false, left: false, right: false };
@@ -245,9 +290,9 @@ function createRoom() {
     const t = now();
     for (const p of room.players) {
       expireBumps(p, t);
-      // 被敲晕者与淘汰 / 离线一样原地不动；stunUntil 是绝对时间戳，离线或淘汰期间也会自然到期。
-      const stunned = t < p.stunUntil;
-      if (!p.alive || !p.online || stunned) continue;
+      // Ghosts remain eliminated but can move through furniture; control only applies to living players.
+      const controlled = p.alive && t < Math.max(p.stunUntil, p.frightUntil);
+      if (!p.online || controlled) continue;
       let dx = Number(p.input.right) - Number(p.input.left);
       let dy = Number(p.input.down) - Number(p.input.up);
       const len = Math.hypot(dx, dy);
@@ -255,15 +300,15 @@ function createRoom() {
       dx = dx / len * WORLD.SPEED * dt;
       dy = dy / len * WORLD.SPEED * dt;
       const nx = Math.max(WORLD.MIN_X, Math.min(WORLD.MAX_X, p.x + dx));
-      if (!collides(nx, p.y)) p.x = nx;
+      if (!p.alive || !collides(nx, p.y)) p.x = nx;
       const ny = Math.max(WORLD.MIN_Y, Math.min(WORLD.MAX_Y, p.y + dy));
-      if (!collides(p.x, ny)) p.y = ny;
+      if (!p.alive || !collides(p.x, ny)) p.y = ny;
       p.walk += Math.hypot(nx - p.x, ny - p.y) ? Math.hypot(dx, dy) : 0;
     }
   }
-  function queueEvent(playerId, event) {
+  function queueEvent(playerId, event, t = now()) {
     const queue = room.pending.get(playerId) || [];
-    queue.push({ eventId: randomUUID(), occurredAt: now(), ...event });
+    queue.push({ eventId: randomUUID(), occurredAt: t, ...event });
     if (queue.length > 200) queue.shift();
     room.pending.set(playerId, queue);
   }
@@ -296,9 +341,7 @@ function createRoom() {
   // 摄像机横向跟随自己：camX = clamp(x - VIEW_W/2, 0, WORLD_W - VIEW_W)，左右各留 VIEW_MARGIN 余量。
   // 纵向地图只有一屏高（640），不做纵向裁剪。自己永远看得见自己的状态。
   // 不传 viewerId 时一律可见（服务端内部拼日志文案用，只读 sid，不涉及锤戏字段）。
-  // 余量必须大于「客户端绘制余量 40」+「插值 / 瞬移 / 切后台导致的两端镜头误差」。
-  // 客户端用插值后的渲染 x 算镜头，服务端用权威 x，稳态差约 13px，但卡顿或瞬移会瞬间拉大，
-  // 余量取 140 就是为了在任何情况下都不会出现"人在屏幕上但锤戏字段被抹成 0"的穿帮。
+  // 140px 余量缓冲通常的插值误差，不保证任意瞬移/切后台后镜头仍完全一致。
   const VIEW_MARGIN = 140;
   function cameraXOf(viewer) {
     return Math.max(0, Math.min(WORLD.WORLD_W - WORLD.VIEW_W, viewer.x - WORLD.VIEW_W / 2));
@@ -310,15 +353,13 @@ function createRoom() {
   }
   // 裁剪契约（改动前先读这段）：
   // 1. 不可见即把锤戏字段置 0，并额外下发 visible:false；数值字段保持 0 而不是 null，
-  //    这样客户端永远不必判空。visible 是唯一的语义开关——0 表示"看不见"，不是"真的没晕"。
-  // 2. 可见区间 ±140 严格宽于客户端绘制区间 ±40，所以任何被画出来的角色拿到的都是真实值，
-  //    不会出现"人在屏幕上但肿包/锤子被抹成 0"的穿帮。
+  //    visible:false 区分裁剪产生的 0 与可见目标的真实 0，客户端无须改为 null 判空。
+  // 2. 可见区间 ±140 宽于绘制区间 ±40；通常镜头误差有缓冲，但不承诺防任意瞬移。
   // 3. 被裁剪的只有锤戏局部表现字段（z/stunUntil/bumps/bumpUntil/swingAt/hitAt）；
   //    公共日志、S-ID、存活、位置、颜色、已公开属性对所有视角完全一致，不随观察者变化。
   // 只追加画面必需的肢体互动字段；阵营 / 血量 / 技能 / 锤击者身份一律不进入公共投影。
   function publicProjection(p, viewer, camX) {
     const t = now();
-    expireBumps(p, t);
     const seen = visibleTo(viewer, camX, p);
     return {
       id: p.id,
@@ -332,17 +373,22 @@ function createRoom() {
       sid: p.sid.segments.map((s, i) => p.sid.revealed[i] ? s : WORLD.MASK).join('-'),
       // 看不见的人：字段仍在，但一律归零，屏幕外推不出任何锤戏事实。
       visible: seen,
-      z: seen ? heightOf(p, t) : 0,
+      z: seen && p.alive ? heightOf(p, t) : 0,
       stunUntil: seen ? p.stunUntil : 0,
       bumps: seen ? Math.min(p.bumps.length, A.maxBumps) : 0,
       bumpUntil: seen ? p.bumpMax : 0,
       swingAt: seen ? p.lastSwingAt : 0,
-      hitAt: seen ? p.lastHitAt : 0
+      hitAt: seen ? p.lastHitAt : 0,
+      frightUntil: seen ? p.frightUntil : 0,
+      scareAt: seen ? p.scareAt : 0,
+      frightAt: seen ? p.frightAt : 0
     };
   }
   function privateProjection(p) {
     const t = now();
     syncCharges(p, t);
+    const ledger = offlineHits.get(p.id);
+    if (ledger && ledger.summary) ledger.sent = true;
     return {
       id: p.id,
       name: p.name,
@@ -352,12 +398,23 @@ function createRoom() {
       alive: p.alive,
       traits: p.traits,
       skills: Object.fromEntries(Object.entries(p.skills).map(([id, skill]) => [id, { ...skill }])),
-      pending: (room.pending.get(p.id) || []).map(projectEvent)
+      skillsFrozenAt: p.skillsFrozenAt, // private only; countdowns use this authoritative time
+      pending: (room.pending.get(p.id) || []).map(projectEvent),
+      interactionSummary: ledger && ledger.summary ? {
+        ...ledger.summary, counts: { ...ledger.summary.counts }, watermark: { ...ledger.summary.watermark }
+      } : null
     };
   }
   // viewerId 可选：传入后 players 里的肢体互动字段按该观察者的镜头裁剪。
   // 每条 SSE 流本来就各自拼一份 payload，所以这里只是让公有部分带视角，广播机制不变。
+  let finishedExpiryAt = -Infinity;
   function publicSnapshot(viewerId) {
+    // Finished tick is frozen; safely settle cosmetic expiry once per timestamp, not per player projection.
+    const t = now();
+    if (room.finished && t !== finishedExpiryAt) {
+      for (const p of room.players) expireBumps(p, t);
+      finishedExpiryAt = t;
+    }
     const viewer = viewerId === undefined || viewerId === null ? null : find(viewerId);
     const camX = viewer ? cameraXOf(viewer) : 0;
     return {
@@ -375,17 +432,32 @@ function createRoom() {
     if (!p) return { ok: false, error: 'identity not found' };
     return { ok: true, me: privateProjection(p) };
   }
-  function ack(playerId, eventIds) {
+  function ack(playerId, eventIds, interaction) {
     const ids = new Set(Array.isArray(eventIds) ? eventIds : []);
+    if (!interaction) {
+      room.pending.set(playerId, (room.pending.get(playerId) || []).filter(e => !ids.has(e.eventId)));
+      return { ok: true };
+    }
+    const ledger = offlineHits.get(playerId);
+    if (!ledger || interaction.epoch !== interactionEpoch) return reject('摘要凭证无效');
+    if (ledger.acknowledged.has(interaction.id)) return { ok: true }; // idempotent, never advance a newer summary
+    if (!ledger.sent || !ledger.summary || interaction.id !== ledger.summary.id) return reject('摘要凭证无效');
     room.pending.set(playerId, (room.pending.get(playerId) || []).filter(e => !ids.has(e.eventId)));
+    ledger.watermark = { ...ledger.summary.watermark };
+    ledger.acknowledged.add(ledger.summary.id);
+    ledger.summary = null;
+    ledger.sent = false;
+    // Preserve increments after the old watermark; materialize the next digest only after ACK.
+    prepareReconnect(find(playerId));
+    return { ok: true };
   }
-  function checkFinish() {
+  function checkFinish(t) {
     if (room.finished) return;
     // At least one elimination is required: otherwise the second player joining would
     // immediately drop the alive count to 2 and finish the very first round.
     if (room.players.filter(p => p.alive).length <= 2 && room.eliminateEvents > 0) {
-      room.finished = true;
-      log('本局已结束：存活人数已降到2人。');
+      freezeRoom(t);
+      log('本局已结束：存活人数已降到2人。', t);
     }
   }
   // Strict uppercase match. Whitespace is ignored so a pasted value still works, but
@@ -396,37 +468,38 @@ function createRoom() {
   }
   function reject(reason) { return { ok: false, error: reason }; }
 
-  function doSpy(actor, target) {
+  function doSpy(actor, target, t) {
     {
       const index = target.sid.revealed.findIndex(x => !x);
       if (index < 0) return reject('该目标没有未公开的S-ID段，不消耗次数');
       target.sid.revealed[index] = true;
-      queueEvent(target.id, { type: 'revealedSegment', segmentIndex: index });
-      log(`${target.name}的S-ID已公开：${publicProjection(target).sid}。`);
+      queueEvent(target.id, { type: 'revealedSegment', segmentIndex: index }, t);
+      log(`${target.name}的S-ID已公开：${publicProjection(target).sid}。`, t);
       return { ok: true, kind: 'spy', resultText: `刺探完成：第${index + 1}段S-ID为 ${target.sid.segments[index]}。`, targetId: target.id };
     }
   }
-  function doProbe(actor, target) {
-    const key = Object.keys(target.traits).find(k => !target.traitPublic[k]);
+  function doProbe(actor, target, t) {
+    const unknown = Object.keys(target.traits).filter(k => !target.traitPublic[k]);
+    const key = unknown[Math.floor(random() * unknown.length)];
     if (!key) return reject('该目标没有未公开的隐藏属性，不消耗次数');
     target.traitPublic[key] = true;
-    queueEvent(target.id, { type: 'revealedTrait', traitName: WORLD.TRAIT_NAMES[key], traitValue: target.traits[key] });
-    log(`${target.name}的${WORLD.TRAIT_NAMES[key]}已公开：${target.traits[key]}。`);
+    queueEvent(target.id, { type: 'revealedTrait', traitName: WORLD.TRAIT_NAMES[key], traitValue: target.traits[key] }, t);
+    log(`${target.name}的${WORLD.TRAIT_NAMES[key]}已公开：${target.traits[key]}。`, t);
     return { ok: true, kind: 'probe', resultText: `探查完成：${WORLD.TRAIT_NAMES[key]}为「${target.traits[key]}」。`, targetId: target.id };
   }
-  function doAccuse(actor, target) {
-    log(`${target.name}被指认一次。`);
+  function doAccuse(actor, target, t) {
+    log(`${target.name}被指认一次。`, t);
     if (target.faction === 'bad') {
       target.hp -= 1;
       if (target.hp > 0) {
-        queueEvent(target.id, { type: 'damaged' });
+        queueEvent(target.id, { type: 'damaged' }, t);
         return { ok: true, kind: 'accuse', resultText: `指认命中：目标扣1血，仍存活。`, targetId: target.id };
       }
+      freezeSkills(target, t);
       target.alive = false;
       room.eliminateEvents += 1;
-      queueEvent(target.id, { type: 'eliminated' });
-      log(`${target.name}已淘汰。`);
-      checkFinish();
+      queueEvent(target.id, { type: 'eliminated' }, t);
+      log(`${target.name}已淘汰。`, t);
       return { ok: true, kind: 'accuse', resultText: '指认命中：目标已淘汰。', targetId: target.id };
     }
     const index = actor.sid.revealed.findIndex(x => !x);
@@ -436,21 +509,21 @@ function createRoom() {
       resultText = `错指认：自己第${index + 1}段S-ID已公开。`;
       // Penalty updates the public projection, but never logs the actor or the outcome.
     }
-    queueEvent(actor.id, { type: 'accusationFailed', segmentIndex: index });
+    queueEvent(actor.id, { type: 'accusationFailed', segmentIndex: index }, t);
     return { ok: true, kind: 'accuse', resultText, targetId: target.id, selfRevealed: true };
   }
-  function doKill(actor, target, submitted) {
+  function doKill(actor, target, submitted, t) {
     const sid = normalizeSid(submitted);
     if (!sid) return { ok: false, error: '格式错误：必须是三段，每段3位字母或数字。不消耗、不进入冷却。', formatError: true };
     if (sid !== target.sid.segments.join('-')) {
       return { ok: true, kind: 'kill', resultText: 'S-ID不匹配：目标未淘汰，进入冷却。', targetId: target.id };
     }
+    freezeSkills(target, t);
     target.hp = 0;
     target.alive = false;
     room.eliminateEvents += 1;
-    queueEvent(target.id, { type: 'eliminated' });
-    log(`${target.name}已淘汰。`);
-    checkFinish();
+    queueEvent(target.id, { type: 'eliminated' }, t);
+    log(`${target.name}已淘汰。`, t);
     return { ok: true, kind: 'kill', resultText: 'S-ID完全匹配：目标已淘汰。', targetId: target.id };
   }
   function useSkill(sessionId, body) {
@@ -472,10 +545,12 @@ function createRoom() {
     const target = find(Number(body.targetId));
     if (!target || target.id === actor.id) return reject('目标无效');
     if (!target.alive) return reject('已淘汰目标不可操作');
-    const resolved = kind === 'probe' ? doProbe(actor, target) : kind === 'accuse' ? doAccuse(actor, target) : kind === 'spy' ? doSpy(actor, target) : doKill(actor, target, body.sid);
+    const resolved = kind === 'probe' ? doProbe(actor, target, t) : kind === 'accuse' ? doAccuse(actor, target, t) : kind === 'spy' ? doSpy(actor, target, t) : doKill(actor, target, body.sid, t);
     if (resolved && resolved.ok) {
       consumeCharge(skill, t);
       room.processed.set(commandId, t);
+      // Final successful charge and idempotency entry belong to the same transaction BEFORE room freeze.
+      checkFinish(t);
       if (room.processed.size > 3000) {
         for (const [key, at] of room.processed) if (t - at > 600000) room.processed.delete(key);
       }
@@ -489,16 +564,33 @@ function createRoom() {
     if (room.finished) return reject('本局已结束，动作已冻结');
     const actor = find(Number(id));
     if (!actor) return reject('身份无效，请重新加入');
-    if (!actor.alive) return reject('你已淘汰，不能做动作');
+    if (!['jump', 'hammer', 'scare'].includes(kind)) return reject('未知动作');
+    if (!actor.alive) {
+      if (kind !== 'scare') return reject('幽灵只能吓人');
+      if (t < actor.scareCooldownUntil) return reject('吓人冷却中');
+      actor.scareCooldownUntil = t + A.hammerCooldownMs;
+      actor.scareAt = t;
+      let target = null, distance = Infinity;
+      for (const q of room.players) {
+        if (!q.alive || q.id === actor.id) continue;
+        const d = Math.hypot(q.x - actor.x, q.y - actor.y);
+        if (d <= A.hammerRange && d < distance) { target = q; distance = d; }
+      }
+      if (!target) return { ok: true, kind, targetId: null, hit: false };
+      target.frightUntil = t + A.frightMs;
+      target.frightAt = t;
+      countOfflineHit(target, 'scare');
+      return { ok: true, kind, targetId: target.id, hit: true };
+    }
+    if (kind === 'scare') return reject('只有幽灵能吓人');
     if (t < actor.stunUntil) return reject('你还被敲晕着');
+    if (t < actor.frightUntil) return reject('你还受惊着');
+    const k = actor.jumpStartedAt ? (t - actor.jumpStartedAt) / A.jumpMs : 1;
+    if (k >= 0 && k < 1) return reject('你还在空中');
     if (kind === 'jump') {
-      // 已在空中（进度严格落在 0~1 之间）就不能二段跳。
-      const k = (t - actor.jumpStartedAt) / A.jumpMs;
-      if (actor.jumpStartedAt && k > 0 && k < 1) return reject('你还在空中');
       actor.jumpStartedAt = t;
       return { ok: true, kind: 'jump' };
     }
-    if (kind !== 'hammer') return reject('未知动作');
     if (t < actor.hammerCooldownUntil) return reject('锤子还没抡回来');
     // 无论是否命中都进入冷却：空挥同样要等锤子抡回来。
     actor.hammerCooldownUntil = t + A.hammerCooldownMs;
@@ -513,6 +605,7 @@ function createRoom() {
       best = q; bestDist = dist;
     }
     if (!best) return { ok: true, kind: 'hammer', targetId: null, hit: false };
+    countOfflineHit(best, 'hammer');
     best.stunUntil = t + A.stunMs;
     best.lastHitAt = t;
     best.bumps.push({ expiresAt: t + A.bumpMs });
@@ -529,19 +622,21 @@ function createRoom() {
     room.sessions.clear();
     room.processed.clear();
     room.pending.clear();
+    offlineHits.clear(); interactionEpoch = randomUUID(); finishedExpiryAt = -Infinity;
     for (const entry of streams.values()) { try { entry.res && entry.res.end(); } catch { /* already closed */ } }
     streams.clear();
     log('办公室已重置：等待玩家加入。');
   }
   function finish() {
     if (room.finished) return;
-    room.finished = true;
-    log('本局已结束：主持人结束了本局。');
+    const t = now();
+    freezeRoom(t);
+    log('本局已结束：主持人结束了本局。', t);
     for (const entry of streams.values()) { try { entry.res && entry.res.end(); } catch { /* already closed */ } }
     streams.clear();
   }
   return {
-    room, streams, now, join, setOffline, setIntent, step, useSkill, performAction, spawnNpc, ack,
+    room, streams, now, join, setOffline, setIntent, step, useSkill, performAction, spawnNpc, prepareReconnect, ack,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
     playerBySession, find, config: SKILL_CONFIG
   };

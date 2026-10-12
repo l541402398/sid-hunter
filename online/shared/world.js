@@ -19,7 +19,8 @@
     jumpDodgeFrom: 0.18,  // 腾空可躲锤的进度起点
     jumpDodgeTo: 0.82,    // 腾空可躲锤的进度终点
     hammerRange: 58,      // 锤子作用半径（地面坐标欧氏距离）
-    hammerCooldownMs: 1200,
+    hammerCooldownMs: 1000, // J 挥锤 / 幽灵吓人共用 1 秒冷却
+    frightMs: 750,        // 受惊锁地图动作，不封身份技能
     stunMs: 750,          // 被敲晕时长
     bumpMs: 15000,        // 头顶肿包保留时长
     maxBumps: 3           // 头顶同时最多显示的肿包数
