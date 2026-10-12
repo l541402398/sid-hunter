@@ -183,12 +183,11 @@ try {
       await sleep(300);
       const after = await player(id);
       assert.ok(after.x > before.x + 8, `x ${before.x} -> ${after.x}`);
-      // Camera follows: the HUD chips are derived from the rendered camera position.
-      const coordinate = await client.eval(`document.getElementById('coordinate').textContent`);
+      // Camera follows: the HUD chip is derived from the rendered camera position.
+      // (#coordinate 元素已按需求移除，镜头跟随改为只断言 zone-name。)
       const zone = await client.eval(`document.getElementById('zone-name').textContent`);
-      assert.match(coordinate, /^0[1-4] \/ 04$/, 'coordinate=' + coordinate);
       assert.ok(['接待区', '产品研发区', '茶水休息区', '档案工作区'].includes(zone), 'zone=' + zone);
-      assert.equal(Number(coordinate.slice(1, 2)), Math.min(4, Math.floor(after.x / 960) + 1), '镜头跟随失败');
+      assert.equal(zone, ['接待区', '产品研发区', '茶水休息区', '档案工作区'][Math.min(3, Math.floor(after.x / 960))], '镜头跟随失败 zone=' + zone);
     }
   });
 

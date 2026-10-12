@@ -19,9 +19,9 @@
     <div class="toolbar-right"><span class="private-hint">点击开闭 · 眼睛独立显示</span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false">我的信息</button></div>
   </nav>
   <main class="stage" id="stage">
-    <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，点击角色或公开标签选择目标。"></canvas>
-    <div class="world-chip"><span class="live-square"></span><span id="zone-name">接待区</span><small>无门连通 / 横向四屏</small></div>
-    <div class="map-foot"><span id="coordinate">01 / 04</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看公开档案</span></div>
+    <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，空格跳跃，J挥锤，点击角色或公开标签选择目标。"></canvas>
+    <div class="world-chip"><span class="live-square"></span><span id="zone-name">接待区</span></div>
+    <div class="map-foot"><span class="walk-help"><kbd>W A S D</kbd> / 方向键 移动 <i>·</i> 空格 跳 <i>·</i> J 锤子 <i>·</i> 点击角色查看公开档案</span></div>
     <div id="offline-banner" class="offline-banner" hidden></div>
     <aside id="roster" class="panel roster" hidden>
       <div class="panel-heading"><div><small>PUBLIC DIRECTORY</small><h2>玩家名单</h2></div><button id="roster-close" class="icon-button" aria-label="收起玩家名单">×</button></div>
@@ -40,8 +40,8 @@
   </main>
   <section class="lan-section"><span class="lan-line"><i class="dot blue"></i> 局域网试玩 · 把下面地址发给同事即可加入</span><code id="lan-address">读取中…</code><span class="lan-note">服务端权威：位置、技能结算、公开状态与淘汰都由服务端计算；主持人接口仅限本机。</span></section>
   <footer class="footer"><span><i class="dot blue"></i> 局域网模拟 · 不联网 / 不上传 / 不使用真实员工数据</span><span>技能任意距离（含离线者） <i>·</i> 次数上限2次并按周期恢复 <i>·</i> 离线不淘汰、不释放</span></footer>
-  <details class="instructions"><summary>操作与联机说明</summary><div><p>WASD / 方向键移动；家具挡路，人物互穿。点击角色或名单查看公开档案，重叠时先选目标；技能任意距离，禁止自选或操作已淘汰目标。</p><p>好人：探查、指认；坏人：探查、指认、刺探、击杀。探查 / 指认对两种阵营效果相同；刺探公开目标SID段，击杀要求完整SID精确匹配。各技能独立2次，试玩90秒恢复1次、满停止，探查/刺探短冷却8秒，指认/击杀12秒。新版四技能需服务端重启后生效，当前进行中的旧局不会自动重开。</p><p>点击展开私密操作，再点收起；点击「我的信息」打开或关闭；S-ID、口头禅、食物、运动各自点击眼睛显示或隐藏。身份眼睛同时隐藏血量和技能信息，避免通过技能数量推断好坏身份。每次打开默认全隐藏；关闭、Esc、切出页面或进入规则页销毁私密DOM。开发重置仅开发开关启用且本机服务授权后可见，需二次确认清空本局；当前旧服务未启用，不代表已经可用。地图保留离线标签，离线者原地保留且照常恢复、可被施技；公共日志不写上下线状态，不暴露操作者、指认对错或击杀方式。局域网剪贴板不可用时可选中文字手动复制。</p></div></details>
-  <section id="dev-management" class="dev-management" hidden aria-labelledby="dev-title"><h2 id="dev-title">开发管理 · 危险操作</h2><p>仅本机开发授权可用。重置会清空本局全部玩家与数据，不会自动加入新局。</p><button id="dev-reset" class="dev-reset" hidden aria-haspopup="dialog" aria-controls="reset-confirm">开发重置</button></section>
+  <details class="instructions"><summary>操作与联机说明</summary><div><p>WASD / 方向键移动；家具挡路，人物互穿。点击角色或名单查看公开档案，重叠时先选目标；技能任意距离，禁止自选或操作已淘汰目标。空格跳跃、J 抡锤子是肢体互动，不扣血、不公开 S-ID、不消耗技能次数、不计入公共日志；被敲中者头顶肿包并晕 0.75 秒，期间无法移动也无法挥锤；跳跃腾空时可躲开锤子。</p><p>好人：探查、指认；坏人：探查、指认、刺探、击杀。探查 / 指认对两种阵营效果相同；刺探公开目标SID段，击杀要求完整SID精确匹配。各技能独立2次，试玩90秒恢复1次、满停止，探查/刺探短冷却8秒，指认/击杀12秒。新版四技能需服务端重启后生效，当前进行中的旧局不会自动重开。</p><p>点击展开私密操作，再点收起；点击「我的信息」打开或关闭；S-ID、口头禅、食物、运动各自点击眼睛显示或隐藏。身份眼睛同时隐藏血量和技能信息，避免通过技能数量推断好坏身份。每次打开默认全隐藏；关闭、Esc、切出页面或进入规则页销毁私密DOM。开发重置仅开发开关启用且本机服务授权后可见，需二次确认清空本局；当前旧服务未启用，不代表已经可用。地图保留离线标签，离线者原地保留且照常恢复、可被施技；公共日志不写上下线状态，不暴露操作者、指认对错或击杀方式。局域网剪贴板不可用时可选中文字手动复制。</p></div></details>
+  <section id="dev-management" class="dev-management" hidden aria-labelledby="dev-title"><h2 id="dev-title">开发管理 · 危险操作</h2><p>仅本机开发授权可用，供单人自测：添加好人 NPC（可被打、可被探查指认刺探击杀，计入存活人数）；重置会清空本局全部玩家与数据，不会自动加入新局。</p><p>NPC 恒为好人：指认它会按既有规则公开你自己的一段 S-ID，探查 / 刺探同样照常消耗次数；名字带「NPC·」前缀且永不离线，正式服（未启用开发授权）无法生成。</p><p>结束条件是「存活 ≤2 且已发生过淘汰」：1 人 + 1 个 NPC 时淘汰 NPC 会立刻结束本局；想多练几轮就多加几个 NPC，或用开发重置重开。</p><button id="dev-npc" class="dev-npc" hidden title="在当前位置旁添加一名好人 NPC，用于单人自测技能与锤戏">添加好人NPC</button><button id="dev-reset" class="dev-reset" hidden aria-haspopup="dialog" aria-controls="reset-confirm">开发重置</button></section>
   <dialog id="reset-confirm" class="reset-confirm" aria-labelledby="reset-title" aria-describedby="reset-impact"><h2 id="reset-title">确认清空本局？</h2><p id="reset-impact">开发重置将清空：</p><ul><li>全部玩家与身份凭证</li><li>公共日志与私密事件</li><li>技能次数、冷却及恢复状态</li><li>本局存活、淘汰与结束状态</li></ul><p>所有人返回加入页；只有主动加入才进入新局。此操作无法撤销。</p><div class="reset-actions"><button id="reset-cancel" type="button">取消</button><button id="reset-accept" class="dev-reset" type="button">确认清空全部数据</button></div><p class="hold-note">按 Esc 或切出页面即取消，不发送重置请求。</p></dialog>
   <dialog id="rules-view" class="rules-view" aria-labelledby="rules-title" aria-describedby="rules-live">
     <header class="rules-head"><div><span class="eyebrow">FIELD GUIDE / 办公室生存手册</span><h2 id="rules-title">读懂线索，保护你的 S-ID</h2><p id="rules-live">阅读规则时游戏仍在继续</p></div><button id="rules-close" type="button">返回游戏 <kbd>Esc</kbd></button></header>

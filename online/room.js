@@ -51,6 +51,33 @@ function createRoom() {
     return furniture.some(f => x + WORLD.BODY_HALF > f.x && x - WORLD.BODY_HALF < f.x + f.w &&
       y + WORLD.FOOT_TOP > f.y && y - WORLD.FOOT_BOTTOM < f.y + f.h);
   }
+  // ---- 肢体互动纯函数（跳跃 / 锤子）----
+  // 全部是纯函数：只读玩家状态与时间戳，不写状态、不记日志、不改任何玩法字段。
+  const A = WORLD.ACTION;
+  // 跳跃进度 0~1；未跳跃或已落地都返回 0。
+  function jumpProgress(p, t) {
+    if (!p || !p.jumpStartedAt) return 0;
+    const k = (t - p.jumpStartedAt) / A.jumpMs;
+    if (k <= 0 || k >= 1) return 0;
+    return k;
+  }
+  // 抛物线高度，落地为 0。取整避免快照里出现长小数。
+  function heightOf(p, t) {
+    const k = jumpProgress(p, t);
+    if (!k) return 0;
+    return Math.round(4 * A.jumpHeight * k * (1 - k));
+  }
+  // 腾空窗口内才躲得开锤子；起跳与落地的边缘帧仍算站在地面。
+  function airborne(p, t) {
+    const k = jumpProgress(p, t);
+    return k >= A.jumpDodgeFrom && k <= A.jumpDodgeTo;
+  }
+  // 过期肿包出队；bumpMax 保留剩余肿包中最晚到期的时间戳，供渲染层做淡出。
+  function expireBumps(p, t) {
+    if (!p.bumps.length) { p.bumpMax = 0; return; }
+    p.bumps = p.bumps.filter(b => b.expiresAt > t);
+    p.bumpMax = p.bumps.reduce((m, b) => Math.max(m, b.expiresAt), 0);
+  }
   function find(id) { return room.players.find(p => p.id === id); }
   function playerBySession(sid) {
     if (!sid) return null;
@@ -126,7 +153,15 @@ function createRoom() {
       sessionId,
       input: { up: false, down: false, left: false, right: false },
       walk: 0,
-      skills: makeSkills(faction)
+      skills: makeSkills(faction),
+      // 肢体互动状态。纯表播字段，不参与血量 / S-ID / 技能 / 淘汰结算。
+      jumpStartedAt: 0,
+      stunUntil: 0,
+      bumps: [],
+      bumpMax: 0,
+      hammerCooldownUntil: 0,
+      lastSwingAt: 0,
+      lastHitAt: 0
     };
     room.players.push(player);
     room.sessions.set(sessionId, id);
@@ -136,6 +171,61 @@ function createRoom() {
     // cookie across a browser restart, so the page keeps this in sessionStorage and
     // replays it as a header. Identity is still never claimable by nickname.
     return { player, revived: false, sessionToken: sessionId };
+  }
+  // 开发用 NPC：真玩家（进 room.players、占 id、进公共快照与名单），这样单人也能把
+  // 探查 / 指认 / 刺探 / 击杀 / 锤击整条流程走通。
+  // 因此它必然计入 aliveCount 与 checkFinish——这是既有规则的必然结果，不是新规则：
+  // 开发时击杀 NPC 可能直接把存活人数打到 2 触发结束，重置即可，不要以为是 bug。
+  // 约束：阵营恒为 good（永不坏人）；不进 room.sessions（永不能被昵称或会话认领）；
+  // 不写公共日志；纯站立（input 全 false，不漫游、不跳、不挥锤、不用技能）。
+  function npcSpot(near, i) {
+    // 基准 50 而不是 60：锤击范围是 58px，50 保证刚加进来的 NPC 就在手边，不用先走两步。
+    const sign = i % 2 ? 1 : -1, step = 50 + Math.floor(i / 2) * 40;
+    const clampX = v => Math.max(WORLD.MIN_X, Math.min(WORLD.MAX_X, v));
+    const clampY = v => Math.max(WORLD.MIN_Y, Math.min(WORLD.MAX_Y, v));
+    const baseX = clampX(near.x + sign * step), baseY = clampY(near.y + (i % 4 < 2 ? 12 : -12));
+    for (let k = 0; k < 16; k++) {
+      const x = clampX(baseX + (k % 4) * 6), y = clampY(baseY + Math.floor(k / 4) * 6);
+      if (!collides(x, y)) return { x, y };
+    }
+    return { x: clampX(near.x), y: clampY(near.y) };
+  }
+  function spawnNpc(count, near) {
+    const n = Math.max(1, Math.min(5, Math.floor(Number(count) || 1)));
+    const made = [];
+    for (let i = 0; i < n; i++) {
+      const id = room.players.length;
+      const raw = 'NPC·' + pick(NAME_POOL);
+      const name = room.players.some(p => p.name === raw) ? uniqueName(raw) : raw;
+      const spot = npcSpot(near || { x: 430, y: 340 }, i);
+      const player = {
+        id,
+        name,
+        colors: randomColors(),
+        traits: randomTraits(),
+        traitPublic: { saying: false, food: false, sport: false },
+        sid: makeSidState(),
+        faction: 'good', // NPC 恒为好人，永不当坏人
+        hp: 1,
+        alive: true,
+        x: spot.x,
+        y: spot.y,
+        online: true, // NPC 永远在线，没有流也就不会进离线扫描
+        lastSeen: now(),
+        sessionId: null, // 永不能被昵称或会话认领
+        npc: true,
+        input: { up: false, down: false, left: false, right: false },
+        walk: 0,
+        skills: makeSkills('good'),
+        jumpStartedAt: 0, stunUntil: 0, bumps: [], bumpMax: 0,
+        hammerCooldownUntil: 0, lastSwingAt: 0, lastHitAt: 0
+      };
+      room.players.push(player);
+      room.pending.set(id, []);
+      // 完整 S-ID 只回给这台本机授权会话，不进公共投影、不写公共日志。
+      made.push({ id: player.id, name: player.name, sid: player.sid.segments.join('-'), x: player.x, y: player.y });
+    }
+    return made;
   }
   function setOffline(id) {
     const p = find(id);
@@ -154,7 +244,10 @@ function createRoom() {
     if (room.finished) return;
     const t = now();
     for (const p of room.players) {
-      if (!p.alive || !p.online) continue;
+      expireBumps(p, t);
+      // 被敲晕者与淘汰 / 离线一样原地不动；stunUntil 是绝对时间戳，离线或淘汰期间也会自然到期。
+      const stunned = t < p.stunUntil;
+      if (!p.alive || !p.online || stunned) continue;
       let dx = Number(p.input.right) - Number(p.input.left);
       let dy = Number(p.input.down) - Number(p.input.up);
       const len = Math.hypot(dx, dy);
@@ -199,7 +292,34 @@ function createRoom() {
       }
     };
   }
-  function publicProjection(p) {
+  // 肢体互动字段只在「亲眼可见」时下发：锤戏是互动感，不是公共信息。
+  // 摄像机横向跟随自己：camX = clamp(x - VIEW_W/2, 0, WORLD_W - VIEW_W)，左右各留 VIEW_MARGIN 余量。
+  // 纵向地图只有一屏高（640），不做纵向裁剪。自己永远看得见自己的状态。
+  // 不传 viewerId 时一律可见（服务端内部拼日志文案用，只读 sid，不涉及锤戏字段）。
+  // 余量必须大于「客户端绘制余量 40」+「插值 / 瞬移 / 切后台导致的两端镜头误差」。
+  // 客户端用插值后的渲染 x 算镜头，服务端用权威 x，稳态差约 13px，但卡顿或瞬移会瞬间拉大，
+  // 余量取 140 就是为了在任何情况下都不会出现"人在屏幕上但锤戏字段被抹成 0"的穿帮。
+  const VIEW_MARGIN = 140;
+  function cameraXOf(viewer) {
+    return Math.max(0, Math.min(WORLD.WORLD_W - WORLD.VIEW_W, viewer.x - WORLD.VIEW_W / 2));
+  }
+  // viewer / camX 由 publicSnapshot 算一次传进来，避免每个玩家都线性查一遍观察者。
+  function visibleTo(viewer, camX, target) {
+    if (!viewer || viewer.id === target.id) return true;
+    return target.x >= camX - VIEW_MARGIN && target.x <= camX + WORLD.VIEW_W + VIEW_MARGIN;
+  }
+  // 裁剪契约（改动前先读这段）：
+  // 1. 不可见即把锤戏字段置 0，并额外下发 visible:false；数值字段保持 0 而不是 null，
+  //    这样客户端永远不必判空。visible 是唯一的语义开关——0 表示"看不见"，不是"真的没晕"。
+  // 2. 可见区间 ±140 严格宽于客户端绘制区间 ±40，所以任何被画出来的角色拿到的都是真实值，
+  //    不会出现"人在屏幕上但肿包/锤子被抹成 0"的穿帮。
+  // 3. 被裁剪的只有锤戏局部表现字段（z/stunUntil/bumps/bumpUntil/swingAt/hitAt）；
+  //    公共日志、S-ID、存活、位置、颜色、已公开属性对所有视角完全一致，不随观察者变化。
+  // 只追加画面必需的肢体互动字段；阵营 / 血量 / 技能 / 锤击者身份一律不进入公共投影。
+  function publicProjection(p, viewer, camX) {
+    const t = now();
+    expireBumps(p, t);
+    const seen = visibleTo(viewer, camX, p);
     return {
       id: p.id,
       name: p.name,
@@ -209,7 +329,15 @@ function createRoom() {
       y: p.y,
       colors: p.colors,
       traits: Object.fromEntries(Object.keys(p.traits).map(k => [k, p.traitPublic[k] ? p.traits[k] : WORLD.MASK])),
-      sid: p.sid.segments.map((s, i) => p.sid.revealed[i] ? s : WORLD.MASK).join('-')
+      sid: p.sid.segments.map((s, i) => p.sid.revealed[i] ? s : WORLD.MASK).join('-'),
+      // 看不见的人：字段仍在，但一律归零，屏幕外推不出任何锤戏事实。
+      visible: seen,
+      z: seen ? heightOf(p, t) : 0,
+      stunUntil: seen ? p.stunUntil : 0,
+      bumps: seen ? Math.min(p.bumps.length, A.maxBumps) : 0,
+      bumpUntil: seen ? p.bumpMax : 0,
+      swingAt: seen ? p.lastSwingAt : 0,
+      hitAt: seen ? p.lastHitAt : 0
     };
   }
   function privateProjection(p) {
@@ -227,13 +355,17 @@ function createRoom() {
       pending: (room.pending.get(p.id) || []).map(projectEvent)
     };
   }
-  function publicSnapshot() {
+  // viewerId 可选：传入后 players 里的肢体互动字段按该观察者的镜头裁剪。
+  // 每条 SSE 流本来就各自拼一份 payload，所以这里只是让公有部分带视角，广播机制不变。
+  function publicSnapshot(viewerId) {
+    const viewer = viewerId === undefined || viewerId === null ? null : find(viewerId);
+    const camX = viewer ? cameraXOf(viewer) : 0;
     return {
       type: 'snapshot',
       serverTime: now(),
       finished: room.finished,
       aliveCount: room.players.filter(p => p.alive).length,
-      players: room.players.map(publicProjection),
+      players: room.players.map(p => publicProjection(p, viewer, camX)),
       logs: room.logs.slice(),
       config: { chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs }
     };
@@ -350,6 +482,44 @@ function createRoom() {
     }
     return resolved;
   }
+  // 肢体互动：跳跃 / 挥锤。服务端权威，客户端只提交 kind，不自行判定命中或击晕。
+  // 刻意与技能系统完全隔离：不扣血、不公开 S-ID、不消耗技能次数、不写公共日志。
+  function performAction(id, kind) {
+    const t = now();
+    if (room.finished) return reject('本局已结束，动作已冻结');
+    const actor = find(Number(id));
+    if (!actor) return reject('身份无效，请重新加入');
+    if (!actor.alive) return reject('你已淘汰，不能做动作');
+    if (t < actor.stunUntil) return reject('你还被敲晕着');
+    if (kind === 'jump') {
+      // 已在空中（进度严格落在 0~1 之间）就不能二段跳。
+      const k = (t - actor.jumpStartedAt) / A.jumpMs;
+      if (actor.jumpStartedAt && k > 0 && k < 1) return reject('你还在空中');
+      actor.jumpStartedAt = t;
+      return { ok: true, kind: 'jump' };
+    }
+    if (kind !== 'hammer') return reject('未知动作');
+    if (t < actor.hammerCooldownUntil) return reject('锤子还没抡回来');
+    // 无论是否命中都进入冷却：空挥同样要等锤子抡回来。
+    actor.hammerCooldownUntil = t + A.hammerCooldownMs;
+    actor.lastSwingAt = t;
+    let best = null, bestDist = Infinity;
+    for (const q of room.players) {
+      if (q.id === actor.id || !q.alive) continue;
+      // 离线者沿用既有约定：可被作用，效果一致。
+      const dist = Math.hypot(q.x - actor.x, q.y - actor.y);
+      if (dist > A.hammerRange || dist >= bestDist) continue;
+      if (airborne(q, t)) continue; // 腾空窗口内的人躲开了这一锤
+      best = q; bestDist = dist;
+    }
+    if (!best) return { ok: true, kind: 'hammer', targetId: null, hit: false };
+    best.stunUntil = t + A.stunMs;
+    best.lastHitAt = t;
+    best.bumps.push({ expiresAt: t + A.bumpMs });
+    if (best.bumps.length > A.maxBumps) best.bumps.shift();
+    best.bumpMax = best.bumps.reduce((m, b) => Math.max(m, b.expiresAt), 0);
+    return { ok: true, kind: 'hammer', targetId: best.id, hit: true };
+  }
   function reset() {
     room.players = [];
     room.logs = [];
@@ -371,7 +541,7 @@ function createRoom() {
     streams.clear();
   }
   return {
-    room, streams, now, join, setOffline, setIntent, step, useSkill, ack,
+    room, streams, now, join, setOffline, setIntent, step, useSkill, performAction, spawnNpc, ack,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
     playerBySession, find, config: SKILL_CONFIG
   };

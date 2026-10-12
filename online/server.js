@@ -117,13 +117,13 @@ function openStream(req, res, player) {
   // dropped TCP connection visible: a write to a dead socket surfaces the failure, and
   // the sweep below is the deterministic fallback that marks the player offline.
   const write = payload => { res.write(`data: ${JSON.stringify(payload)}\n\n`); };
-  try { write({ ...ROOM.publicSnapshot(), me: ROOM.privateSnapshot(player.id).me }); } catch { }
+  try { write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me }); } catch { }
   const entry = { res, lastAck: Date.now() };
   ROOM.streams.set(player.id, entry);
   const timer = setInterval(() => {
     try {
       if (res.writableEnded || res.destroyed) throw new Error('closed');
-      write({ ...ROOM.publicSnapshot(), me: ROOM.privateSnapshot(player.id).me });
+      write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
       entry.lastAck = Date.now();
       res.write(': ping\n\n');
     } catch { close(); }
@@ -166,6 +166,17 @@ async function route(req, res, url) {
     ROOM.setIntent(player.id, body);
     return send(res, 200, { ok: true });
   }
+  // 肢体互动（跳跃 / 挥锤）：只提交 kind，命中、击晕、冷却全部由服务端判定。
+  // 刻意不做 commandId 去重：/api/skill 需要它是因为技能会消耗次数（重放会导致重复扣次），
+  // 而本通道不消耗任何资源，写入的全是绝对时间戳，重复请求被冷却 / 腾空检查挡成空操作。
+  if (pathname === '/api/action' && req.method === 'POST') {
+    const body = await readBody(req);
+    const player = ROOM.playerBySession(sessionOf(req));
+    if (!player) return send(res, 401, { error: 'no identity' });
+    player.online = true;
+    const result = ROOM.performAction(player.id, body.kind);
+    return send(res, result.ok ? 200 : 400, result);
+  }
   if (pathname === '/api/skill' && req.method === 'POST') {
     const body = await readBody(req);
     const result = ROOM.useSkill(sessionOf(req), body);
@@ -181,7 +192,7 @@ async function route(req, res, url) {
   if (pathname === '/api/state' && req.method === 'GET') {
     const player = ROOM.playerBySession(sessionOf(req));
     if (!player) return send(res, 401, { error: 'no identity' });
-    return send(res, 200, { ...ROOM.publicSnapshot(), me: ROOM.privateSnapshot(player.id).me });
+    return send(res, 200, { ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
   }
   if (pathname === '/api/dev/capabilities') {
     if (req.method !== 'GET') return send(res, 405, { canReset: false });
@@ -218,6 +229,19 @@ async function route(req, res, url) {
     res.setHeader('Set-Cookie', 'sid_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
     return send(res, 200, { ok: true, reset: true });
   }
+  // 开发用 NPC：门禁与 /api/host/* 完全一致（trustedDevRequest + JSON + 已加入身份 + CSRF）。
+  // 不加二次确认——它是新增而非清空，开发期反复加 NPC 是高频动作。删除不做，重置即清空。
+  if (pathname === '/api/dev/npc') {
+    if (req.method !== 'POST') return send(res, 405, { error: '管理操作仅允许POST' });
+    if (!trustedDevRequest(req, true)) return send(res, 403, { error: '开发管理未启用或来源无权' });
+    if ((req.headers['content-type'] || '').split(';')[0].trim() !== 'application/json') return send(res, 415, { error: '管理操作仅允许JSON' });
+    const sid = sessionOf(req);
+    const me = ROOM.playerBySession(sid);
+    if (!me) return send(res, 401, { error: '身份凭证已失效' });
+    const body = await readBody(req);
+    if (!resetTokens.has(sid) || body.csrfToken !== resetTokens.get(sid)) return send(res, 403, { error: '管理凭证无效' });
+    return send(res, 200, { ok: true, npcs: ROOM.spawnNpc(body.count, me) });
+  }
   if (process.env.SID_TEST === '1' && pathname.startsWith('/api/test/')) {
     const action = pathname.replace('/api/test/', '');
     const body = req.method === 'POST' ? await readBody(req) : {};
@@ -228,10 +252,20 @@ async function route(req, res, url) {
     if (action === 'streams') {
       return send(res, 200, { ok: true, count: ROOM.streams.size, entries: [...ROOM.streams].map(([playerId, e]) => ({ playerId, lastAck: e.lastAck, ago: Date.now() - e.lastAck, destroyed: e.res.destroyed })) });
     }
+    if (action === 'place') {
+      const owner = body.playerId === undefined || body.playerId === null
+        ? ROOM.playerBySession(sessionOf(req))
+        : ROOM.find(Number(body.playerId));
+      if (!owner) return send(res, 404, { error: 'player not found' });
+      if (Number.isFinite(Number(body.x))) owner.x = Number(body.x);
+      if (Number.isFinite(Number(body.y))) owner.y = Number(body.y);
+      return send(res, 200, { ok: true, playerId: owner.id, x: owner.x, y: owner.y });
+    }
     if (action === 'state') {
       return send(res, 200, {
         ok: true,
-        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills })),
+        // npc / hasSession 供自测断言 NPC 不可被会话认领；真实会话令牌不下发。
+        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills, npc: !!p.npc, hasSession: !!p.sessionId })),
         finished: ROOM.room.finished,
         eliminateEvents: ROOM.room.eliminateEvents
       });

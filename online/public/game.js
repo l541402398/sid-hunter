@@ -11,6 +11,8 @@
   const fieldNames = WORLD.FIELD_NAMES, traitNames = WORLD.TRAIT_NAMES, MASK = WORLD.MASK;
   const palettes = WORLD.PALETTES, zones = WORLD.ZONES;
   const furniture = WORLD.makeFurniture();
+  // 肢体互动常量与服务端共用同一份 world.js；渲染层只读，不自行判定命中或击晕。
+  const ACTION = WORLD.ACTION;
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
@@ -54,7 +56,7 @@
   let selectedId = null, cameraX = 0, clock = 0;
   let privateOpen = false, mineOpen = false, pending = null, privateResult = '';
   const revealedFieldIds = new Set();
-  let devCsrf = null, resetBusy = false;
+  let devCsrf = null, resetBusy = false, npcBusy = false;
   let sessionToken = null, stream = null, awaitingFirst = true, lastSkillTick = -1;
   let lastTargetSig = '', lastLogSig = '', lastRosterSig = '';
   const offlineEvents = new Set();
@@ -153,7 +155,7 @@
         ? { spy: me.skills.probe, kill: me.skills.action }
         : { probe: me.skills.probe, accuse: me.skills.action } };
     }
-    for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false });
+    for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false, facing: 1 });
     if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
     renderPublic();
     syncTarget();
@@ -377,13 +379,14 @@
     }
   }
   async function loadCapabilities() {
-    devCsrf = null; $('dev-reset').hidden = true; $('dev-management').hidden = true;
+    devCsrf = null; $('dev-reset').hidden = true; $('dev-npc').hidden = true; $('dev-management').hidden = true;
     const expectedSession = sessionToken;
     try {
       const cap = await api('/api/dev/capabilities', null, 'GET');
       if (expectedSession !== sessionToken || !me) return;
       if (cap.status === 200 && cap.canReset === true && typeof cap.csrfToken === 'string' && cap.csrfToken) {
-        devCsrf = cap.csrfToken; $('dev-reset').hidden = false; $('dev-management').hidden = false;
+        devCsrf = cap.csrfToken;
+        $('dev-npc').hidden = false; $('dev-reset').hidden = false; $('dev-management').hidden = false;
       }
     } catch { /* Older backend, denied, or network failure: fail closed. */ }
   }
@@ -397,7 +400,7 @@
     $('target').replaceChildren(); $('target').hidden = true;
     $('candidates').replaceChildren(); $('candidates').hidden = true;
     $('offline-summary').replaceChildren(); $('offline-summary').hidden = true;
-    $('dev-reset').hidden = true; $('dev-management').hidden = true; closeResetDialog(false);
+    $('dev-reset').hidden = true; $('dev-npc').hidden = true; $('dev-management').hidden = true; closeResetDialog(false);
     if ($('rules-view').open) closeRules();
     renderPublic(); renderRoster(); renderLogs(); updateOfflineUI();
     $('join-page').hidden = false; $('join-error').textContent = '本局已重置，请主动加入新局。';
@@ -409,6 +412,19 @@
     resetDialog.close();
     if (returnFocus && !$('dev-reset').hidden) $('dev-reset').focus({ preventScroll: true });
   }
+  // 开发用 NPC：新增而非清空，所以不套二次确认弹窗。完整 S-ID 只在这里出现（本机开发可见）。
+  $('dev-npc').onclick = async () => {
+    if (!devCsrf || npcBusy) return;
+    npcBusy = true; $('dev-npc').disabled = true;
+    const csrfToken = devCsrf;
+    try {
+      const result = await api('/api/dev/npc', { count: 1, csrfToken });
+      const npc = result && result.npcs && result.npcs[0];
+      if (result && result.status === 200 && result.ok && npc) showToast(`已加入好人NPC：${npc.name} · SID ${npc.sid}`);
+      else { devCsrf = null; $('dev-npc').hidden = true; showToast((result && result.error) || '添加NPC失败或结果未确认。'); }
+    } catch { devCsrf = null; $('dev-npc').hidden = true; showToast('添加NPC结果未确认；请勿重复操作。'); }
+    finally { npcBusy = false; $('dev-npc').disabled = false; }
+  };
   $('dev-reset').onclick = () => {
     if (resetBusy || !devCsrf) return;
     clearAllInput();
@@ -673,6 +689,77 @@
   }
   buildBackground();
 
+  // ---- 肢体互动表现：肿包 / 眩晕星星 / 挥锤 / 命中星芒 ----
+  // 全部只读服务端快照里的 bumps / bumpUntil / stunUntil / swingAt / hitAt，渲染层不做任何判定。
+  function drawBumps(p, x, yb, a) {
+    const n = Math.min(ACTION.maxBumps, Number(p.bumps) || 0);
+    if (!n) return;
+    // 到期前 1.5 秒按剩余时间比例缩小淡出。
+    const remain = (Number(p.bumpUntil) || 0) - serverTime;
+    const k = remain < 1500 ? Math.max(0, remain / 1500) : 1;
+    if (k <= 0) return;
+    ctx.globalAlpha = a * (.5 + .5 * k);
+    const offsets = [[-7, -1], [1, -4], [7, -1]];
+    for (let i = 0; i < n; i++) {
+      const r = Math.max(1, Math.round(4 * k));
+      const cx = x + offsets[i][0], cy = yb - 49 + offsets[i][1] - Math.round(2 * k);
+      rect(cx - r - 1, cy - r - 1, r * 2 + 3, r * 2 + 3, '#2a1a1c');
+      rect(cx - r, cy - r, r * 2 + 1, r * 2 + 1, '#e08a7a');
+      rect(cx - r + 1, cy - r + 1, Math.max(1, r), 1, '#f2b6a8');
+    }
+    ctx.globalAlpha = a;
+  }
+  function pixelStar(cx, cy, dark, light) {
+    rect(cx - 3, cy, 7, 1, dark); rect(cx, cy - 3, 1, 7, dark);
+    rect(cx - 2, cy, 5, 1, light); rect(cx, cy - 2, 1, 5, light);
+    rect(cx - 1, cy - 1, 3, 3, '#fff6d8');
+  }
+  // 眩晕只画旋转星星 + 身体摇晃，绝不灰度化：灰度是离线专属视觉。
+  function drawStunStars(x, yb, a) {
+    ctx.globalAlpha = a;
+    const cy = yb - 58;
+    for (let i = 0; i < 3; i++) {
+      const ang = clock * 3.6 + i * (Math.PI * 2 / 3);
+      pixelStar(x + Math.round(Math.cos(ang) * 12), cy + Math.round(Math.sin(ang) * 4), '#6b4a12', '#ffd85e');
+    }
+  }
+  // 挥锤后 300ms 内画一把像素锤子，从抬起插值到劈下；朝向只用渲染层自己的 facing。
+  function drawSwing(p, x, yb, a) {
+    const since = serverTime - (Number(p.swingAt) || 0);
+    if (!(since >= 0 && since < 300)) return;
+    const k = since / 300, ease = k * k * (3 - 2 * k);
+    const facing = p.facing === -1 ? -1 : 1;
+    const ang = (-100 + 118 * ease) * Math.PI / 180;
+    const hx = x + facing * 12, hy = yb - 28;
+    const hx2 = hx + Math.cos(ang) * facing * 13, hy2 = hy + Math.sin(ang) * 13;
+    ctx.globalAlpha = a;
+    for (let i = 1; i <= 8; i++) {
+      const px = hx + (hx2 - hx) * (i / 8), py = hy + (hy2 - hy) * (i / 8);
+      rect(px - 2, py - 2, 5, 5, '#1c1620');
+    }
+    for (let i = 1; i <= 8; i++) {
+      const px = hx + (hx2 - hx) * (i / 8), py = hy + (hy2 - hy) * (i / 8);
+      rect(px - 1, py - 1, 3, 3, '#8a5f3a');
+    }
+    rect(hx2 - 6, hy2 - 5, 13, 11, '#1c1620');
+    rect(hx2 - 5, hy2 - 4, 11, 9, '#9aa0a6');
+    rect(hx2 - 5, hy2 - 4, 11, 2, '#c3c8cd');
+    rect(hx2 - 5, hy2 + 3, 11, 2, '#6f757b');
+  }
+  // 被敲中后 250ms 内在头顶爆开几根白色短星芒。
+  function drawHitBurst(p, x, yb, a) {
+    const since = serverTime - (Number(p.hitAt) || 0);
+    if (!(since >= 0 && since < 250)) return;
+    const k = since / 250, rad = 5 + 13 * k;
+    ctx.globalAlpha = a * (1 - k);
+    const n = 5, cy = yb - 46;
+    for (let i = 0; i < n; i++) {
+      const ang = -Math.PI / 2 + (i - (n - 1) / 2) * .52;
+      const sx = x + Math.round(Math.cos(ang) * rad), sy = cy + Math.round(Math.sin(ang) * rad);
+      rect(sx - 2, sy, 5, 1, '#ffffff'); rect(sx, sy - 2, 1, 5, '#ffffff');
+    }
+  }
+
   // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
   // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
   function sprite(p) {
@@ -686,14 +773,30 @@
     const OL = '#1c1620';
     const ph = p.walk * .13, sw = p.moving ? Math.sin(ph) : 0;
     const bob = p.moving ? -Math.round(Math.abs(Math.sin(ph)) * 2) : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7);
-    const yb = Math.round(p.y) + bob;
-    const liftL = Math.max(0, sw) * 2, liftR = Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
+    // 可见性开关：不可见时服务端已把锤戏字段置 0，这里再以 visible 为准显式兜一层，
+    // 让「0 = 看不见」而不是「0 = 真的没晕」这件事在渲染层也是写明的，防止后人误读。
+    const seen = p.visible !== false;
+    // 跳跃只在画面上把整身抬高：地面坐标（点击命中盒、名牌、阴影）一律不变。
+    const z = seen ? (Number(p.z) || 0) : 0, zk = Math.min(1, z / ACTION.jumpHeight);
+    const air = z > 0;
+    const stunned = seen && serverTime < (Number(p.stunUntil) || 0);
+    const wobble = stunned ? Math.round(Math.sin(clock * 17) * 1.5) : 0;
+    const yb = Math.round(p.y) + bob - z;
+    const liftL = air ? 0 : Math.max(0, sw) * 2, liftR = air ? 0 : Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
+    // 腾空时收腿：双脚并拢并抬高 2px。
+    const tuck = air ? 2 : 0;
+    const fx1 = air ? x - 8 : x - 11, fx2 = air ? x - 2 : x + 1;
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
-    ctx.globalAlpha = .3 * a; rect(x - 11, p.y + 2, 22, 5, '#0f0a12'); rect(x - 8, p.y + 1, 16, 6, '#0f0a12');
+    // 地面阴影始终留在 p.y：随高度略微缩小并变淡，不跟着人一起抬高。
+    const sf = 1 - .45 * zk;
+    ctx.globalAlpha = Math.max(0, .3 * a * (1 - .5 * zk));
+    rect(x - Math.round(22 * sf) / 2, p.y + 2, Math.round(22 * sf), 5, '#0f0a12');
+    rect(x - Math.round(16 * sf) / 2, p.y + 1, Math.round(16 * sf), 6, '#0f0a12');
     ctx.globalAlpha = a;
+    ctx.save(); if (wobble) ctx.translate(wobble, 0);
     const parts = [
-      [x - 11, yb - 3 - liftL, 10, 4, shoes], [x + 1, yb - 3 - liftR, 10, 4, shoes],
-      [x - 9, yb - 12, 7, 9 - liftL, pantsLo], [x + 2, yb - 12, 7, 9 - liftR, pantsLo],
+      [fx1, yb - 3 - tuck, 10, 4, shoes], [fx2, yb - 3 - tuck, 10, 4, shoes],
+      [x - 9, yb - 12 - tuck, 7, 9 - liftL, pantsLo], [x + 2, yb - 12 - tuck, 7, 9 - liftR, pantsLo],
       [x - 10, yb - 17, 20, 6, pants],
       [x - 11, yb - 31, 22, 16, top],
       [x - 16, yb - 30 + arm, 5, 12, topLo], [x + 11, yb - 30 - arm, 5, 12, topLo],
@@ -713,14 +816,21 @@
     rect(x - 11, yb - 31, 22, 2, topHi); rect(x - 11, yb - 17, 22, 2, topLo);
     rect(x - 11, yb - 31, 2, 16, shade(top, .1)); rect(x + 9, yb - 31, 2, 16, topLo);
     rect(x - 1, yb - 31, 2, 5, shade(top, -.45)); rect(x - 10, yb - 17, 20, 1, shade(pants, -.5));
-    rect(x - 9, yb - 12, 7, 2, pantsHi); rect(x + 2, yb - 12, 7, 2, pantsHi);
-    rect(x - 11, yb - liftL, 10, 1, shoeLo); rect(x + 1, yb - liftR, 10, 1, shoeLo);
+    rect(x - 9, yb - 12 - tuck, 7, 2, pantsHi); rect(x + 2, yb - 12 - tuck, 7, 2, pantsHi);
+    rect(fx1, yb - tuck, 10, 1, shoeLo); rect(fx2, yb - tuck, 10, 1, shoeLo);
     rect(x - 11, yb - 40, 1, 4, skinLo); rect(x + 10, yb - 40, 1, 4, skinLo);
     rect(x - 8, yb - 45, 4, 1, hairLo); rect(x + 4, yb - 45, 4, 1, hairLo);
     rect(x - 7, yb - 43, 3, 3, '#2b2230'); rect(x + 4, yb - 43, 3, 3, '#2b2230');
     rect(x - 7, yb - 43, 1, 1, '#f4f8ff'); rect(x + 4, yb - 43, 1, 1, '#f4f8ff');
     rect(x - 1, yb - 39, 2, 1, skinLo);
     rect(x - 3, yb - 36, 6, 1, '#a8706a'); rect(x - 4, yb - 37, 1, 1, '#a8706a'); rect(x + 3, yb - 37, 1, 1, '#a8706a');
+    if (seen) {
+      drawBumps(p, x, yb, a);
+      if (stunned) drawStunStars(x, yb, a);
+      drawSwing(p, x, yb, a);
+      drawHitBurst(p, x, yb, a);
+    }
+    ctx.restore();
     ctx.globalAlpha = 1;
     if (p.id === meId && p.id !== selectedId) {
       ctx.globalAlpha = .8 * a; ctx.strokeStyle = '#7cc4ff'; ctx.lineWidth = 1;
@@ -748,7 +858,7 @@
   function drawList() {
     return players.filter(p => p.alive).map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
-      return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving };
+      return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving, facing: r.facing };
     });
   }
   function makeLabels(list) {
@@ -797,12 +907,13 @@
       r.x += dx * k; r.y += dy * k;
       r.moving = Math.hypot(dx, dy) > 0.6;
       if (r.moving) r.walk += Math.hypot(dx * k, dy * k);
+      // 朝向只服务于挥锤表现，纯渲染层维护，不回传服务端。
+      if (Math.abs(dx) > 0.6) r.facing = dx > 0 ? 1 : -1;
     }
     const self = selfPlayer() ? renderMap.get(selfId()) : null;
     if (self) cameraX = clamp(self.x - VW / 2, 0, W - VW);
     const zoneIndex = Math.min(3, Math.floor((self ? self.x : 0) / 960));
     $('zone-name').textContent = zones[zoneIndex];
-    $('coordinate').textContent = `0${Math.min(4, zoneIndex + 1)} / 04`;
     const tick = Math.floor(serverTime / 1000);
     if (tick !== lastSkillTick) { lastSkillTick = tick; if (holding()) updateSkillStatus(); if (mineOpen) renderMine(); }
   }
@@ -863,10 +974,30 @@
   };
   document.addEventListener('pointercancel', clearAllInput, true);
   const isTyping = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || (document.activeElement && document.activeElement.isContentEditable);
+  // 跳跃 / 挥锤额外放行按钮与链接：空格要能正常激活焦点里的按钮，不被游戏劫持。
+  const isActionTarget = () => /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(document.activeElement && document.activeElement.tagName) || !!(document.activeElement && document.activeElement.isContentEditable);
+  // 同一条中文原因 1 秒内不重复弹提示，避免按住键时刷屏。
+  const actionToast = { text: '', at: 0 };
+  async function sendAction(kind) {
+    const r = await api('/api/action', { kind }).catch(() => ({ ok: false, error: '网络异常，动作未执行' }));
+    if (r.ok) return;
+    const msg = r.error || '动作被拒绝';
+    const at = Date.now();
+    if (msg === actionToast.text && at - actionToast.at < 1000) return;
+    actionToast.text = msg; actionToast.at = at;
+    showToast(msg);
+  }
   document.addEventListener('keydown', e => {
     if ($('rules-view').open || $('reset-confirm').open) return;
     if (e.key === 'Escape') { clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return; }
     if (isTyping()) return;
+    if (e.code === 'Space' || e.code === 'KeyJ') {
+      // 服务端权威：这里只提交意图，命中与击晕一律由服务端判定。
+      if (e.repeat || isActionTarget()) return;
+      e.preventDefault();
+      sendAction(e.code === 'Space' ? 'jump' : 'hammer');
+      return;
+    }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) {
       e.preventDefault(); keys.add(e.code); sendIntent(false);
     }
