@@ -9,8 +9,8 @@ import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 const root=dirname(fileURLToPath(import.meta.url));
-const NODE='/Users/jiarunwu/.workbuddy/binaries/node/versions/22.22.2-6/bin/node';
-const CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const NODE=process.execPath;
+const CHROME='C:/Program Files/Google/Chrome/Application/chrome.exe';
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const freePort=()=>new Promise((resolve,reject)=>{const s=createServer();s.once('error',reject);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolve(p));});});
 const results=[]; const children=[]; const clients=[];
@@ -95,7 +95,7 @@ try{
  const before=A.resetRequests;
  for(const action of ['cancel','esc','blur','hidden']){
   await A.click('#dev-reset');assert.equal(await A.eval(`document.getElementById('reset-confirm').open`),true);assert.equal(await A.eval(`document.activeElement.id`),'reset-cancel');
-  const text=await A.eval(`document.getElementById('reset-confirm').textContent`);for(const value of ['全部玩家','身份凭证','公共日志','私密事件','技能次数','本局存活'])assert.ok(text.includes(value));
+  const text=await A.eval(`document.getElementById('reset-confirm').textContent`);for(const value of ['全部玩家','身份凭证','公共日志','私密事件','技能次数','转盘次数','分数','结算排名','存活'])assert.ok(text.includes(value));
   // No screenshot artifact writes in this server-only repair regression.
   if(action==='cancel')await A.click('#reset-cancel');if(action==='esc')await A.key('Escape','Escape',27);if(action==='blur')await A.eval(`window.dispatchEvent(new Event('blur'))`);if(action==='hidden')await A.eval(`Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));delete document.hidden`);
   assert.equal(await A.eval(`document.getElementById('reset-confirm').open`),false);assert.equal(A.resetRequests,before);
@@ -120,6 +120,12 @@ try{
  const options={method:'POST',token,headers:{Origin:live.base},body:{confirm:true,csrfToken:capability.csrfToken}};
  const response=await request(live,'/api/host/finish',options);assert.equal(response.status,200);assert.equal(response.finished,true);
  const after=await roomEvidence(live,token);assert.equal(after.finished,true);assert.deepEqual(after.players.map(({online,...p})=>p),before.players.map(({online,...p})=>p));assert.equal(after.logs.length,before.logs.length+1);
+ assert.equal(after.logs[0].text,'游戏已结束：主持人结束了游戏。');
+ const pubSnap=await request(live,'/api/state',{token});
+ assert.ok(pubSnap.players.every(p=>typeof p.score==='number'),'公开投影含 score');
+ assert.ok(pubSnap.players.every(p=>!('hp' in p)&&!('faction' in p)&&!('skills' in p)),'公开投影不得泄露血量/阵营/技能');
+ assert.deepEqual(Object.keys(pubSnap.rules).sort(),['endRemainingPlayers','endsAt','timeLimitMs']);
+ assert.equal(pubSnap.finishReason,'host');assert.equal(pubSnap.ranking,null);
  const repeated=await request(live,'/api/host/finish',options);assert.equal(repeated.status,200);assert.deepEqual(await roomEvidence(live,token),after);
  const skill=await request(live,'/api/skill',{method:'POST',token,body:{commandId:'finish-frozen',skill:'probe',targetId:1}});assert.equal(skill.ok,false);assert.match(skill.error,/冻结/);
  await request(live,'/api/input',{method:'POST',token,body:{right:true}});await pause(150);assert.deepEqual((await roomEvidence(live,token)).players.map(p=>({id:p.id,x:p.x,y:p.y})),after.players.map(p=>({id:p.id,x:p.x,y:p.y})));

@@ -2,7 +2,7 @@
 // LAN playtest client. Pure presentation: it submits intents and renders snapshots.
 // Position, skill resolution, public state, elimination and finish are all server-side.
 // The furniture layout comes from /shared/world.js, the same file the server loads, so
-// the baked background and the authoritative collision can never drift apart.
+// 家具绘制、深度、遮挡与服务端足迹碰撞共用同一份地图。
 (() => {
   const $ = id => document.getElementById(id);
   const W = WORLD.WORLD_W, H = WORLD.WORLD_H, VW = WORLD.VIEW_W, VH = WORLD.VIEW_H;
@@ -11,7 +11,43 @@
   const fieldNames = WORLD.FIELD_NAMES, traitNames = WORLD.TRAIT_NAMES, MASK = WORLD.MASK;
   const palettes = WORLD.PALETTES, zones = WORLD.ZONES;
   const furniture = WORLD.makeFurniture();
+  const containers = furniture.filter(f => f.container);
+  const furnitureSprites = new Map();
+  const npcs = WORLD.NPCS.map((n, i) => ({ ...n, entityId: n.id, id: -i - 1,
+    npc: true, alive: true, walk: 0, moving: false,
+    colors: Object.fromEntries(Object.entries(palettes).map(([key, options], j) => [key, options[(i + j + 2) % options.length]])) }));
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  // 互动、结束条件、计分与转盘全部读服务端共享配置（window.WORLD），客户端不新增硬编码数值。
+  // world.js 尚未导出新契约时用等价兜底，避免旧版本直接抛错。
+  const RULES = WORLD.RULES || { endRemainingPlayers: 100, timeLimitMs: 7200000 };
+  const WHEEL = WORLD.WHEEL || { slotCount: 10, spinCosts: [0, 1, 2, 4, 6, 9, 12, 16, 20, 25, 30, 36, 42, 49, 56, 64], chipAmounts: [0, 1, 2, 3, 5, 8], specialCount: { good: 2, bad: 2 }, specials: { good: ['clue'], bad: ['reform', 'rebirth'] } };
+  const WHEEL_ITEMS = WORLD.WHEEL_ITEMS || {
+    clue: { key: 'clue', label: '线索券', desc: '获取一名坏人的一条线索', color: '#3B82F6', glyph: '?' },
+    reform: { key: 'reform', label: '洗心革面券', desc: '将自己由坏人转换为好人', color: '#22C55E', glyph: '♻' },
+    rebirth: { key: 'rebirth', label: '轮回券', desc: '重新随机自己的身份特征', color: '#EF4444', glyph: '↻' }
+  };
+  const WHEEL_CHIP_COLOR = WORLD.WHEEL_CHIP_COLOR || '#F59E0B';
+  function wheelSpinCost(priorSpins) {
+    if (typeof WORLD.wheelSpinCost === 'function') return WORLD.wheelSpinCost(priorSpins);
+    const costs = WHEEL.spinCosts, i = Math.max(0, Math.min(costs.length - 1, priorSpins | 0));
+    return costs[i];
+  }
+  // 预览用的服务端同构池；服务端 buildWheelPool 存在时优先使用。落点始终以服务端返回的 slots 为准。
+  function buildWheelPool(faction) {
+    if (typeof WORLD.buildWheelPool === 'function') return WORLD.buildWheelPool(faction);
+    const key = faction === 'bad' ? 'bad' : 'good', slots = [];
+    const specials = WHEEL.specials[key] || [], specialCount = WHEEL.specialCount[key] || 0;
+    for (let i = 0; i < specialCount; i++) {
+      const item = WHEEL_ITEMS[specials[i % specials.length]];
+      if (item) slots.push({ kind: 'special', key: item.key, label: item.label, desc: item.desc, color: item.color, glyph: item.glyph });
+    }
+    for (let ci = 0; slots.length < WHEEL.slotCount; ci++) {
+      const amount = WHEEL.chipAmounts[ci % WHEEL.chipAmounts.length];
+      slots.push({ kind: 'chips', amount, label: String(amount), color: WHEEL_CHIP_COLOR, glyph: '●' });
+    }
+    for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = slots[i]; slots[i] = slots[j]; slots[j] = t; }
+    return slots;
+  }
 
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
   ctx.imageSmoothingEnabled = false;
@@ -53,6 +89,9 @@
   let finished = false, aliveCount = 0, outCount = 0, serverTime = Date.now();
   let selectedId = null, cameraX = 0, clock = 0;
   let privateOpen = false, mineOpen = false, pending = null, privateResult = '';
+  let sessionGeneration = 0, privateGeneration = 0, explorationGeneration = 0;
+  let explorationPanel = null, explorationResult = '', interactionFlight = null;
+  let explorationDataSig = '', nearbySig = '';
   const revealedFieldIds = new Set();
   let devCsrf = null, resetBusy = false;
   let sessionToken = null, stream = null, awaitingFirst = true, lastSkillTick = -1;
@@ -61,6 +100,20 @@
   const renderMap = new Map();
   const keys = new Set();
   let lastIntent = '', toastTimer;
+  // 新增互动状态：仅在自身私有投影与公开投影之间读取，不引入任何新身份线索。
+  let serverPerfBase = performance.now(), combatResult = '', gamesResult = '', rpsChoice = 'rock';
+  let combatFlight = null, gamesFlight = null, gamesDomReady = false;
+  // 新增：大转盘覆盖层 / 排行榜 / 结算（均只读私有投影与公开投影，不新增身份线索）。
+  let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
+  let wheelSpinFlight = null, wheelResult = '';
+  let rulesInfo = null, finishReason = '', rankingList = null, finishShown = false, lastRankingSig = '', lastFinishSig = '';
+  // serverTime 只在快照到达时更新；本地用单调时钟插值，避免计时与动画在快照间隙抖动/闪烁。
+  function serverNow() { return serverTime + (performance.now() - serverPerfBase); }
+  function selfDisabled() {
+    if (!me || !me.combat) return false;
+    const t = serverNow();
+    return t < (me.combat.stunUntil || 0) || t < (me.combat.freezeUntil || 0);
+  }
 
   function selfId() { return me ? me.id : -1; }
   function selfPlayer() { return players.find(p => p.id === selfId()) || null; }
@@ -105,8 +158,12 @@
     // It is the same random credential as the HttpOnly cookie; identity is never derived
     // from a nickname.
     stream = new EventSource(token ? `/api/stream?sid_token=${encodeURIComponent(token)}` : '/api/stream');
-    stream.addEventListener('reset', resetToJoin);
-    stream.onmessage = event => { try { applySnapshot(JSON.parse(event.data)); } catch { } };
+    const activeStream = stream, generation = sessionGeneration;
+    stream.addEventListener('reset', () => { if (stream === activeStream) resetToJoin(); });
+    stream.onmessage = event => {
+      if (stream !== activeStream || generation !== sessionGeneration) return;
+      try { applySnapshot(JSON.parse(event.data)); } catch { }
+    };
     stream.onerror = () => { /* EventSource retries on its own with the advertised retry. */ };
   }
   async function join(nickname) {
@@ -136,9 +193,15 @@
   // ---------- 快照消费 ----------
   function applySnapshot(s) {
     if (!s || s.type !== 'snapshot') return;
-    if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) clearPrivate(true);
+    if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) {
+      sessionGeneration++; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel();
+    }
     serverTime = s.serverTime || Date.now();
+    serverPerfBase = performance.now();
     finished = !!s.finished;
+    if (s.rules) rulesInfo = s.rules;
+    rankingList = Array.isArray(s.ranking) ? s.ranking : null;
+    if (typeof s.finishReason === 'string') finishReason = s.finishReason;
     logs = s.logs || [];
     players = s.players || [];
     aliveCount = players.filter(p => p.alive).length;
@@ -158,7 +221,19 @@
     renderPublic();
     syncTarget();
     if (mineOpen) renderMine();
+    syncExploration(); updateExplorationHUD();
+    syncGames(); updateCombatHUD();
     updateOfflineUI();
+    updateScoreDisplay(); syncTimeLeft(); syncRanking();
+    if (wheelOpen) updateWheelControls();
+    // 结算只自动弹出一次：关闭后不因 20Hz 快照反复弹出，新一轮开始时重置。
+    if (finished) {
+      if (!$('finish-overlay').hidden) renderFinish();
+      else if (!finishShown) { finishShown = true; showFinish(); }
+    } else {
+      finishShown = false;
+      if (!$('finish-overlay').hidden) hideFinish();
+    }
   }
 
   // ---------- 名单 / 日志 / 目标档案 ----------
@@ -234,7 +309,7 @@
   function renderPublic() {
     $('alive-count').textContent = aliveCount;
     $('out-count').textContent = outCount;
-    $('player-count').textContent = `${players.length} 位玩家 · 服务端权威${finished ? ' · 本局已结束' : ''}`;
+    $('player-count').textContent = `${players.length} 位玩家 · 服务端权威${finished ? ' · 游戏已结束' : ''}`;
     $('roster-count').textContent = players.length;
     renderRoster(); renderLogs();
   }
@@ -247,14 +322,14 @@
     renderTarget();
   }
   function clearPrivate(clearMy) {
-    privateOpen = false; pending = null; privateResult = '';
+    privateGeneration++; privateOpen = false; pending = null; privateResult = '';
     const block = $('private-content'); if (block) block.replaceChildren();
     const gate = $('private-gate'); if (gate) { gate.textContent = '展开私密操作'; gate.setAttribute('aria-expanded', 'false'); }
     if (clearMy) closeMine();
   }
-  function clearAllInput() { keys.clear(); sendIntent(true); clearPrivate(true); }
+  function clearAllInput() { keys.clear(); sendIntent(true); clearPrivate(true); closeExploration(); closeGames(); closeWheel(); }
   function select(id) {
-    clearPrivate(true); selectedId = id;
+    closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
     lastTargetSig = ''; renderTarget(); renderRoster();
   }
@@ -267,7 +342,7 @@
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     $('private-gate').onclick = () => {
       if (privateOpen) clearPrivate();
-      else { privateOpen = true; renderPrivate(); $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true'); }
+      else { closeExploration(); closeGames(); privateOpen = true; renderPrivate(); $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true'); }
     };
     if (holding()) renderPrivate();
   }
@@ -301,7 +376,7 @@
     if (!holding() || !me) return;
     const p = selected(), info = $('skill-info'); if (!info || !p) return;
     const ids = availableSkills();
-    info.textContent = (!canTarget(p) ? (finished ? '本局已结束，技能已冻结。 ' : '自己或已淘汰目标不可操作。 ') : '')
+    info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : '自己或已淘汰目标不可操作。 ') : '')
       + ids.map(id => skillStatus(id, me.skills[id])).join('；')
       + (me.legacy ? '；运行中服务仍是旧技能版本，四技能需主持人安排重启后生效。' : '');
     for (const id of ids) {
@@ -326,7 +401,9 @@
     const skill = me.legacy ? (requested === 'spy' ? 'probe' : requested === 'accuse' || requested === 'kill' ? 'action' : requested) : requested;
     const body = { commandId: commandId(), skill, targetId: p.id };
     if (pending.kind === 'kill') body.sid = String(input || '');
-    const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，未结算' }));
+    const generation = privateGeneration, session = sessionGeneration;
+    const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，结果未确认' }));
+    if (session !== sessionGeneration || generation !== privateGeneration || !holding()) return false;
     privateResult = result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
     pending = null;
     renderConfirmation(); renderResult(); updateSkillStatus();
@@ -357,7 +434,7 @@
       });
     }
     $('mine-name').textContent = `我的信息 · ${me.name}`;
-    $('mine-alive').textContent = me.alive ? '存活 · 本人档案' : '已淘汰 · 本人档案';
+    $('mine-alive').textContent = (me.alive ? '存活' : '已淘汰') + ` · 本人档案 · 分数 ${typeof me.score === 'number' ? me.score : 0}`;
     const colors = selfPlayer() ? selfPlayer().colors : {};
     const colorHTML = Object.entries(colors).map(([k,c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${escapeText(c[0])}</div>`).join('');
     if ($('mine-colors').innerHTML !== colorHTML) $('mine-colors').innerHTML = colorHTML;
@@ -388,8 +465,14 @@
     } catch { /* Older backend, denied, or network failure: fail closed. */ }
   }
   function resetToJoin() {
+    sessionGeneration++; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
     if (stream) { stream.close(); stream = null; }
-    clearPrivate(true); keys.clear(); lastIntent = '';
+    closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); hideFinish(); keys.clear(); lastIntent = '';
+    combatResult = ''; gamesResult = ''; rpsChoice = 'rock';
+    rulesInfo = null; finishReason = ''; rankingList = null; finishShown = false; lastRankingSig = '';
+    wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
+    nearbySig = ''; $('nearby-items').replaceChildren();
+    $('copy-toast').hidden = true; $('copy-toast').textContent = ''; clearTimeout(toastTimer);
     sessionToken = null; devCsrf = null;
     localStorage.removeItem('sid_session_token'); localStorage.removeItem('sid_lan');
     players = []; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
@@ -399,7 +482,8 @@
     $('offline-summary').replaceChildren(); $('offline-summary').hidden = true;
     $('dev-reset').hidden = true; $('dev-management').hidden = true; closeResetDialog(false);
     if ($('rules-view').open) closeRules();
-    renderPublic(); renderRoster(); renderLogs(); updateOfflineUI();
+    renderPublic(); renderRoster(); renderLogs(); updateOfflineUI(); updateExplorationHUD();
+    syncGames(); updateCombatHUD(); updateScoreDisplay(); syncTimeLeft();
     $('join-page').hidden = false; $('join-error').textContent = '本局已重置，请主动加入新局。';
     $('nickname').value = ''; $('nickname').focus({ preventScroll: true });
   }
@@ -439,6 +523,553 @@
     finally { resetBusy = false; $('dev-reset').disabled = false; $('reset-accept').disabled = false; }
   };
 
+  // ---------- 私密探索：权威奖励只读 me.exploration，不进入公开档案 ----------
+  function explorationState() { return me?.exploration || { chips: 0, clues: [], searched: [] }; }
+  function explorationEntity(kind, id) {
+    return kind === 'container' ? containers.find(f => f.id === id) : kind === 'npc' ? npcs.find(n => n.entityId === id) : null;
+  }
+  function entityDistance(entity) {
+    const self = selfPlayer();
+    return self && entity ? WORLD.distanceToEntity(self, entity) : Infinity;
+  }
+  function nearbyEntities() {
+    if (!me?.alive || finished) return [];
+    return [...containers.map(entity => ({ kind: 'container', id: entity.id, entity })),
+      ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity }))]
+      .filter(({ entity }) => entityDistance(entity) <= WORLD.INTERACT_RANGE)
+      .sort((a, b) => entityDistance(a.entity) - entityDistance(b.entity));
+  }
+  function closeExploration() {
+    explorationGeneration++; explorationPanel = null; explorationResult = ''; explorationDataSig = '';
+    $('exploration').replaceChildren(); $('exploration').hidden = true;
+    $('clue-bag').setAttribute('aria-expanded', 'false');
+  }
+  function openExploration(kind, id = null) {
+    if (!me || (kind !== 'backpack' && !explorationEntity(kind, id))) return;
+    clearAllInput(); selectedId = null; lastTargetSig = '';
+    $('candidates').hidden = true; $('candidates').replaceChildren(); renderTarget(); renderRoster();
+    explorationPanel = { kind, entityId: id };
+    const entity = explorationEntity(kind, id), host = $('exploration');
+    host.hidden = false; $('clue-bag').setAttribute('aria-expanded', String(kind === 'backpack'));
+    const heading = kind === 'backpack' ? '线索背包' : kind === 'container' ? entity.container.name : entity.name;
+    // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
+    host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE EXPLORATION</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭私密探索">×</button></div><div class="exploration-body"><p class="exploration-balance">我的筹码：<strong id="exploration-chips"></strong></p>${kind === 'backpack'
+      ? '<p id="exploration-clue-count" class="panel-note"></p><div id="exploration-clues" class="clue-list"></div>'
+      : `<p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p>${kind === 'npc' ? `<p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="wheel-block"><p class="private-title">大转盘</p><p class="panel-note">10 格等概率 · 首次免费，之后按次数阶梯收费</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div>` : ''}<p class="panel-note">${kind === 'container' ? '每名玩家每个容器限搜一次，奖励由服务端结算。' : `每次 ${entity.cost} 筹码兑换一条尚未拥有的真实隐藏属性线索；无新线索不扣筹码。`}</p><button id="exploration-action">${kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 筹码兑换线索`}</button>`}<p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即销毁显示，不回滚已结算奖励。</p></div>`;
+    $('exploration-close').onclick = closeExploration;
+    if ($('exploration-action')) $('exploration-action').onclick = commitInteraction;
+    if ($('exploration-wheel')) $('exploration-wheel').onclick = () => openWheel(entity.entityId, entity.name);
+    // 远处容器/NPC 仍可打开面板查看，但按钮禁用并给出「靠近」提示。
+    if (kind !== 'backpack' && entityDistance(entity) > WORLD.INTERACT_RANGE) showToast('距离太远，请靠近后再互动（64 像素以内）');
+    syncExploration();
+  }
+  function syncExploration() {
+    if (!explorationPanel || !me) return;
+    const { kind, entityId } = explorationPanel, entity = explorationEntity(kind, entityId);
+    const state = explorationState(), dataSig = JSON.stringify(state);
+    if (dataSig !== explorationDataSig) {
+      explorationDataSig = dataSig;
+      $('exploration-chips').textContent = state.chips;
+      if (kind === 'backpack') {
+        $('exploration-clue-count').textContent = `仅自己可见 · ${state.clues.length} 条真实线索 · 不改变玩家公开档案`;
+        $('exploration-clues').innerHTML = state.clues.length ? state.clues.map(c => `<article class="clue-card"><strong>${escapeText(c.targetName)} · ${escapeText(c.label)}</strong><p>${escapeText(c.text)}</p><small>来源：${escapeText(c.source)}</small></article>`).join('') : '<p class="panel-note">背包为空。靠近容器搜寻，或向 NPC 兑换线索。</p>';
+      }
+    }
+    if (kind !== 'backpack') {
+      const distance = entityDistance(entity), inRange = distance <= WORLD.INTERACT_RANGE;
+      const searched = kind === 'container' && state.searched.includes(entityId);
+      $('exploration-distance').textContent = `距离：${Number.isFinite(distance) ? Math.ceil(distance) + ' 像素' : '未知'} / 范围 ${WORLD.INTERACT_RANGE} · ${inRange ? '可近距离互动' : '距离太远，请靠近后再试'}`;
+      $('exploration-state').textContent = finished ? '游戏已结束，探索已冻结' : !me.alive ? '已淘汰，无法探索' : kind === 'container' ? (searched ? '已搜寻 · 不可重复搜寻' : '未搜寻 · 每人限搜一次') : state.chips < entity.cost ? `筹码不足，需要 ${entity.cost} 筹码` : `可确认支付 ${entity.cost} 筹码兑换`;
+      const button = $('exploration-action');
+      button.disabled = !!interactionFlight || !me.alive || finished || !inRange || searched || (kind === 'npc' && state.chips < entity.cost);
+      button.textContent = interactionFlight ? '正在确认结算…' : kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 筹码兑换线索`;
+      const wheel = $('exploration-wheel');
+      if (wheel) {
+        const spins = wheelSpinsFor(entityId), cost = wheelSpinCost(spins);
+        // 不再因「已领取」禁用：转盘可重复转动，只有淘汰/结束/距离/眩晕才禁用。
+        wheel.disabled = !me.alive || finished || !inRange || selfDisabled();
+        wheel.textContent = '打开大转盘';
+        $('exploration-wheel-state').textContent = !me.alive ? '已淘汰，无法转动'
+          : finished ? '游戏已结束，转盘已冻结'
+            : !inRange ? '距离太远，请靠近后再试'
+              : selfDisabled() ? '眩晕/僵直中，暂时无法互动'
+                : cost > 0 && state.chips < cost ? `第 ${spins + 1} 次 · 需 ${cost} 筹码（当前 ${state.chips}）· 筹码不足`
+                  : `第 ${spins + 1} 次 · ${cost === 0 ? '免费' : `需 ${cost} 筹码（当前 ${state.chips}）`}`;
+      }
+    }
+    $('exploration-result').textContent = explorationResult;
+    $('exploration-result').hidden = !explorationResult;
+  }
+  async function commitInteraction() {
+    if (!explorationPanel || interactionFlight || !me || $('exploration-action')?.disabled) return;
+    const { kind, entityId } = explorationPanel;
+    if (!['container', 'npc'].includes(kind)) return;
+    const request = { session: sessionGeneration, token: sessionToken, panel: explorationGeneration, state: JSON.stringify(explorationState()) };
+    const sameSession = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    const samePanel = () => sameSession() && request.panel === explorationGeneration && !!explorationPanel;
+    interactionFlight = request; explorationResult = ''; keys.clear(); lastIntent = '';
+    syncExploration();
+    try {
+      // 先等待停止意图被服务端确认，再提交探索；提交期间禁止移动与双击。
+      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
+      if (!samePanel()) return;
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const result = await api('/api/interact', { commandId: commandId(), kind: kind === 'container' ? 'search' : 'exchange', entityId });
+      if (!samePanel()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean' || !result.exploration) throw new Error('结算结果未确认');
+      // 相同会话内也不以旧响应覆盖已变化的探索快照。
+      if (request.state === JSON.stringify(explorationState())) me = { ...me, exploration: result.exploration };
+      if (typeof result.score === 'number') me = { ...me, score: result.score };
+      explorationResult = result.resultText || result.error || (result.ok ? '已结算' : '结算被拒绝');
+    } catch {
+      if (samePanel()) explorationResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
+    } finally {
+      if (interactionFlight === request) interactionFlight = null;
+      if (sameSession() && explorationPanel) syncExploration();
+    }
+  }
+  // ---------- 大转盘覆盖层：预览用 buildWheelPool，落点用服务端返回的 slots ----------
+  function wheelSpinsFor(entityId) { return (me && me.games && me.games.wheelSpins && me.games.wheelSpins[entityId]) || 0; }
+  function openWheel(entityId, name) {
+    if (!me || !entityId) return;
+    closeGames(); closeRanking();
+    selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster();
+    wheelTarget = { entityId, name: name || '大转盘' };
+    wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
+    wheelSlots = buildWheelPool(me.faction);
+    wheelOpen = true;
+    const overlay = $('wheel-overlay'); overlay.hidden = false;
+    const result = $('wheel-result'); result.textContent = ''; result.hidden = true;
+    drawWheel(wheelSlots, wheelAngle);
+    updateWheelControls();
+    $('wheel-close').focus({ preventScroll: true });
+  }
+  function closeWheel() {
+    if (!wheelOpen) return;
+    wheelOpen = false; wheelTarget = null; wheelSlots = null; wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
+    if (wheelAnim) { cancelAnimationFrame(wheelAnim); wheelAnim = 0; }
+    const overlay = $('wheel-overlay'); if (overlay) overlay.hidden = true;
+    const result = $('wheel-result'); if (result) { result.textContent = ''; result.hidden = true; }
+    const canvasEl = $('wheel-canvas');
+    if (canvasEl) { const g = canvasEl.getContext('2d'); g.clearRect(0, 0, canvasEl.width, canvasEl.height); }
+  }
+  function showWheelResult() {
+    const result = $('wheel-result'); if (!result) return;
+    result.textContent = wheelResult; result.hidden = !wheelResult;
+  }
+  function updateWheelControls() {
+    if (!wheelOpen || !wheelTarget || !me) return;
+    const spins = wheelSpinsFor(wheelTarget.entityId), chips = explorationState().chips, cost = wheelSpinCost(spins);
+    const busy = !!wheelSpinFlight || wheelAnimating;
+    $('wheel-title').textContent = wheelTarget.name;
+    let costText = cost === 0 ? `第 ${spins + 1} 次：免费` : `第 ${spins + 1} 次：${cost} 筹码（当前 ${chips}）`;
+    if (!me.alive) costText += ' · 已淘汰';
+    else if (finished) costText += ' · 游戏已结束';
+    else if (selfDisabled()) costText += ' · 眩晕/僵直中';
+    else if (cost > chips) costText += ' · 筹码不足';
+    $('wheel-cost').textContent = costText;
+    const button = $('wheel-spin');
+    button.disabled = busy || !me.alive || finished || selfDisabled() || cost > chips;
+    button.textContent = busy ? '转动中…' : '转动转盘';
+    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率。首次免费，之后次数越多越贵（费用见 WHEEL.spinCosts）。${me.faction === 'good' ? '好人转盘含线索券。' : '坏人转盘含洗心革面券与轮回券。'}`;
+  }
+  function drawWheel(slots, angle) {
+    const canvasEl = $('wheel-canvas'); if (!canvasEl) return;
+    const g = canvasEl.getContext('2d');
+    const w = canvasEl.width, h = canvasEl.height, cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 10;
+    g.clearRect(0, 0, w, h);
+    // 外圈：延续像素 / 发光风格的双描边。
+    g.save();
+    g.strokeStyle = WHEEL_CHIP_COLOR; g.globalAlpha = .9; g.lineWidth = 3;
+    g.beginPath(); g.arc(cx, cy, R + 4, 0, Math.PI * 2); g.stroke();
+    g.globalAlpha = .25; g.lineWidth = 8;
+    g.beginPath(); g.arc(cx, cy, R + 9, 0, Math.PI * 2); g.stroke();
+    g.restore();
+    if (!slots || !slots.length) return;
+    const n = slots.length, slice = Math.PI * 2 / n;
+    for (let i = 0; i < n; i++) {
+      const mid = -Math.PI / 2 + i * slice + angle, a0 = mid - slice / 2, a1 = mid + slice / 2, slot = slots[i];
+      g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R, a0, a1); g.closePath();
+      g.fillStyle = slot.color || '#334155'; g.fill();
+      g.strokeStyle = '#0F172A'; g.lineWidth = 2; g.stroke();
+      // 文字沿扇区中线排布；左半圈翻转，保证正向可读。
+      g.save();
+      g.translate(cx + Math.cos(mid) * R * 0.62, cy + Math.sin(mid) * R * 0.62);
+      g.rotate(Math.cos(mid) < 0 ? mid + Math.PI : mid);
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#0F172A';
+      if (slot.kind === 'special') {
+        g.font = '700 19px -apple-system,"PingFang SC",sans-serif';
+        g.fillText(slot.glyph || '★', 0, -9);
+        g.font = '700 11px -apple-system,"PingFang SC",sans-serif';
+        g.fillText(String(slot.label || '').replace('券', '').slice(0, 2), 0, 9);
+      } else {
+        g.font = '700 22px ui-monospace,monospace';
+        g.fillText(String(slot.amount), 0, 0);
+      }
+      g.restore();
+    }
+    // 中心轴。
+    g.beginPath(); g.arc(cx, cy, 34, 0, Math.PI * 2); g.fillStyle = '#0F172A'; g.fill();
+    g.strokeStyle = WHEEL_CHIP_COLOR; g.lineWidth = 3; g.stroke();
+    g.fillStyle = '#E2E8F0'; g.font = '700 14px -apple-system,"PingFang SC",sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('转盘', cx, cy);
+    // 顶部指针：固定不随转盘旋转。
+    g.beginPath(); g.moveTo(cx, cy - R + 16); g.lineTo(cx - 12, cy - R - 12); g.lineTo(cx + 12, cy - R - 12); g.closePath();
+    g.fillStyle = WHEEL_CHIP_COLOR; g.fill(); g.strokeStyle = '#0F172A'; g.lineWidth = 2; g.stroke();
+  }
+  // 旋转动画：4 圈 + 目标角，约 1.2s，缓出；结束时 slotIndex 落在顶部指针处。
+  function animateWheel(slots, slotIndex, done) {
+    if (wheelAnim) { cancelAnimationFrame(wheelAnim); wheelAnim = 0; }
+    const n = slots.length || WHEEL.slotCount, slice = Math.PI * 2 / n;
+    const start = wheelAngle;
+    const startMod = ((start % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const endMod = (((-slotIndex * slice) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const delta = ((endMod - startMod) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const end = start + 4 * Math.PI * 2 + delta, duration = 1200, t0 = performance.now();
+    const ease = t => 1 - Math.pow(1 - t, 3);
+    const tick = now => {
+      const t = Math.min(1, (now - t0) / duration);
+      wheelAngle = start + (end - start) * ease(t);
+      drawWheel(slots, wheelAngle);
+      if (t < 1) wheelAnim = requestAnimationFrame(tick);
+      else { wheelAnim = 0; wheelAngle = endMod; drawWheel(slots, wheelAngle); if (done) done(); }
+    };
+    wheelAnim = requestAnimationFrame(tick);
+  }
+  async function spinWheel() {
+    if (!wheelOpen || !wheelTarget || wheelSpinFlight || !me) return;
+    const entityId = wheelTarget.entityId, button = $('wheel-spin');
+    if (!button || button.disabled) return;
+    const request = { session: sessionGeneration, token: sessionToken };
+    const sameSession = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    const samePanel = () => sameSession() && wheelOpen && wheelTarget && wheelTarget.entityId === entityId;
+    wheelSpinFlight = request; wheelResult = ''; showWheelResult(); keys.clear(); lastIntent = '';
+    updateWheelControls();
+    try {
+      // 沿用既有请求纪律：先确认停止意图，再提交；不做任何本地筹码预扣。
+      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
+      if (!samePanel()) return;
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const result = await api('/api/play', { commandId: commandId(), kind: 'wheel', entityId });
+      if (!samePanel()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结算结果未确认');
+      if (!result.ok) { wheelResult = result.error || '转动被拒绝'; showWheelResult(); updateWheelControls(); return; }
+      const wheel = result.wheel || {};
+      const slots = (Array.isArray(wheel.slots) && wheel.slots.length) ? wheel.slots : buildWheelPool(me.faction);
+      const slotIndex = Number.isInteger(wheel.slotIndex) ? wheel.slotIndex : 0;
+      // 先旋转到落点；动画结束后才采纳投影并显示结果，避免提前泄露筹码变化。
+      wheelSlots = slots;
+      wheelAnimating = true; updateWheelControls();
+      animateWheel(slots, slotIndex, () => {
+        wheelAnimating = false;
+        if (!samePanel()) return;
+        if (result.exploration) me = { ...me, exploration: result.exploration };
+        if (result.games) me = { ...me, games: result.games };
+        if (typeof result.score === 'number') me = { ...me, score: result.score };
+        if (result.faction) me = { ...me, faction: result.faction };
+        wheelResult = result.resultText || '已结算';
+        updateScoreDisplay(); showWheelResult(); updateWheelControls();
+      });
+    } catch {
+      if (samePanel()) { wheelResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showWheelResult(); }
+    } finally {
+      if (wheelSpinFlight === request) wheelSpinFlight = null;
+      if (sameSession()) { updateWheelControls(); if (explorationPanel && explorationPanel.kind === 'npc') syncExploration(); }
+    }
+  }
+
+  // ---------- 分数 / 排行榜 / 结算 / 剩余时间：只读公开投影与私有 me ----------
+  function selfScore() { return me && typeof me.score === 'number' ? me.score : (selfPlayer() && typeof selfPlayer().score === 'number' ? selfPlayer().score : 0); }
+  function updateScoreDisplay() {
+    const node = $('score-value'); if (!node) return;
+    const text = String(selfScore());
+    if (node.textContent !== text) node.textContent = text;
+  }
+  function formatDuration(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000)), hh = Math.floor(total / 3600), mm = Math.floor((total % 3600) / 60), ss = total % 60;
+    return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+  function syncTimeLeft() {
+    const node = $('time-left'); if (!node) return;
+    const endsAt = rulesInfo && rulesInfo.endsAt;
+    if (!endsAt) { node.textContent = finished ? '已结束' : '--:--'; return; }
+    const left = endsAt - serverNow();
+    node.textContent = left <= 0 ? (finished ? '已结束' : '00:00:00') : formatDuration(left);
+  }
+  function finishReasonText(reason) {
+    return reason === 'aliveFloor' ? '存活人数已淘汰至剩余 100 人'
+      : reason === 'badWiped' ? '坏人全灭'
+        : reason === 'timeUp' ? '时间到（2 小时）'
+          : reason === 'host' ? '主持人结束了游戏' : '游戏已结束';
+  }
+  function rankingRowHTML(entry, index) {
+    const rank = entry.rank != null ? entry.rank : index + 1;
+    const p = players.find(pl => pl.id === entry.id);
+    const name = entry.name || (p ? p.name : '玩家');
+    const out = entry.alive === false ? '<span class="out-label">淘汰</span>' : '';
+    return `<div class="ranking-row" data-player="${escapeText(entry.id)}"><span class="ranking-rank">${rank}</span>${p ? portrait(p) : ''}<span class="ranking-name">${escapeText(name)}</span>${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
+  }
+  function renderRankingRows(host, list) {
+    if (!host) return;
+    host.innerHTML = list.length ? list.map(rankingRowHTML).join('') : '<p class="panel-note">暂无排名数据。</p>';
+  }
+  function updateRankingHeader() {
+    const rules = $('ranking-rules'); if (!rules) return;
+    const endsAt = rulesInfo && rulesInfo.endsAt, left = endsAt ? Math.max(0, endsAt - serverNow()) : null;
+    rules.textContent = `结束方式：存活淘汰至剩余 ${RULES.endRemainingPlayers} 人 / 坏人全灭 / 时间到（2 小时）`
+      + (left != null ? ` · 距时间到还有 ${formatDuration(left)}` : '')
+      + (finished ? ` · 已结束：${finishReasonText(finishReason)}` : '');
+  }
+  function syncRanking() {
+    const host = $('ranking'); if (!host || host.hidden) return;
+    updateRankingHeader();
+    const sorted = players.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    const sig = JSON.stringify([finishReason, aliveCount, players.map(p => [p.id, p.name, p.score || 0, p.alive]), rankingList]);
+    if (sig === lastRankingSig) return;
+    lastRankingSig = sig;
+    $('ranking-alive').textContent = aliveCount;
+    const source = rankingList && rankingList.length
+      ? rankingList
+      : sorted.map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, score: p.score || 0, alive: p.alive }));
+    renderRankingRows($('ranking-items'), source);
+  }
+  function openRanking() {
+    const host = $('ranking'); if (!host) return;
+    closeWheel();
+    host.hidden = false; $('ranking-toggle').setAttribute('aria-expanded', 'true');
+    lastRankingSig = ''; syncRanking();
+  }
+  function closeRanking() {
+    const host = $('ranking'); if (!host || host.hidden) return;
+    host.hidden = true; $('ranking-toggle').setAttribute('aria-expanded', 'false');
+  }
+  function renderFinish() {
+    const overlay = $('finish-overlay'); if (!overlay) return;
+    const sig = JSON.stringify([finishReason, rankingList, players.map(p => [p.id, p.name, p.score || 0, p.alive])]);
+    if (sig === lastFinishSig) return;
+    lastFinishSig = sig;
+    $('finish-reason').textContent = finishReasonText(finishReason);
+    const host = $('finish-ranking');
+    if (rankingList && rankingList.length) { renderRankingRows(host, rankingList); return; }
+    // 存活淘汰至剩余 100 人（ranking 为 null）：不按分数排名，只展示存活到最后的玩家。
+    const survivors = players.filter(p => p.alive).sort((a, b) => (b.score || 0) - (a.score || 0));
+    host.innerHTML = '<p class="panel-note">该结束方式不按分数排名，以下为存活到最后的玩家：</p>'
+      + (survivors.length
+        ? survivors.map(p => `<div class="ranking-row" data-player="${escapeText(p.id)}"><span class="ranking-rank">✓</span>${portrait(p)}<span class="ranking-name">${escapeText(p.name)}</span><span class="ranking-score">${p.score || 0} 分</span></div>`).join('')
+        : '<p class="panel-note">没有存活玩家。</p>');
+  }
+  function showFinish() {
+    const overlay = $('finish-overlay'); if (!overlay) return;
+    lastFinishSig = ''; renderFinish(); overlay.hidden = false;
+  }
+  function hideFinish() {
+    const overlay = $('finish-overlay'); if (!overlay) return;
+    overlay.hidden = true; lastFinishSig = '';
+    $('finish-reason').textContent = ''; $('finish-ranking').replaceChildren();
+  }
+  function updateExplorationHUD() {
+    const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
+    $('cover-status').textContent = self ? (WORLD.coverFor(renderedSelf || self, furniture) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入';
+    $('clue-bag').disabled = !me;
+    const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
+    if (sig !== nearbySig) {
+      nearbySig = sig;
+      // 名称控件按实体复用；进出范围也不替换按下中的按钮。
+      const host = $('nearby-items');
+      for (const item of nearby) {
+        let button = [...host.children].find(b => b.dataset.entity === item.id);
+        if (!button) {
+          button = document.createElement('button'); button.dataset.entity = item.id;
+          button.textContent = item.kind === 'container' ? item.entity.container.name : `${item.entity.name} · NPC / ${item.entity.cost} 筹码`;
+          button.onclick = () => openExploration(item.kind, item.id); host.append(button);
+        }
+      }
+      for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
+    }
+    $('nearby-empty').hidden = nearby.length > 0;
+    $('nearby-empty').textContent = !me ? '加入后靠近容器或 NPC' : finished ? '游戏已结束，探索已冻结' : !me.alive ? '已淘汰，无法探索' : '靠近容器或 NPC，按 E 互动（64 像素）';
+  }
+  $('clue-bag').onclick = () => { if (explorationPanel?.kind === 'backpack') closeExploration(); else openExploration('backpack'); };
+
+  // ---------- 猜拳小游戏：只读私有投影；面板 DOM 只在打开时建立一次 ----------
+  const RPS_LABELS = { rock: '石头', paper: '布', scissors: '剪刀' };
+  function rpsNow() { return serverNow(); }
+  function openGames() {
+    const host = $('games');
+    if (!host) return;
+    closeWheel();
+    host.hidden = false;
+    $('games-toggle').setAttribute('aria-expanded', 'true');
+    if (!gamesDomReady) {
+      gamesDomReady = true;
+      // 只建一次 DOM；20Hz 快照只更新文本 / disabled / class，绝不重建按钮。
+      host.innerHTML = `<div class="panel-heading"><div><small>MINI GAMES</small><h2>互动小游戏</h2></div><button id="games-close" class="icon-button" aria-label="关闭互动小游戏">×</button></div><div class="games-body"><p class="games-balance">我的筹码：<strong id="games-chips">0</strong></p><div class="rps-block"><p class="private-title">猜拳邀请</p><p id="games-rps-state" class="games-state"></p><div class="rps-choices" role="group" aria-label="选择出拳"><button type="button" id="games-choice-rock" data-choice="rock">石头</button><button type="button" id="games-choice-paper" data-choice="paper">布</button><button type="button" id="games-choice-scissors" data-choice="scissors">剪刀</button></div><div id="games-invite-list" class="games-invite-list"></div><p id="games-invite-empty" class="panel-note"></p><div id="games-pending" class="games-pending" hidden><p id="games-pending-text"></p><div class="games-pending-actions"><button type="button" id="games-reply" hidden>回应</button><button type="button" id="games-cancel" hidden>取消</button></div><p id="games-pending-timer" class="games-timer"></p></div></div><p id="games-result" class="private-result"></p><p class="hold-note">猜拳需双方在线、64 像素内、家具不挡视线且双方至少 1 筹码；邀请 30 秒未回应自动取消且不扣筹码，结算后 5 秒冷却。筹码与结果均由服务端权威结算，界面不会显示对方的出拳。</p></div>`;
+      $('games-close').onclick = closeGames;
+      for (const choice of ['rock', 'paper', 'scissors']) $(`games-choice-${choice}`).onclick = () => { rpsChoice = choice; syncGames(); };
+      $('games-reply').onclick = () => { if (me?.games?.rpsPending) sendRps({ kind: 'rpsReply', challengeId: me.games.rpsPending.id, choice: rpsChoice }); };
+      $('games-cancel').onclick = () => { if (me?.games?.rpsPending) sendRps({ kind: 'rpsCancel', challengeId: me.games.rpsPending.id }); };
+    }
+    syncGames();
+  }
+  function closeGames() {
+    const host = $('games');
+    gamesDomReady = false; gamesResult = '';
+    if (host) { host.hidden = true; host.replaceChildren(); }
+    const toggle = $('games-toggle'); if (toggle) toggle.setAttribute('aria-expanded', 'false');
+  }
+  function toggleGames() { if ($('games')?.hidden) openGames(); else closeGames(); }
+  function eligibleInvitees() {
+    if (!me || !me.alive || finished) return [];
+    const self = selfPlayer();
+    if (!self) return [];
+    // 与服务端 rpsValidation 一致的可见性条件：真实玩家、存活、在线、范围、视线无家具遮挡。
+    return players.filter(p => p.id !== me.id && p.alive && p.online !== false
+      && WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE
+      && WORLD.lineClear(self, p, furniture));
+  }
+  function inviteDisabled() {
+    return !me || !me.alive || finished || selfDisabled() || !!gamesFlight
+      || me.games?.rpsPending != null || rpsNow() < (me.games?.rpsUntil || 0);
+  }
+  function syncGames() {
+    const host = $('games');
+    if (!host || host.hidden || !me || !gamesDomReady) return;
+    const games = me.games || {}, pending = games.rpsPending;
+    $('games-chips').textContent = explorationState().chips;
+    for (const choice of ['rock', 'paper', 'scissors']) {
+      const button = $(`games-choice-${choice}`);
+      if (button) { button.classList.toggle('selected', rpsChoice === choice); button.disabled = !me.alive; }
+    }
+    const box = $('games-pending'), reply = $('games-reply'), cancel = $('games-cancel');
+    if (pending) {
+      box.hidden = false;
+      const secs = Math.max(0, Math.ceil((pending.expiresAt - rpsNow()) / 1000));
+      $('games-pending-text').textContent = pending.role === 'to'
+        ? `${pending.fromName} 已锁定出拳，等待你回应` : `已邀请 ${pending.toName}，等待对方回应`;
+      $('games-pending-timer').textContent = `剩余 ${secs} 秒 · 超时自动取消，不扣筹码`;
+      reply.hidden = pending.role !== 'to';
+      cancel.hidden = false;
+      reply.disabled = !!gamesFlight;
+      cancel.disabled = !!gamesFlight;
+    } else { box.hidden = true; reply.hidden = true; cancel.hidden = true; }
+    $('games-rps-state').textContent = !me.alive ? '已淘汰，无法参与小游戏'
+      : finished ? '游戏已结束，小游戏已冻结'
+        : selfDisabled() ? '你正在眩晕/僵直，暂时无法参与'
+          : pending ? '暂不能发起新邀请：已有待回应的猜拳（服务端同样会拒绝）'
+            : gamesFlight ? '正在确认结算…'
+              : rpsNow() < (games.rpsUntil || 0) ? `猜拳冷却中 · 剩余 ${Math.max(0, Math.ceil(((games.rpsUntil || 0) - rpsNow()) / 1000))} 秒`
+                : `当前出拳：${RPS_LABELS[rpsChoice]}（点选上方按钮切换）`;
+    $('games-result').textContent = gamesResult || games.lastResult || '';
+    $('games-result').hidden = !gamesResult && !games.lastResult;
+    syncInviteList();
+  }
+  function syncInviteList() {
+    const host = $('games-invite-list');
+    if (!host) return;
+    const eligible = eligibleInvitees(), ids = new Set(eligible.map(p => String(p.id))), disabled = inviteDisabled();
+    // 按玩家 id 复用按钮：只新增/隐藏，绝不在快照里重建已有按钮（避免按下瞬间被替换）。
+    for (const p of eligible) {
+      const key = String(p.id);
+      if (!host.querySelector(`[data-invite="${key}"]`)) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.dataset.invite = key;
+        button.textContent = `邀请 ${p.name} 猜拳`;
+        button.onclick = () => sendRps({ kind: 'rpsInvite', targetId: Number(button.dataset.invite), choice: rpsChoice });
+        host.append(button);
+      }
+    }
+    for (const button of [...host.children]) {
+      const key = button.dataset.invite, p = players.find(pl => String(pl.id) === key), ok = ids.has(key) && p;
+      button.hidden = !ok;
+      if (ok) { button.textContent = `邀请 ${p.name} 猜拳`; button.disabled = disabled; }
+    }
+    const empty = $('games-invite-empty');
+    if (empty) {
+      empty.hidden = eligible.length > 0;
+      empty.textContent = eligible.length ? '' : (!me.alive ? '已淘汰，无法邀请' : finished ? '游戏已结束'
+        : '暂无可邀请对象：需要对方在线、双方 64 像素内、家具不挡视线，且双方至少 1 筹码。');
+    }
+  }
+  async function sendRps(extra) {
+    if (gamesFlight || !me) return;
+    if (extra.kind === 'rpsInvite' ? inviteDisabled() : (selfDisabled() || !me.alive || finished)) return;
+    const request = { session: sessionGeneration, token: sessionToken, games: JSON.stringify(me.games || {}) };
+    const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me && !$('games').hidden;
+    gamesFlight = request; gamesResult = ''; keys.clear(); lastIntent = '';
+    syncGames();
+    try {
+      // 统一请求流程：停意图 → 提交 → 会话/面板失效校验。
+      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
+      if (!same()) return;
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const result = await api('/api/play', { commandId: commandId(), ...extra });
+      if (!same()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结果未确认');
+      // 状态未变时才采纳服务端游戏/筹码投影，旧响应不覆盖新快照。
+      if (request.games === JSON.stringify(me.games || {})) {
+        if (result.games) me = { ...me, games: result.games };
+        if (result.exploration) me = { ...me, exploration: result.exploration };
+      }
+      if (typeof result.score === 'number') me = { ...me, score: result.score };
+      gamesResult = result.ok ? (result.resultText || '已结算') : (result.error || '请求被拒绝');
+    } catch {
+      if (same()) gamesResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
+    } finally {
+      if (gamesFlight === request) gamesFlight = null;
+      if (same()) { syncGames(); updateScoreDisplay(); }
+    }
+  }
+  // ---------- J 互动：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
+  async function attack() {
+    if (combatFlight || !me || !me.alive || finished || selfDisabled() || rpsNow() < (me.combat?.attackUntil || 0)) return;
+    const request = { session: sessionGeneration, token: sessionToken, combat: JSON.stringify(me.combat || {}) };
+    const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    combatFlight = request; keys.clear(); lastIntent = '';
+    updateCombatHUD();
+    try {
+      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
+      if (!same()) return;
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const result = await api('/api/attack', { commandId: commandId() });
+      if (!same()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结果未确认');
+      if (request.combat === JSON.stringify(me.combat || {})) {
+        if (result.combat) me = { ...me, combat: result.combat };
+        if (result.exploration) me = { ...me, exploration: result.exploration };
+        if (result.games) me = { ...me, games: result.games };
+      }
+      if (typeof result.score === 'number') me = { ...me, score: result.score };
+      combatResult = result.ok
+        ? `${result.resultText || '已互动'}（无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营）`
+        : (result.error || '互动被拒绝');
+    } catch {
+      if (same()) combatResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
+    } finally {
+      if (combatFlight === request) combatFlight = null;
+      if (same()) { updateCombatHUD(); updateScoreDisplay(); }
+    }
+  }
+  function updateCombatHUD() {
+    const now = serverNow(), button = $('attack-button'), combat = me?.combat;
+    const cooldown = combat ? Math.max(0, Math.ceil(((combat.attackUntil || 0) - now) / 1000)) : 0;
+    if (button) {
+      button.disabled = !me || !me.alive || finished || selfDisabled() || !!interactionFlight || !!combatFlight || !!gamesFlight || cooldown > 0;
+      button.textContent = cooldown > 0 ? `J · 互动 · 冷却 ${cooldown}s` : 'J · 互动';
+    }
+    const selfState = $('self-combat-state');
+    if (selfState) selfState.textContent = !me ? '' : now < (combat?.freezeUntil || 0) ? '你被冻结中 · 暂时无法移动/互动'
+      : now < (combat?.stunUntil || 0) ? '你被僵直中 · 暂时无法移动/互动' : '';
+    const status = $('combat-status');
+    if (status) { status.textContent = combatResult; status.hidden = !combatResult; }
+  }
+  $('games-toggle').onclick = toggleGames;
+  $('attack-button').onclick = () => attack();
+  $('ranking-toggle').onclick = () => { if ($('ranking').hidden) openRanking(); else closeRanking(); };
+  $('ranking-close').onclick = closeRanking;
+  $('wheel-close').onclick = closeWheel;
+  $('wheel-spin').onclick = () => spinWheel();
+  $('finish-close').onclick = hideFinish;
+
   // ---------- 离线事件：横幅 + 一次性摘要（不含操作者） ----------
   function pendingList() { return (me && me.pending) || []; }
   function updateOfflineUI() {
@@ -477,16 +1108,51 @@
   }
   function diamond(g, cx, cy, r, c) { for (let i = 0; i < r; i++) { const wd = (i + 1) * 2; rect(cx - i - 1, cy - r + i, wd, 1, c, g); rect(cx - i - 1, cy + r - i, wd, 1, c, g); } rect(cx - r, cy, 2 * r, 1, c, g); }
   function blob(g, x, y, w, h, c) { const hh = Math.max(2, Math.round(h)); for (let i = 0; i < hh; i++) { const k = Math.sin((i / (hh - 1)) * Math.PI); const ww = Math.max(1, Math.round(w * (0.35 + 0.65 * k))); rect(Math.round(x + (w - ww) / 2), Math.round(y + i), ww, 1, c, g); } }
+  function stunStar(cx, cy) {
+    cx = Math.round(cx); cy = Math.round(cy);
+    rect(cx - 1, cy - 4, 3, 9, '#ffe066'); rect(cx - 4, cy - 1, 9, 3, '#ffe066');
+    rect(cx - 1, cy - 1, 3, 3, '#fff6c2');
+  }
+  // ---------- 可交互描边：仅带 container 的家具与两个 NPC，且描边状态与真实可交互性一致 ----------
+  function interactTier(kind, id) {
+    // idle：自己已淘汰 / 本局结束 / 超出 INTERACT_RANGE。
+    if (!me || !me.alive || finished) return 'idle';
+    const entity = explorationEntity(kind, id);
+    if (!entity || entityDistance(entity) > WORLD.INTERACT_RANGE) return 'idle';
+    // blocked：在范围内但当前不能操作（自己眩晕/僵直 / 容器已搜 / NPC 筹码不足）。
+    if (selfDisabled()) return 'blocked';
+    const state = explorationState();
+    const usable = kind === 'container' ? !state.searched.includes(id) : state.chips >= entity.cost;
+    return usable ? 'ready' : 'blocked';
+  }
+  function drawOutline(x, y, w, h, tier, readyColor) {
+    const rx = Math.round(x), ry = Math.round(y), rw = Math.round(w), rh = Math.round(h);
+    if (tier === 'ready') {
+      // 亮色描边 + 轻微呼吸脉冲；只用 strokeRect，无模糊/滤镜，保证 60fps。
+      const pulse = .6 + .34 * (0.5 + 0.5 * Math.sin(clock * 3.2));
+      ctx.globalAlpha = pulse; ctx.strokeStyle = readyColor; ctx.lineWidth = 2;
+      ctx.strokeRect(rx - 1, ry - 1, rw + 2, rh + 2);
+      ctx.globalAlpha = Math.min(1, pulse + .12); ctx.lineWidth = 1;
+      ctx.strokeRect(rx - 2.5, ry - 2.5, rw + 5, rh + 5);
+    } else if (tier === 'blocked') {
+      ctx.globalAlpha = .7; ctx.strokeStyle = '#8b93a6'; ctx.lineWidth = 2;
+      ctx.strokeRect(rx - .5, ry - .5, rw + 1, rh + 1);
+    } else {
+      ctx.globalAlpha = .18; ctx.strokeStyle = '#8b93a6'; ctx.lineWidth = 2;
+      ctx.strokeRect(rx - .5, ry - .5, rw + 1, rh + 1);
+    }
+    ctx.globalAlpha = 1; ctx.lineWidth = 1;
+  }
   function drawFurniture(f, g = ctx) {
     const { x, y, w, h, type } = f;
     g.globalAlpha = .2; rect(x + 8, y + h - 6, w - 12, 11, '#120c14', g); rect(x + 3, y + h - 3, w - 6, 6, '#120c14', g); g.globalAlpha = 1;
     if (type === 'plant') {
       const px = x + w * .28, pw = Math.round(w * .46);
       rect(x + w * .49, y + h * .26, 4, h * .3, '#3f7a52', g);
-      blob(g, x + w * .02, y + h * .04, w * .5, h * .46, '#3f7a52');
-      blob(g, x + w * .46, y + h * .0, w * .46, h * .48, '#4a8a5d');
-      blob(g, x + w * .14, y + h * .24, w * .4, h * .34, '#2f6242');
-      blob(g, x + w * .44, y + h * .26, w * .44, h * .32, '#58996a');
+      blob(g, x + w * .02, y + h * .04, w * .5, h * .46, '#3f7a52', g);
+      blob(g, x + w * .46, y + h * .0, w * .46, h * .48, '#4a8a5d', g);
+      blob(g, x + w * .14, y + h * .24, w * .4, h * .34, '#2f6242', g);
+      blob(g, x + w * .44, y + h * .26, w * .44, h * .32, '#58996a', g);
       rect(x + w * .12, y + h * .1, w * .14, 2, '#7fbb8c', g); rect(x + w * .6, y + h * .06, w * .12, 2, '#7fbb8c', g);
       rect(px, y + h * .52, pw, Math.round(h * .46), '#8a4f33', g);
       rect(px + 1, y + h * .52, pw - 2, 4, '#b0714a', g);
@@ -667,11 +1333,15 @@
       drawRug(g, base + 200, 328, 560, 140);
       drawSign(g, base + 380, 68, 200, 28, `0${z + 1}  /  ${zones[z]}`);
       for (const s of spots) if (Math.abs(s.x - base - VW / 2) < 1200) glow(g, s.x, s.y, s.r, s.a);
-      for (const f of furniture) if (f.x + f.w / 2 >= base && f.x + f.w / 2 < base + VW) drawFurniture(f, g);
       g.restore();
     }
   }
   buildBackground();
+  for (const f of furniture) {
+    const c = document.createElement('canvas'); c.width = f.w + 24; c.height = f.h + 60;
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+    drawFurniture({ ...f, x: 12, y: 40 }, g); furnitureSprites.set(f.id, c);
+  }
 
   // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
   // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
@@ -722,14 +1392,41 @@
     rect(x - 1, yb - 39, 2, 1, skinLo);
     rect(x - 3, yb - 36, 6, 1, '#a8706a'); rect(x - 4, yb - 37, 1, 1, '#a8706a'); rect(x + 3, yb - 37, 1, 1, '#a8706a');
     ctx.globalAlpha = 1;
-    if (p.id === meId && p.id !== selectedId) {
+    // 无伤害互动视觉：冰蓝覆盖层、头顶眩晕星、按朝向的挥击弧。全部由公开时间戳推导，纯视觉。
+    const now = serverNow();
+    if (p.freezeUntil && p.freezeUntil > now) {
+      ctx.globalAlpha = .4 * a; rect(x - 13, yb - 55, 26, 62, '#bfe8ff');
+      ctx.globalAlpha = .55 * a; ctx.strokeStyle = '#e8f7ff'; ctx.lineWidth = 1;
+      ctx.strokeRect(x - 13.5, yb - 55.5, 27, 63); ctx.globalAlpha = 1;
+    }
+    if (p.stunUntil && p.stunUntil > now) {
+      for (let i = 0; i < 3; i++) {
+        const ang = clock * 3 + i * (Math.PI * 2 / 3);
+        stunStar(x + Math.cos(ang) * 9, yb - 59 + Math.round(Math.sin(ang) * 3));
+      }
+    }
+    if (p.lastAttackAt) {
+      const dt = now - p.lastAttackAt;
+      if (dt >= 0 && dt < 260) {
+        const f = p.facing || { x: 1, y: 0 };
+        const ang = Math.atan2(f.y, f.x), alpha = (1 - dt / 260) * .85 * a;
+        ctx.globalAlpha = alpha; ctx.strokeStyle = '#ffe6a8'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(x, yb - 24, 26, ang - 0.7, ang + 0.7); ctx.stroke();
+        ctx.globalAlpha = alpha * .9; ctx.strokeStyle = '#fff6dd'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(x, yb - 24, 20, ang - 0.55, ang + 0.55); ctx.stroke();
+        ctx.globalAlpha = 1; ctx.lineWidth = 1;
+      }
+    }
+    // 被家具遮挡时（含自己）隐藏脚下指示与选中框，避免把位置信息透出去。
+    const covered = !!WORLD.coverFor(p, furniture);
+    if (!p.npc && p.id === meId && p.id !== selectedId && !covered) {
       ctx.globalAlpha = .8 * a; ctx.strokeStyle = '#7cc4ff'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(x, p.y + 5, 13, 4, 0, 0, Math.PI * 2); ctx.stroke();
       const off = Math.round(Math.sin(clock * 2.6) * 1.5);
       rect(x - 3, yb - 60 + off, 6, 3, '#9ed4ff'); rect(x - 2, yb - 57 + off, 4, 2, '#9ed4ff');
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
     }
-    if (p.id === selectedId) {
+    if (!p.npc && !covered && p.id === selectedId) {
       ctx.globalAlpha = (.55 + .3 * Math.sin(clock * 4.2)) * a;
       ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 2; ctx.strokeRect(x - 20.5, yb - 52.5, 41, 58);
       ctx.globalAlpha = a; ctx.lineWidth = 1;
@@ -746,14 +1443,16 @@
   // 命中框（x±21, y-53~y+8）与名牌偏移保持不变，外观升级不影响任何交互判定。
   let labels = [];
   function drawList() {
-    return players.filter(p => p.alive).map(p => {
+    return [...players.filter(p => p.alive).map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
       return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving };
-    });
+    }), ...npcs];
   }
   function makeLabels(list) {
-    labels = list.filter(p => p.x >= cameraX - 130 && p.x <= cameraX + VW + 130)
-      .map(p => ({ x: p.x - 72, y: p.y + 12, w: 144, h: 31, ids: [p.id], p }));
+    // 任何被家具遮挡的角色（含自己与 NPC）都不生成名牌；解除遮挡同一帧恢复。
+    labels = list.filter(p => p.x >= cameraX - 130 && p.x <= cameraX + VW + 130 &&
+      !WORLD.coverFor(p, furniture))
+      .map(p => ({ x: p.x - 72, y: p.y + 12, w: 144, h: 31, ids: p.npc ? [] : [p.id], p }));
   }
   function draw() {
     const sc = Math.round(cameraX), tile = Math.floor(sc / VW), off = sc - tile * VW;
@@ -765,13 +1464,28 @@
     ctx.drawImage(VIGNETTE, 0, 0);
     ctx.save(); ctx.translate(-Math.round(cameraX), 0);
     const list = drawList();
-    for (const p of list.filter(p => p.x > cameraX - 40 && p.x < cameraX + VW + 40).sort((a, b) => a.y - b.y || a.id - b.id)) sprite(p);
+    const scene = [
+      ...furniture.filter(f => f.x + f.w + 12 > cameraX && f.x - 12 < cameraX + VW).map(f => ({ depth: f.depth, f })),
+      ...list.filter(p => p.x > cameraX - 40 && p.x < cameraX + VW + 40).map(p => ({ depth: p.y, p }))
+    ].sort((a, b) => a.depth - b.depth || Number(!!b.f) - Number(!!a.f));
+    for (const item of scene) {
+      if (item.f) {
+        const f = item.f;
+        ctx.drawImage(furnitureSprites.get(f.id), f.x - 12, f.y - 40);
+        // 紧跟家具 sprite 之后画描边：深度更大的家具后画时会自然盖住描边，不穿透遮挡。
+        if (f.container) drawOutline(f.x, f.y, f.w, f.h, interactTier('container', f.id), '#7fe3ff');
+      } else {
+        sprite(item.p);
+        // NPC 描边对准命中框 x±21, y-53..y+8。
+        if (item.p.npc) drawOutline(item.p.x - 21, item.p.y - 53, 42, 61, interactTier('npc', item.p.entityId), '#ffd76a');
+      }
+    }
     makeLabels(list);
     ctx.textAlign = 'center';
     const meId = selfId();
     for (const l of labels.slice().sort((a, b) => Number(a.p.id === selectedId || a.p.id === meId) - Number(b.p.id === selectedId || b.p.id === meId))) {
       const active = l.ids.includes(selectedId);
-      const accent = active ? '#7cc4ff' : (l.p.alive ? '#78c39b' : '#7c8698');
+      const accent = l.p.npc ? '#e9c877' : active ? '#7cc4ff' : (l.p.alive ? '#78c39b' : '#7c8698');
       roundPx(l.x + 2, l.y + 3, l.w, l.h, '#080b12a0');
       roundPx(l.x - 1, l.y - 1, l.w + 2, l.h + 2, active ? '#4f88c4' : '#2f425c');
       roundPx(l.x, l.y, l.w, l.h, active ? '#14304f' : '#0f1826f2');
@@ -779,10 +1493,10 @@
       rect(l.x + 1, l.y + 5, 2, l.h - 10, accent);
       ctx.font = '12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       ctx.fillStyle = active ? '#eaf4ff' : '#e2e8f0';
-      ctx.fillText(l.p.name + (l.p.id === meId ? ' · 自己' : l.p.online === false ? ' · 离线' : ''), l.x + l.w / 2, l.y + 13);
+      ctx.fillText(l.p.name + (l.p.npc ? ' · NPC' : l.p.id === meId ? ' · 自己' : l.p.online === false ? ' · 离线' : ''), l.x + l.w / 2, l.y + 13);
       ctx.font = '10px ui-monospace,SFMono-Regular,monospace';
       ctx.fillStyle = active ? '#a8cbe8' : '#96adc8';
-      ctx.fillText(l.p.sid, l.x + l.w / 2, l.y + 26);
+      ctx.fillText(l.p.npc ? `${l.p.cost} 筹码 / 私密线索兑换` : l.p.sid, l.x + l.w / 2, l.y + 26);
     }
     ctx.restore();
   }
@@ -804,13 +1518,24 @@
     $('zone-name').textContent = zones[zoneIndex];
     $('coordinate').textContent = `0${Math.min(4, zoneIndex + 1)} / 04`;
     const tick = Math.floor(serverTime / 1000);
-    if (tick !== lastSkillTick) { lastSkillTick = tick; if (holding()) updateSkillStatus(); if (mineOpen) renderMine(); }
+    if (tick !== lastSkillTick) {
+      lastSkillTick = tick;
+      if (holding()) updateSkillStatus();
+      if (mineOpen) renderMine();
+      syncTimeLeft();
+      if (!$('ranking').hidden) syncRanking();
+      if (wheelOpen) updateWheelControls();
+    }
+    // 自身眩晕/僵直期间不发送移动意图、清空按键（服务端也会强制停止，客户端保持一致）。
+    if (selfDisabled() && keys.size) { keys.clear(); sendIntent(true); }
+    updateCombatHUD();
+    if (!$('games').hidden) syncGames();
   }
   let lastNow = performance.now();
   function frame(now) {
     step(Math.max(0, Math.min(.05, (now - lastNow) / 1000)));
     lastNow = now;
-    draw();
+    draw(); updateExplorationHUD();
     requestAnimationFrame(frame);
   }
 
@@ -821,7 +1546,7 @@
     return { x: (e.clientX - r.left - ox) / scale + cameraX, y: (e.clientY - r.top - oy) / scale };
   }
   function showCandidates(ids) {
-    clearPrivate(true);
+    closeExploration(); clearPrivate(true); closeWheel();
     const list = [...new Set(ids)].filter(id => players.some(p => p.id === id && p.alive)).sort((a, b) => a - b);
     $('candidates').hidden = false;
     $('candidates').innerHTML = `<div class="panel-heading"><div><small>OVERLAPPING PLAYERS</small><h2>请选择目标</h2></div><button id="candidate-close" class="icon-button" aria-label="关闭重叠候选">×</button></div><p>同一点击点有${list.length}位玩家，不会自动选人。</p>${list.map(id => row(players.find(p => p.id === id))).join('')}`;
@@ -832,15 +1557,23 @@
     const { x, y } = canvasPoint(e);
     const list = drawList();
     makeLabels(list);
-    const labelHits = labels.filter(l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h);
-    const bodyHits = list.filter(p => Math.abs(x - p.x) <= 21 && y >= p.y - 53 && y <= p.y + 8).map(p => p.id);
+    const atLabel = l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h && !WORLD.pointOccluded(x, y, l.p, furniture);
+    const atBody = p => Math.abs(x - p.x) <= 21 && y >= p.y - 53 && y <= p.y + 8 && !WORLD.pointOccluded(x, y, p, furniture);
+    const labelHits = labels.filter(l => !l.p.npc && atLabel(l));
+    const bodyHits = list.filter(p => !p.npc && atBody(p)).map(p => p.id);
     const hits = [...new Set([...labelHits.flatMap(l => l.ids), ...bodyHits])];
     if (hits.length > 1) showCandidates(hits);
     else if (hits.length === 1) {
-      const label = labelHits[0];
+      const label = labelHits.find(l => l.ids.includes(hits[0]));
       if (label && y >= label.y + 15) copySID(label.p.sid);
       else select(hits[0]);
-    } else { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); }
+    } else {
+      const npc = npcs.filter(p => atBody(p) || labels.some(l => l.p.id === p.id && atLabel(l))).sort((a, b) => b.y - a.y)[0];
+      // 只点击最前面的家具，不能隔着另一件家具搜寻容器。
+      const front = furniture.filter(f => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h).sort((a, b) => b.depth - a.depth)[0];
+      if (npc || front?.container) openExploration(npc ? 'npc' : 'container', npc ? npc.entityId : front.id);
+      else { closeExploration(); clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); }
+    }
     canvas.focus();
   });
   function toggle(panel, button) {
@@ -865,10 +1598,28 @@
   const isTyping = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || (document.activeElement && document.activeElement.isContentEditable);
   document.addEventListener('keydown', e => {
     if ($('rules-view').open || $('reset-confirm').open) return;
-    if (e.key === 'Escape') { clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return; }
+    if (e.key === 'Escape') {
+      if (!$('finish-overlay').hidden) { hideFinish(); return; }
+      if (wheelOpen) { closeWheel(); return; }
+      clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return;
+    }
+    // 转盘 / 结算覆盖层打开时，忽略移动、E、J 等游戏内按键。
+    if (wheelOpen || !$('finish-overlay').hidden) return;
     if (isTyping()) return;
+    if (e.code === 'KeyE') {
+      e.preventDefault(); if (e.repeat) return;
+      if (explorationPanel) closeExploration();
+      else { const nearest = nearbyEntities()[0]; if (nearest) openExploration(nearest.kind, nearest.id); else showToast('请靠近容器或 NPC（64 像素以内）'); }
+      return;
+    }
+    if (e.code === 'KeyJ') {
+      e.preventDefault(); if (e.repeat) return;
+      attack();
+      return;
+    }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) {
-      e.preventDefault(); keys.add(e.code); sendIntent(false);
+      e.preventDefault(); if (interactionFlight || selfDisabled()) return;
+      keys.add(e.code); sendIntent(false);
     }
   });
   document.addEventListener('keyup', e => {

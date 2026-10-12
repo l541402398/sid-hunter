@@ -6,7 +6,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { randomBytes } = require('crypto');
-const { createRoom, SKILL_CONFIG } = require('./room.js');
+const { performance } = require('node:perf_hooks');
+const { createRoom, SKILL_CONFIG, WORLD } = require('./room.js');
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0'; // Tests explicitly bind 127.0.0.1; live LAN default stays unchanged.
@@ -16,6 +17,27 @@ const ROOM = createRoom();
 const ALLOWED_EXT = new Set(['.html', '.css', '.js', '.ico']);
 const DEV_ENABLED = process.env.SID_DEV === '1';
 const resetTokens = new Map(); // Scoped to an existing session, revoked together with the room.
+function everyMs(callback, interval) {
+  let target = performance.now() + interval;
+  let timer;
+  let cancelled = false;
+  function schedule() {
+    timer = setTimeout(tick, Math.max(0, target - performance.now()));
+  }
+  function tick() {
+    if (cancelled) return;
+    if (performance.now() < target) { schedule(); return; }
+    callback();
+    if (cancelled) return;
+    target += interval;
+    const now = performance.now();
+    // 保持截止时间网格；停顿后跳过过期 tick，不突发补发。
+    if (target <= now) target += (Math.floor((now - target) / interval) + 1) * interval;
+    schedule();
+  }
+  schedule();
+  return () => { cancelled = true; clearTimeout(timer); };
+}
 function trustedDevRequest(req, requireOrigin = false) {
   if (!DEV_ENABLED || !isLoopback(req)) return false;
   let host;
@@ -118,18 +140,21 @@ function openStream(req, res, player) {
   // the sweep below is the deterministic fallback that marks the player offline.
   const write = payload => { res.write(`data: ${JSON.stringify(payload)}\n\n`); };
   try { write({ ...ROOM.publicSnapshot(), me: ROOM.privateSnapshot(player.id).me }); } catch { }
-  const entry = { res, lastAck: Date.now() };
+  const entry = { res, lastAck: Date.now(), close };
   ROOM.streams.set(player.id, entry);
-  const timer = setInterval(() => {
+  let closed = false;
+  const cancelTick = everyMs(() => {
     try {
       if (res.writableEnded || res.destroyed) throw new Error('closed');
       write({ ...ROOM.publicSnapshot(), me: ROOM.privateSnapshot(player.id).me });
       entry.lastAck = Date.now();
       res.write(': ping\n\n');
     } catch { close(); }
-  }, 1000 / 20);
+  }, TICK_MS);
   function close() {
-    clearInterval(timer);
+    if (closed) return;
+    closed = true;
+    cancelTick();
     if (ROOM.streams.get(player.id) === entry) ROOM.streams.delete(player.id);
     if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
     try { res.end(); } catch { /* already closed */ }
@@ -137,6 +162,8 @@ function openStream(req, res, player) {
   req.on('close', close);
   req.on('error', close);
   res.on('close', close);
+  res.on('finish', close);
+  res.on('error', close);
 }
 async function route(req, res, url) {
   const pathname = url.pathname;
@@ -169,6 +196,21 @@ async function route(req, res, url) {
   if (pathname === '/api/skill' && req.method === 'POST') {
     const body = await readBody(req);
     const result = ROOM.useSkill(sessionOf(req), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/interact' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.interact(sessionOf(req), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/play' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.play(sessionOf(req), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/attack' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.attack(sessionOf(req), body);
     return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/ack' && req.method === 'POST') {
@@ -231,8 +273,11 @@ async function route(req, res, url) {
     if (action === 'state') {
       return send(res, 200, {
         ok: true,
-        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills })),
+        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills, score: p.score })),
         finished: ROOM.room.finished,
+        finishReason: ROOM.room.finishReason || null,
+        ranking: ROOM.room.ranking,
+        rules: { endRemainingPlayers: WORLD.RULES.endRemainingPlayers, timeLimitMs: WORLD.RULES.timeLimitMs, endsAt: ROOM.room.startedAt + WORLD.RULES.timeLimitMs },
         eliminateEvents: ROOM.room.eliminateEvents
       });
     }
@@ -243,14 +288,10 @@ async function route(req, res, url) {
 }
 // Deterministic offline detection: a stream whose last successful write is older than
 // the threshold is considered dead even if the socket never reported an error.
-setInterval(() => {
+const offlineTimer = setInterval(() => {
   const now = Date.now();
-  for (const [playerId, entry] of ROOM.streams) {
-    if (now - entry.lastAck > 3000) {
-      try { entry.res.end(); } catch { /* already closed */ }
-      ROOM.streams.delete(playerId);
-      ROOM.setOffline(playerId);
-    }
+  for (const entry of ROOM.streams.values()) {
+    if (now - entry.lastAck > 3000) entry.close();
   }
 }, 1000);
 const server = http.createServer((req, res) => {
@@ -261,7 +302,12 @@ const server = http.createServer((req, res) => {
     else { try { res.end(); } catch { /* closed */ } }
   });
 });
-setInterval(() => ROOM.step(TICK_MS / 1000), TICK_MS);
+const cancelRoomTick = everyMs(() => ROOM.step(TICK_MS / 1000), TICK_MS);
+server.on('close', () => {
+  cancelRoomTick();
+  clearInterval(offlineTimer);
+  for (const entry of ROOM.streams.values()) entry.close();
+});
 server.listen(PORT, HOST, () => {
   const lan = lanAddresses();
   console.log(`S-ID 联机试玩服务已启动`);

@@ -5,17 +5,19 @@
 import { spawn } from 'node:child_process';
 import { writeFile, rm, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { createServer as netServer } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
 const require = createRequire(import.meta.url);
-const ONLINE = '/Users/jiarunwu/WorkBuddy/SID-Hunter/online';
+const ONLINE = dirname(fileURLToPath(import.meta.url));
 const ROOM_MOD = require(join(ONLINE, 'room.js'));
 const WORLD = require(join(ONLINE, 'shared/world.js'));
-const NODE = '/Users/jiarunwu/.workbuddy/binaries/node/versions/22.22.2-6/bin/node';
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Windows 试玩构建：服务端用当前受管 Node 自身，Chrome 用本机安装路径。
+const NODE = process.execPath;
+const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const uid = p => (p || 'c') + '-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
@@ -34,6 +36,10 @@ const freePort = () => new Promise((res, rej) => { const s = netServer(); s.once
 const FURNITURE = WORLD.makeFurniture();
 function insideFurniture(x, y) {
   return FURNITURE.some(f => x + WORLD.BODY_HALF > f.x && x - WORLD.BODY_HALF < f.x + f.w && y + WORLD.FOOT_TOP > f.y && y - WORLD.FOOT_BOTTOM < f.y + f.h);
+}
+// 服务端只按家具 footprint 判定脚部碰撞；角色可以站在家具上半部（视觉上被遮挡但不阻挡）。
+function insideFootprint(x, y) {
+  return FURNITURE.some(f => { const b = f.footprint; return x + WORLD.BODY_HALF > b.x && x - WORLD.BODY_HALF < b.x + b.w && y + WORLD.FOOT_TOP > b.y && y - WORLD.FOOT_BOTTOM < b.y + b.h; });
 }
 function collectKeys(obj, prefix = '', out = new Set()) {
   if (obj === null || typeof obj !== 'object') return out;
@@ -56,6 +62,8 @@ function deduceFromLogs(logs) {
 const judgeSamples = [
   { name: '家具内命中', actual: insideFurniture(200, 200), expected: true },
   { name: '走廊不命中', actual: insideFurniture(600, 407), expected: false },
+  { name: '脚部足迹命中', actual: insideFootprint(200, 238), expected: true },
+  { name: '足迹上方外观区不命中', actual: insideFootprint(200, 200), expected: false },
   { name: '键名收集含嵌套', actual: [...collectKeys({ a: { b: 1 } })].sort().join(','), expected: 'a,a.b' },
   { name: '禁词扫描命中', actual: findForbidden({ x: { faction: 'bad' } }, ['"faction"']).length, expected: 1 },
   { name: '禁词扫描不命中', actual: findForbidden({ x: '甲' }, ['"faction"']).length, expected: 0 },
@@ -118,13 +126,13 @@ await test('A4 模块级：家具逐轴AABB阻挡，沿边反复怼 300 步不�
   p.x = 210; p.y = 252; r.setIntent(p.id, { up: true });
   for (let i = 0; i < 40; i++) r.step(0.05);
   assert.ok(p.y >= 245, '被接待台挡住 y=' + p.y);
-  p.x = 100; p.y = 210; r.setIntent(p.id, { up: false, right: true });
+  p.x = 100; p.y = 214; r.setIntent(p.id, { up: false, right: true });
   for (let i = 0; i < 40; i++) r.step(0.05);
-  assert.ok(p.x <= 124 && !insideFurniture(p.x, p.y), '横向受阻 x=' + p.x);
+  assert.ok(p.x <= 124 && !insideFootprint(p.x, p.y), '横向受阻 x=' + p.x);
   const dirs = [{ up: true }, { right: true }, { down: true }, { left: true }, { up: true, right: true }, { down: true, left: true }];
   for (let i = 0; i < 300; i++) {
     r.setIntent(p.id, dirs[i % dirs.length]); r.step(0.05);
-    assert.ok(!insideFurniture(p.x, p.y), '穿模于 (' + p.x + ',' + p.y + ') 第' + i + '步');
+    assert.ok(!insideFootprint(p.x, p.y), '穿模于 (' + p.x + ',' + p.y + ') 第' + i + '步');
   }
 });
 
@@ -136,16 +144,18 @@ await test('A5 模块级：人物互穿（无玩家间碰撞）', async () => {
   assert.ok(a.x > 700 && b.x < 700, `a.x=${a.x} b.x=${b.x}`);
 });
 
-await test('A6 模块级：极大 dt 不会把人拉出世界（附带：大 dt 会穿家具，静态证据）', async () => {
+await test('A6 模块级：极大 dt 被钳制到 0.05 秒，不瞬移出界也不穿家具', async () => {
   const r = freshRoom(); const p = r.join('s-a', '甲').player;
   p.x = 1000; p.y = 340; r.setIntent(p.id, { right: true });
   r.step(1000);
-  assert.equal(p.x, WORLD.MAX_X, '极大dt仍钳制在世界内: ' + p.x);
+  assert.ok(Math.abs(p.x - (1000 + WORLD.SPEED * 0.05)) < 1e-6, '极大 dt 被钳制为单帧位移: ' + p.x);
+  assert.ok(p.x < WORLD.MAX_X && !insideFootprint(p.x, p.y), '仍在世界内且未穿家具: ' + p.x);
   const r2 = freshRoom(); const q = r2.join('s-b', '乙').player;
   q.x = 1020; q.y = 200; r2.setIntent(q.id, { right: true });
   r2.step(1.1);
-  const tunneled = q.x > 1181 && !insideFurniture(q.x, q.y);
-  evidence.push({ tag: 'A6-tunnel', note: '静态/模块级：step(dt) 未对 dt 设上限且只判定端点，单次大 dt 可跨过家具；服务端固定 50ms 不可达', dt: 1.1, from: 1020, to: q.x, crossedDesk: tunneled });
+  const tunneled = q.x > 1181 && !insideFootprint(q.x, q.y);
+  evidence.push({ tag: 'A6-clamp', note: 'step(dt) 将 dt 钳制到 [0, 0.05] 秒并逐轴判定，单次大 dt 只产生一帧位移，不跨过家具；服务端固定 50ms 与之一致', dt: 1.1, from: 1020, to: q.x, crossedDesk: tunneled });
+  assert.equal(tunneled, false, '大 dt 不再穿模');
 });
 
 await test('A7 模块级：次数上限2、不溢出、nextChargeAt 推进正确、惰性结算粒度', async () => {
@@ -168,11 +178,13 @@ await test('A7 模块级：次数上限2、不溢出、nextChargeAt 推进正确
   assert.equal(snap.skills.probe.chargesRemaining, 2, '最终封顶不溢出');
 });
 
-await test('A8 模块级：结束条件双向（3人淘汰1人结束 / 4人淘汰1人不结束 / 2人、1人不结束）', async () => {
+await test('A8 模块级：结束仅三种（badWiped/aliveFloor/timeUp）；小房间淘汰好人至存活2不结束', async () => {
   const kill = (r, actor, targetId) => r.useSkill(actor, { commandId: uid(), skill: 'action', targetId, sid: r.find(targetId).sid.segments.join('-') });
+  const accuse = (r, actor, targetId) => r.useSkill(actor, { commandId: uid(), skill: 'accuse', targetId });
+  // 旧「存活<=2 且有淘汰即结束」已废除：小房间淘汰好人只减少存活，不触发结束。
   let r = freshRoom(); r.join('r1a', '甲'); r.join('r1b', '乙'); r.join('r1c', '丙');
   kill(r, 'r1a', 1);
-  assert.equal(r.room.finished, true, '3人局淘汰1人应结束');
+  assert.equal(r.room.finished, false, '3人局淘汰1名好人（存活2）不应结束');
   r = freshRoom(); ['a', 'b', 'c', 'd'].forEach(k => r.join('r2' + k, k));
   kill(r, 'r2a', 1);
   assert.equal(r.room.finished, false, '4人局淘汰1人（存活3）不应结束');
@@ -180,6 +192,26 @@ await test('A8 模块级：结束条件双向（3人淘汰1人结束 / 4人淘�
   assert.equal(r.room.finished, false, '2人无淘汰不应结束');
   r = freshRoom(); r.join('r4a', '甲');
   assert.equal(r.room.finished, false, '1人不应结束');
+  // badWiped：两名好人各指认唯一坏人一次（hp 2→0）-> 坏人全灭，结束并下发排名。
+  r = freshRoom(); r.join('w-a', '甲'); r.join('w-b', '乙'); r.join('w-c', '丙');
+  accuse(r, 'w-b', 0); r.room.clockOffset += 13000; accuse(r, 'w-c', 0);
+  assert.equal(r.room.finished, true, '坏人全灭应结束');
+  assert.equal(r.room.finishReason, 'badWiped');
+  assert.ok(Array.isArray(r.room.ranking) && r.room.ranking.length === 3, 'badWiped 应下发排名');
+  // aliveFloor：用 options.rules 把阈值降到 2 -> 存活降到阈值即结束，不排名。
+  const f = ROOM_MOD.createRoom({ rules: { endRemainingPlayers: 2 } });
+  f.join('f-a', '甲'); f.join('f-b', '乙'); f.join('f-c', '丙');
+  kill(f, 'f-a', 1);
+  assert.equal(f.room.finished, true, '存活降到阈值应结束');
+  assert.equal(f.room.finishReason, 'aliveFloor'); assert.equal(f.room.ranking, null);
+  // timeUp：推进时钟越过 2 小时上限 -> 结束并下发排名与公开 rules。
+  const t = freshRoom(); t.join('t-a', '甲'); t.join('t-b', '乙');
+  t.room.clockOffset += WORLD.RULES.timeLimitMs;
+  const snap = t.publicSnapshot();
+  assert.equal(t.room.finished, true); assert.equal(t.room.finishReason, 'timeUp');
+  assert.ok(Array.isArray(t.room.ranking) && t.room.ranking.length === 2);
+  assert.deepEqual(Object.keys(snap.rules).sort(), ['endRemainingPlayers', 'endsAt', 'timeLimitMs']);
+  assert.ok(snap.players.every(p => typeof p.score === 'number'));
 });
 
 await test('A9 模块级：离线者计入存活、不淘汰不释放、原地冻结、可被施技', async () => {
@@ -261,7 +293,7 @@ await test('A13 模块级：public 投影键白名单与掩码', async () => {
 // ---------------- B HTTP 级（SID_TEST=1 服务） ----------------
 const PORT_B = await freePort();
 const BASE_B = `http://127.0.0.1:${PORT_B}`;
-const serverB = spawn(NODE, [join(ONLINE, 'server.js')], { env: { ...process.env, PORT: String(PORT_B), SID_TEST: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+const serverB = spawn(NODE, [join(ONLINE, 'server.js')], { env: { ...process.env, PORT: String(PORT_B), SID_TEST: '1', SID_DEV: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
 const logB = []; serverB.stdout.on('data', d => logB.push(String(d))); serverB.stderr.on('data', d => logB.push(String(d)));
 
 const call = async (path, opts = {}) => {
@@ -277,7 +309,20 @@ const testState = async () => (await call('/api/test/state')).body;
 const advance = ms => post('/api/test/advance', { ms });
 const pstate = async id => (await testState()).players.find(p => p.id === id);
 const cookieOf = r => (r.setCookie || '').split(';')[0].split('=')[1] || (r.body && r.body.sessionToken);
-const resetRoom = () => post('/api/host/reset', { confirm: true });
+// 主持人重开走真实门禁：需要一个有效身份 + 同源 Origin + 能力令牌 CSRF + confirm。
+const resetRoom = async () => {
+  const list = (await get('/api/test/sessions')).body.sessions;
+  let token = list.length ? list[0].sessionId : null;
+  if (!token) {
+    const throwaway = await post('/api/join', { nickname: '重置器' });
+    token = throwaway.body.sessionToken;
+  }
+  const cap = await tokenGet('/api/dev/capabilities', token);
+  assert.equal(cap.body.canReset, true, '重置需要 SID_DEV=1 隔离服务的本机授权: ' + JSON.stringify(cap.body));
+  const r = await tokenPost('/api/host/reset', { confirm: true, csrfToken: cap.body.csrfToken }, token, { Origin: BASE_B });
+  assert.equal(r.status, 200, '主持人重开失败: ' + JSON.stringify(r.body));
+  return r;
+};
 const joinBy = async nick => { const r = await post('/api/join', { nickname: nick }); return { res: r, token: cookieOf(r), id: r.body.playerId, name: r.body.name }; };
 
 await waitFor('server B boot', async () => { try { return (await call('/api/state')).status === 401; } catch { return false; } }, 12000);
@@ -351,13 +396,14 @@ await test('B4 重放与去重：同 commandId 两次只结算一次；不同 co
   assert.equal(second.body.ok, false, '重放应被拒: ' + JSON.stringify(second.body));
   assert.match(second.body.error, /已结算过/);
   assert.equal((await pstate(a.id)).skills.probe.chargesRemaining, 1, '只扣一次次数');
-  const revealed = (await pstate(b.id)).sidRevealed.filter(Boolean).length;
-  assert.equal(revealed, 1, '只公开一段: ' + revealed);
+  const pubB = (await tokenGet('/api/state', b.token)).body.players.find(p => p.id === b.id);
+  assert.equal(Object.values(pubB.traits).filter(v => v !== '***').length, 1, '探查只公开一项隐藏属性: ' + JSON.stringify(pubB.traits));
+  assert.equal((await pstate(b.id)).sidRevealed.filter(Boolean).length, 0, '探查不公开 SID 段: ' + (await pstate(b.id)).sidRevealed);
   const third = await tokenPost('/api/skill', { commandId: uid(), skill: 'probe', targetId: b.id }, a.token);
   assert.equal(third.body.ok, false, '不同 commandId 立发应被冷却挡: ' + JSON.stringify(third.body));
   assert.match(third.body.error, /冷却/);
   assert.equal((await pstate(a.id)).skills.probe.chargesRemaining, 1, '冷却拒绝不扣次数');
-  evidence.push({ tag: 'B4', replayError: second.body.error, cooldownError: third.body.error, revealedSegments: revealed });
+  evidence.push({ tag: 'B4', replayError: second.body.error, cooldownError: third.body.error, revealedTraits: Object.values(pubB.traits).filter(v => v !== '***') });
 });
 
 await test('B5 击杀语义：小写按格式错误拒绝且不消耗；错误SID不匹配但消耗；正确大写淘汰', async () => {
@@ -367,16 +413,16 @@ await test('B5 击杀语义：小写按格式错误拒绝且不消耗；错误SI
   const lower = await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: b.id, sid: realSid.toLowerCase() }, a.token);
   assert.equal(lower.body.ok, false, '小写应被拒: ' + JSON.stringify(lower.body));
   assert.equal(lower.body.formatError, true, '标记为格式错误');
-  assert.equal((await pstate(a.id)).skills.action.chargesRemaining, 2, '小写不消耗');
+  assert.equal((await pstate(a.id)).skills.kill.chargesRemaining, 2, '小写不消耗');
   let snap = (await tokenGet('/api/state', a.token)).body;
-  assert.equal(snap.me.skills.action.cooldownUntil, 0, '小写不进冷却: ' + snap.me.skills.action.cooldownUntil);
+  assert.equal(snap.me.skills.kill.cooldownUntil, 0, '小写不进冷却: ' + snap.me.skills.kill.cooldownUntil);
   const bad = await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: b.id, sid: 'bad-format' }, a.token);
   assert.equal(bad.body.ok, false, '格式错误被拒');
-  assert.equal((await pstate(a.id)).skills.action.chargesRemaining, 2, '格式错误不消耗');
+  assert.equal((await pstate(a.id)).skills.kill.chargesRemaining, 2, '格式错误不消耗');
   const wrong = await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: b.id, sid: 'AAA-AAA-AAA' }, a.token);
   assert.equal(wrong.body.ok, true, JSON.stringify(wrong.body));
   assert.match(wrong.body.resultText, /不匹配/);
-  assert.equal((await pstate(a.id)).skills.action.chargesRemaining, 1, '错误提交仍消耗');
+  assert.equal((await pstate(a.id)).skills.kill.chargesRemaining, 1, '错误提交仍消耗');
   assert.equal((await pstate(b.id)).alive, true, '未淘汰');
   await advance(13000);
   const kill = await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: b.id, sid: realSid }, a.token);
@@ -405,6 +451,12 @@ await test('B6 公共快照泄露扫描：无 faction/hp/skills/actor/他人完�
   for (const s of secrets) assert.ok(!flat.includes(s.sid), 'public 泄露完整SID: ' + s.sid);
   assert.ok(!/actor/i.test(JSON.stringify(snap)), 'public 含 actor 字样');
   assert.equal(snap.players.every(p => Object.values(p.traits).every(v => v === '***')), true, '他人隐藏属性必须全部掩码');
+  // 规则变更后的公开字段：每名玩家下发 score；顶层下发 rules，未结束时 finishReason=null、ranking=null。
+  assert.ok(snap.players.every(p => typeof p.score === 'number'), 'public.players 应含数值 score');
+  assert.deepEqual(Object.keys(snap.rules).sort(), ['endRemainingPlayers', 'endsAt', 'timeLimitMs'], 'public.rules 字段');
+  assert.equal(snap.finishReason, null, '未结束 finishReason 为 null');
+  assert.equal(snap.ranking, null, '未结束 ranking 为 null');
+  assert.ok(!flat.includes('"faction"') && !flat.includes('"hp"') && !flat.includes('"skills"'), '新增 score 不得带出私密键');
   const priv = (await tokenGet('/api/state', b.token)).body;
   const others = JSON.stringify(priv.players.filter(p => p.id !== b.id));
   for (const s of secrets.filter(x => x.id !== b.id)) {
@@ -414,7 +466,7 @@ await test('B6 公共快照泄露扫描：无 faction/hp/skills/actor/他人完�
   assert.equal(priv.me.sid, secrets.find(s => s.id === b.id).sid, '本人完整SID仅自己可见');
 });
 
-await test('B7 公共日志：无上下线/操作者字样；但目标为姓名，且错指认可反推阵营（见发现）', async () => {
+await test('B7 公共日志：无上下线/操作者字样；错指认不再公开受罚方 S-ID，无法反推阵营', async () => {
   await resetRoom();
   const a = await joinBy('甲'), b = await joinBy('乙'), c = await joinBy('丙');
   await tokenPost('/api/skill', { commandId: uid(), skill: 'probe', targetId: c.id }, b.token);
@@ -424,11 +476,15 @@ await test('B7 公共日志：无上下线/操作者字样；但目标为姓名�
   const texts = snap.logs.map(l => l.text);
   evidence.push({ tag: 'B7-logs', logs: texts.slice(0, 6) });
   for (const t of texts) assert.ok(!/上线|下线|离线|在线状态|操作者/.test(t), '日志禁词: ' + t);
+  // 被指认者的公开日志只写“被指认一次”，不写对错、不公开受罚方 S-ID，故无法据此反推阵营。
+  assert.ok(texts.some(t => /丙被指认一次/.test(t)), '缺被指认日志: ' + JSON.stringify(texts.slice(0, 4)));
+  assert.ok(!texts.some(t => /的S-ID已公开/.test(t)), '错指认不得在公共日志公开 S-ID: ' + JSON.stringify(texts));
+  assert.ok(!/好人|坏人|错指认|命中|失败/.test(texts.join('|')), '公共日志泄露阵营/对错');
   const deduced = deduceFromLogs(snap.logs);
-  assert.ok(deduced.length > 0, '未复现错指认日志组合');
+  evidence.push({ tag: 'B7-inference', deduced, note: '隐私修复后错指认不再写入可反推的 S-ID 日志' });
+  assert.equal(deduced.length, 0, '公共日志不得可反推阵营');
   const truth = (await testState()).players.find(p => p.id === c.id).faction;
-  evidence.push({ tag: 'B7-inference', ...deduced[0], truthOfTarget: truth });
-  assert.equal(truth, 'good', '被推断目标实际阵营（用于证明推断成立）');
+  assert.equal(truth, 'good', '被指认目标实际阵营（证明原推断路径已关闭）');
 });
 
 await test('B8 断线：关闭 SSE 即判离线、原地不动、可被施技、重连同id同位置、离线期间按时间恢复次数', async () => {
@@ -461,37 +517,49 @@ await test('B8 断线：关闭 SSE 即判离线、原地不动、可被施技、
   assert.equal(charges, 2, '离线期间按时间恢复: ' + charges);
 });
 
-await test('B9 finished 之后：加入/技能/移动全部冻结；SSE 仍能读到历史私密事件', async () => {
+await test('B9 badWiped 结束之后：加入/技能/移动全部冻结；SSE 仍能读到历史私密事件', async () => {
   await resetRoom();
   const a = await joinBy('甲'), b = await joinBy('乙'), c = await joinBy('丙');
   await tokenPost('/api/skill', { commandId: uid(), skill: 'probe', targetId: c.id }, a.token);
   const pendingBefore = (await tokenGet('/api/state', c.token)).body.me.pending.length;
   assert.ok(pendingBefore >= 1, '前置私密事件: ' + pendingBefore);
+  // 小房间淘汰好人不再结束：先淘汰乙，游戏继续。
   const killB = await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: b.id, sid: (await pstate(b.id)).sid }, a.token);
   assert.equal(killB.body.ok, true, JSON.stringify(killB.body));
-  assert.equal((await testState()).finished, true, '3人局淘汰1人应结束');
+  assert.equal((await testState()).finished, false, '小房间仅淘汰好人不应结束');
+  // 唯一的坏人（甲）被好人指认两次（hp 2→0）-> 坏人全灭，badWiped 结束并下发排名。
+  assert.equal((await tokenPost('/api/skill', { commandId: uid(), skill: 'accuse', targetId: a.id }, c.token)).body.ok, true);
+  await advance(13000);
+  assert.equal((await tokenPost('/api/skill', { commandId: uid(), skill: 'accuse', targetId: a.id }, c.token)).body.ok, true);
+  await waitFor('badWiped 结束', async () => (await testState()).finished, 5000);
+  const st = await testState();
+  assert.equal(st.finished, true, '坏人全灭应结束');
+  assert.equal(st.finishReason, 'badWiped');
+  assert.ok(Array.isArray(st.ranking) && st.ranking.length === 3, 'badWiped 应下发排名');
   const join = await post('/api/join', { nickname: '新同事' });
   assert.equal(join.status, 409, '结束后拒绝新加入: ' + join.status);
   const xBefore = (await pstate(c.id)).x;
   await tokenPost('/api/input', { right: true }, c.token);
   await sleep(400);
   assert.equal((await pstate(c.id)).x, xBefore, '结束后移动冻结');
-  const skill = await tokenPost('/api/skill', { commandId: uid(), skill: 'probe', targetId: c.id }, a.token);
+  const skill = await tokenPost('/api/skill', { commandId: uid(), skill: 'probe', targetId: c.id }, c.token);
   assert.equal(skill.body.ok, false, '结束后技能冻结: ' + JSON.stringify(skill.body));
+  assert.match(skill.body.error, /冻结/, '结束后技能冻结原因');
   const stream = await tokenGet('/api/state', c.token);
   const pendingAfter = stream.body.me.pending.length;
   assert.ok(pendingAfter >= pendingBefore, `结束后仍能读到历史私密事件 ${pendingBefore}->${pendingAfter}`);
   const ack = await tokenPost('/api/ack', { eventIds: stream.body.me.pending.map(e => e.eventId) }, c.token);
   evidence.push({ tag: 'B9', ackStatus: ack.status, ackBody: ack.body, note: '结束后 ack 仍被接受（仅清理本人摘要，不改权威状态）' });
   const after = await testState();
-  assert.equal(after.finished, true); assert.equal(after.eliminateEvents, 1);
+  assert.equal(after.finished, true); assert.equal(after.eliminateEvents, 2);
 });
 
-await test('B10 结束条件反向：4人局淘汰1人不结束；离线者计入存活；2人/1人不结束', async () => {
+await test('B10 结束条件反向：小房间淘汰好人至存活2不结束；离线者计入存活；badWiped 正例', async () => {
   await resetRoom();
   const a = await joinBy('甲'), b = await joinBy('乙'), c = await joinBy('丙'), d = await joinBy('丁');
-  const kill = await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: d.id, sid: (await pstate(d.id)).sid }, a.token);
-  assert.equal(kill.body.ok, true, JSON.stringify(kill.body));
+  const kill = async target => tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: target.id, sid: (await pstate(target.id)).sid }, a.token);
+  const killed = await kill(d);
+  assert.equal(killed.body.ok, true, JSON.stringify(killed.body));
   let st = await testState();
   assert.equal(st.finished, false, '4人局存活3不应结束');
   assert.equal(st.players.filter(p => p.alive).length, 3);
@@ -503,9 +571,22 @@ await test('B10 结束条件反向：4人局淘汰1人不结束；离线者计�
   assert.equal(st.players.filter(p => p.alive).length, 3, '离线者仍算存活');
   assert.equal(st.finished, false, '离线不误判结束');
   await advance(13000);
-  const kill2 = await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: b.id, sid: (await pstate(b.id)).sid }, a.token);
-  assert.equal(kill2.body.ok, true, JSON.stringify(kill2.body));
-  assert.equal((await testState()).finished, true, '存活降到2且有淘汰应结束');
+  const killed2 = await kill(b);
+  assert.equal(killed2.body.ok, true, JSON.stringify(killed2.body));
+  st = await testState();
+  assert.equal(st.players.filter(p => p.alive).length, 2, '仅剩坏人 + 离线好人');
+  assert.equal(st.finished, false, '小房间存活降到2但坏人仍在场 -> 不结束（旧“存活<=2”已废除）');
+  // badWiped 正例：重置后由好人指认唯一坏人两次。
+  await resetRoom();
+  const e = await joinBy('戊'), f = await joinBy('己'), g = await joinBy('庚');
+  assert.equal((await tokenPost('/api/skill', { commandId: uid(), skill: 'accuse', targetId: e.id }, f.token)).body.ok, true);
+  await advance(13000);
+  assert.equal((await tokenPost('/api/skill', { commandId: uid(), skill: 'accuse', targetId: e.id }, g.token)).body.ok, true);
+  await waitFor('badWiped', async () => (await testState()).finished, 5000);
+  const w = await testState();
+  assert.equal(w.finished, true, '坏人全灭应结束');
+  assert.equal(w.finishReason, 'badWiped');
+  assert.ok(Array.isArray(w.ranking) && w.ranking.length === 3, 'badWiped 应下发排名');
   await resetRoom();
   await joinBy('子'); await joinBy('丑');
   assert.equal((await testState()).finished, false, '2人无淘汰不结束');
@@ -513,28 +594,36 @@ await test('B10 结束条件反向：4人局淘汰1人不结束；离线者计�
   assert.equal((await testState()).finished, false, '1人不结束');
 });
 
-await test('B11 主持人接口：非 loopback 403；loopback 可结束/重开；重开缺 confirm 400', async () => {
-  await resetRoom(); await joinBy('甲');
-  const remote = await post('/api/host/finish', {}, null, { 'X-Sid-Test-Source-Address': '10.0.0.9' });
-  assert.equal(remote.status, 403, '非本机 403: ' + remote.status);
-  assert.match(remote.body.error, /本机/);
-  const remoteReset = await post('/api/host/reset', { confirm: true }, null, { 'X-Sid-Test-Source-Address': '10.0.0.9' });
-  assert.equal(remoteReset.status, 403, '非本机重开 403');
-  const noConfirm = await post('/api/host/reset', {});
+await test('B11 主持人接口：需 SID_DEV+身份+同源Origin+CSRF+confirm；伪造来源头不能绕过', async () => {
+  await resetRoom();
+  const host = await joinBy('主持人');
+  const cap = await tokenGet('/api/dev/capabilities', host.token);
+  assert.equal(cap.status, 200, '本机能力可读: ' + cap.status);
+  assert.equal(cap.body.canReset, true);
+  const csrf = cap.body.csrfToken;
+  // 伪造「非本机来源/本机来源」请求头都被忽略：身份 + 同源 Origin + CSRF + confirm 才是门禁。
+  const forged = await tokenPost('/api/host/finish', { confirm: true }, host.token, { Origin: BASE_B, 'X-Sid-Test-Source-Address': '10.0.0.9' });
+  assert.equal(forged.status, 403, '伪造来源头 + 缺 CSRF 仍被拒: ' + forged.status);
+  const noOrigin = await tokenPost('/api/host/finish', { confirm: true, csrfToken: csrf }, host.token);
+  assert.equal(noOrigin.status, 403, '缺同源 Origin 被拒: ' + noOrigin.status);
+  const noConfirm = await tokenPost('/api/host/finish', { csrfToken: csrf }, host.token, { Origin: BASE_B });
   assert.equal(noConfirm.status, 400, '缺 confirm: ' + noConfirm.status);
-  const local = await post('/api/host/finish', {});
-  assert.equal(local.status, 200, '本机可结束');
+  const local = await tokenPost('/api/host/finish', { confirm: true, csrfToken: csrf }, host.token, { Origin: BASE_B });
+  assert.equal(local.status, 200, '合法本机可结束: ' + local.status);
   assert.equal((await testState()).finished, true);
-  const rst = await post('/api/host/reset', { confirm: true });
+  const rst = await tokenPost('/api/host/reset', { confirm: true, csrfToken: csrf }, host.token, { Origin: BASE_B });
   assert.equal(rst.body.ok, true);
   assert.equal((await testState()).players.length, 0);
   assert.equal((await get('/api/test/sessions')).body.sessions.length, 0, '重开清空会话');
 });
 
-await test('B12 结束后旧身份仍可重连（revived），但不新增身份', async () => {
+await test('B12 badWiped 结束后旧身份仍可重连（revived），但不新增身份', async () => {
   await resetRoom();
   const a = await joinBy('甲'), b = await joinBy('乙'), c = await joinBy('丙');
-  await tokenPost('/api/skill', { commandId: uid(), skill: 'action', targetId: c.id, sid: (await pstate(c.id)).sid }, a.token);
+  assert.equal((await tokenPost('/api/skill', { commandId: uid(), skill: 'accuse', targetId: a.id }, b.token)).body.ok, true);
+  await advance(13000);
+  assert.equal((await tokenPost('/api/skill', { commandId: uid(), skill: 'accuse', targetId: a.id }, c.token)).body.ok, true);
+  await waitFor('badWiped', async () => (await testState()).finished, 5000);
   assert.equal((await testState()).finished, true);
   const re = await post('/api/join', { nickname: '甲' }, a.token);
   evidence.push({ tag: 'B12', status: re.status, body: re.body });
@@ -584,8 +673,8 @@ await test('C1 正式构建（无 SID_TEST）：测试端点不可达，且忽�
   const join = await fetch(BASE_C + '/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"nickname":"甲"}' });
   assert.equal(join.status, 200, '正式构建仍可正常加入');
   const hostSim = await fetch(BASE_C + '/api/host/finish', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Sid-Test-Source-Address': '10.0.0.9' }, body: '{}' });
-  evidence.push({ tag: 'C1-hostSim', status: hostSim.status });
-  assert.equal(hostSim.status, 200, '正式构建忽略测试头，按真实来源判定（本机放行）');
+  evidence.push({ tag: 'C1-hostSim', status: hostSim.status, note: '正式构建未启用 SID_DEV，且测试来源头被忽略 -> 主持人管理一律 403' });
+  assert.equal(hostSim.status, 403, '正式构建禁用主持人管理，且测试头不能绕过');
 });
 
 // ---------------- D 真实浏览器 ----------------
@@ -746,21 +835,23 @@ try {
     assert.ok(items.some(t => /被指认一次|已公开|加入了办公室/.test(t)), '日志内容: ' + JSON.stringify(items.slice(0, 3)));
   });
 
-  await test('D6 昵称 HTML 注入：名单把昵称当 HTML 解析（<script> 8 字符即吞掉后续名单）', async () => {
+  await test('D6 昵称 HTML：名单按字面文本渲染，<script>/<i>x</i> 不注入标签也不吞后续名单', async () => {
     await dPost('/api/join', { nickname: '<i>x</i>' });
     await dPost('/api/join', { nickname: '<script>' });
     await dPost('/api/join', { nickname: '正常名' });
     const names = (await dState()).players.map(p => p.name);
     assert.ok(names.includes('<i>x</i>'), '未转义昵称入库: ' + JSON.stringify(names));
     assert.ok(names.includes('<script>'), 'script 昵称入库');
-    await A.eval(`(()=>{const s=document.getElementById('search');s.value='';s.dispatchEvent(new Event('input'));})()`);
+    await A.eval(`(()=>{const r=document.getElementById('roster');if(r.hidden)document.getElementById('roster-toggle').click();const s=document.getElementById('search');s.value='';s.dispatchEvent(new Event('input'));})()`);
     await sleep(800);
     const probe = await A.eval(`(()=>{const box=document.getElementById('roster-items');
-      return {rows:box.querySelectorAll('[data-player]').length, italic:box.querySelectorAll('i:not(.swatch)').length, script:box.querySelectorAll('script').length, xss:!!window.__xss, text:box.textContent.slice(0,120)}})()`);
+      return {rows:box.querySelectorAll('[data-player]').length, italic:box.querySelectorAll('i:not(.swatch)').length, script:box.querySelectorAll('script').length, xss:!!window.__xss, names:[...box.querySelectorAll('strong')].map(x=>x.textContent), text:box.textContent.slice(0,120)}})()`);
     evidence.push({ tag: 'D6', ...probe, totalPlayers: names.length, serverNames: names });
-    assert.equal(probe.xss, false, '未观测到 JS 执行（innerHTML 注入不执行脚本）');
-    assert.ok(probe.italic >= 1 || probe.script >= 1, '昵称被当作 HTML 解析');
-    assert.ok(probe.rows < names.length, `名单被吞：渲染 ${probe.rows} / 实际 ${names.length}`);
+    assert.equal(probe.xss, false, '未观测到 JS 执行');
+    assert.equal(probe.script, 0, '昵称不得作为 <script> 注入');
+    assert.equal(probe.italic, 0, '昵称不得作为 <i> 注入');
+    assert.equal(probe.rows, names.length, `名单不被吞：渲染 ${probe.rows} / 实际 ${names.length}`);
+    for (const n of ['<i>x</i>', '<script>', '正常名']) assert.ok(probe.names.includes(n), '名单应含字面昵称: ' + n);
   });
 
   const perf = async cl => cl.eval(`new Promise(resolve=>{const d=[];let last=performance.now(),n=0;

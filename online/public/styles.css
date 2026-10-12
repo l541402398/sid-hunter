@@ -155,4 +155,67 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .rule-skill-grid{margin-top:18px}.rule-skill-grid article{background:#172331;border:1px solid #415163;border-radius:12px;padding:18px}.rule-badge{display:inline-block;padding:4px 8px;background:#24423e;border:1px solid #4d7970;color:#b9dfd6;border-radius:5px;font-size:10px;margin-bottom:15px}.rule-badge.bad{background:#4a2d35;border-color:#80505d;color:#f1bec7}.rule-skill-grid h4{font-size:17px}.rule-skill-grid h4 small{font-size:10px;color:#8fa7bd;font-weight:400;margin-left:6px}
 .mini-flow{display:flex;gap:9px;align-items:center;flex-wrap:wrap;font-size:11px;margin-top:10px}.mini-flow>span{background:#ffffff07;border:1px solid #ffffff15;border-radius:6px;padding:9px 11px}.mini-flow>b{color:#d8ab65}.pending-rule{opacity:.85}.unknown-tile{border-style:dashed!important;color:#aaaeb6}.skill-row{flex-wrap:wrap}.skill-row [data-skill]{flex:1 1 42%}
 @media(max-width:650px){.toolbar{align-items:flex-start;flex-wrap:wrap}.toolbar-left{flex-wrap:wrap}.rules-head{padding:17px;align-items:flex-start}.rules-head h2{font-size:19px}.rules-head button{padding:7px;font-size:11px}.rules-head kbd{display:none}.rules-body{padding:0 17px 20px}.rule-section h3{font-size:18px}.rule-split,.rule-skill-grid{grid-template-columns:1fr}.rule-avatar-grid{grid-template-columns:1fr}.rules-avatar{justify-self:center}.rule-flow{gap:7px}.rule-flow>div{min-width:100%;box-sizing:border-box}.rule-flow>b{transform:rotate(90deg);margin:auto}.rule-color-grid{grid-template-columns:1fr 1fr}.rules-view{max-height:calc(100dvh - 16px);width:calc(100vw - 16px)}}
+/* 探索沿用蓝灰面板，以暖金色区分 NPC 与私密线索。 */
+.exploration-hud{position:absolute;left:18px;top:58px;max-width:245px;max-height:34%;overflow:auto;padding:9px 11px;border:1px solid #3b5470;border-radius:9px;background:#0d1728e8;z-index:3;font-size:10px;color:#9aadc4}
+#cover-status{color:#c6d9ec}.nearby-items{display:flex;flex-direction:column;gap:5px;margin-top:6px}.nearby-items button{font-size:10px;padding:6px 9px;text-align:left}#nearby-empty{line-height:1.6;margin-top:5px}
+.exploration{right:12px;top:12px;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);padding:17px;z-index:21;border-color:#9d8156;color:#e9e4da}.exploration>.panel-heading{flex:none;margin-bottom:10px}.exploration-body{overflow:auto;min-height:0;overscroll-behavior:contain}.exploration #exploration-close{flex:none;min-width:44px;min-height:44px}.exploration-balance{padding:9px 11px;background:#142439;border:1px solid #435975;border-radius:8px;font-size:12px}.exploration-balance strong{color:#e9c877}.search-state{font-size:12px;color:#e9c877;line-height:1.7;margin:8px 0}.npc-dialogue{font-size:12px;line-height:1.8;color:#c5d6eb;margin:8px 0}#exploration-action{width:100%;min-height:44px;border-color:#9d8156}.clue-list{display:grid;gap:8px}.clue-card{padding:11px;border:1px solid #4d617b;border-radius:9px;background:#122035;overflow-wrap:anywhere}.clue-card strong{font-size:12px;color:#e9c877}.clue-card p{font-size:12px;line-height:1.8;margin:7px 0}.clue-card small{font-size:10px;color:#91a6c2}
+@media(max-width:850px){.exploration-hud{left:10px;top:49px;max-width:195px;max-height:30%}.exploration{width:288px}.toolbar-right{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
+/* 小游戏面板与 J 互动：延续深色像素风，仅补充必要的值槽与状态样式。 */
+.games{left:12px;top:60px;width:312px;max-width:calc(100% - 24px);max-height:calc(100% - 114px);padding:17px;z-index:23;border-color:#9d8156;color:#e9e4da}
+.games>.panel-heading{flex:none;margin-bottom:10px}.games #games-close{flex:none;min-width:44px;min-height:44px}
+.games-body{overflow:auto;min-height:0;overscroll-behavior:contain}
+.games-balance{padding:9px 11px;background:#142439;border:1px solid #435975;border-radius:8px;font-size:12px}
+.games-balance strong{color:#e9c877}
+.rps-block{border-top:1px solid #5a4a33;margin-top:12px;padding-top:12px}
+.rps-choices{display:flex;gap:7px;margin:9px 0}.rps-choices button{flex:1;font-size:12px;padding:9px 6px}
+.rps-choices button.selected{border-color:#e9c877;background:#3a3020;color:#ffe6a8;box-shadow:inset 0 0 0 1px #e9c87755}
+.games-invite-list{display:flex;flex-direction:column;gap:6px;margin:9px 0}
+.games-invite-list button{font-size:11px;padding:8px 10px;text-align:left}
+.games-state{font-size:11px;line-height:1.7;color:#e9c877;margin:8px 0}
+#games-result{margin-top:10px}
+.games-pending{border:1px dashed #9d8156;border-radius:9px;padding:11px;margin:9px 0;background:#221d16;font-size:11px}
+.games-pending p{line-height:1.7;color:#f4d69f}
+.games-pending-actions{display:flex;gap:8px;margin-top:8px}.games-pending-actions button{flex:1;font-size:11px;padding:8px}
+.games-timer{font:11px ui-monospace,monospace;color:#f0c47d;margin-top:8px}
+.combat-hud{display:flex;flex-direction:column;gap:6px;margin-top:7px;border-top:1px solid #33475f;padding-top:7px}
+#attack-button{font-size:10px;padding:6px 9px;text-align:left}
+.self-combat-state{color:#ffd0a8;font-size:10px;line-height:1.5}
+.self-combat-state:empty{display:none}
+.combat-status{color:#c5dcf7;font-size:10px;line-height:1.6}
+.combat-note{color:#8098b9;font-size:9px;line-height:1.5}
+@media(max-width:850px){.games{width:288px}}
+/* 分数槽、时间提示：延续顶部胶囊样式，只做稳定值槽。 */
+.score-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#a4b3c7;background:#111d2fcc;border:1px solid #2c405a;border-radius:999px;padding:7px 12px;box-shadow:inset 0 1px 0 #ffffff0f}
+.score-chip b{color:#f0c47d;font:700 14px ui-monospace,monospace}
+#time-left{color:#cfe3fb}
+/* 排行榜：结构与 games 一致，只更新值槽；坏人身份结束前不显示。 */
+.ranking{left:12px;top:60px;width:318px;max-width:calc(100% - 24px);max-height:calc(100% - 114px);padding:17px;z-index:24;border-color:#9d8156;color:#e9e4da}
+.ranking>.panel-heading{flex:none;margin-bottom:10px}.ranking #ranking-close{flex:none;min-width:44px;min-height:44px}
+.ranking #ranking-rules{color:#e9c877;margin-top:2px}.ranking #ranking-alive{color:#e9c877}
+.ranking-items{overflow:auto;min-height:0;flex:1 1 auto;display:flex;flex-direction:column;gap:5px}
+.ranking-row{width:100%;padding:7px 9px;display:flex;align-items:center;gap:9px;text-align:left;border:1px solid #33496a;background:linear-gradient(180deg,#152339,#111c2e);border-radius:9px;margin-bottom:2px;cursor:default}
+.ranking-row:hover{background:#1c2c44;border-color:#3c5273}
+.ranking-rank{font:700 14px ui-monospace,monospace;color:#e9c877;min-width:28px;text-align:center;flex:none}
+.ranking-row .portrait{width:26px;height:31px}
+.ranking-name{font-size:12px;font-weight:500;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ranking-score{font:600 13px ui-monospace,monospace;color:#c6dcff;margin-left:auto;flex:none}
+.ranking-row .out-label{margin-left:0;flex:none}
+/* 大转盘覆盖层：10 格扇形由 canvas 绘制，卡片沿用暗色主题。 */
+.wheel-overlay{position:absolute;inset:0;z-index:44;display:flex;align-items:center;justify-content:center;background:#05080fd8;backdrop-filter:blur(6px)}
+.wheel-card{width:min(440px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:#1E293B;border:1px solid #F59E0B;border-radius:16px;padding:19px;color:#E2E8F0;box-shadow:0 30px 80px -24px #000,inset 0 0 0 1px #ffffff0d}
+.wheel-card .panel-heading{margin-bottom:12px}
+#wheel-canvas{display:block;width:min(380px,74vw);height:auto;margin:2px auto 12px;image-rendering:auto;border-radius:14px;background:#0F172A}
+#wheel-cost{color:#f0c47d;margin:6px 0 10px}
+#wheel-spin{width:100%;min-height:44px;font-size:14px;font-weight:700;background:linear-gradient(180deg,#f7c366,#d9932f);border-color:#ffdda0;color:#3a2606}
+#wheel-spin:hover:not(:disabled){background:linear-gradient(180deg,#ffdd93,#e6a53c)}
+#wheel-result{margin-top:10px}#wheel-result:empty{display:none}
+#wheel-rules{margin-top:8px}
+/* 结算覆盖层：结束方式 + 排名，关闭后可再从排行榜查看。 */
+.finish-overlay{position:absolute;inset:0;z-index:54;display:flex;align-items:center;justify-content:center;background:#05080fdd;backdrop-filter:blur(6px)}
+.finish-card{width:min(500px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:linear-gradient(158deg,#1b2a40f8,#111d2efb);border:1px solid #9d8156;border-radius:16px;padding:20px;color:#e9e4da;box-shadow:0 30px 80px -24px #000}
+.finish-card h2{font-size:20px}
+#finish-reason{color:#f0c47d;font-size:13px;line-height:1.8;margin:8px 0 14px}
+#finish-ranking{margin-top:4px}
+@media(max-width:850px){.ranking{width:288px;top:52px}}
+
