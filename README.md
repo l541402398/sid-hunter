@@ -112,6 +112,9 @@ node online/privacy-reset-qa.mjs           # 23 项
 node online/progression-browser-test.mjs   # 转盘/特殊券/计分/结算：19 项
 node online/mechanics-browser-test.mjs     # 17 项
 node online/exploration-browser-test.mjs   # 17 项
+
+# 公网部署冒烟（打完线上地址，16 项）
+node online/deploy-smoke.mjs https://game.afann.xyz
 ```
 
 最近一次结果：服务端 **29/25/15/11/14/30/35/23/23** 与浏览器 **19/17/17** 全部通过，页面全程无 JavaScript 异常。浏览器脚本零依赖，结束时关闭自身启动的 Chrome 与 HTTP 子进程，日志与截图写入 `outputs/`。
@@ -169,6 +172,12 @@ WantedBy=multi-user.target
 cd /opt/sid-hunter && git pull --ff-only
 sudo systemctl restart sid-hunter
 systemctl is-active sid-hunter && curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8898/
+```
+
+对线上实例做端到端自检（静态资源、身份下发、SSE 快照、管理接口封锁共 16 项）：
+
+```bash
+node online/deploy-smoke.mjs https://game.afann.xyz
 ```
 
 > 房间状态在内存里，`restart` 会清空当前对局，适合上线前重置。
