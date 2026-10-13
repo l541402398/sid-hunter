@@ -4,7 +4,9 @@
 .codebuddy/
 
 # Secrets, local dependency installs, and runtime state.
-.env*
+.env
+.env.*
+!.env.example
 node_modules/
 *.log
 *.pid
