@@ -574,7 +574,9 @@ function createRoom(options = {}) {
         id: pending.id, fromId: pending.fromId, fromName: pending.fromName,
         toId: pending.toId, toName: pending.toName, role: pending.role,
         phase: pending.phase, expiresAt: pending.expiresAt,
-        startedAt: pending.startedAt || 0, deadline: pending.deadline || 0,
+        // startedAt/deadline 只在接受后的选择阶段才有意义；邀请阶段不下发 0 值占位，
+        // 避免前端拿到无意义的截止时间，也让邀请阶段的投影字段保持最小集合。
+        ...(pending.deadline ? { startedAt: pending.startedAt || 0, deadline: pending.deadline } : {}),
         ownChoice: sel ? sel.choice : null, ownRevision: sel ? sel.revision : 0
       };
     }

@@ -289,7 +289,10 @@ try {
     await waitFor('转盘覆盖层', async () => (await overlays()).wheel);
     const wheelStable = await sampleStable('#wheel-spin', 24);
     await click('#wheel-close');
-    const toggleStable = await sampleStable('#games-toggle', 24);
+    // 工具栏「互动小游戏」入口已移除：猜拳改为「靠近角色 → 邀请猜拳」，此处断言旧入口确实不存在。
+    const legacyToggle = await ev(`JSON.stringify({toggle:!!document.querySelector('#games-toggle'),label:/互动小游戏/.test(document.querySelector('.toolbar-left')?.textContent||'')})`);
+    assert.deepEqual(JSON.parse(legacyToggle), { toggle: false, label: false }, `旧互动小游戏入口应已移除，实测 ${legacyToggle}`);
+    const toggleStable = JSON.parse(legacyToggle);
     await click('#ranking-toggle');
     await waitFor('排行榜打开', async () => (await overlays()).ranking);
     const rules = await ev(`document.querySelector('#ranking-rules').textContent`);

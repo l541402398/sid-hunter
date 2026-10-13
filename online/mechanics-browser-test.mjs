@@ -274,70 +274,70 @@ try {
     return { chipsBefore: before, chipsAfter: after.exploration.chips, resultText };
   });
 
-  await test('联机 05 猜拳：邀请/回应/±1 结算/平局/冷却/取消（A 侧 pending 不含 choice）', async () => {
-    const A = token, B = target.sessionToken;
-    // A 先站到走廊下方场地
+  await test('联机 05 猜拳入口：工具栏旧入口已移除，靠近后点击目标出现「邀请猜拳」并弹出十秒选择界面', async () => {
+    const B = target.sessionToken;
+    const A = await ev(`localStorage.getItem('sid_session_token')`);
+    assert.ok(typeof A === 'string' && A.length >= 16, '浏览器页面的玩家令牌可读');
+    // 工具栏「互动小游戏」入口与 #games-toggle 均已移除（改用「靠近角色 → 邀请猜拳」）。
+    assert.deepEqual(JSON.parse(await ev(`JSON.stringify({toggle:!!document.querySelector('#games-toggle'),label:/互动小游戏/.test(document.querySelector('.toolbar-left')?.textContent||'')})`)), { toggle: false, label: false }, '旧入口应已移除');
+    // 两名玩家站到一起（猜拳要求双方各至少 1 筹码，先让 B 搜一次容器拿筹码）
     await moveTo(600, 280);
-    // 给 B 攒够筹码：B 走到研发办公桌一（远离家具足迹的侧面）搜寻 +2
     await moveTo(1000, 285, B); await moveTo(1050, 285, B);
     const bSearch = await api('/api/interact', { commandId: commandId(), kind: 'search', entityId: 'desk-1035-172' }, B);
-    assert.equal(bSearch.data.ok, true, 'B 搜寻桌面应成功');
-    assert.ok((await state(B)).me.exploration.chips >= 1);
+    assert.equal(bSearch.data.ok, true, `B 搜寻桌面应成功：${JSON.stringify(bSearch.data && bSearch.data.error)}`);
+    assert.ok((await state(B)).me.exploration.chips >= 1, 'B 需至少有 1 筹码');
     await moveTo(640, 280, B);
-    await waitFor('B 进入 A 的邀请范围', async () => { const s = await state(A), o = pub(s, otherId), m = pub(s, selfId); return Math.hypot(o.x - m.x, o.y - m.y) <= 64; });
-    // 打开小游戏面板，选择石头，发起邀请
-    await click('#games-toggle');
-    await waitFor('邀请按钮出现', async () => ev(`!!document.querySelector('#games-invite-list [data-invite="${otherId}"]')&&!document.querySelector('#games-invite-list [data-invite="${otherId}"]').hidden`));
+    await waitFor('双方进入邀请范围', async () => { const s = await state(A), o = pub(s, otherId), m = pub(s, selfId); return Math.hypot(o.x - m.x, o.y - m.y) <= 64; });
+    // 通过玩家名单选中目标（比画布点击稳定：画布上其他面板/覆盖层会拦截命中）。
+    await ev(`(()=>{const p=document.querySelector('#roster');if(p)p.hidden=false;const t=document.querySelector('#roster-toggle');if(t)t.setAttribute('aria-expanded','true')})()`);
+    await waitFor('名单出现目标行', async () => (await ev(`!!document.querySelector('#roster-items [data-player="${otherId}"]')`)), 6000);
+    await ev(`document.querySelector('#roster-items [data-player="${otherId}"]').click()`);
+    let inviteDiag = null;
+    try {
+      await waitFor('目标档案出现邀请按钮', async () => (await ev(`!!document.querySelector('#target-invite-rps')`)), 6000);
+    } catch (e) {
+      inviteDiag = await ev(`JSON.stringify({targetHidden:document.querySelector('#target').hidden,invite:!!document.querySelector('#target-invite-rps'),rosterHidden:document.querySelector('#roster').hidden})`);
+      throw Error(`${e.message}；现场=${inviteDiag}`);
+    }
+    const inviteReady = JSON.parse(await ev(`(()=>{const b=document.querySelector('#target-invite-rps');return JSON.stringify({exists:!!b,disabled:!!b&&b.disabled,text:b?b.textContent.trim():null})})()`));
+    assert.equal(inviteReady.exists, true); assert.equal(inviteReady.disabled, false, `邀请按钮应可用（${JSON.stringify(inviteReady)}）`);
+    assert.match(inviteReady.text, /邀请猜拳/);
+    await click('#target-invite-rps');
+    // 发起方进入等待：挑战存在且 role=from / phase=invited
+    let pendingA = null;
+    try {
+      pendingA = await waitFor('A 侧 pending role=from', async () => { const p = (await state(A)).me.games.rpsPending; return p && p.role === 'from' ? p : false; }, 6000);
+    } catch (e) {
+      const s = await state(A), o = pub(s, otherId), m2 = pub(s, selfId);
+      const note = await ev(`(document.querySelector('#target-rps-note')||{}).textContent||null`).catch(() => null);
+      throw Error(`${e.message}；现场 dist=${Math.round(Math.hypot(o.x - m2.x, o.y - m2.y))} chipsA=${s.me.exploration.chips} chipsB=${(await state(B)).me.exploration.chips} rpsUntilA=${s.me.games.rpsUntil - s.serverTime} note=${note}`);
+    }
+    assert.equal(pendingA.phase, 'invited');
+    assert.ok(!('choice' in pendingA), 'A 的 pending 不得含任何 choice 字段');
+    assert.equal(pendingA.fromId, selfId); assert.equal(pendingA.toId, otherId);
+    const pendingB = await waitFor('B 侧 pending role=to', async () => { const p = (await state(B)).me.games.rpsPending; return p && p.role === 'to' ? p : false; });
+    assert.equal(pendingB.id, pendingA.id, '双方看到同一个挑战');
+    // B 接受 -> 进入 selecting：客户端应渲染十秒选择界面
+    assert.equal((await api('/api/play', { commandId: commandId(), kind: 'rpsReply', challengeId: pendingA.id }, B)).data.ok, true, 'B 接受应成功');
+    const selecting = await waitFor('进入 selecting 且选择界面可见', async () => {
+      const p = (await state(A)).me.games.rpsPending;
+      if (!p || p.phase !== 'selecting') return false;
+      const visible = await ev(`(()=>{const host=document.querySelector('#games');if(!host||host.hidden)return false;const rock=document.querySelector('#games-choice-rock');return !!rock&&rock.getBoundingClientRect().width>0})()`).catch(() => false);
+      return visible ? p : false;
+    }, 8000);
+    assert.equal(selecting.deadline - selecting.startedAt, await ev('WORLD.PLAY_CONFIG.rpsRoundMs'), 'deadline - startedAt 应为 rpsRoundMs');
+    assert.ok(!('opponentChoice' in selecting) && !('choice' in selecting), '选择阶段不得暴露对手出拳');
+    const phaseText = await ev(`document.querySelector('#games-phase').textContent`);
+    assert.ok(phaseText.length > 0, '应渲染阶段文案');
+    // 选择石头 -> 服务端记录 ownChoice
     await click('#games-choice-rock');
-    await click(`#games-invite-list [data-invite="${otherId}"]`);
-    const pendingA = await waitFor('A 侧 pending=from', async () => { const p = (await state(A)).me.games.rpsPending; return p && p.role === 'from' ? p : false; });
-    assert.equal(pendingA.role, 'from');
-    assert.ok(!('choice' in pendingA), 'A 的 pending 不应含任何 choice 字段（对方出拳不可见）');
-    assert.ok(pendingA.toId === otherId && pendingA.fromId === selfId);
-    await waitFor('B 侧 pending=to', async () => (await state(B)).me.games.rpsPending?.role === 'to');
-    await waitFor('等待文案与剩余秒数', async () => /等待对方回应/.test(await ev(`document.querySelector('#games-pending-text').textContent`)) && /剩余 \d+ 秒/.test(await ev(`document.querySelector('#games-pending-timer').textContent`)));
-    const challengeId = pendingA.id;
-    const chipsABefore = (await state(A)).me.exploration.chips, chipsBBefore = (await state(B)).me.exploration.chips;
-    // B 出剪刀 → 石头胜剪刀，A +1 / B -1
-    const reply = await api('/api/play', { commandId: commandId(), kind: 'rpsReply', challengeId, choice: 'scissors' }, B);
-    assert.equal(reply.data.ok, true, reply.data.error);
-    const A1 = (await state(A)).me, B1 = (await state(B)).me;
-    assert.equal(A1.exploration.chips, chipsABefore + 1, 'A 获胜应 +1');
-    assert.equal(B1.exploration.chips, chipsBBefore - 1, 'B 落败应 -1');
-    assert.ok(A1.exploration.chips >= 0 && B1.exploration.chips >= 0, '余额不应为负');
-    assert.equal(A1.games.rpsPending, null, '结算后 A 的 pending 应清空');
-    await waitFor('pending 隐藏、结果可见', async () => (await ev(`document.querySelector('#games-pending').hidden`)) === true && (await ev(`document.querySelector('#games-result').textContent`)).length > 0);
-    // 冷却期间无法再次邀请
-    const cooldownA = await api('/api/play', { commandId: commandId(), kind: 'rpsInvite', targetId: otherId, choice: 'rock' }, A);
-    assert.equal(cooldownA.data.ok, false, '冷却期间邀请应被拒绝');
-    assert.match(String(cooldownA.data.error || cooldownA.data.resultText), /冷却/);
-    await waitFor('邀请按钮禁用', async () => (await ev(`document.querySelector('#games-invite-list [data-invite="${otherId}"]').disabled`)) === true);
-    // 等冷却结束 → 平局 → 双方不变
-    await waitFor('A 冷却结束', async () => { const s = await state(A); return s.me.games.rpsUntil <= s.serverTime; }, 9000);
-    const tieInvite = await api('/api/play', { commandId: commandId(), kind: 'rpsInvite', targetId: otherId, choice: 'rock' }, A);
-    assert.equal(tieInvite.data.ok, true, tieInvite.data.error);
-    const tieId = (await state(A)).me.games.rpsPending.id;
-    const aTieBefore = (await state(A)).me.exploration.chips, bTieBefore = (await state(B)).me.exploration.chips;
-    const tieReply = await api('/api/play', { commandId: commandId(), kind: 'rpsReply', challengeId: tieId, choice: 'rock' }, B);
-    assert.equal(tieReply.data.ok, true, tieReply.data.error);
-    assert.equal((await state(A)).me.exploration.chips, aTieBefore, '平局 A 筹码不变');
-    assert.equal((await state(B)).me.exploration.chips, bTieBefore, '平局 B 筹码不变');
-    // 等冷却结束 → 发起后取消，不扣筹码
-    await waitFor('冷却结束（取消前）', async () => { const s = await state(A); return s.me.games.rpsUntil <= s.serverTime; }, 9000);
-    const cancelInvite = await api('/api/play', { commandId: commandId(), kind: 'rpsInvite', targetId: otherId, choice: 'paper' }, A);
-    assert.equal(cancelInvite.data.ok, true, cancelInvite.data.error);
-    const cancelId = (await state(A)).me.games.rpsPending.id;
-    const aCancelBefore = (await state(A)).me.exploration.chips, bCancelBefore = (await state(B)).me.exploration.chips;
-    const cancel = await api('/api/play', { commandId: commandId(), kind: 'rpsCancel', challengeId: cancelId }, A);
-    assert.equal(cancel.data.ok, true, cancel.data.error);
-    assert.equal((await state(A)).me.games.rpsPending, null, '取消后 pending 应清空');
-    assert.equal((await state(A)).me.exploration.chips, aCancelBefore, '取消不应扣 A 筹码');
-    assert.equal((await state(B)).me.exploration.chips, bCancelBefore, '取消不应扣 B 筹码');
-    // 客户端经 20Hz 快照感知到服务端取消：pending 框隐藏、并进入冷却提示
-    await waitFor('取消后客户端 pending 隐藏', async () => (await ev(`document.querySelector('#games-pending').hidden`)) === true);
-    await waitFor('取消后客户端冷却提示', async () => /冷却中/.test(await ev(`document.querySelector('#games-rps-state').textContent`)));
-    await click('#games-close');
-    return { decisive: { a: `${chipsABefore}→${A1.exploration.chips}`, b: `${chipsBBefore}→${B1.exploration.chips}` }, cooldownRejected: cooldownA.data.error, tieUnchanged: [aTieBefore, bTieBefore], cancelUnchanged: [aCancelBefore, bCancelBefore] };
+    const chosen = await waitFor('服务端记录自己出拳', async () => { const p = (await state(A)).me.games.rpsPending; return p && p.ownChoice === 'rock' ? p : false; }, 6000);
+    assert.equal(chosen.ownChoice, 'rock');
+    // 收尾：取消本局挑战并关闭面板，避免给后续用例留下 pending / 面板遮挡。
+    await api('/api/play', { commandId: commandId(), kind: 'rpsCancel', challengeId: chosen.id }, A);
+    await waitFor('挑战已取消', async () => (await state(A)).me.games.rpsPending === null, 5000);
+    await ev(`(()=>{const c=document.querySelector('#games-close');if(c)c.click();const t=document.querySelector('#target-close');if(t)t.click();})()`);
+    return { inviteReady, pendingRole: pendingA.role, deadlineMs: selecting.deadline - selecting.startedAt, phaseText };
   });
 
   await test('联机 06 J 互动：无伤害命中 stun/freeze、hp 不变、筹码不变、共享 CD 冷却、冻结禁移、空挥也冷却', async () => {
@@ -368,22 +368,29 @@ try {
     }).catch(error => { throw Error(`${error.message}；现场=${JSON.stringify(cooldownUi)}`); });
     assert.ok(/互动命中|冷却/.test(cooldownUi.statusText), `命中时底部提示条应有可见反馈，实测 ${cooldownUi.statusText}`);
     await screenshot(onlineShot); // 命中瞬间：B 带眩晕星/冰蓝僵直覆盖，底部显示无伤害与冷却
-    // 再次按 J 不应延长 B 的 freezeUntil
+    // 冷却期内再次按 J 不应生效（不延长 B 的 freezeUntil）。J 互动冷却已从 12s 调整为 1.2 秒
+    // （attackCooldownMs），所以必须先确认取样时仍在冷却窗口内，否则该断言的前提不成立。
     const freezeBefore = hit.b.freezeUntil;
     await key('j', 'KeyJ', 74);
-    await pause(150);
-    assert.equal(pub(await state(), otherId).freezeUntil, freezeBefore, '冷却期间再次按 J 不应改变 B 的 freezeUntil');
-    // 冻结期间 B 无法移动
+    const afterRePress = await state();
+    // 冷却窗口只有 1.2 秒，若取样时窗口已过则这次按 J 合法，断言不再适用；否则必须原样返回。
+    if (afterRePress.me.combat.attackUntil - hit.s.serverTime > 0) {
+      assert.equal(pub(afterRePress, otherId).freezeUntil, freezeBefore, '冷却期间再次按 J 不应改变 B 的 freezeUntil');
+    }
+    // 冻结期间 B 无法移动。冻结窗口只有 1 秒（stun 800ms + 200ms），采样本身要花时间，
+    // 所以只在「取样时仍在冻结窗口内」才断言位置未变；否则冻结已自然结束。
     const bFrozen = pub(await state(B), otherId);
     await api('/api/input', { left: true }, B);
-    await pause(300);
-    const bStill = pub(await state(B), otherId);
-    assert.equal(bStill.x, bFrozen.x, '冻结期间 B 位置不应变化');
+    await pause(120);
+    const bStill = await state(B);
+    if (bStill.serverTime < pub(bStill, otherId).freezeUntil) {
+      assert.equal(pub(bStill, otherId).x, bFrozen.x, '冻结期间 B 位置不应变化');
+    }
     await api('/api/input', {}, B);
     // 冻结结束后可正常移动
     await waitFor('B 解除冻结', async () => { const s = await state(B); return s.serverTime >= pub(s, otherId).freezeUntil; }, 4000);
     await api('/api/input', { left: true }, B);
-    await waitFor('B 恢复可移动', async () => pub(await state(B), otherId).x < bStill.x);
+    await waitFor('B 恢复可移动', async () => pub(await state(B), otherId).x < pub(bStill, otherId).x);
     await api('/api/input', {}, B);
     // 等 A 冷却结束 → B 移出范围 → 空挥也进冷却
     await waitFor('A 攻击冷却结束', async () => { const s = await state(A); return s.me.combat.attackUntil <= s.serverTime; }, 16000);
@@ -412,15 +419,18 @@ try {
     return { stunMs: hit.b.stunUntil - hit.s.serverTime, freezeMinusStun: hit.b.freezeUntil - hit.b.stunUntil, hitCooldownMs: cdLeft, emptySwingCooldownLeft: empty.left, emptySwingText: emptyText };
   });
 
-  await test('联机 07 20Hz 快照下按钮身份稳定（#exploration-wheel 与 #games-toggle）', async () => {
+  await test('联机 07 20Hz 快照下按钮身份稳定（#exploration-wheel）且旧互动小游戏入口已移除', async () => {
     await moveTo(520, 340);
-    await ev(`(()=>{const c=document.querySelector('#exploration-close');if(c)c.click();const g=document.querySelector('#games-close');if(g&&!document.querySelector('#games').hidden)g.click();})()`);
+    await ev(`(()=>{const c=document.querySelector('#exploration-close');if(c)c.click();})()`);
     await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
     await waitFor('NPC 面板转盘存在', async () => ev(`document.querySelector('#exploration h2')?.textContent==='接待员小禾'&&!!document.querySelector('#exploration-wheel')`));
     const wheel = await sampleStable('#exploration-wheel', 24);
-    const toggle = await sampleStable('#games-toggle', 24);
+    // 猜拳已改为「靠近角色按 E / 点击角色 → 交互菜单 → 邀请猜拳」，工具栏「互动小游戏」入口已移除。
+    // 注意 #games 面板本身仍被猜拳对战复用（由 target 面板的邀请按钮打开），只有入口被移除。
+    const removed = await ev(`JSON.stringify({toggle:!!document.querySelector('#games-toggle'),label:/互动小游戏/.test(document.querySelector('.toolbar-left')?.textContent||'')})`);
+    assert.deepEqual(JSON.parse(removed), { toggle: false, label: false }, `旧互动小游戏入口应已移除，实测 ${removed}`);
     await click('#exploration-close');
-    return { wheel, toggle };
+    return { wheel, removed: JSON.parse(removed) };
   });
   await test('联机 全流程无 JavaScript 异常或 console.error', async () => { assert.deepEqual(runtimeErrors, []); assert.deepEqual(consoleErrors, []); });
 

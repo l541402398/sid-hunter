@@ -36,6 +36,11 @@ const choose = (r, id, choice, revision = 1, extra = {}) => play(r, id, 'rpsChoo
 const advance = (r, ms) => { r.room.clockOffset += ms; };
 // 推进越过 10s deadline 并触发一次 syncRoom 结算（不降产品 rpsRoundMs 配置）。
 const settle = (r) => { advance(r, C.rpsRoundMs + 1); r.step(0); };
+// 本人视角能否看到对手出拳：只有结算后 rpsResult.opponentChoice 才填入，选择阶段恒为 null。
+const onChoice = (r, id) => {
+  const result = r.privateSnapshot(id).me.games.rpsResult;
+  return result && result.status === 'resolved' ? result.opponentChoice : null;
+};
 function attackFixture() {
   const r = fixture();
   for (const p of r.room.players) { p.x = 1500 + p.id * 100; p.y = 350; }
@@ -120,58 +125,88 @@ await test('转盘权威距离64、失败不扣不锁nonce、身份在线存活�
 await test('九组合双向结算、选择隐藏锁定、无预扣、冷却与重复回应', () => {
   for (const a of choices) for (const b of choices) {
     const r = fixture(), from = r.find(0), to = r.find(1), beforeLogs = r.publicSnapshot().logs;
-    const id = nonce(); assert.equal(invite(r, { choice: a, commandId: id }).ok, true);
-    assert.equal(from.exploration.chips, 3); assert.equal(to.exploration.chips, 3);
-    assert.equal(invite(r, { choice: b, commandId: id }).ok, false);
-    const pending = r.privateSnapshot(1).me.games.rpsPending;
-    assert.deepEqual(Object.keys(pending).sort(), ['id', 'fromId', 'fromName', 'toId', 'toName', 'role', 'expiresAt'].sort());
-    assert.equal(pending.role, 'to'); assert.equal(from.games.rpsPending.role, 'from');
-    assert.equal(pending.fromId, from.id); assert.equal(pending.toName, to.name);
-    assert.ok(pending.expiresAt >= r.now() + 29900); assertPublicSafe(r);
-    const replyId = nonce(), outcome = WORLD.rpsOutcome(a, b);
-    const result = reply(r, { choice: b, commandId: replyId });
-    assert.equal(result.ok, true); assert.equal(result.delta, -outcome);
+    const outcome = WORLD.rpsOutcome(a, b);
+    // 新协议：邀请不带出拳，被邀请方先“接受”进入 10 秒选择阶段，双方各选后到 deadline 才结算。
+    const id = nonce();
+    assert.equal(invite(r, { commandId: id }).ok, true);
+    assert.equal(from.exploration.chips, 3); assert.equal(to.exploration.chips, 3, '邀请阶段不预扣筹码');
+    assert.equal(invite(r, { commandId: id }).ok, false, '同一 commandId 重放应被去重');
+    const invited = r.privateSnapshot(1).me.games.rpsPending;
+    assert.deepEqual(Object.keys(invited).sort(), ['id', 'fromId', 'fromName', 'toId', 'toName', 'role', 'phase', 'expiresAt', 'ownChoice', 'ownRevision'].sort());
+    assert.equal(invited.phase, 'invited'); assert.equal(invited.role, 'to');
+    assert.equal(from.games.rpsPending.role, 'from');
+    assert.equal(invited.fromId, from.id); assert.equal(invited.toName, to.name);
+    assert.equal(invited.deadline, undefined, '邀请阶段不下发 deadline');
+    assert.ok(invited.expiresAt >= r.now() + 29900); assertPublicSafe(r);
+    const replyId = nonce();
+    assert.equal(reply(r, { commandId: replyId }).ok, true, '接受应成功且不结算');
+    assert.equal(from.exploration.chips, 3); assert.equal(to.exploration.chips, 3, '接受后仍未结算');
+    const pending = r.privateSnapshot(0).me.games.rpsPending;
+    assert.equal(pending.phase, 'selecting');
+    assert.equal(pending.deadline - pending.startedAt, C.rpsRoundMs, 'deadline - startedAt 应为 rpsRoundMs');
+    assert.equal(pending.deadline, r.privateSnapshot(1).me.games.rpsPending.deadline, '双方 deadline 一致');
+    assert.equal(choose(r, 0, a, 1).ok, true); assert.equal(choose(r, 1, b, 1).ok, true);
+    assert.equal(from.exploration.chips, 3); assert.equal(to.exploration.chips, 3, '截止前不结算');
+    assert.equal(r.privateSnapshot(0).me.games.rpsPending.ownChoice, a);
+    assert.equal(r.privateSnapshot(0).me.games.rpsPending.ownRevision, 1);
+    assert.equal(onChoice(r, 0), null, '不泄露对手出拳');
+    assert.equal(onChoice(r, 1), null, '不泄露对手出拳');
+    settle(r);
     assert.equal(from.exploration.chips, 3 + outcome); assert.equal(to.exploration.chips, 3 - outcome);
     assert.equal(from.games.rpsPending, null); assert.equal(to.games.rpsPending, null); assert.equal(r.room.challenges.size, 0);
-    const labels = { rock: '石头', paper: '布', scissors: '剪刀' };
-    assert.ok(from.games.lastResult.includes(`你出${labels[a]}`)); assert.ok(from.games.lastResult.includes(`${to.name}出${labels[b]}`));
-    assert.ok(to.games.lastResult.includes(`你出${labels[b]}`)); assert.ok(to.games.lastResult.includes(`${from.name}出${labels[a]}`));
+    const fr = from.games.rpsResult, tr = to.games.rpsResult;
+    assert.equal(fr.status, 'resolved'); assert.equal(tr.status, 'resolved');
+    assert.equal(fr.outcome, outcome > 0 ? 'win' : outcome < 0 ? 'lose' : 'draw');
+    assert.equal(fr.delta, outcome); assert.equal(tr.delta, -outcome);
+    assert.equal(fr.opponentChoice, b); assert.equal(tr.opponentChoice, a);
     assert.ok(from.games.rpsUntil >= r.now() + 4900); assert.equal(from.games.rpsUntil, to.games.rpsUntil);
-    assert.equal(reply(r, { commandId: replyId, challengeId: pending.id }).ok, false);
-    assert.equal(invite(r).ok, false); advance(r, 5001); assert.equal(invite(r).ok, true);
+    assert.equal(reply(r, { commandId: replyId }).ok, false, '同一 commandId 重放应被去重');
+    assert.equal(invite(r).ok, false, '冷却期间不能再次邀请');
+    advance(r, 5001); assert.equal(invite(r).ok, true, '冷却结束后可再次邀请');
     assert.deepEqual(r.publicSnapshot().logs, beforeLogs);
   }
 });
 await test('猜拳拒绝第三方、发起者回应、重复邀请、双向占用、非法选择与目标', () => {
   const r = fixture(); assert.equal(invite(r).ok, true);
   const challengeId = r.find(1).games.rpsPending.id;
-  for (const kind of ['rpsReply', 'rpsCancel']) assert.equal(play(r, 2, kind, { challengeId, choice: 'paper' }).ok, false);
-  assert.equal(play(r, 0, 'rpsReply', { challengeId, choice: 'paper' }).ok, false);
-  assert.equal(invite(r).ok, false);
-  assert.equal(play(r, 1, 'rpsInvite', { targetId: 2, choice: 'rock' }).ok, false);
-  assert.equal(play(r, 2, 'rpsInvite', { targetId: 0, choice: 'rock' }).ok, false);
-  assert.equal(reply(r, { choice: 'lizard' }).ok, false); assert.equal(r.room.challenges.size, 1);
+  // 第三方不能接受/取消；发起者自己不能“接受”自己的邀请。
+  for (const kind of ['rpsReply', 'rpsCancel']) assert.equal(play(r, 2, kind, { challengeId }).ok, false);
+  assert.equal(play(r, 0, 'rpsReply', { challengeId }).ok, false);
+  assert.equal(invite(r).ok, false, '已有待回应邀请不能再邀请');
+  assert.equal(play(r, 1, 'rpsInvite', { targetId: 2 }).ok, false);
+  assert.equal(play(r, 2, 'rpsInvite', { targetId: 0 }).ok, false);
+  assert.equal(reply(r).ok, true, '被邀请方接受应成功');
+  // 接受后双方各自出拳；非法 choice 必须被拒。
+  assert.equal(play(r, 1, 'rpsChoose', { challengeId, choice: 'lizard', revision: 1 }).ok, false);
+  assert.equal(r.room.challenges.size, 1);
   const q = fixture();
   for (const targetId of [0, 'unknown', null, {}, '', 200]) assert.equal(invite(q, { targetId }).ok, false);
-  for (const choice of [undefined, null, 'Rock', 'lizard', 2]) assert.equal(invite(q, { choice }).ok, false);
   assert.equal(q.room.challenges.size, 0);
 });
 await test('双方均可发起、最小余额无负数、连续回应/取消竞争只结算一次', () => {
   for (const fromId of [0, 1]) {
     const r = fixture(), toId = 1 - fromId;
     r.find(0).exploration.chips = r.find(1).exploration.chips = 1;
-    assert.equal(play(r, fromId, 'rpsInvite', { targetId: toId, choice: 'paper' }).ok, true);
+    assert.equal(play(r, fromId, 'rpsInvite', { targetId: toId }).ok, true);
     const challengeId = r.find(toId).games.rpsPending.id;
-    assert.equal(play(r, toId, 'rpsInvite', { targetId: fromId, choice: 'rock' }).ok, false);
-    assert.equal(play(r, toId, 'rpsReply', { challengeId, choice: 'rock' }).ok, true);
-    assert.equal(r.find(fromId).exploration.chips, 2); assert.equal(r.find(toId).exploration.chips, 0);
-    assert.equal(play(r, fromId, 'rpsCancel', { challengeId }).ok, false);
-    assert.equal(play(r, toId, 'rpsReply', { challengeId, choice: 'scissors' }).ok, false);
-    assert.equal(r.find(fromId).exploration.chips, 2); assert.equal(r.find(toId).exploration.chips, 0);
+    assert.equal(play(r, toId, 'rpsInvite', { targetId: fromId }).ok, false, '双方不能同时互相邀请');
+    assert.equal(play(r, toId, 'rpsReply', { challengeId }).ok, true, '接受不结算');
+    assert.equal(r.find(fromId).exploration.chips, 1); assert.equal(r.find(toId).exploration.chips, 1, '接受不预扣');
+    // 各出 1 筹码：胜负 ±1，输方余额不得为负（stake=1、起始=1）。
+    const winChoice = 'rock', loseChoice = 'scissors';
+    assert.equal(play(r, fromId, 'rpsChoose', { challengeId, choice: winChoice, revision: 1 }).ok, true);
+    assert.equal(play(r, toId, 'rpsChoose', { challengeId, choice: loseChoice, revision: 1 }).ok, true);
+    advance(r, C.rpsRoundMs + 1); r.step(0); r.step(0);
+    assert.equal(r.find(fromId).exploration.chips, 2, '发起方出石头胜出 +1');
+    assert.equal(r.find(toId).exploration.chips, 0, '输方余额归零但不为负');
+    assert.equal(r.room.challenges.size, 0, '只结算一次');
+    assert.equal(play(r, fromId, 'rpsCancel', { challengeId }).ok, false, '结算后不能取消');
+    assert.equal(play(r, toId, 'rpsReply', { challengeId }).ok, false, '结算后不能再次接受');
+    assert.equal(r.find(fromId).exploration.chips + r.find(toId).exploration.chips, 2, '筹码守恒');
   }
   const r = fixture(); invite(r); const challengeId = r.find(1).games.rpsPending.id;
   assert.equal(play(r, 0, 'rpsCancel', { challengeId }).ok, true);
-  assert.equal(reply(r, { challengeId }).ok, false);
+  assert.equal(reply(r).ok, false);
   assert.deepEqual(r.room.players.slice(0, 2).map(p => p.exploration.chips), [3, 3]);
 });
 await test('猜拳任一参与者取消、不扣与共享nonce跨API防重', () => {
@@ -236,19 +271,31 @@ await test('30秒过期读取/请求/step清理，刷新保留pending轮盘结�
   }
   const r = fixture({ randomInt: () => 2 }), a = r.find(0), b = r.find(1);
   a.x = npc.x; a.y = npc.y; play(r, 0, 'wheel', { entityId: npc.id });
-  b.x = a.x + 20; b.y = a.y; invite(r);
+  b.x = a.x + 20; b.y = a.y;
+  // 刷新（离线重连）必须保留 pending 轮盘结果；新协议下 rpsResult 也是常驻字段。
   const saved = r.privateSnapshot(0).me.games;
   r.setOffline(0); r.join(a.sessionId, '不应改名');
   assert.deepEqual(r.privateSnapshot(0).me.games, saved);
+  // 有活跃猜拳邀请时，任一参与者离线会取消挑战并写入 cancelled 结果（不再保留 pending）。
+  const chipsBeforeCancel = a.exploration.chips;
+  invite(r);
+  assert.ok(r.privateSnapshot(0).me.games.rpsPending, '邀请后应有 pending');
+  r.setOffline(1);
+  const afterOffline = r.privateSnapshot(0).me.games;
+  assert.equal(afterOffline.rpsPending, null, '对方离线后挑战应取消');
+  assert.equal(afterOffline.rpsResult.status, 'cancelled');
+  assert.match(afterOffline.rpsResult.reason, /离线/);
+  assert.equal(a.exploration.chips, chipsBeforeCancel, '取消不扣筹码');
+  // 之后继续验证同一账号的轮盘计数累加。
   const spin2 = play(r, 0, 'wheel', { entityId: npc.id });
   assert.equal(spin2.ok, true); assert.equal(spin2.spins, 2); assert.equal(spin2.cost, WORLD.wheelSpinCost(1));
   assert.equal(a.games.wheelSpins[npc.id], 2);
-  reply(r); const settled = r.privateSnapshot(0).me.games;
+  const settled = r.privateSnapshot(0).me.games;
   r.setOffline(0); r.join(a.sessionId, '刷新'); assert.deepEqual(r.privateSnapshot(0).me.games, settled);
   const oldNonce = [...r.room.processed.keys()][0]; r.reset();
   assert.equal(r.room.challenges.size, 0); assert.equal(r.room.processed.size, 0); assert.equal(r.playerBySession(a.sessionId), null);
   const fresh = r.join(a.sessionId, '新局').player;
-  assert.deepEqual(fresh.games, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '' });
+  assert.deepEqual(fresh.games, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null });
   assert.deepEqual(fresh.combat, { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 });
   assert.equal(fresh.spriteFacing, 'front');
   fresh.x = npc.x; fresh.y = npc.y; assert.equal(play(r, 0, 'wheel', { commandId: oldNonce, entityId: npc.id }).ok, true);
@@ -463,13 +510,17 @@ await test('多玩家J跳过已stun/freeze目标不延长，无替代目标空�
     assert.equal(attack(q).hitId, 2); assert.equal(q.find(1).combat.freezeUntil, clock + 1000);
   } finally { Date.now = realNow; }
 });
-await test('受控猜拳回应暂拒不取消，控制到期可回应；刷新保留控制且reset清空', () => {
+await test('受控猜拳回应暂拒不取消，控制到期可回应；reset清空控制', () => {
   const r = fixture(), a = r.find(0), b = r.find(1); invite(r);
   const challengeId = b.games.rpsPending.id; assert.equal(attack(r).hitId, 1);
-  const before = r.privateSnapshot(1).me.combat, id = nonce();
-  assert.equal(reply(r, { challengeId, commandId: id }).ok, false); assert.equal(r.room.challenges.size, 1);
-  r.setOffline(1); r.join(b.sessionId); assert.deepEqual(r.privateSnapshot(1).me.combat, before);
-  advance(r, 1001); assert.equal(reply(r, { challengeId, commandId: id }).ok, true);
+  const id = nonce();
+  // 眩晕/僵直期间不能参与猜拳，且挑战必须保留（不是取消）。
+  assert.equal(reply(r, { challengeId, commandId: id }).ok, false);
+  assert.equal(r.room.challenges.size, 1, '受控期间挑战不应被取消');
+  assert.ok(r.privateSnapshot(1).me.games.rpsPending, '受控方仍保留邀请');
+  // J 攻击的互动冷却为 attackCooldownMs（1.2 秒），越过控制后才能回应。
+  advance(r, C.attackCooldownMs + 100);
+  assert.equal(reply(r, { challengeId, commandId: id }).ok, true, '控制到期后可回应');
   assert.equal(b.hp, 1); assert.equal(a.hp, 2); assert.equal(r.room.eliminateEvents, 0);
   r.reset(); const fresh = r.join(b.sessionId).player;
   assert.equal(fresh.combat.stunUntil, 0); assert.equal(fresh.combat.freezeUntil, 0);
@@ -573,21 +624,36 @@ try {
   });
   await test('正式HTTP双方自愿猜拳、第三方拒绝、pending刷新、双私有余额及时更新', async () => {
     const beforeA = (await state(a)).me.exploration.chips, beforeB = (await state(b)).me.exploration.chips;
-    const result = await httpPlay(a, 'rpsInvite', { targetId: users[1].playerId, choice: 'rock' });
-    assert.equal(result.status, 200); assert.equal(result.data.exploration.chips, beforeA);
+    assert.ok(beforeA >= 1 && beforeB >= 1, '双方需各有至少 1 筹码');
+    // 新协议：邀请不带出拳；第三方不能接受/取消；接受后才进入各自出拳，截止才结算。
+    const result = await httpPlay(a, 'rpsInvite', { targetId: users[1].playerId });
+    assert.equal(result.status, 200); assert.equal(result.data.exploration.chips, beforeA, '邀请不预扣筹码');
     const pending = (await state(b)).me.games.rpsPending;
-    assert.equal(pending.role, 'to'); assert.ok(!('choice' in pending));
-    assert.equal((await httpPlay(c, 'rpsReply', { challengeId: pending.id, choice: 'paper' })).status, 400);
+    assert.equal(pending.role, 'to'); assert.equal(pending.phase, 'invited');
+    assert.ok(!('choice' in pending));
+    assert.equal((await httpPlay(c, 'rpsReply', { challengeId: pending.id })).status, 400);
     assert.equal((await httpPlay(c, 'rpsCancel', { challengeId: pending.id })).status, 400);
     await request('/api/join', { token: a, body: { nickname: '刷新' } });
     assert.equal((await state(a)).me.games.rpsPending.id, pending.id);
-    const id = nonce(), replied = await httpPlay(b, 'rpsReply', { commandId: id, challengeId: pending.id, choice: 'scissors' });
-    assert.equal(replied.status, 200); assert.equal(replied.data.delta, -1);
-    assert.equal((await httpPlay(b, 'rpsReply', { commandId: id, challengeId: pending.id, choice: 'paper' })).status, 400);
+    const id = nonce();
+    assert.equal((await httpPlay(b, 'rpsReply', { commandId: id, challengeId: pending.id })).status, 200, '接受应成功且不结算');
+    assert.equal((await state(a)).me.exploration.chips, beforeA, '接受不结算');
+    assert.equal((await httpPlay(a, 'rpsChoose', { challengeId: pending.id, choice: 'rock', revision: 1 })).status, 200);
+    assert.equal((await httpPlay(b, 'rpsChoose', { challengeId: pending.id, choice: 'scissors', revision: 1 })).status, 200);
+    assert.equal((await state(a)).me.exploration.chips, beforeA, '截止前不结算');
+    const beforeDeadlineState = await state(a);
+    const toDeadline = beforeDeadlineState.me.games.rpsPending.deadline - beforeDeadlineState.serverTime;
+    assert.ok(toDeadline > 0 && toDeadline <= C.rpsRoundMs, `截止前剩余应在 (0, ${C.rpsRoundMs}]，实测 ${toDeadline}`);
+    // 该套件以 SID_TEST=0 启动（/api/test/* 不存在），因此按真实时间等过共同 deadline：
+    // 服务端 20Hz tick 每帧 syncRoom，到点即结算。
+    await pause(toDeadline + 400);
     const aa = await state(a), bb = await state(b);
-    assert.equal(aa.me.exploration.chips, beforeA + 1); assert.equal(bb.me.exploration.chips, beforeB - 1);
+    assert.equal(aa.me.exploration.chips, beforeA + 1, '石头胜剪刀 +1'); assert.equal(bb.me.exploration.chips, beforeB - 1);
     assert.equal(aa.me.games.rpsPending, null); assert.equal(bb.me.games.rpsPending, null);
-    assert.match(aa.me.games.lastResult, /你出石头/); assert.match(bb.me.games.lastResult, /你出剪刀/);
+    assert.equal(aa.me.games.rpsResult.status, 'resolved');
+    assert.equal(aa.me.games.rpsResult.outcome, 'win'); assert.equal(aa.me.games.rpsResult.opponentChoice, 'scissors');
+    assert.equal(bb.me.games.rpsResult.opponentChoice, 'rock');
+    assert.equal((await httpPlay(b, 'rpsReply', { commandId: id, challengeId: pending.id })).status, 400, '同一 commandId 重放应被拒');
   });
   await test('正式HTTP全阵营J无伤害，公开眩晕僵直动画、状态门禁与CD去重', async () => {
     const beforeVictim = await state(a), beforeAttacker = await state(b);

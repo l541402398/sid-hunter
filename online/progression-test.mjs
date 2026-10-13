@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const { createRoom, WORLD } = require('./room.js');
-const { RULES, SCORE, WHEEL } = WORLD;
+const { RULES, SCORE, WHEEL, PLAY_CONFIG: C } = WORLD;
 const furniture = WORLD.makeFurniture();
 const npc = WORLD.NPCS[0];
 const byId = id => furniture.find(f => f.id === id);
@@ -177,12 +177,20 @@ await test('计分·探索与猜拳：搜索 +2、线索 +2、兑换 +1/+2、猜
   assert.equal(p.score, beforeExchange + SCORE.exchange + SCORE.clue);
   p.x = 500; p.y = 350; q.x = 520; q.y = 350; p.exploration.chips = 5; q.exploration.chips = 5;
   const pScore = p.score, qScore = q.score;
-  assert.equal(r.play(p.sessionId, { commandId: nonce(), kind: 'rpsInvite', targetId: q.id, choice: 'rock' }).ok, true);
-  assert.equal(r.play(q.sessionId, { commandId: nonce(), kind: 'rpsReply', challengeId: q.games.rpsPending.id, choice: 'scissors' }).ok, true);
+  // 新协议：邀请不带出拳；被邀请方接受后进入 10 秒选择阶段；双方出拳后到 deadline 才结算计分。
+  const settleRps = (from, to, aChoice, bChoice, label) => {
+    const fromSession = from.sessionId, toSession = to.sessionId;
+    assert.equal(r.play(fromSession, { commandId: nonce(), kind: 'rpsInvite', targetId: to.id }).ok, true, `${label} 邀请`);
+    const cid = r.privateSnapshot(to.id).me.games.rpsPending.id;
+    assert.equal(r.play(toSession, { commandId: nonce(), kind: 'rpsReply', challengeId: cid }).ok, true, `${label} 接受`);
+    assert.equal(r.play(fromSession, { commandId: nonce(), kind: 'rpsChoose', challengeId: cid, choice: aChoice, revision: 1 }).ok, true, `${label} 发起方出拳`);
+    assert.equal(r.play(toSession, { commandId: nonce(), kind: 'rpsChoose', challengeId: cid, choice: bChoice, revision: 1 }).ok, true, `${label} 被邀请方出拳`);
+    r.room.clockOffset += C.rpsRoundMs + 1; r.step(0);
+  };
+  settleRps(p, q, 'rock', 'scissors', '第一局');
   assert.equal(p.score, pScore + SCORE.rpsWin); assert.equal(q.score, qScore + SCORE.rpsLose);
-  r.room.clockOffset += 5001;
-  assert.equal(r.play(p.sessionId, { commandId: nonce(), kind: 'rpsInvite', targetId: q.id, choice: 'paper' }).ok, true);
-  assert.equal(r.play(q.sessionId, { commandId: nonce(), kind: 'rpsReply', challengeId: q.games.rpsPending.id, choice: 'paper' }).ok, true);
+  r.room.clockOffset += C.rpsCooldownMs + 1; // 越过 5 秒共享冷却
+  settleRps(p, q, 'paper', 'paper', '第二局');
   assert.equal(p.score, pScore + SCORE.rpsWin + SCORE.rpsDraw);
   assert.equal(q.score, qScore + SCORE.rpsLose + SCORE.rpsDraw);
 });
@@ -265,7 +273,7 @@ await test('reset 清空 score/finishReason/ranking/wheelSpins', () => {
   const fresh = r.join('session-x', '新局').player;
   assert.equal(fresh.score, 0);
   assert.deepEqual(fresh.exploration, blank());
-  assert.deepEqual(fresh.games, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '' });
+  assert.deepEqual(fresh.games, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null });
 });
 
 const freePort = () => new Promise((resolve, reject) => {
