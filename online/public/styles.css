@@ -139,7 +139,7 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .sid-copy:focus-visible{outline:2px solid #60a5fa;outline-offset:3px}
 #copy-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:linear-gradient(180deg,#1f3a55,#16304a);color:#e2e8f0;border:1px solid #5e86ad;border-radius:10px;padding:12px 20px;z-index:100;pointer-events:none;box-shadow:0 12px 34px -12px #000,inset 0 1px 0 #ffffff1a}
 @media(min-width:1500px){.shell{max-width:1460px}.stage{max-height:calc(100vh - 300px)}}
-@media(max-width:850px){.shell{padding:14px 12px}.public-stats{gap:8px}.local-badge{display:none}h1{font-size:17px}.brand-mark{font-size:22px;padding:9px}.brand{gap:10px}.brand p{letter-spacing:1px;font-size:8px}.private-hint{display:none}.stage{min-height:340px;max-height:none}.footer{flex-direction:column;gap:3px}.walk-help{display:none}.target{width:262px;right:8px;top:52px}.roster,.logs{top:52px;bottom:43px}.world-chip{left:10px;top:10px}.world-chip small{display:none}}
+@media(max-width:850px){.shell{padding:14px 12px}.public-stats{gap:8px}.local-badge{display:none}h1{font-size:17px}.brand-mark{font-size:22px;padding:9px}.brand{gap:10px}.brand p{letter-spacing:1px;font-size:8px}.private-hint{display:none}.stage{min-height:340px;max-height:none}.footer{flex-direction:column;gap:3px}.map-foot{left:10px;right:10px;gap:8px;align-items:flex-end}.map-foot #coordinate{flex:none}.map-foot .walk-help{display:block;min-width:0;text-align:right;line-height:1.8;overflow-wrap:anywhere}.walk-help kbd{white-space:nowrap}.target{width:262px;right:8px;top:52px}.roster,.logs{top:52px;bottom:43px}.world-chip{left:10px;top:10px}.world-chip small{display:none}}
 /* Static field guide: warm amber paper accents over the pixel-office night palette. */
 #rules-toggle{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(#f3c773,#d49a42);border-color:#ffdda0;color:#30200b;font-weight:700;box-shadow:0 0 18px #f0b55524,inset 0 1px 0 #fff7}
 #rules-toggle:hover{background:#ffda91;border-color:#fff0c6}
@@ -183,6 +183,14 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .self-combat-state{color:#ffd0a8;font-size:10px;line-height:1.5}
 .self-combat-state:empty{display:none}
 .combat-status{color:#c5dcf7;font-size:10px;line-height:1.6}
+/* 就近互动区保留功能、去掉说明文字：
+   - #nearby-items 是玩家靠近容器/NPC 时唯一的可点入口，必须保留；
+   - #combat-status / #self-combat-state 承载命中、空挥、冷却与眩晕反馈，保留；
+   - #cover-status（遮挡自述）、#nearby-empty（提示语）、.combat-note（无伤害说明）属啰嗦文案，隐藏。
+   - J 攻击已改为纯键盘触发：按钮留在 DOM 里（game.js 直接取该元素绑定 onclick）但不可见。 */
+#cover-status,#nearby-empty,.combat-note{display:none}
+.exploration-hud:has(#cover-status){background:none;border:0;padding:0;max-width:none;overflow:visible}
+#attack-button[hidden]{display:none}
 .combat-note{color:#8098b9;font-size:9px;line-height:1.5}
 @media(max-width:850px){.games{width:288px}}
 /* 分数槽、时间提示：延续顶部胶囊样式，只做稳定值槽。 */

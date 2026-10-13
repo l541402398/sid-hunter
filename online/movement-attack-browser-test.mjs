@@ -12,7 +12,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 const online = dirname(fileURLToPath(import.meta.url)), root = dirname(online);
 const outputs = join(root, 'outputs'), profile = join(outputs, '.movement-browser-profile');
 const reportPath = join(outputs, 'movement-attack-browser-results.json');
-const chromePath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const chromePath = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const results = [], runtimeErrors = [], consoleErrors = [], cleanup = {}, screenshots = [], sheets = [], network = [];
 const protectedFiles = ['README.md', 'online/server.js', 'online/room.js', 'online/shared/world.js', 'online/public/game.js', 'online/public/index.html', 'online/public/styles.css', 'demo/main.js', 'demo/index.html', 'demo/styles.css'];
 const hashes = async () => Object.fromEntries(await Promise.all(protectedFiles.map(async f => [f, createHash('sha256').update(await readFile(join(root, f))).digest('hex')])));

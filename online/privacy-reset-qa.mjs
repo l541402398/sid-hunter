@@ -8,7 +8,7 @@ import {tmpdir} from 'node:os';
 import {join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
-const ROOT=dirname(fileURLToPath(import.meta.url)),NODE=process.execPath,CHROME='C:/Program Files/Google/Chrome/Application/chrome.exe',TASK='27',runId=randomUUID(),results=[],procs=[],clients=[],logs=[],runtimeErrors=[];
+const ROOT=dirname(fileURLToPath(import.meta.url)),NODE=process.execPath,CHROME=process.env.SID_CHROME||'C:/Program Files/Google/Chrome/Application/chrome.exe',TASK='27',runId=randomUUID(),results=[],procs=[],clients=[],logs=[],runtimeErrors=[];
 const expected={'public/index.html':'01cec19fa4db8a6a85eb39b1bab95cd1a866a4e39da6b2beacc68dc6266a2140','public/game.js':'fbe8c50b0a7a866f3b477596fa76e46e9b5bde391528775f89933703e3137f54','public/styles.css':'e9677bd297e7c36e58512d28e752834e74b834f2ee349f4aff42c2f9f4c46a4c','server.js':'2c1ad4fff843aa77b6037e6076b5eba539e9f5793a9f2411afa5a359012374fd','room.js':'f425835ff82a0d372037b555497ed09fcc2bbf6b4e3da669777a23f71e5b6cd3','shared/world.js':'c36881e51605f1bfc237f50936bfcc3be73665141fe1328d2e6aa3f32aa9ebf5'};
 const hashes=async()=>Object.fromEntries(await Promise.all(Object.keys(expected).map(async f=>[f,createHash('sha256').update(await readFile(join(ROOT,f))).digest('hex')])));
 const before=await hashes();assert.deepEqual(before,expected,'Product not frozen; do not start');

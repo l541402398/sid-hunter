@@ -14,7 +14,7 @@ const outputs = join(root, 'outputs'), profile = join(outputs, '.browser-test-pr
 const reportPath = join(outputs, 'exploration-browser-results.json');
 const screenshotPath = join(outputs, '探索玩法验收.png');
 const coverScreenshotPath = join(outputs, '家具遮挡验证.png');
-const chromePath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const chromePath = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const results = [], runtimeErrors = [], consoleErrors = [], cleanup = {}, screenshots = [];
 const protectedFiles = ['online/server.js', 'online/room.js', 'online/shared/world.js', 'online/public/game.js', 'online/public/index.html', 'online/public/styles.css', 'demo/main.js', 'demo/index.html', 'demo/styles.css'];
 const hashes = async () => Object.fromEntries(await Promise.all(protectedFiles.map(async f => [f, createHash('sha256').update(await readFile(join(root, f))).digest('hex')])));

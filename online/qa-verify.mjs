@@ -17,7 +17,7 @@ const ROOM_MOD = require(join(ONLINE, 'room.js'));
 const WORLD = require(join(ONLINE, 'shared/world.js'));
 // Windows 试玩构建：服务端用当前受管 Node 自身，Chrome 用本机安装路径。
 const NODE = process.execPath;
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const uid = p => (p || 'c') + '-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);

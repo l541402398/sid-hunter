@@ -12,7 +12,7 @@ const root = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const { createRoom, WORLD } = require('./room.js');
 const NODE = process.execPath;
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const pause = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise((resolve, reject) => { const s = createServer(); s.once('error', reject); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
 const results = [], errors = [];

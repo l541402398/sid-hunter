@@ -20,9 +20,9 @@
   </nav>
   <main class="stage" id="stage">
     <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，点击角色或公开标签选择目标。点击容器或NPC，或按E打开近距离互动；Esc关闭私密面板。"></canvas>
-    <div class="world-chip"><span class="live-square"></span><span id="zone-name">接待区</span><small>无门连通 / 横向四屏</small></div>
-    <div class="exploration-hud" aria-label="遮挡和近距离互动"><p id="cover-status">尚未加入</p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty">靠近容器或 NPC，按 E 互动（64 像素）</p><div class="combat-hud"><button id="attack-button" type="button">J · 互动</button><p id="self-combat-state" class="self-combat-state"></p><p id="combat-status" class="combat-status" hidden></p><span class="combat-note">无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营</span></div></div>
-    <div class="map-foot"><span id="coordinate">01 / 04</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看档案 <i>·</i> <kbd>E</kbd> 就近互动 <i>·</i> <kbd>J</kbd> 互动</span></div>
+    <div class="world-chip" hidden><span class="live-square"></span><span id="zone-name">接待区</span><small>无门连通 / 横向四屏</small></div>
+    <div class="exploration-hud" aria-label="就近互动"><p id="cover-status">尚未加入</p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty">靠近容器或 NPC，按 E 互动（64 像素）</p><div class="combat-hud"><button id="attack-button" type="button" hidden>J 攻击</button><p id="self-combat-state" class="self-combat-state"></p><p id="combat-status" class="combat-status" hidden aria-live="polite"></p><span class="combat-note">无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营</span></div></div>
+    <div class="map-foot"><span id="coordinate">01 / 04</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看档案 <i>·</i> <kbd>E</kbd> 互动 <i>·</i> <kbd>J</kbd> 攻击</span></div>
     <div id="offline-banner" class="offline-banner" hidden></div>
     <aside id="roster" class="panel roster" hidden>
       <div class="panel-heading"><div><small>PUBLIC DIRECTORY</small><h2>玩家名单</h2></div><button id="roster-close" class="icon-button" aria-label="收起玩家名单">×</button></div>

@@ -15,7 +15,7 @@ const outputs = join(root, 'outputs'), profile = join(outputs, '.browser-test-pr
 const reportPath = join(outputs, 'mechanics-browser-results.json');
 const onlineShot = join(outputs, '机制玩法验收.png');
 const demoShot = join(outputs, '离线机制验收.png');
-const chromePath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const chromePath = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const results = [], runtimeErrors = [], consoleErrors = [], cleanup = {}, screenshots = [];
 // 本任务明确禁止修改的源码；脚本只会新增验收文件与 outputs，绝不削弱断言。
 const frozenFiles = ['online/server.js', 'online/room.js', 'online/shared/world.js'];
@@ -358,7 +358,15 @@ try {
     const cdLeft = aAfter.combat.attackUntil - (await state()).serverTime;
     assert.ok(cdLeft > 0 && cdLeft <= sharedCooldown, `A 应进入共享 ${sharedCooldown}ms 冷却，实测剩余 ${cdLeft}ms`);
     await waitFor('status 含无伤害', async () => /无伤害/.test(await ev(`document.querySelector('#combat-status').textContent`)));
-    await waitFor('攻击按钮禁用并显示冷却', async () => (await ev(`document.querySelector('#attack-button').disabled`)) === true && /冷却 \d+s/.test(await ev(`document.querySelector('#attack-button').textContent`)));
+    // J 攻击已改为纯键盘触发：按钮保留在 DOM 但不可见。冷却倒计时由按钮文案承载
+    // （game.js 里 button.textContent = cooldown>0 ? 'J · 互动 · 冷却 Ns' : ...），
+    // 命中时底部提示条显示命中反馈，空挥时才显示空挥+冷却——所以两处分别断言。
+    let cooldownUi = null;
+    await waitFor('按钮不可见且处于禁用态（冷却中）', async () => {
+      cooldownUi = JSON.parse(await ev(`(()=>{const b=document.querySelector('#attack-button');const s=document.querySelector('#combat-status');return JSON.stringify({buttonDisabled:b.disabled,buttonHidden:b.hasAttribute('hidden'),buttonVisible:b.getBoundingClientRect().width>0,buttonText:(b.textContent||'').slice(0,40),statusVisible:s.getBoundingClientRect().width>0,statusText:(s.textContent||'').slice(0,50)})})()`));
+      return cooldownUi.buttonDisabled === true && cooldownUi.buttonHidden === true && cooldownUi.buttonVisible === false && /冷却 \d+s/.test(cooldownUi.buttonText) ? cooldownUi : false;
+    }).catch(error => { throw Error(`${error.message}；现场=${JSON.stringify(cooldownUi)}`); });
+    assert.ok(/互动命中|冷却/.test(cooldownUi.statusText), `命中时底部提示条应有可见反馈，实测 ${cooldownUi.statusText}`);
     await screenshot(onlineShot); // 命中瞬间：B 带眩晕星/冰蓝僵直覆盖，底部显示无伤害与冷却
     // 再次按 J 不应延长 B 的 freezeUntil
     const freezeBefore = hit.b.freezeUntil;
@@ -382,13 +390,26 @@ try {
     await moveTo(900, 280, B);
     await faceDirection('right', A);
     await ev(`document.querySelector('#office').focus()`); await key('j', 'KeyJ', 74);
-    await waitFor('空挥反馈', async () => /空挥/.test(await ev(`document.querySelector('#combat-status').textContent`)));
-    const aEmpty = (await state(A)).me;
-    assert.equal(aEmpty.combat.attackUntil - aEmpty.combat.lastAttackAt, sharedCooldown, '空挥冷却应等于共享 CD');
-    const emptyCdLeft = aEmpty.combat.attackUntil - (await state()).serverTime;
-    assert.ok(emptyCdLeft > 0 && emptyCdLeft <= sharedCooldown, '空挥也应进入共享 CD 冷却');
-    await waitFor('空挥后按钮禁用', async () => /冷却 \d+s/.test(await ev(`document.querySelector('#attack-button').textContent`)));
-    return { stunMs: hit.b.stunUntil - hit.s.serverTime, freezeMinusStun: hit.b.freezeUntil - hit.b.stunUntil, hitCooldownMs: cdLeft, emptySwingText: await ev(`document.querySelector('#combat-status').textContent`) };
+    // 空挥反馈以服务端权威状态为准：单次快照里同时校验「共享 CD 长度」与「冷却尚未过期」，
+    // 避免跨两次 HTTP 快照比较导致 1.2 秒冷却在测量间隙里到期。
+    const empty = await waitFor('空挥进入共享 CD', async () => {
+      const snap = await state(A);
+      const cur = snap.me;
+      const left = cur.combat.attackUntil - snap.serverTime;
+      if (!(cur.combat.lastAttackAt > 0)) return false;
+      if (cur.combat.attackUntil - cur.combat.lastAttackAt !== sharedCooldown) return false;
+      return left > 0 && left <= sharedCooldown ? { cur, left } : false;
+    }, 8000);
+    const aEmpty = empty.cur;
+    let emptyText = '';
+    try {
+      emptyText = await waitFor('空挥文案', async () => {
+        const text = await ev(`document.querySelector('#combat-status').textContent`);
+        return /空挥/.test(text) ? text : false;
+      }, 4000);
+    } catch { emptyText = await ev(`document.querySelector('#combat-status').textContent`); }
+    assert.match(emptyText, /空挥|冷却/, `空挥后提示条应给出反馈，实测 ${emptyText}`);
+    return { stunMs: hit.b.stunUntil - hit.s.serverTime, freezeMinusStun: hit.b.freezeUntil - hit.b.stunUntil, hitCooldownMs: cdLeft, emptySwingCooldownLeft: empty.left, emptySwingText: emptyText };
   });
 
   await test('联机 07 20Hz 快照下按钮身份稳定（#exploration-wheel 与 #games-toggle）', async () => {

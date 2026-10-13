@@ -16,7 +16,7 @@ const reportPath = join(outputs, 'progression-browser-results.json');
 const onlineShot = join(outputs, '转盘与结算验收.png');
 const finishShot = join(outputs, '结算验收.png');
 const demoShot = join(outputs, '离线进度验收.png');
-const chromePath = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const chromePath = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const results = [], runtimeErrors = [], consoleErrors = [], cleanup = {}, screenshots = [];
 // 任务明确禁止修改的服务端源码；脚本只新增验收文件并写 outputs。
 const protectedFiles = ['online/server.js', 'online/room.js', 'online/shared/world.js', 'online/public/game.js', 'online/public/index.html', 'online/public/styles.css', 'demo/main.js', 'demo/index.html', 'demo/styles.css'];

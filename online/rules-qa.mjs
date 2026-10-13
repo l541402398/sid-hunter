@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 const qaRunId=randomUUID();
 console.log('QA-RUN-ID',qaRunId);
 const root=dirname(fileURLToPath(import.meta.url)),NODE=process.execPath;
-const CHROME='C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME=process.env.SID_CHROME||'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const files=['room.js','server.js','shared/world.js','public/game.js','public/index.html','public/styles.css'];
 const hashes=async()=>Object.fromEntries(await Promise.all(files.map(async f=>[f,createHash('sha256').update(await readFile(join(root,f))).digest('hex')])));
 const beforeHashes=await hashes();

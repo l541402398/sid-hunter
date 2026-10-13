@@ -17,7 +17,7 @@ const freePort = () => new Promise((resolve, reject) => {
 const root = dirname(fileURLToPath(import.meta.url));
 // Windows 试玩构建：服务端用当前受管 Node 自身，Chrome 用本机安装路径。
 const NODE = process.execPath;
-const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+const CHROME = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
