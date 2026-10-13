@@ -321,6 +321,15 @@ async function route(req, res, url) {
     const action = pathname.replace('/api/test/', '');
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (action === 'advance') { ROOM.room.clockOffset += Number(body.ms) || 0; return send(res, 200, { ok: true, offset: ROOM.room.clockOffset }); }
+    // 测试专用资源注入：猜拳要求双方各至少 1 筹码，但真实玩家从 0 筹码起步且获取途径是
+    // 随机转盘/搜寻，端到端用例需要确定性前置条件。仅在 SID_TEST=1 下存在。
+    if (action === 'resources') {
+      const target = ROOM.find(Number(body.playerId));
+      if (!target) return send(res, 404, { ok: false, error: 'player not found' });
+      if (Number.isFinite(Number(body.chips))) target.exploration.chips = Math.max(0, Number(body.chips));
+      if (Number.isFinite(Number(body.score))) target.score = Math.max(0, Number(body.score));
+      return send(res, 200, { ok: true, playerId: target.id, chips: target.exploration.chips, score: target.score });
+    }
     if (action === 'sessions') {
       return send(res, 200, { ok: true, sessions: [...ROOM.room.sessions].map(([sessionId, playerId]) => ({ sessionId, playerId })) });
     }

@@ -362,11 +362,10 @@ await test('结束同帧优先级：游戏结束后截止不结算', () => {
   const r = fixture();
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
   choose(r, 0, 'rock', 1); choose(r, 1, 'scissors', 1);
-  // 先结束游戏
+  // finish() 会取消挑战并清空 rpsPending，deadline 必须在结束前取。
+  const dl = pend(r, 0).deadline;
   r.finish();
   assert.equal(r.room.finished, true);
-  // 再推进到 deadline 之后
-  const dl = r.find(0).games.rpsPending ? pend(r,0).deadline : CLOCK + C.rpsRoundMs;
   setClock(dl + 1);
   r.step(0);
   assert.equal(r.find(0).exploration.chips, 3, '结束后不应结算筹码');
@@ -377,8 +376,8 @@ await test('结束同帧优先级：游戏结束后截止不结算', () => {
   const r2 = fixture();
   assert.equal(invite(r2).ok, true); assert.equal(accept(r2).ok, true);
   choose(r2, 0, 'rock', 1); choose(r2, 1, 'scissors', 1);
+  const dl2 = pend(r2, 0).deadline; // 同样必须在 finish() 前取
   r2.finish();
-  const dl2 = r2.find(0).games.rpsPending.deadline;
   setClock(dl2 + 1);
   r2.step(0); // checkFinish(已结束) -> syncRoom(取消) ，不结算
   assert.equal(r2.find(0).exploration.chips, 3);
@@ -441,23 +440,24 @@ try {
   });
   const advanceServer = ms => request('/api/test/advance', { body: { ms } });
   // 加入两名玩家并真实移动到相邻位置（满足猜拳距离/视线要求）。
+  // 猜拳要求双方各至少 1 筹码，而真实玩家从 0 起步，这里用测试端点注入确定性资源。
   const joinClose = async () => {
     const users = [];
     for (let i = 0; i < 2; i++) users.push((await request('/api/join', { body: { nickname: `H${i}` } })).data);
     const [a, b] = [users[0].sessionToken, users[1].sessionToken];
     await moveTo(a, 500, 350);
     await moveTo(b, 545, 350);
+    for (const u of users) {
+      const seeded = await request('/api/test/resources', { body: { playerId: u.playerId, chips: 3 } });
+      assert.equal(seeded.status, 200, '测试资源注入应成功');
+    }
     return { users, a, b };
   };
 
   await test('HTTP 双方邀请→接受→双选→截止结算，与房间逻辑一致', async () => {
     const { users, a, b } = await joinClose();
     const inv = await httpPlay(a, 'rpsInvite', { targetId: users[1].playerId });
-    if (inv.status !== 200) {
-      const sa = await state(a), sb = await state(b);
-      console.error('DIAG invite', inv.status, JSON.stringify(inv.data), 'posA', sa.me && [sa.players.find(p => p.id === 0).x, sa.players.find(p => p.id === 0).y], 'posB', [sb.players.find(p => p.id === 1).x, sb.players.find(p => p.id === 1).y], 'chipsA', sa.me.exploration.chips, 'chipsB', sb.me.exploration.chips);
-    }
-    assert.equal(inv.status, 200);
+    assert.equal(inv.status, 200, `邀请应成功：${JSON.stringify(inv.data)}`);
     assert.equal((await state(b)).me.games.rpsPending.phase, 'invited');
     const cid = (await state(a)).me.games.rpsPending.id;
     assert.equal((await httpPlay(b, 'rpsReply', { challengeId: cid })).status, 200);
@@ -466,17 +466,15 @@ try {
     assert.equal(pending.deadline - pending.startedAt, C.rpsRoundMs);
     // 双方出拳
     const ca = await httpPlay(a, 'rpsChoose', { challengeId: cid, choice: 'rock', revision: 1 });
-    if (ca.status !== 200) console.error('DIAG chooseA', ca.status, JSON.stringify(ca.data));
-    assert.equal(ca.status, 200);
+    assert.equal(ca.status, 200, `A 出拳应成功：${JSON.stringify(ca.data)}`);
     const cb = await httpPlay(b, 'rpsChoose', { challengeId: cid, choice: 'scissors', revision: 1 });
-    if (cb.status !== 200) console.error('DIAG chooseB', cb.status, JSON.stringify(cb.data));
-    assert.equal(cb.status, 200);
+    assert.equal(cb.status, 200, `B 出拳应成功：${JSON.stringify(cb.data)}`);
     // 截止前不结算
     let st = await state(a);
     const toDeadline = st.me.games.rpsPending.deadline - st.serverTime;
     await advanceServer(Math.max(0, toDeadline - 50));
     st = await state(a);
-    assert.equal(st.players.find(p => p.id === users[0].playerId).exploration.chips, 3, '截止前不结算');
+    assert.equal(st.me.exploration.chips, 3, '截止前不结算');
     assert.notEqual(st.me.games.rpsPending, null, '截止前仍在选择');
     // 推进越过 deadline，等待 20Hz 快照触发 syncRoom 结算
     await advanceServer(200);
@@ -485,8 +483,8 @@ try {
     assert.equal(sa.me.games.rpsResult.status, 'resolved');
     assert.equal(sa.me.games.rpsResult.outcome, 'win');
     assert.equal(sa.me.games.rpsResult.delta, 1);
-    assert.equal(sa.players.find(p => p.id === users[0].playerId).exploration.chips, 4);
-    assert.equal(sb.players.find(p => p.id === users[1].playerId).exploration.chips, 2);
+    assert.equal(sa.me.exploration.chips, 4, 'A 胜 +1 筹码');
+    assert.equal(sb.me.exploration.chips, 2, 'B 负 -1 筹码');
     assert.equal(sa.me.games.rpsResult.opponentChoice, 'scissors');
     assert.equal(sb.me.games.rpsResult.opponentChoice, 'rock');
   });
@@ -503,8 +501,10 @@ try {
     const sa = await state(a), sb = await state(b);
     assert.equal(sa.me.games.rpsResult.status, 'cancelled');
     assert.equal(sb.me.games.rpsResult.status, 'cancelled');
-    assert.equal(sa.players.find(p => p.id === users[0].playerId).exploration.chips, 3);
-    assert.match(sb.me.games.rpsResult.reason, /对方未出拳/);
+    assert.equal(sa.me.exploration.chips, 3, '取消不扣筹码');
+    // A 已出拳、B 未出拳：A 看到「对方未出拳」，B 看到「你未出拳」。
+    assert.match(sa.me.games.rpsResult.reason, /对方未出拳/);
+    assert.match(sb.me.games.rpsResult.reason, /你未出拳/);
   });
 
   await test('server.js SSE 刷新不误取消，真实断线取消并取消猜拳', async () => {
