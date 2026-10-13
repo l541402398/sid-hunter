@@ -240,14 +240,14 @@ async function route(req, res, url) {
     const result = ROOM.join(sid, body.nickname);
     if (result.error) return send(res, 409, { error: result.error });
     setSessionCookie(res, sid);
-    return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, lan: lanAddresses(), port: PORT });
+    return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, roundId: ROOM.room.roundId, lan: lanAddresses(), port: PORT });
   }
   if (pathname === '/api/input' && req.method === 'POST') {
     const body = await readBody(req);
     const player = ROOM.playerBySession(sessionOf(req));
     if (!player) return send(res, 401, { error: 'no identity' });
     player.online = true;
-    ROOM.setIntent(player.id, body);
+    if (ROOM.setIntent(player.id, body) === false) return send(res, 400, { ok: false, error: '对局或楼层版本不一致，请重新同步' });
     return send(res, 200, { ok: true });
   }
   if (pathname === '/api/skill' && req.method === 'POST') {
@@ -268,6 +268,11 @@ async function route(req, res, url) {
   if (pathname === '/api/attack' && req.method === 'POST') {
     const body = await readBody(req);
     const result = ROOM.attack(sessionOf(req), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/floor-change' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.floorChange(sessionOf(req), body);
     return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/ack' && req.method === 'POST') {

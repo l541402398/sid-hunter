@@ -260,3 +260,39 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 #finish-ranking{margin-top:4px}
 @media(max-width:850px){.ranking{width:288px;top:52px}}
 
+
+/* ---------- 自适应全屏：HUD 移入游戏界面内部，地图视区占满剩余空间 ---------- */
+html,body{height:100%}
+body{min-height:100%}
+/* QA-D13：shell 允许纵向滚动 —— 小视口（如 1280x720 + 150% zoom = 853x480）下 HUD+地图+说明/开发区总高超过视口时，
+   改为整页滚动，而不是把 .stage 挤到内容以下导致 .map-view 被 overflow:hidden 裁切、与下方兄弟节点重叠。 */
+.shell{max-width:none;margin:0;padding:clamp(8px,1.4vw,18px);height:100dvh;display:flex;flex-direction:column;gap:10px;min-height:0;overflow-y:auto;overflow-x:hidden}
+/* QA-D13：stage 不再允许被压到内容最小值以下。min-height = HUD 上限(min(40dvh,340px)) + 地图视区下限(180px) + 2px(stage 上下边框)，
+   保证 .map-view 始终落在 .stage 的 overflow:hidden 裁剪框内（面板与其关闭键因此始终可见可点）。 */
+.stage{display:flex;flex-direction:column;flex:1 1 auto;min-height:calc(min(40dvh,340px) + 182px);height:auto;max-height:none;aspect-ratio:auto;width:100%;padding:0;overflow:hidden}
+.game-hud{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:12px 16px 10px;border-bottom:1px solid #2c405a;max-height:min(40dvh,340px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+.game-hud .topbar{padding-bottom:8px;flex-wrap:wrap;row-gap:8px}
+.game-hud .toolbar{margin-bottom:0;flex-wrap:wrap;row-gap:8px}
+.map-view{position:relative;flex:1 1 auto;min-height:180px;width:100%;overflow:hidden}
+.map-view canvas{display:block;width:100%;height:100%;object-fit:fill;image-rendering:pixelated;touch-action:none;border-radius:0}
+.map-view .panel{max-height:calc(100% - 24px)}
+/* QA-D13：短视口（如 1280x720 + 150% zoom）地图视区仅 ~180px，名单面板若仍用 top:60/bottom:52 只剩 ~68px（仅标题可见）。
+   此处放宽上下内缩，让面板标题、搜索与列表在矮视口下也可用；不改变常规高度下的表现。 */
+@media(max-height:600px){.roster{top:8px;bottom:8px}}
+.floor-indicator{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(180deg,#26405f,#16273f);border:1px solid #5b83ad;border-radius:999px;padding:7px 14px;color:#cde5ff;font:700 12px ui-monospace,monospace;letter-spacing:1px;box-shadow:inset 0 1px 0 #ffffff14}
+.instructions{flex:0 0 auto;max-height:34dvh;overflow:auto}
+.instructions .lan-section{margin-top:0;margin-bottom:12px}
+/* 电梯过渡：门覆盖层只盖住地图视区，不遮挡 HUD 文字与 Esc。 */
+.floor-transition{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden}
+.floor-transition .door{position:absolute;top:0;bottom:0;width:52%;background:repeating-linear-gradient(90deg,#243244 0 14px,#1b2637 14px 28px);border:1px solid #3f5874;box-shadow:inset 0 0 60px #000a;transition:transform .38s ease}
+.floor-transition .door-left{left:0;transform:translateX(-101%)}
+.floor-transition .door-right{right:0;transform:translateX(101%)}
+.floor-transition.closed .door-left{transform:translateX(0)}
+.floor-transition.closed .door-right{transform:translateX(0)}
+.floor-transition-card{position:relative;z-index:2;background:#0d1728f2;border:1px solid #456180;border-radius:12px;padding:16px 20px;text-align:center;color:#e2e8f0;box-shadow:0 20px 50px -24px #000;max-width:min(420px,86%)}
+.floor-arrow{font:700 14px ui-monospace,monospace;color:#f0c47d;letter-spacing:1px}
+.floor-phase{font-size:13px;line-height:1.7;margin-top:6px}
+.floor-detail{font-size:11px;color:#9fb6d4;line-height:1.6;margin-top:6px}
+#floor-transition-close{pointer-events:auto;margin-top:10px;min-height:40px;font-size:12px}
+.floor-transition.notice{background:#05080fdd;pointer-events:auto}
+@media(prefers-reduced-motion:reduce){.floor-transition .door{transition:none}}

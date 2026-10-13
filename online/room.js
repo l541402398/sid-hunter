@@ -16,16 +16,17 @@ const SKILL_CONFIG = {
 };
 
 // 奖励仅保存在服务端，共享地图不暴露容器内容。
+// 原 9 个容器唯一分配到七层，保留原 ID 与奖励；楼层归属单独存储，不复制经济。
 const EXPLORATION_REWARDS = {
-  'cabinet-785-160': { kind: 'clue' },
-  'table-2010-514': { kind: 'clue' },
-  'table-2535-513': { kind: 'clue' },
   'reception-132-173': { kind: 'chips', amount: 3 },
+  'counter-1990-165': { kind: 'chips', amount: 2 },
+  'table-2010-514': { kind: 'clue' },
+  'cabinet-785-160': { kind: 'clue' },
   'desk-1035-172': { kind: 'chips', amount: 2 },
   'desk-1690-172': { kind: 'chips', amount: 2 },
   'desk-2940-172': { kind: 'chips', amount: 2 },
-  'desk-3600-172': { kind: 'chips', amount: 2 },
-  'counter-1990-165': { kind: 'chips', amount: 2 }
+  'table-2535-513': { kind: 'clue' },
+  'desk-3600-172': { kind: 'chips', amount: 2 }
 };
 
 const SEG_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -63,14 +64,43 @@ function createRoom(options = {}) {
     processed: new Map(),
     challenges: new Map(),
     pending: new Map(),
-    clockOffset: 0
+    clockOffset: 0,
+    // 换层幂等凭据：键为 roundId+sessionId+commandId，成功 key 与 payload 绑定。
+    // 独立于 processed（技能/J 的成功 nonce 表），reset 清空。
+    floorReceipts: new Map(),
+    roundId: randomUUID()
   };
-  const furniture = WORLD.makeFurniture();
+  // 楼层查询：家具/墙体碰撞一律按玩家当前层取，服务端与两端共享同一份世界数据。
+  const floorFurniture = floorId => WORLD.floorById(floorId).furniture;
+  const floorBlockers = floorId => WORLD.floorBlockers(floorId);
   const now = () => Date.now() + room.clockOffset;
   const streams = new Map();
 
-  function collides(x, y) {
-    return WORLD.collidesAt(x, y, furniture);
+  function collides(x, y, floorId) {
+    return WORLD.floorCollides(floorId, x, y, floorBlockers(floorId));
+  }
+  // 落点安全判定：无碰撞、不在任何入口触发范围内、身体不被遮挡。服务端决定换层落点。
+  function pointSafe(floorId, x, y) {
+    if (WORLD.floorCollides(floorId, x, y, floorBlockers(floorId))) return false;
+    for (const portal of WORLD.floorPortals(floorId)) {
+      if (Math.hypot(x - portal.x, y - portal.y) <= WORLD.INTERACT_RANGE) return false;
+    }
+    if (WORLD.coverFor({ x, y }, floorBlockers(floorId))) return false;
+    return true;
+  }
+  // 出生点：按 index 轮转安全池，跳过不安全的候选；全不安全时退回池内指定点（仍来自安全池构造）。
+  function spawnPointFor(floorId, index) {
+    const pool = WORLD.floorSpawns(floorId);
+    const i = Math.abs(Math.floor(index)) % pool.length;
+    for (let k = 0; k < pool.length; k++) {
+      const p = pool[(i + k) % pool.length];
+      if (pointSafe(floorId, p.x, p.y)) return { x: p.x, y: p.y };
+    }
+    return { x: pool[i].x, y: pool[i].y };
+  }
+  function safeLanding(floorId) {
+    for (const p of WORLD.floorSpawns(floorId)) if (pointSafe(floorId, p.x, p.y)) return { x: p.x, y: p.y };
+    return null;
   }
   function find(id) { return room.players.find(p => p.id === id); }
   function playerBySession(sid) {
@@ -134,6 +164,8 @@ function createRoom(options = {}) {
     const faction = isFirst ? 'bad' : 'good';
     const id = room.players.length;
     const rawName = typeof nickname === 'string' ? nickname.trim().slice(0, 8) : '';
+    // 新玩家统一在 1F 安全出生池（按 id 轮转）；每个点都已校验无碰撞、无遮挡、不在入口触发范围内。
+    const spawn = spawnPointFor(1, id);
     const player = {
       id,
       name: uniqueName(rawName || pick(NAME_POOL)),
@@ -145,8 +177,10 @@ function createRoom(options = {}) {
       hp: faction === 'bad' ? 2 : 1,
       alive: true,
       score: 0,
-      x: 430 + (id * 211) % 3000,
-      y: id % 2 ? 450 : 340,
+      x: spawn.x,
+      y: spawn.y,
+      floorId: 1,
+      floorRevision: 0,
       online: true,
       lastSeen: t,
       sessionId,
@@ -184,8 +218,14 @@ function createRoom(options = {}) {
   function setIntent(id, input) {
     const p = find(id);
     if (!p || !input || typeof input !== 'object') return;
+    // 拒绝旧楼层的迟到指令：换层前按住的移动意图不得驱动新层。携带旧 roundId 或旧
+    // floorRevision 的意图一律清零并按无效处理，不做静默放行。
+    if (input.roundId !== room.roundId || !Number.isSafeInteger(input.expectedFloorRevision) || input.expectedFloorRevision !== p.floorRevision) {
+      p.input = { up: false, down: false, left: false, right: false };
+      return false;
+    }
     const intent = { up: !!input.up, down: !!input.down, left: !!input.left, right: !!input.right };
-    if (!Object.values(intent).some(Boolean)) { p.input = intent; return; }
+    if (!Object.values(intent).some(Boolean)) { p.input = intent; return true; }
     if (room.finished || !p.alive || !p.online) return;
     if (movementLocked(p, now())) {
       p.input = { up: false, down: false, left: false, right: false };
@@ -195,6 +235,7 @@ function createRoom(options = {}) {
     const x = Number(intent.right) - Number(intent.left), y = Number(intent.down) - Number(intent.up);
     const length = Math.hypot(x, y);
     if (length) p.combat.facing = { x: x / length, y: y / length };
+    return true;
   }
   function step(dt) {
     const t = now();
@@ -215,10 +256,11 @@ function createRoom(options = {}) {
       dx = dx / len * WORLD.SPEED * dt;
       dy = dy / len * WORLD.SPEED * dt;
       const oldX = p.x, oldY = p.y;
-      const nx = Math.max(WORLD.MIN_X, Math.min(WORLD.MAX_X, p.x + dx));
-      if (!collides(nx, p.y)) p.x = nx;
-      const ny = Math.max(WORLD.MIN_Y, Math.min(WORLD.MAX_Y, p.y + dy));
-      if (!collides(p.x, ny)) p.y = ny;
+      const bounds = WORLD.floorBounds(p.floorId);
+      const nx = Math.max(bounds.minX, Math.min(bounds.maxX, p.x + dx));
+      if (!collides(nx, p.y, p.floorId)) p.x = nx;
+      const ny = Math.max(bounds.minY, Math.min(bounds.maxY, p.y + dy));
+      if (!collides(p.x, ny, p.floorId)) p.y = ny;
       const actualDx = p.x - oldX, actualDy = p.y - oldY;
       const moved = Math.hypot(actualDx, actualDy);
       p.walk += moved;
@@ -265,6 +307,7 @@ function createRoom(options = {}) {
       score: p.score,
       x: p.x,
       y: p.y,
+      floorId: p.floorId,
       spriteFacing: p.spriteFacing,
       facing: { ...p.combat.facing },
       lastAttackAt: p.combat.lastAttackAt,
@@ -290,6 +333,9 @@ function createRoom(options = {}) {
       alive: p.alive,
       score: p.score,
       traits: p.traits,
+      floorId: p.floorId,
+      floorRevision: p.floorRevision,
+      floorName: WORLD.floorById(p.floorId).name,
       spriteFacing: p.spriteFacing,
       exploration: explorationProjection(p),
       games: gamesProjection(p),
@@ -305,10 +351,12 @@ function createRoom(options = {}) {
     return {
       type: 'snapshot',
       serverTime: now(),
+      roundId: room.roundId,
       finished: room.finished,
       finishReason: room.finishReason || null,
       ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
       rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs },
+      floorList: [1, 2, 3, 4, 5, 6, 7].map(id => ({ id, name: WORLD.floorById(id).name })),
       aliveCount: room.players.filter(p => p.alive).length,
       players: room.players.map(publicProjection),
       logs: room.logs.slice(),
@@ -391,6 +439,12 @@ function createRoom(options = {}) {
     return /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(raw) ? raw : null;
   }
   function reject(reason) { return { ok: false, error: reason }; }
+  // 指令版本校验：拒绝旧楼层 / 旧对局的迟到指令，返回明确错误（字段缺省时按旧客户端兼容放行）。
+  function floorGuard(p, body) {
+    if (!body || body.roundId !== room.roundId) return '对局已更新，请重新同步';
+    if (!Number.isSafeInteger(body.expectedFloorRevision) || body.expectedFloorRevision !== p.floorRevision) return '楼层版本不一致，请重新同步';
+    return '';
+  }
 
   function doSpy(actor, target) {
     {
@@ -527,10 +581,12 @@ function createRoom(options = {}) {
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
     if (!commandId.trim()) return fail('缺少 commandId');
     if (room.processed.has(commandId)) return fail('该指令已结算过');
+    const guard = floorGuard(actor, body);
+    if (guard) return fail(guard);
     if (!['search', 'exchange'].includes(body.kind)) return fail('未知交互');
     const entity = body.kind === 'search'
-      ? furniture.find(f => f.id === body.entityId && f.container && EXPLORATION_REWARDS[f.id])
-      : WORLD.NPCS.find(n => n.id === body.entityId);
+      ? floorFurniture(actor.floorId).find(f => f.id === body.entityId && f.container && EXPLORATION_REWARDS[f.id])
+      : WORLD.NPCS.find(n => n.id === body.entityId && n.floorId === actor.floorId);
     if (!entity) return fail('交互目标无效');
     if (WORLD.distanceToEntity(actor, entity) > WORLD.INTERACT_RANGE) return fail('距离太远，请靠近后再试');
     let resultText;
@@ -684,8 +740,9 @@ function createRoom(options = {}) {
     if (!from || !to || from.id === to.id) return '猜拳目标无效';
     if (!from.alive || !to.alive) return '参与者已淘汰';
     if (!from.online || !to.online) return '参与者不在线';
+    if (from.floorId !== to.floorId) return '双方不在同一楼层';
     if (WORLD.distanceToEntity(from, to) > WORLD.INTERACT_RANGE) return '距离太远，请靠近后再试';
-    if (!WORLD.lineClear(from, to, furniture)) return '家具挡住了猜拳双方';
+    if (!WORLD.lineClear(from, to, floorBlockers(from.floorId))) return '家具挡住了猜拳双方';
     if (from.exploration.chips < playConfig.rpsStake || to.exploration.chips < playConfig.rpsStake) return '双方都需要至少1筹码';
     return '';
   }
@@ -704,10 +761,12 @@ function createRoom(options = {}) {
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
     if (!commandId.trim()) return fail('缺少 commandId');
     if (room.processed.has(commandId)) return fail('该指令已结算过');
+    const guard = floorGuard(actor, body);
+    if (guard) return fail(guard);
     const validChoice = choice => ['rock', 'paper', 'scissors'].includes(choice);
     let extra = {};
     if (body.kind === 'wheel') {
-      const entity = WORLD.NPCS.find(n => n.id === body.entityId);
+      const entity = WORLD.NPCS.find(n => n.id === body.entityId && n.floorId === actor.floorId);
       if (!entity) return fail('转盘目标无效');
       if (WORLD.distanceToEntity(actor, entity) > WORLD.INTERACT_RANGE) return fail('距离太远，请靠近后再试');
       // 单局连续对局：同一 NPC 可反复转动，费用随已转次数阶梯上升。
@@ -850,14 +909,18 @@ function createRoom(options = {}) {
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
     if (!commandId.trim()) return fail('缺少 commandId');
     if (room.processed.has(commandId)) return fail('该指令已结算过');
+    const guard = floorGuard(actor, body);
+    if (guard) return fail(guard);
     if (t < actor.combat.attackUntil) return fail('攻击冷却中');
+    const blockers = floorBlockers(actor.floorId);
     let target = null, nearest = Infinity;
     for (const p of room.players) {
       if (p.id === actor.id || !p.alive || !p.online || movementLocked(p, t)) continue;
+      if (p.floorId !== actor.floorId) continue; // J 命中只处理当前层
       const dx = p.x - actor.x, dy = p.y - actor.y, distance = Math.hypot(dx, dy);
       if (distance > playConfig.attackRange || distance >= nearest) continue;
       if (distance && (dx * actor.combat.facing.x + dy * actor.combat.facing.y) / distance < playConfig.attackConeCos) continue;
-      if (!WORLD.lineClear(actor, p, furniture) || WORLD.coverFor(p, furniture)) continue;
+      if (!WORLD.lineClear(actor, p, blockers) || WORLD.coverFor(p, blockers)) continue;
       target = p;
       nearest = distance;
     }
@@ -876,6 +939,73 @@ function createRoom(options = {}) {
     }
     return mechanicsResponse(actor, true, resultText, target ? { hitId: target.id } : {});
   }
+  // 楼层切换（服务端权威）。校验顺序：会话认证 → 同 roundId → 玩家在线/存活/未结束 →
+  // floorId 与 expectedFloorId 匹配 → floorRevision 匹配 → portal 属于当前层且方向/目标合法 →
+  // 到 portal 距离 ≤ INTERACT_RANGE → 目标层有安全落点。落点由服务端决定，忽略客户端 x/y。
+  // 成功时在同一个同步函数内完成全部状态变更（不中途 await），并写入幂等 receipt。
+  function floorChange(sessionId, body) {
+    const t = now();
+    checkFinish(t);
+    syncRoom(t);
+    const actor = playerBySession(sessionId);
+    if (!actor) return reject('身份无效，请重新加入');
+    if (!body || typeof body !== 'object') return reject('换层指令无效');
+    if (body.roundId !== room.roundId) return reject('对局已更新，请重新同步');
+    if (room.finished) return reject('游戏已结束，无法换层');
+    if (!actor.alive) return reject('你已淘汰，无法换层');
+    if (!actor.online) return reject('你不在线，无法换层');
+    if (!body || typeof body !== 'object') return reject('换层指令无效');
+    const commandId = typeof body.commandId === 'string' ? body.commandId : '';
+    if (!commandId.trim()) return reject('缺少 commandId');
+    // 幂等：同 key 复用同一 success receipt，不再重复执行；payload 冲突则拒绝。
+    const key = `${room.roundId}:${actor.sessionId}:${commandId}`;
+    if (room.floorReceipts.has(key)) {
+      const rec = room.floorReceipts.get(key);
+      if (rec.portalId !== body.portalId || rec.fromFloorId !== body.expectedFloorId || rec.fromRevision !== body.expectedFloorRevision) {
+        return reject('指令冲突：相同 commandId 对应不同换层目标');
+      }
+      return rec.response;
+    }
+    if (body.expectedFloorId !== actor.floorId) return reject('请求的起始楼层与服务器不一致');
+    if (!Number.isSafeInteger(body.expectedFloorRevision) || body.expectedFloorRevision !== actor.floorRevision) return reject('楼层版本不一致，请重新同步');
+    if (movementLocked(actor, t)) return reject('眩晕/僵直中，暂时无法乘梯');
+    const fromFloor = WORLD.floorById(actor.floorId);
+    const portal = fromFloor.portals.find(p => p.id === body.portalId);
+    if (!portal) return reject('该入口不属于当前楼层');
+    if (portal.dir === 'up' && actor.floorId >= 7) return reject('7F 已是最上层，无法上行');
+    if (portal.dir === 'down' && actor.floorId <= 1) return reject('1F 已是最下层，无法下行');
+    if (!portal.targetFloorId) return reject('该入口当前不可用');
+    if (WORLD.distanceToEntity(actor, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) {
+      return reject('距离入口太远，请靠近后再试');
+    }
+    const landing = WORLD.safeSideLanding(portal.targetFloorId, portal.side);
+    if (!landing || !pointSafe(portal.targetFloorId, landing.x, landing.y)) return reject('目标层同侧暂无安全落点，换层已取消');
+    // —— 同一同步函数内的原子变更 ——
+    actor.input = { up: false, down: false, left: false, right: false };
+    // 成功换层：取消该玩家未决猜拳（invited 与 selecting 都取消），沿用 cancelChallenge 语义。
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === actor.id || ch.toId === actor.id) cancelChallenge(ch, t, '参与者换层');
+    }
+    actor.floorId = portal.targetFloorId;
+    actor.x = landing.x;
+    actor.y = landing.y;
+    actor.floorRevision += 1;
+    // 乘梯不改朝向、不给无敌、不产生眩晕/僵直、不重置也不消耗 J 冷却；walk 不累加。
+    const targetName = WORLD.floorById(actor.floorId).name;
+    const response = mechanicsResponse(actor, true, `已乘梯到达 ${targetName}。`, {
+      floor: { id: actor.floorId, name: targetName, revision: actor.floorRevision }
+    });
+    response.floor = { id: actor.floorId, name: targetName, revision: actor.floorRevision };
+    // 落点由服务端决定：客户端据此在开门前重播种插值与相机，不从源层平滑穿越建筑。
+    response.position = { x: actor.x, y: actor.y };
+    room.floorReceipts.set(key, {
+      portalId: portal.id,
+      fromFloorId: body.expectedFloorId,
+      fromRevision: body.expectedFloorRevision,
+      response
+    });
+    return response;
+  }
   // 开新局：清空本局全部玩家与身份凭证，所有人必须重新加入。room.lastResult 故意不清，
   // 管理页在重开后仍要能看到上一局排名。
   function reset() {
@@ -890,6 +1020,8 @@ function createRoom(options = {}) {
     room.processed.clear();
     room.challenges.clear();
     room.pending.clear();
+    room.floorReceipts.clear();
+    room.roundId = randomUUID();
     for (const entry of streams.values()) { try { entry.res && entry.res.end(); } catch { /* already closed */ } }
     streams.clear();
     log('办公室已重置：等待玩家加入。');
@@ -906,9 +1038,10 @@ function createRoom(options = {}) {
     streams.clear();
   }
   return {
-    room, streams, now, join, setOffline, setIntent, step, useSkill, interact, play, attack, ack,
+    room, streams, now, join, setOffline, setIntent, step, useSkill, interact, play, attack, floorChange, ack,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
-    playerBySession, find, lastResultSummary, rules, config: SKILL_CONFIG
+    playerBySession, find, lastResultSummary, rules, config: SKILL_CONFIG,
+    floorFurniture, floorBlockers, safeLanding
   };
 }
 module.exports = { createRoom, SKILL_CONFIG, WORLD };

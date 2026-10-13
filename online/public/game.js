@@ -5,18 +5,31 @@
 // 家具绘制、深度、遮挡与服务端足迹碰撞共用同一份地图。
 (() => {
   const $ = id => document.getElementById(id);
-  const W = WORLD.WORLD_W, H = WORLD.WORLD_H, VW = WORLD.VIEW_W, VH = WORLD.VIEW_H;
-  const MIN_X = WORLD.MIN_X, MAX_X = WORLD.MAX_X, MIN_Y = WORLD.MIN_Y, MAX_Y = WORLD.MAX_Y;
   const BODY_HALF = WORLD.BODY_HALF, FOOT_TOP = WORLD.FOOT_TOP, FOOT_BOTTOM = WORLD.FOOT_BOTTOM;
   const fieldNames = WORLD.FIELD_NAMES, traitNames = WORLD.TRAIT_NAMES, MASK = WORLD.MASK;
   const palettes = WORLD.PALETTES, zones = WORLD.ZONES;
-  const furniture = WORLD.makeFurniture();
-  const containers = furniture.filter(f => f.container);
+  const BASE_H = WORLD.FLOOR_BASE_HEIGHT || 640;
+  // ---------- 动态视口状态 ----------
+  // 统一缩放 s = 地图视区 CSS 高 / BASE_H；世界与屏幕共用同一 s，屏幕变宽=看到更多世界。
+  let cssW = 960, cssH = 640, scale = 1, viewW = 960, viewH = BASE_H, dpr = 1;
+  let cameraX = 0, cameraY = 0, drawCamX = 0, drawCamY = 0;
+  // ---------- 楼层渲染状态：只对应当前层，换层时整层原子替换 ----------
+  let floorId = 1, floorName = '';
+  let furniture = [], walls = [], containers = [], occluders = [], npcs = [], portals = [];
   const furnitureSprites = new Map();
-  const npcs = WORLD.NPCS.map((n, i) => ({ ...n, entityId: n.id, id: -i - 1,
-    npc: true, alive: true, walk: 0, moving: false,
-    colors: Object.fromEntries(Object.entries(palettes).map(([key, options], j) => [key, options[(i + j + 2) % options.length]])) }));
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function buildNpcs(id) {
+    return WORLD.floorNpcs(id).map((n, i) => ({ ...n, entityId: n.id, id: -i - 1, npc: true, alive: true, walk: 0, moving: false,
+      colors: Object.fromEntries(Object.entries(palettes).map(([key, options], j) => [key, options[(i + j + 2) % options.length]])) }));
+  }
+  // 换层时整层原子替换：floorId、家具/墙/NPC/容器/入口/碰撞集合、点击标签、HUD 全部对应同一新层。
+  function loadFloorLocal(id) {
+    floorId = id; floorName = WORLD.floorById(id).name;
+    furniture = WORLD.floorFurniture(id); walls = WORLD.floorWalls(id);
+    occluders = furniture.concat(walls); containers = furniture.filter(f => f.container);
+    npcs = buildNpcs(id); portals = WORLD.floorPortals(id);
+  }
+  loadFloorLocal(1);
   // 互动、结束条件、计分与转盘全部读服务端共享配置（window.WORLD），客户端不新增硬编码数值。
   // world.js 尚未导出新契约时用等价兜底，避免旧版本直接抛错。
   const RULES = WORLD.RULES || { endRemainingPlayers: 100, timeLimitMs: 7200000 };
@@ -51,9 +64,55 @@
 
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
   ctx.imageSmoothingEnabled = false;
-  // 离屏背景：静态场景烘焙一次，逐帧只做一次贴图，把预算留给角色与交互。
-  // 背景按分区切成四张 960×640 贴图，逐帧只取当前视口覆盖的一到两张。
-  const bgTiles = [0, 1, 2, 3].map(() => { const c = document.createElement('canvas'); c.width = VW; c.height = VH; return c; });
+  // 背景：固定 512×512 分块，按相机矩形枚举相交块；每块惰性烘焙一次后复用，与视口宽度解耦。
+  const CHUNK = 256; // 阶段2-阶段1：512→256（世界÷4 后 512 已大于楼层高度 400，会浪费；分块仍是显式 canvas，口径不变）
+  // QA-D14：分块缓存加 LRU 上限。原先 cx:cy 键无上限、跨楼层共享，最多 8×4=32 块≈32MiB 常驻；
+  // 改为只保留与当前相机相交的块 + 少量预取，容量上限 10 块（≈10MiB），超出按 LRU 淘汰。
+  // 被淘汰块后续按世界坐标（cx:cy）确定性重建，图案纯世界坐标 → 视觉无可观察差异；绝不淘汰当前可见块。
+  const CHUNK_CACHE_LIMIT = 10;
+  const chunkCache = new Map(); // key 'cx:cy' → canvas；Map 迭代顺序即 LRU 顺序（队首最旧）
+  let chunkTotal = 0;
+  function pruneChunks(keep) {
+    while (chunkTotal > CHUNK_CACHE_LIMIT) {
+      let victim = null;
+      for (const k of chunkCache.keys()) { if (!keep || !keep.has(k)) { victim = k; break; } }
+      if (victim === null) break; // 可见块本身已达上限：保留，不淘汰（宁可多留也不闪空）
+      chunkCache.delete(victim); chunkTotal--;
+    }
+  }
+  function chunkFor(cx, cy) {
+    const key = cx + ':' + cy;
+    const hit = chunkCache.get(key); if (hit) return hit;
+    const c = document.createElement('canvas'); c.width = CHUNK; c.height = CHUNK;
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+    g.fillStyle = '#4a3727'; g.fillRect(0, 0, CHUNK, CHUNK);
+    const planks = ['#54402f', '#4a3727', '#5b462f', '#453324', '#4f3c2c'];
+    // 阶段2-阶段1：地板纹理模块 64×16 → 32×8（1.0m×0.25m 宽板），保持缩小后的屏幕观感。
+    for (let y = 0; y < CHUNK; y += 8) {
+      const row = ((cy * CHUNK + y) / 8) | 0, stag = (row % 2) ? 16 : 0;
+      for (let x = -32 + stag; x < CHUNK; x += 32) {
+        const worldCol = Math.round((cx * CHUNK + x) / 32);
+        const k = Math.abs(row * 31 + worldCol * 17 + 97);
+        g.fillStyle = planks[k % 5]; g.fillRect(x, y, 32, 8);
+        if (k % 7 === 0) { g.fillStyle = '#3c2c20'; g.fillRect(x + 5, y + 3, 9, 1); }
+        else if (k % 5 === 0) { g.fillStyle = '#3c2c20'; g.fillRect(x + 16, y + 5, 6, 1); }
+        if (k % 2) { g.fillStyle = '#3d2d20'; g.fillRect(x, y, 1, 8); }
+      }
+      g.fillStyle = '#5e4936'; g.fillRect(0, y, CHUNK, 1);
+      g.fillStyle = '#33251b'; g.fillRect(0, y + 7, CHUNK, 1);
+    }
+    chunkCache.set(key, c); chunkTotal++; return c;
+  }
+  // 每帧先把相机矩形相交的块全部就绪并做 LRU 触及，再淘汰离屏块：保证本帧绘制零重烘焙、可见块不被淘汰。
+  function ensureChunks(c0x, c0y, c1x, c1y) {
+    const keep = new Set();
+    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) {
+      const key = cx + ':' + cy; keep.add(key);
+      if (chunkCache.has(key)) { const v = chunkCache.get(key); chunkCache.delete(key); chunkCache.set(key, v); } // LRU 触及
+      else chunkFor(cx, cy);
+    }
+    pruneChunks(keep);
+  }
   const glowSprite = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const g = c.getContext('2d');
@@ -61,13 +120,30 @@
     rg.addColorStop(0, 'rgba(255,214,158,1)'); rg.addColorStop(1, 'rgba(255,180,110,0)');
     g.fillStyle = rg; g.fillRect(0, 0, 128, 128); return c;
   })();
-  const VIGNETTE = (() => {
-    const c = document.createElement('canvas'); c.width = VW; c.height = VH;
+  let vignette = null;
+  function rebuildVignette() {
+    const w = Math.max(1, Math.round(cssW)), h = Math.max(1, Math.round(cssH));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
     const g = c.getContext('2d');
-    const rg = g.createRadialGradient(VW / 2, VH * .44, 190, VW / 2, VH * .48, 650);
+    const rg = g.createRadialGradient(w / 2, h * .44, Math.min(w, h) * .3, w / 2, h * .48, Math.max(w, h) * 1.02);
     rg.addColorStop(0, 'rgba(255,216,152,.05)'); rg.addColorStop(.55, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(6,4,10,.42)');
-    g.fillStyle = rg; g.fillRect(0, 0, VW, VH); return c;
-  })();
+    g.fillStyle = rg; g.fillRect(0, 0, w, h); vignette = c;
+  }
+  // 视口尺寸/DPR 变化时重建 backing，并重新设置 transform 与 imageSmoothingEnabled。
+  function resizeCanvas() {
+    const cw = Math.max(1, Math.round(canvas.clientWidth || cssW || 960));
+    const ch = Math.max(1, Math.round(canvas.clientHeight || cssH || 640));
+    cssW = cw; cssH = ch;
+    dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(4000000 / (cw * ch)));
+    scale = ch / BASE_H;
+    viewH = BASE_H; viewW = cw / scale;
+    const bw = Math.max(1, Math.round(cw * dpr)), bh = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    rebuildVignette();
+    window.__viewport = { cssW: cw, cssH: ch, viewW, viewH, scale, drawCamX, drawCamY, dpr };
+  }
   // 明暗派生：所有渐变色都由公开颜色计算，不引入新的身份线索。
   const shadeCache = new Map();
   function shade(hex, k) {
@@ -87,7 +163,11 @@
   // ---------- 权威状态（全部来自服务端快照） ----------
   let players = [], logs = [], me = null;
   let finished = false, aliveCount = 0, outCount = 0, serverTime = Date.now();
-  let selectedId = null, cameraX = 0, clock = 0;
+  let selectedId = null, clock = 0;
+  // 电梯过渡状态机：IDLE_SOURCE → PREPARING → SUBMITTING → TARGET_READY → OPENING → IDLE_TARGET
+  // 失败分 FAILED_SOURCE（已证实未换层，恢复源层）与 UNCONFIRMED（结果不明，只读对账）。
+  let floorState = 'IDLE_SOURCE', floorFlight = null, floorPending = null;
+  let floorStartedAt = 0, floorNoticeTimer = null, floorStageTimer = null, roundId = null;
   let privateOpen = false, mineOpen = false, pending = null, privateResult = '';
   let sessionGeneration = 0, privateGeneration = 0, explorationGeneration = 0;
   let explorationPanel = null, explorationResult = '', interactionFlight = null;
@@ -144,6 +224,14 @@
   }
   // Insecure LAN contexts have no crypto.randomUUID, so the command id is random string based.
   const commandId = () => 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  // 换层保护字段：所有可能驱动移动/互动的上行请求都带上 roundId 与 expectedFloorRevision，
+  // 让服务端丢弃换层前按住的迟到指令（不静默放行）。技能 /api/skill 不受楼层限制，不带这些字段。
+  function floorFields() {
+    const f = {};
+    if (roundId) f.roundId = roundId;
+    if (me && typeof me.floorRevision === 'number') f.expectedFloorRevision = me.floorRevision;
+    return f;
+  }
   function sendIntent(force) {
     const sig = ['KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyS', 'ArrowDown', 'KeyD', 'ArrowRight'].map(c => keys.has(c) ? 1 : 0).join('');
     if (!force && sig === lastIntent) return;
@@ -152,9 +240,12 @@
       up: keys.has('KeyW') || keys.has('ArrowUp'),
       down: keys.has('KeyS') || keys.has('ArrowDown'),
       left: keys.has('KeyA') || keys.has('ArrowLeft'),
-      right: keys.has('KeyD') || keys.has('ArrowRight')
+      right: keys.has('KeyD') || keys.has('ArrowRight'),
+      ...floorFields()
     }).catch(() => { });
   }
+  // 停止意图也带楼层保护字段；换层期间只发送零移动，绝不携带换层指令。
+  function stopIntent() { return api('/api/input', { up: false, down: false, left: false, right: false, ...floorFields() }); }
   function openStream() {
     const token = sessionToken || localStorage.getItem('sid_session_token');
     if (stream) { try { stream.close(); } catch { } }
@@ -207,6 +298,7 @@
       rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
     }
     serverTime = s.serverTime || Date.now();
+    if (s.roundId) roundId = s.roundId;
     serverPerfBase = performance.now();
     finished = !!s.finished;
     if (s.rules) rulesInfo = s.rules;
@@ -225,6 +317,17 @@
       if (me.skills.action) me = { ...me, legacy: true, skills: me.faction === 'bad'
         ? { spy: me.skills.probe, kill: me.skills.action }
         : { probe: me.skills.probe, accuse: me.skills.action } };
+      // 权威楼层采纳：非过渡期间若服务端楼层与本地不同（例如重连、被动换层、换层结果未确认后
+      // 权威对账），整层原子切换。UNCONFIRMED/FAILED_SOURCE 在对账成立后收敛回 IDLE。
+      if (floorFlight && floorFlight.submitted && me.floorId === floorFlight.targetFloorId &&
+          me.floorRevision > floorFlight.expectedFloorRevision &&
+          (floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED')) {
+        const authoritative = selfPlayer();
+        floorArrived(floorFlight, { floor: { id: me.floorId, name: me.floorName, revision: me.floorRevision },
+          position: authoritative && { x: authoritative.x, y: authoritative.y } });
+      } else if (me.floorId && me.floorId !== floorId && !floorFlight) {
+        adoptFloor(me.floorId);
+      }
     }
     for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false });
     if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
@@ -337,7 +440,18 @@
     const gate = $('private-gate'); if (gate) { gate.textContent = '展开私密操作'; gate.setAttribute('aria-expanded', 'false'); }
     if (clearMy) closeMine();
   }
-  function clearAllInput() { keys.clear(); sendIntent(true); clearPrivate(true); closeExploration(); closeWheel(); }
+  // 切出页面 / 失焦 / pointercancel 统一入口：清空方向集合、释放指针捕获、只发一次零移动意图；
+  // 绝不在此触发或重发换层指令（换层只由显式 E / 点击入口发起，且提交后不重复）。
+  const pointerIds = new Set();
+  canvas.addEventListener('pointerdown', e => pointerIds.add(e.pointerId));
+  function clearAllInput(e) {
+    keys.clear();
+    if (e && typeof e.pointerId === 'number') pointerIds.add(e.pointerId);
+    for (const id of pointerIds) { try { if (canvas.hasPointerCapture && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch { } }
+    pointerIds.clear();
+    // blur 与 hidden 连续发生时零意图签名去重；不重发任何换层 POST。
+    sendIntent(false); clearPrivate(true); closeExploration(); closeWheel();
+  }
   function select(id) {
     closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
@@ -556,13 +670,27 @@
       .filter(({ entity }) => entityDistance(entity) <= WORLD.INTERACT_RANGE)
       .sort((a, b) => entityDistance(a.entity) - entityDistance(b.entity));
   }
-  // E 就近互动：同时比较附近玩家与家具/NPC，取距离最近者；已选中的近玩家在距离相当时优先。
+  // 需求2：电梯门候选 = 当前层「进入 64px 且面向门（spriteFacing cos≥0.5）」的**最近** portal。
+  // 唯一归属 = 最近门（不因另一扇可用就改投）⇒ 站在禁用门前的反馈稳定、不会被悄悄换方向。
+  function elevatorTarget() {
+    const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
+    let best = null, bd = Infinity, bestAccess = null;
+    for (const portal of portals) {
+      const access = WORLD.portalAccess(self, portal);
+      if (!access.inReach || !access.facingOk) continue;
+      const d = WORLD.distanceToEntity(self, { x: portal.x, y: portal.y });
+      if (d < bd) { bd = d; best = portal; bestAccess = access; }
+    }
+    return best ? { portal: best, access: bestAccess } : null;
+  }
+  // E 就近互动：同时比较附近玩家、家具/NPC 与楼梯入口，取距离最近者；已选中的近玩家在距离相当时优先。
+  // 玩家必须同层（floorId 一致）才参与就近判定。
   function nearestInteractable() {
     const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
     let pBest = null, pD = Infinity;
     for (const p of players) {
-      if (p.id === me.id || !p.alive || p.online === false) continue;
-      if (!WORLD.lineClear(self, p, furniture)) continue;
+      if (p.id === me.id || !p.alive || p.online === false || p.floorId !== me.floorId) continue;
+      if (!WORLD.lineClear(self, p, occluders)) continue;
       const d = WORLD.distanceToEntity(self, p);
       if (d <= WORLD.INTERACT_RANGE && d < pD) { pD = d; pBest = { kind: 'player', id: p.id }; }
     }
@@ -571,9 +699,20 @@
       const d = entityDistance(item.entity);
       if (d < eD) { eD = d; eBest = { kind: item.kind, id: item.id }; }
     }
-    // 已选近玩家优先：与家具/NPC 距离相差不超过 32 像素时，保留/选择玩家。
-    if (pBest && (!eBest || pD <= eD + 32)) return pBest;
-    return eBest;
+    // 电梯门不进入这套「就近取最近」的仲裁：它由 elevatorTarget() 单独处理（必须先于玩家/容器），
+    // 否则玩家只要靠近门就会在未面向门时也能乘梯，与「面对电梯按 E」冲突。
+    const candidates = [];
+    if (pBest) candidates.push({ d: pD, hit: pBest });
+    if (eBest) candidates.push({ d: eD, hit: eBest });
+    if (!candidates.length) return null;
+    // 已选玩家在距离相差不超过 32 像素时优先（保持与旧版一致的手感）。
+    if (pBest) {
+      const player = candidates.find(c => c.hit === pBest);
+      const other = candidates.filter(c => c.hit !== pBest).sort((a, b) => a.d - b.d)[0];
+      if (!other || player.d <= other.d + 32) return pBest;
+    }
+    candidates.sort((a, b) => a.d - b.d);
+    return candidates[0].hit;
   }
   function closeExploration() {
     explorationGeneration++; explorationPanel = null; explorationResult = ''; explorationDataSig = '';
@@ -647,10 +786,10 @@
     syncExploration();
     try {
       // 先等待停止意图被服务端确认，再提交探索；提交期间禁止移动与双击。
-      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
+      const stopped = await stopIntent();
       if (!samePanel()) return;
       if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
-      const result = await api('/api/interact', { commandId: commandId(), kind: kind === 'container' ? 'search' : 'exchange', entityId });
+      const result = await api('/api/interact', { commandId: commandId(), kind: kind === 'container' ? 'search' : 'exchange', entityId, ...floorFields() });
       if (!samePanel()) return;
       if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean' || !result.exploration) throw new Error('结算结果未确认');
       // 相同会话内也不以旧响应覆盖已变化的探索快照。
@@ -783,10 +922,10 @@
     updateWheelControls();
     try {
       // 沿用既有请求纪律：先确认停止意图，再提交；不做任何本地筹码预扣。
-      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
+      const stopped = await stopIntent();
       if (!samePanel()) return;
       if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
-      const result = await api('/api/play', { commandId: commandId(), kind: 'wheel', entityId });
+      const result = await api('/api/play', { commandId: commandId(), kind: 'wheel', entityId, ...floorFields() });
       if (!samePanel()) return;
       if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结算结果未确认');
       if (!result.ok) { wheelResult = result.error || '转动被拒绝'; showWheelResult(); updateWheelControls(); return; }
@@ -905,7 +1044,7 @@
   }
   function updateExplorationHUD() {
     const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
-    $('cover-status').textContent = self ? (WORLD.coverFor(renderedSelf || self, furniture) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入';
+    $('cover-status').textContent = self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入';
     $('clue-bag').disabled = !me;
     const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
     if (sig !== nearbySig) {
@@ -982,14 +1121,14 @@
     closeGames();
   }
   async function rpsApi(body) {
-    const response = await fetch('/api/play', { method: 'POST', headers: headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(4000) });
+    const response = await fetch('/api/play', { method: 'POST', headers: headers(), body: JSON.stringify({ ...body, ...floorFields() }), signal: AbortSignal.timeout(4000) });
     let data = {}; try { data = await response.json(); } catch { }
     return { ...data, status: response.status };
   }
   function isInviteable(p) {
     if (!p || !me || !me.alive || finished || p.id === me.id || !p.alive || p.online === false) return false;
     const self = selfPlayer(); if (!self) return false;
-    return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && WORLD.lineClear(self, p, furniture)
+    return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && p.floorId === me.floorId && WORLD.lineClear(self, p, occluders)
       && !me.games?.rpsPending && rpsNow() >= (me.games?.rpsUntil || 0) && !selfDisabled() && !gamesFlight;
   }
   function inviteDisabled() {
@@ -1169,10 +1308,10 @@
     combatFlight = request; keys.clear(); lastIntent = '';
     updateCombatHUD();
     try {
-      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
+      const stopped = await stopIntent();
       if (!same()) return;
       if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
-      const result = await api('/api/attack', { commandId: commandId() });
+      const result = await api('/api/attack', { commandId: commandId(), ...floorFields() });
       if (!same()) return;
       if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结果未确认');
       if (request.combat === JSON.stringify(me.combat || {})) {
@@ -1240,6 +1379,180 @@
     api('/api/ack', { eventIds: ids }).catch(() => { });
   }
 
+  // ---------- 电梯过渡（客户端）：IDLE_SOURCE → PREPARING → SUBMITTING → TARGET_READY → OPENING → IDLE_TARGET ----------
+  // 顺序：准备目标资源 + 保留源画面 → 单次原子提交 → 权威确认 + 目标层首帧就绪 → 开门 → 恢复输入。
+  // 失败分 FAILED_SOURCE（已证实未换层，回源层）与 UNCONFIRMED（结果不明，只读对账，不重发）。
+  const reduceMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  function floorArrowText(from, to, dir) { return `${from}F ${dir === 'down' ? '↓' : dir === 'up' ? '↑' : '→'} ${to}F`; }
+  function showFloorOverlay(arrow, phase, detail) {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    overlay.hidden = false;
+    $('floor-arrow').textContent = arrow || '';
+    $('floor-phase').textContent = phase || '';
+    $('floor-detail').textContent = detail || '';
+  }
+  function floorDoorsClosed(closed) {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    overlay.classList.toggle('closed', !!closed);
+  }
+  function floorNoticeMode(on) {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    overlay.classList.toggle('notice', !!on);
+    const button = $('floor-transition-close'); if (button) button.hidden = !on;
+    if (on) { clearTimeout(floorStageTimer); clearTimeout(floorNoticeTimer); }
+  }
+  function closeFloorOverlay() {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    clearTimeout(floorStageTimer); clearTimeout(floorNoticeTimer);
+    overlay.hidden = true;
+    overlay.classList.remove('closed', 'notice');
+    const button = $('floor-transition-close'); if (button) button.hidden = true;
+  }
+  // 2 秒仍在未完成阶段：补一句如实的细节，不催促、不视为失败。
+  function floorSlowStage() {
+    if (floorState !== 'PREPARING' && floorState !== 'SUBMITTING') return;
+    const detail = $('floor-detail');
+    if (detail) detail.textContent = '已等待 2 秒仍未收到服务端确认 · 换层仍在进行，请勿重复操作';
+  }
+  // 10 秒门帘上限：切成可关闭的静态提示（Esc 可关），但 10 秒 ≠ 允许返回源层。
+  function floorCurtainMax() {
+    if (floorState !== 'PREPARING' && floorState !== 'SUBMITTING' && floorState !== 'UNCONFIRMED') return;
+    floorNoticeMode(true);
+    const detail = $('floor-detail');
+    if (!detail) return;
+    detail.textContent = floorState === 'UNCONFIRMED'
+      ? '换层结果仍未确认 · 可关闭此提示继续观察；未确认期间不会本地换层，请等待权威状态对账'
+      : '服务端确认已超过 10 秒 · 可关闭此提示；换层请求不会重复发送';
+  }
+  // 关闭静态提示：只隐藏覆盖层，不改变换层状态（可能仍在等待权威对账）。
+  function dismissFloorNotice() {
+    const overlay = $('floor-transition'); if (!overlay || overlay.hidden || !overlay.classList.contains('notice')) return false;
+    overlay.hidden = true; overlay.classList.remove('notice');
+    const button = $('floor-transition-close'); if (button) button.hidden = true;
+    return true;
+  }
+  // 整层原子切换：楼层、家具/墙/NPC/容器/入口、碰撞集合、点击标签、相机、插值同时对应新层。
+  // 插值重新从权威坐标播种；朝向 spriteFacing 保留；不改动战斗状态（无无敌/眩晕/僵直，不动 J 冷却）。
+  function adoptFloor(id, position) {
+    loadFloorLocal(id);
+    if (position) {
+      const authoritative = selfPlayer();
+      if (authoritative) { authoritative.floorId = id; authoritative.x = position.x; authoritative.y = position.y; }
+    }
+    for (const p of players) {
+      if (p.floorId !== id) continue;
+      const seed = (p.id === selfId() && position) ? position : { x: p.x, y: p.y };
+      renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false });
+    }
+    // 属于源层的即时面板与选择一次性清空，避免残留指向旧层。
+    closeExploration(); closeGames(); closeWheel();
+    $('candidates').hidden = true; $('candidates').replaceChildren();
+    selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); clearPrivate(true);
+    nearbySig = ''; // 强制重建就近列表与描边
+    keys.clear(); lastIntent = '';
+    sendIntent(true);
+    const self = selfPlayer(); const fl = WORLD.floorById(id);
+    if (self) {
+      cameraX = viewW >= fl.width ? (fl.width - viewW) / 2 : clamp(self.x - viewW / 2, 0, fl.width - viewW);
+      cameraY = viewH >= fl.height ? (fl.height - viewH) / 2 : clamp(self.y - viewH / 2, 0, fl.height - viewH);
+      drawCamX = cameraX; drawCamY = cameraY;
+    }
+    labels = []; updateScoreDisplay(); updateExplorationHUD();
+    draw();
+  }
+  function requestFloorChange(portalId) {
+    if (!me || !me.alive || finished) return;
+    if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return; // 过渡期间不重复发起
+    if (selfDisabled()) { showToast('眩晕/僵直中，暂时无法乘梯'); return; }
+    if (interactionFlight || combatFlight || gamesFlight || wheelSpinFlight) return;
+    const portal = portals.find(p => p.id === portalId);
+    if (!portal) return;
+    // 客户端预判边界（服务端仍会再判一次，双端一致文案）。
+    if (portal.dir === 'up' && floorId >= 7) { showToast('7F 已是最上层，无法上行'); return; }
+    if (portal.dir === 'down' && floorId <= 1) { showToast('1F 已是最下层，无法下行'); return; }
+    if (!portal.targetFloorId) { showToast('该入口当前不可用'); return; }
+    const self = selfPlayer();
+    if (self && WORLD.distanceToEntity(self, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) { showToast('距离入口太远，请靠近后再试（64 像素以内）'); return; }
+    // PREPARING：保留源画面 + 收拢输入 + 准备目标资源（各层 sprite 均已预烘焙）。
+    keys.clear(); lastIntent = '';
+    clearPrivate(true); closeExploration(); closeGames(); closeWheel();
+    $('candidates').hidden = true; $('candidates').replaceChildren(); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster();
+    floorFlight = {
+      commandId: commandId(), portalId, fromFloorId: floorId, targetFloorId: portal.targetFloorId,
+      dir: portal.dir, roundId, expectedFloorRevision: me.floorRevision, submitted: false
+    };
+    floorState = 'PREPARING';
+    showFloorOverlay(floorArrowText(floorId, portal.targetFloorId, portal.dir), '正在准备目标楼层…', '保留当前画面 · 准备目标楼层资源');
+    floorDoorsClosed(true);
+    floorStartedAt = performance.now();
+    floorStageTimer = setTimeout(floorSlowStage, 2000);
+    floorNoticeTimer = setTimeout(floorCurtainMax, 10000);
+    submitFloorChange();
+  }
+  async function submitFloorChange() {
+    const flight = floorFlight;
+    if (!flight || flight.submitted || floorState !== 'PREPARING') return;
+    flight.submitted = true; // 单次原子提交：任何情况下都不重复发送同一次换层
+    floorState = 'SUBMITTING';
+    if ($('floor-transition').hidden === false) {
+      $('floor-phase').textContent = '正在请求服务端裁决…';
+    }
+    let res = null;
+    try {
+      res = await api('/api/floor-change', {
+        commandId: flight.commandId, roundId: flight.roundId, portalId: flight.portalId,
+        expectedFloorId: flight.fromFloorId, expectedFloorRevision: flight.expectedFloorRevision
+      });
+    } catch { res = null; }
+    if (floorFlight !== flight) return; // 已被新的过渡替换 / 已收敛
+    if (!res) { floorUnconfirmed('网络异常，换层结果未确认'); return; }
+    if (res.status === 200 && res.ok === true && res.floor && res.position) { floorArrived(flight, res); return; }
+    if (res.status === 400 && res.ok === false) { floorRejected(flight, res.error || '换层被拒绝'); return; }
+    floorUnconfirmed('服务端响应未能确认换层结果');
+  }
+  function floorArrived(flight, res) {
+    // 权威确认：先落 me 的权威楼层/版本，再整层原子切换（首帧就绪），最后开门。
+    if (me) me = { ...me, floorId: res.floor.id, floorRevision: res.floor.revision, floorName: res.floor.name };
+    const pos = res.position || (selfPlayer() ? { x: selfPlayer().x, y: selfPlayer().y } : null);
+    floorState = 'TARGET_READY';
+    adoptFloor(res.floor.id, pos);
+    showFloorOverlay(floorArrowText(flight.fromFloorId, res.floor.id, flight.dir), `已到达 ${res.floor.name}`, '正在开门 · 即将恢复操作');
+    floorState = 'OPENING';
+    floorDoorsClosed(false);
+    const delay = reduceMotion() ? 0 : 320;
+    setTimeout(() => {
+      if (floorState !== 'OPENING') return;
+      floorState = 'IDLE_TARGET'; floorFlight = null;
+      closeFloorOverlay();
+    }, delay);
+  }
+  function floorRejected(flight, message) {
+    // 已证实未换层：留在源层，开门并恢复。
+    floorState = 'FAILED_SOURCE';
+    floorDoorsClosed(false);
+    showFloorOverlay(`${flight.fromFloorId}F`, '换层未成功', `${message}（仍在当前楼层）`);
+    floorNoticeMode(true);
+    showToast(message);
+    const delay = reduceMotion() ? 0 : 320;
+    setTimeout(() => {
+      if (floorState !== 'FAILED_SOURCE') return;
+      floorState = 'IDLE_SOURCE'; floorFlight = null;
+      closeFloorOverlay();
+    }, delay);
+  }
+  function floorUnconfirmed(message) {
+    // 结果不明：保留门帘，不做本地换层，不重发；等待权威快照对账（applySnapshot 会收敛）。
+    floorState = 'UNCONFIRMED';
+    floorNoticeMode(true);
+    showFloorOverlay('换层结果未确认', '等待权威状态对账…', `${message} · 不会自动重试换层`);
+    const flight = floorFlight;
+    // 仅 GET 对账；源层快照不能证明 POST 未执行，故不因此恢复输入或再次 POST。
+    api('/api/state', null, 'GET').then(snapshot => {
+      if (floorFlight !== flight || !snapshot.me || snapshot.roundId !== flight.roundId) return;
+      if (snapshot.me.floorId === flight.targetFloorId && snapshot.me.floorRevision > flight.expectedFloorRevision) applySnapshot(snapshot);
+    }).catch(() => { });
+  }
+
   // ---------- 像素绘制 ----------
   function rect(x, y, w, h, color, g = ctx) { g.fillStyle = color; g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); }
   function roundPx(x, y, w, h, fill, g = ctx) { g.fillStyle = fill; g.fillRect(x + 2, y, w - 4, h); g.fillRect(x + 1, y + 1, w - 2, h - 2); g.fillRect(x, y + 2, w, h - 4); }
@@ -1284,100 +1597,487 @@
     }
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
   }
-  function drawFurniture(f, g = ctx) {
-    const { x, y, w, h, type } = f;
-    g.globalAlpha = .2; rect(x + 8, y + h - 6, w - 12, 11, '#120c14', g); rect(x + 3, y + h - 3, w - 6, 6, '#120c14', g); g.globalAlpha = 1;
+  // ---------- 家具三层绘制（阶段2-2a，美术规格 §3 C-0）----------
+  // 视角约定：rect = 平面投影；立面占 rect 下沿起 facePx（柜类可越过 y，故需 padUp）；
+  // 顶面 = 立面之上的可见上表面；立式部件自 y 向上生长。子件一律按 w / h / facePx 比例
+  // （仅 1–2px 高光 / 描边为绝对像素）。"第 N 分格" 一律用 cellC(x,w,i,N) 均匀分布。
+  const FURN_FACE = { desk: 24, table: 24, counter: 30, cabinet: 58, reception: 34, sofa: 26, plant: 19,
+    treadmill: 42, rack: 35, mat: 2, seat: 30, stage: 13, wall: 7 };
+  const FURN_PAD = {
+    default: { padX: 16, padUp: 64, padDown: 32 },
+    plant: { padX: 26, padUp: 44, padDown: 12 },
+    sofa: { padX: 16, padUp: 12, padDown: 12 },
+    mat: { padX: 16, padUp: 8, padDown: 8 },
+    stage: { padX: 16, padUp: 20, padDown: 16 },
+    wall: { padX: 4, padUp: 4, padDown: 4 }
+  };
+  const furnitureFace = type => (FURN_FACE[type] == null ? 24 : FURN_FACE[type]);
+  const furniturePad = type => FURN_PAD[type] || FURN_PAD.default;
+  const cellC = (x, w, i, N) => x + w * (i + 0.5) / N;   // 第 i 个（共 N 个）分格中心
+  // 接地阴影：随 facePx 缩放，保证不同尺度下厚度一致。
+  function furnShadow(g, x, y, w, h, facePx) {
+    g.globalAlpha = .2;
+    rect(x + w * .06, y + h - facePx * .20, w * .88, Math.max(4, facePx * .38), '#120c14', g);
+    rect(x + w * .03, y + h - facePx * .10, w * .94, Math.max(3, facePx * .20), '#120c14', g);
+    g.globalAlpha = 1;
+  }
+  // 立面：前挡板 / 柜体 / 桌腿 / 器身。
+  function drawFurnitureFace(f, g, x, y, w, facePx) {
+    const { h, type } = f, b = y + h, dp = h * .28 * (facePx / 24); // dp ≈ 视觉进深
     if (type === 'plant') {
-      const px = x + w * .28, pw = Math.round(w * .46);
-      rect(x + w * .49, y + h * .26, 4, h * .3, '#3f7a52', g);
+      const px = x + w * .28, pw = w * .44, py = y + h * .52, ph = h * .46;
+      rect(px, py, pw, ph, '#8a4f33', g);
+      rect(px + 1, py, pw - 2, Math.max(2, ph * .14), '#b0714a', g);
+      rect(px, py + ph * .14, pw, ph * .74, '#7a452c', g);
+      rect(px + pw * .12, py + ph * .86, pw * .76, Math.max(2, ph * .16), '#5f3623', g);
+      return;
+    }
+    if (type === 'sofa') {
+      rect(x + w * .02, y + facePx * 1.05, w * .96, h - facePx * 1.05, '#415f63', g);
+      rect(x + w * .02, y + facePx * 1.05, w * .96, 3, '#6b9095', g);
+      rect(x + w * .02, b - 4, w * .96, 3, '#25393c', g);
+      rect(x + w * .05, y + facePx * 1.2, w * .16, h - facePx * 1.5, '#55797d', g);
+      rect(x + w * .79, y + facePx * 1.2, w * .16, h - facePx * 1.5, '#55797d', g);
+      const lw = Math.max(4, w * .05);
+      rect(x + w * .06, b - facePx * .16, lw, facePx * .16, '#4a3524', g);
+      rect(x + w * .88, b - facePx * .16, lw, facePx * .16, '#4a3524', g);
+      return;
+    }
+    if (type === 'cabinet') {
+      const bd = Math.max(2, w * .02);
+      rect(x, y, w, h, '#4e3c2c', g);
+      rect(x + bd, y + bd, w - 2 * bd, h - 2 * bd, '#6b543c', g);
+      rect(x + bd, y + bd, w - 2 * bd, 3, '#8a6e52', g);
+      rect(x + bd, b - 3 - bd, w - 2 * bd, 3, '#3d2f22', g);
+      rect(x + w / 2 - 1, y + bd * 2, 2, h - bd * 4, '#3d2f22', g);
+      const dh = h * .34, dy = y + h * .18;
+      rect(x + w * .06, dy, w * .40, dh, '#7a6247', g); rect(x + w * .06, dy, w * .40, 2, '#93744a', g);
+      rect(x + w * .54, dy, w * .40, dh, '#7a6247', g); rect(x + w * .54, dy, w * .40, 2, '#93744a', g);
+      const hw = Math.max(2, w * .015);
+      rect(x + w * .30, y + h * .46, hw, h * .20, '#c8a86a', g); rect(x + w * .68, y + h * .46, hw, h * .20, '#c8a86a', g);
+      return;
+    }
+    if (type === 'desk') {
+      rect(x + w * .07, b - dp, w * .05, dp, '#4a3524', g);
+      rect(x + w * .88, b - dp, w * .05, dp, '#4a3524', g);
+      rect(x + w * .06, b - dp * 1.35, w * .88, dp * 1.35, '#5a4231', g);
+      rect(x + w * .06, b - dp * 1.35, w * .88, 3, '#8a6a48', g);
+      rect(x + w * .86, b - dp * 1.2, w * .11, dp * .86, '#6b5238', g);
+      rect(x + w * .87, b - dp * 1.08, w * .09, 2, '#8f7050', g);
+      rect(x + w * .89, b - dp * .86, w * .05, 2, '#c8a86a', g);
+      rect(x + w * .12, b - dp * 1.1, w * .58, dp * .62, '#523c2d', g);
+      rect(x + w * .12, b - dp * 1.1, w * .58, 1, '#634b38', g);
+      return;
+    }
+    if (type === 'counter') {
+      rect(x + w * .03, y + facePx * .78, w * .94, h - facePx * .78, '#48524f', g);
+      rect(x + w * .03, y + facePx * .78, w * .94, 3, '#5f6b66', g);
+      rect(x + w * .03, b - Math.max(3, facePx * .16), w * .94, Math.max(3, facePx * .16), '#2f3937', g);
+      const N = 4;
+      for (let i = 1; i < N; i++) {
+        const px = x + w * i / N, cw = w / N - w * .04;
+        rect(px, y + facePx * .9, 1, h - facePx * .95, '#333d3b', g);
+        rect(px + w * .02, y + facePx, cw, h - facePx * 1.35, '#525d59', g);
+        rect(px + w * .02, y + facePx, cw, 1, '#606c67', g);
+        rect(px + w * .02, b - facePx * .32, cw, 2, '#3c4644', g);
+      }
+      return;
+    }
+    if (type === 'table') {
+      rect(x + w * .08, y + h * .38, w * .05, h * .58, '#4a3524', g);
+      rect(x + w * .87, y + h * .38, w * .05, h * .58, '#4a3524', g);
+      return;
+    }
+    if (type === 'reception') {
+      rect(x + w * .03, y + h * .5, w * .94, h * .5, '#5a4231', g);
+      rect(x + w * .03, y + h * .5, w * .94, 3, '#8a6a48', g);
+      rect(x + w * .03, b - 4, w * .94, 4, '#3f2f22', g);
+      for (let i = 1; i < 3; i++) rect(x + w * i / 3, y + h * .56, 1, h * .4, '#46341f', g);
+      return;
+    }
+    if (type === 'stage') {                                  // §6 舞台：台体立面 + 台沿
+      rect(x, b - facePx, w, facePx, '#8a6a48', g);
+      rect(x, b - facePx, w, 2, '#a5825b', g);
+      rect(x, b - Math.max(2, facePx * .34), w, Math.max(2, facePx * .34), '#3f2f22', g);
+      return;
+    }
+    if (type === 'rack') {                                   // §6 哑铃架：底座 2 腿
+      rect(x + w * .22, b - 4, Math.max(3, w * .05), 4, '#3a2820', g);
+      rect(x + w * .73, b - 4, Math.max(3, w * .05), 4, '#3a2820', g);
+      return;
+    }
+    if (type === 'seat') {                                   // §6 座椅：座面 blob（近观者侧）
+      const cw = Math.max(10, Math.min(16, w * .24)), ch = Math.max(5, h * .34);
+      blob(g, x + w / 2 - cw / 2, y + h - ch * 1.6, cw, ch, '#a4665c');
+      rect(x + w / 2 - cw * .66, y + h - ch * 1.6 - 2, cw * 1.32, 2, '#2b1a14', g);
+      return;
+    }
+    if (type === 'mat') return;                              // §6 训练垫：无立面
+    // default：通用柜体
+    rect(x, y, w, h, '#5a4231', g); rect(x, y, w, 3, '#8a6a48', g); rect(x, b - 4, w, 4, '#3f2f22', g);
+    const lw = Math.max(4, w * .05);
+    rect(x + w * .05, b, lw, facePx * .2, '#4a3524', g); rect(x + w * .9, b, lw, facePx * .2, '#4a3524', g);
+  }
+  // 顶面：可见上表面 + 台面器物。
+  function drawFurnitureTop(f, g, x, y, w, planPx) {
+    const { h, type } = f, facePx = furnitureFace(type);
+    const topH = Math.max(4, h - facePx);          // 立面之上的可见上表面高度
+    const slab = Math.max(5, Math.min(topH, facePx * .6)); // 台面板厚
+    if (type === 'plant') {
+      rect(x + w * .49, y + h * .26, Math.max(3, w * .08), h * .3, '#3f7a52', g);
       blob(g, x + w * .02, y + h * .04, w * .5, h * .46, '#3f7a52', g);
       blob(g, x + w * .46, y + h * .0, w * .46, h * .48, '#4a8a5d', g);
       blob(g, x + w * .14, y + h * .24, w * .4, h * .34, '#2f6242', g);
       blob(g, x + w * .44, y + h * .26, w * .44, h * .32, '#58996a', g);
       rect(x + w * .12, y + h * .1, w * .14, 2, '#7fbb8c', g); rect(x + w * .6, y + h * .06, w * .12, 2, '#7fbb8c', g);
-      rect(px, y + h * .52, pw, Math.round(h * .46), '#8a4f33', g);
-      rect(px + 1, y + h * .52, pw - 2, 4, '#b0714a', g);
-      rect(px, y + h * .58, pw, Math.round(h * .36), '#7a452c', g);
-      rect(px + 3, y + h * .92, pw - 6, 4, '#5f3623', g);
-      rect(px + 3, y + h * .52, pw - 6, 3, '#3a2a22', g);
       return;
     }
     if (type === 'sofa') {
-      rect(x + 4, y, w - 8, 24, '#4b6b70', g); rect(x + 4, y, w - 8, 3, '#62868b', g); rect(x + 4, y + 21, w - 8, 3, '#2c4549', g);
-      rect(x, y + 20, w, h - 28, '#415f63', g); rect(x, y + 20, w, 3, '#6b9095', g); rect(x, y + h - 6, w, 3, '#25393c', g);
-      const cw = Math.max(6, Math.round((w - 26) / 2));
-      rect(x + 9, y + 24, cw, h - 38, '#4b6d71', g); rect(x + 9, y + 24, cw, 2, '#62868b', g);
-      rect(x + 17 + cw, y + 24, cw, h - 38, '#4b6d71', g); rect(x + 17 + cw, y + 24, cw, 2, '#62868b', g);
-      rect(x + w / 2 - 1, y + 25, 2, h - 40, '#2c4549', g);
-      rect(x, y + 14, 15, h - 20, '#55797d', g); rect(x, y + 14, 15, 3, '#7ba0a4', g); rect(x + 13, y + 16, 2, h - 24, '#2c4549', g);
-      rect(x + w - 15, y + 14, 15, h - 20, '#55797d', g); rect(x + w - 15, y + 14, 15, 3, '#7ba0a4', g); rect(x + w - 15, y + 16, 2, h - 24, '#2c4549', g);
-      rect(x + 22, y + 25, 20, 13, '#a4665c', g); rect(x + 22, y + 25, 20, 2, '#c4837a', g); rect(x + 22, y + 36, 20, 2, '#7d4a44', g);
-      rect(x + 7, y + h - 5, 9, 6, '#4a3524', g); rect(x + w - 16, y + h - 5, 9, 6, '#4a3524', g);
+      rect(x + w * .03, y, w * .94, topH * .6, '#4b6b70', g);
+      rect(x + w * .03, y, w * .94, 3, '#62868b', g);
+      rect(x + w * .03, y + topH * .52, w * .94, 3, '#2c4549', g);
+      const cw = (w - w * .18) / 2;
+      rect(x + w * .09, y + topH * .6, cw, Math.max(3, h - topH * .95), '#4b6d71', g);
+      rect(x + w * .09, y + topH * .6, cw, 2, '#62868b', g);
+      rect(x + w * .55, y + topH * .6, cw, Math.max(3, h - topH * .95), '#4b6d71', g);
+      rect(x + w * .55, y + topH * .6, cw, 2, '#62868b', g);
+      rect(x + w / 2 - 1, y + topH * .6, 2, Math.max(3, h - topH), '#2c4549', g);
+      rect(x + w * .15, y + topH * .6, w * .14, topH * .34, '#a4665c', g);
+      rect(x + w * .15, y + topH * .6, w * .14, 2, '#c4837a', g);
       return;
     }
     if (type === 'cabinet') {
-      rect(x, y, w, h, '#4e3c2c', g); rect(x + 2, y + 2, w - 4, h - 4, '#6b543c', g); rect(x + 2, y + 2, w - 4, 3, '#8a6e52', g); rect(x + 2, y + h - 4, w - 4, 3, '#3d2f22', g);
-      rect(x + w / 2 - 1, y + 5, 2, h - 10, '#3d2f22', g);
-      rect(x + 7, y + 10, w / 2 - 11, h - 22, '#7a6247', g); rect(x + 7, y + 10, w / 2 - 11, 2, '#93744a', g);
-      rect(x + w / 2 + 4, y + 10, w / 2 - 11, h - 22, '#7a6247', g); rect(x + w / 2 + 4, y + 10, w / 2 - 11, 2, '#93744a', g);
-      rect(x + w / 2 - 9, y + h / 2 - 3, 3, 11, '#c8a86a', g); rect(x + w / 2 + 6, y + h / 2 - 3, 3, 11, '#c8a86a', g);
-      rect(x + 8, y - 11, 22, 12, '#8a5a4a', g); rect(x + 10, y - 9, 18, 2, '#a97262', g); rect(x + 10, y - 11, 6, 2, '#b98272', g);
-      rect(x + 34, y - 9, 16, 10, '#4f6b74', g); rect(x + 34, y - 9, 16, 2, '#64868f', g);
-      rect(x + 54, y - 7, 12, 8, '#6b7f5c', g); rect(x + 54, y - 7, 12, 2, '#87a078', g);
+      rect(x, y, w, Math.max(3, topH), '#6b543c', g);
+      rect(x, y, w, 2, '#8a6e52', g);
       return;
     }
     if (type === 'desk') {
-      rect(x + 6, y + 30, 7, h - 30, '#4a3524', g); rect(x + w - 13, y + 30, 7, h - 30, '#4a3524', g);
-      rect(x + 4, y + 22, w - 8, h - 22, '#5a4231', g); rect(x + 4, y + 22, w - 8, 3, '#8a6a48', g); rect(x + 4, y + h - 5, w - 8, 5, '#3f2f22', g);
-      rect(x - 5, y + 8, w + 10, 16, '#7d5c3f', g); rect(x - 5, y + 8, w + 10, 3, '#a5825b', g); rect(x - 5, y + 21, w + 10, 3, '#543f2d', g);
-      rect(x + 10, y + 29, w - 66, h - 37, '#523c2d', g); rect(x + 10, y + 29, w - 66, 1, '#634b38', g); rect(x + 10, y + h - 11, w - 66, 2, '#3f2f22', g);
-      rect(x + w - 49, y + 33, 43, 17, '#6b5238', g); rect(x + w - 47, y + 35, 39, 2, '#8f7050', g); rect(x + w - 31, y + 39, 14, 3, '#c8a86a', g);
-      rect(x + 37, y - 31, 58, 36, '#2b2f38', g); rect(x + 39, y - 29, 54, 30, '#182f38', g); rect(x + 39, y - 29, 54, 2, '#0d1e25', g);
-      rect(x + 42, y - 26, 48, 3, '#63c7c4', g); rect(x + 42, y - 20, 32, 2, '#4f9d9c', g); rect(x + 42, y - 15, 40, 2, '#4f9d9c', g); rect(x + 42, y - 10, 24, 2, '#4f9d9c', g);
-      rect(x + 58, y + 3, 12, 6, '#39414a', g); rect(x + 50, y + 8, 28, 4, '#4a5058', g);
-      rect(x + 40, y + 13, 40, 6, '#d5cfbe', g); rect(x + 42, y + 15, 36, 1, '#8f8a7e', g); rect(x + 40, y + 18, 40, 1, '#a49e8e', g);
-      rect(x + w - 27, y + 11, 10, 9, '#c96f4e', g); rect(x + w - 27, y + 11, 10, 2, '#e08a6a', g); rect(x + w - 17, y + 13, 3, 4, '#c96f4e', g);
-      rect(x + 6, y + 12, 22, 7, '#e6dfcd', g); rect(x + 8, y + 14, 18, 1, '#b9b3a2', g); rect(x + 8, y + 16, 14, 1, '#b9b3a2', g);
+      rect(x - w * .02, y, w * 1.04, Math.max(5, topH), '#7d5c3f', g);
+      rect(x - w * .02, y, w * 1.04, 3, '#a5825b', g);
+      rect(x - w * .02, y + Math.max(5, topH) - 3, w * 1.04, 3, '#543f2d', g);
+      rect(x + w * .11, y + topH * .3, w * .3, Math.max(3, topH * .5), '#4a5058', g);
+      rect(x + w * .12, y + topH * .34, w * .28, 1, '#6a7078', g);
+      rect(x + w * .6, y + topH * .3, w * .28, Math.max(3, topH * .5), '#d5cfbe', g);
+      rect(x + w * .61, y + topH * .34, w * .26, 1, '#8f8a7e', g);
+      rect(x + w * .8, y + topH * .2, w * .13, topH * .75, '#e6dfcd', g);
+      rect(x + w * .81, y + topH * .26, w * .11, 1, '#b9b3a2', g);
+      rect(x + w * .9, y + topH * .16, w * .05, topH * .5, '#c96f4e', g);
+      rect(x + w * .9, y + topH * .16, w * .05, 2, '#e08a6a', g);
       return;
     }
     if (type === 'counter') {
-      rect(x + 4, y + 24, w - 8, h - 24, '#48524f', g); rect(x + 4, y + 24, w - 8, 3, '#5f6b66', g); rect(x + 4, y + h - 5, w - 8, 5, '#2f3937', g);
-      for (let i = 1; i < 4; i++) {
-        const px = x + i * (w / 4);
-        rect(px, y + 28, 1, h - 30, '#333d3b', g);
-        rect(px + 6, y + 32, w / 4 - 12, h - 42, '#525d59', g);
-        rect(px + 6, y + 32, w / 4 - 12, 1, '#606c67', g); rect(px + 6, y + h - 12, w / 4 - 12, 2, '#3c4644', g);
+      rect(x - w * .015, y, w * 1.03, slab, '#cfc7bb', g);
+      rect(x - w * .015, y, w * 1.03, 3, '#e8e2d6', g);
+      rect(x - w * .015, y + slab - 3, w * 1.03, 3, '#9a9184', g);
+      const N = Math.max(2, Math.round(w / (facePx * 4)));   // 台面器物按宽度均布
+      for (let i = 0; i < N; i++) {
+        const cx = cellC(x, w, i, N), cw = w / N * .22;
+        rect(cx - cw / 2, y + slab * .18, cw, slab * .6, '#dfe6e6', g);
+        rect(cx - cw / 2, y + slab * .18, cw, 2, '#f2f7f7', g);
+        rect(cx - cw / 2, y + slab * .66, cw, 2, '#9aa4a4', g);
       }
-      rect(x - 5, y + 8, w + 10, 17, '#cfc7bb', g); rect(x - 5, y + 8, w + 10, 3, '#e8e2d6', g); rect(x - 5, y + 22, w + 10, 3, '#9a9184', g);
-      rect(x + 16, y - 26, 40, 34, '#39414a', g); rect(x + 18, y - 24, 36, 10, '#1e2a30', g); rect(x + 22, y - 20, 10, 3, '#d9814f', g);
-      rect(x + 18, y - 12, 36, 4, '#2b323a', g); rect(x + 28, y - 8, 14, 6, '#c9c4b4', g);
-      rect(x + 92, y - 16, 24, 24, '#8d929a', g); rect(x + 94, y - 14, 20, 3, '#a9aeb6', g); rect(x + 112, y - 21, 4, 6, '#5f646b', g); rect(x + 98, y - 23, 10, 7, '#5f646b', g);
-      for (let i = 0; i < 4; i++) { const cx = x + 140 + i * 24; rect(cx, y + 11, 9, 9, '#dfe6e6', g); rect(cx, y + 11, 9, 2, '#f2f7f7', g); rect(cx, y + 18, 9, 2, '#9aa4a4', g); }
-      rect(x + 206, y + 13, 26, 6, '#b58a5c', g); rect(x + 208, y + 8, 7, 7, '#c96f4e', g); rect(x + 217, y + 9, 7, 6, '#8a9a5c', g); rect(x + 224, y + 10, 6, 5, '#d9b45c', g);
       return;
     }
     if (type === 'table') {
-      rect(x + 8, y + 24, 7, h - 24, '#4a3524', g); rect(x + w - 15, y + 24, 7, h - 24, '#4a3524', g);
-      rect(x - 6, y + 8, w + 12, 17, '#7d5c3f', g); rect(x - 6, y + 8, w + 12, 3, '#a5825b', g); rect(x - 6, y + 22, w + 12, 3, '#543f2d', g);
-      rect(x + 16, y - 12, 34, 20, '#39414a', g); rect(x + 18, y - 10, 30, 15, '#182f38', g); rect(x + 20, y - 8, 20, 2, '#63c7c4', g); rect(x + 20, y - 4, 24, 2, '#4f9d9c', g);
-      rect(x + 12, y + 8, 42, 5, '#4a5058', g); rect(x + 14, y + 9, 38, 1, '#6a7078', g);
-      rect(x + 64, y + 12, 24, 7, '#e6dfcd', g); rect(x + 66, y + 14, 20, 1, '#b9b3a2', g); rect(x + 66, y + 16, 14, 1, '#b9b3a2', g);
-      rect(x + 96, y + 11, 10, 9, '#d9814f', g); rect(x + 96, y + 11, 10, 2, '#e8a173', g);
+      rect(x - w * .015, y, w * 1.03, slab, '#7d5c3f', g);
+      rect(x - w * .015, y, w * 1.03, 3, '#a5825b', g);
+      rect(x - w * .015, y + slab - 3, w * 1.03, 3, '#543f2d', g);
+      rect(x + w * .05, y + slab * .2, w * .28, Math.max(3, slab * .5), '#4a5058', g);   // 健盘
+      const px = x + w * .42, pw = w * .3;                                               // 盘子
+      rect(px, y + slab * .2, pw, Math.max(3, slab * .6), '#e6dfcd', g);
+      rect(px + 2, y + slab * .32, pw - 4, 1, '#b9b3a2', g);
+      rect(x + w * .8, y + slab * .16, w * .1, Math.max(3, slab * .66), '#d9814f', g);   // 汤碗
+      rect(x + w * .8, y + slab * .16, w * .1, 2, '#e8a173', g);
       return;
     }
     if (type === 'reception') {
-      rect(x + 4, y + 18, w - 8, h - 18, '#5a4231', g); rect(x + 4, y + 18, w - 8, 3, '#8a6a48', g); rect(x + 4, y + h - 5, w - 8, 5, '#3f2f22', g);
-      for (let i = 1; i < 3; i++) rect(x + i * (w / 3), y + 22, 1, h - 24, '#46341f', g);
-      rect(x - 5, y + 6, w + 10, 13, '#cfc7bb', g); rect(x - 5, y + 6, w + 10, 3, '#e8e2d6', g); rect(x - 5, y + 16, w + 10, 3, '#9a9184', g);
-      rect(x + 6, y + 23, w - 12, 2, '#c8a86a', g);
-      rect(x + 12, y - 20, 42, 26, '#2b2f38', g); rect(x + 14, y - 18, 38, 20, '#182f38', g); rect(x + 16, y - 16, 30, 3, '#63c7c4', g); rect(x + 16, y - 11, 22, 2, '#4f9d9c', g);
-      rect(x + 26, y + 6, 12, 6, '#39414a', g); rect(x + 20, y + 11, 24, 4, '#4a5058', g);
-      rect(x + w - 34, y - 6, 16, 12, '#8a5a4a', g); rect(x + w - 32, y - 4, 12, 2, '#a97262', g);
-      rect(x + w - 28, y - 19, 3, 14, '#3f7a52', g); rect(x + w - 32, y - 25, 8, 6, '#c96f4e', g); rect(x + w - 24, y - 21, 6, 5, '#e08a6a', g);
+      rect(x - w * .015, y, w * 1.03, slab, '#cfc7bb', g);
+      rect(x - w * .015, y, w * 1.03, 3, '#e8e2d6', g);
+      rect(x - w * .015, y + slab - 3, w * 1.03, 3, '#9a9184', g);
+      rect(x + w * .04, y + slab * .3, w * .5, Math.max(2, slab * .4), '#4a5058', g);   // 健盘
+      rect(x + w * .6, y + slab * .2, w * .2, Math.max(3, slab * .6), '#c8a86a', g);    // 名牌金条
       return;
     }
-    rect(x, y, w, h, '#5a4231', g); rect(x, y, w, 3, '#8a6a48', g); rect(x, y + h - 4, w, 4, '#3f2f22', g);
-    rect(x + 6, y + h, 9, 6, '#4a3524', g); rect(x + w - 15, y + h, 9, 6, '#4a3524', g);
+    if (type === 'treadmill') {                              // §6 跑步机：机架平面 + 2 跑带
+      const mw = w * .75, mh = Math.max(6, h * .29), mx = x + (w - mw) / 2, my = y + h * .34;
+      rect(mx, my, mw, mh, '#39414a', g);
+      rect(mx, my, mw, 1, '#54606b', g);
+      const bw = mw * .1, gp = mw * .07;
+      rect(mx + mw * .16, my + 1, bw, mh - 2, '#2b2f38', g);
+      rect(mx + mw * .16 + bw + gp, my + 1, bw, mh - 2, '#182f38', g);
+      return;
+    }
+    if (type === 'rack') {                                   // §6 哑铃架：架体 + 3 层横杆 + 每层 5 个哑铃
+      const rw = w * .5, rh = Math.max(5, h * .26), rx = x + (w - rw) / 2, ry = y + h * .3;
+      rect(rx, ry, rw, rh, '#4a3528', g);
+      rect(rx, ry, rw, 1, '#6b4f36', g);
+      for (let L = 0; L < 3; L++) {
+        const by = ry + rh * (L + .5) / 3;
+        rect(rx, by, rw, 2, '#8d929a', g);
+        for (let d = 0; d < 5; d++) {
+          const dx = rx + rw * (d + .5) / 5 - 3;
+          rect(dx, by - 1, 6, 3, ((d + L) % 2) ? '#39414a' : '#8d929a', g);
+        }
+      }
+      return;
+    }
+    if (type === 'mat') {                                    // §6 训练垫：垫区圆角 + 亮边 + 中缝（无立面）
+      const n = Math.max(1, Math.round(w / 48)), mw = Math.min(48, w / n), mh = Math.min(h * .84, 26.7);
+      const mx0 = x + (w - n * mw) / 2, my = y + (h - mh) / 2;
+      for (let i = 0; i < n; i++) {
+        const mx = mx0 + i * mw;
+        rect(mx + 2, my, mw - 4, mh, '#4b6b70', g);
+        rect(mx, my + 2, mw, mh - 4, '#4b6b70', g);
+        rect(mx + 2, my, mw - 4, 2, '#62868b', g);
+        rect(mx + 2, my + mh - 2, mw - 4, 2, '#62868b', g);
+        rect(mx, my + 2, 2, mh - 4, '#62868b', g);
+        rect(mx + mw - 2, my + 2, 2, mh - 4, '#62868b', g);
+        rect(mx + mw / 2 - .5, my + 2, 1, mh - 4, '#2c4549', g);
+      }
+      return;
+    }
+    if (type === 'stage') {                                  // §6 舞台：台面 + 沿 x 每 32px 木纹
+      const th = Math.max(3, h - facePx);
+      rect(x, y, w, th, '#8a6a48', g);
+      rect(x, y, w, 2, '#a5825b', g);
+      for (let gx = 32; gx < w - 4; gx += 32) rect(x + gx, y, 1, th, '#7d5c3f', g);
+      return;
+    }
+    rect(x, y, w, Math.max(3, topH), '#8a6a48', g);
+  }
+  // 立式部件：显示器 / 收纳盒 / 收银机 / 花瓶等，自 y 向上生长。
+  function drawFurnitureUpright(f, g, x, y, w) {
+    const { h, type } = f;
+    if (type === 'desk') {
+      const mw = w * .16, mh = mw * .62, mx = x + w * .3;
+      rect(mx - 2, y - mh - 2, mw + 4, mh + 4, '#2b2f38', g);
+      rect(mx, y - mh, mw, mh, '#182f38', g);
+      rect(mx, y - mh, mw, 2, '#0d1e25', g);
+      rect(mx + mw * .06, y - mh + mh * .16, mw * .88, 3, '#63c7c4', g);
+      rect(mx + mw * .06, y - mh + mh * .38, mw * .6, 2, '#4f9d9c', g);
+      rect(mx + mw * .06, y - mh + mh * .58, mw * .74, 2, '#4f9d9c', g);
+      rect(mx + mw * .34, y - mh * .28, mw * .12, mh * .28, '#39414a', g);
+      rect(mx + mw * .16, y - 4, mw * .5, 4, '#4a5058', g);
+      return;
+    }
+    if (type === 'cabinet') {
+      rect(x + w * .07, y - 12, w * .19, 12, '#8a5a4a', g); rect(x + w * .09, y - 10, w * .15, 2, '#a97262', g);
+      rect(x + w * .3, y - 10, w * .14, 10, '#4f6b74', g); rect(x + w * .3, y - 10, w * .14, 2, '#64868f', g);
+      rect(x + w * .48, y - 8, w * .1, 8, '#6b7f5c', g); rect(x + w * .48, y - 8, w * .1, 2, '#87a078', g);
+      return;
+    }
+    if (type === 'counter') {
+      const rw = w * .12, rh = rw * .85;
+      rect(x + w * .04, y - rh - 4, rw, rh + 4, '#39414a', g);
+      rect(x + w * .05, y - rh - 2, rw * .9, rh * .28, '#1e2a30', g);
+      rect(x + w * .07, y - rh + rh * .3, rw * .25, 3, '#d9814f', g);
+      rect(x + w * .05, y - rh * .5, rw * .9, 4, '#2b323a', g);
+      const mw = w * .07, mh = mw;
+      rect(x + w * .26, y - mh - 6, mw, mh + 6, '#8d929a', g);
+      rect(x + w * .27, y - mh - 4, mw * .85, 3, '#a9aeb6', g);
+      rect(x + w * .26 + mw * .5, y - mh - 11, mw * .12, 6, '#5f646b', g);
+      return;
+    }
+    if (type === 'table') {
+      const mw = w * .12, mh = mw * .6, mx = x + w * .12;
+      rect(mx, y - mh - 2, mw, mh + 2, '#39414a', g);
+      rect(mx + 2, y - mh, mw - 4, mh * .74, '#182f38', g);
+      rect(mx + 4, y - mh + mh * .18, mw * .55, 2, '#63c7c4', g);
+      return;
+    }
+    if (type === 'reception') {
+      const mw = w * .2, mh = mw * .62, mx = x + w * .1;
+      rect(mx, y - mh - 2, mw, mh + 2, '#2b2f38', g);
+      rect(mx + 2, y - mh, mw - 4, mh * .78, '#182f38', g);
+      rect(mx + 4, y - mh + mh * .2, mw * .7, 3, '#63c7c4', g);
+      rect(x + w * .78, y - 20, w * .1, 20, '#3f7a52', g);
+      rect(x + w * .74, y - 28, w * .17, 8, '#c96f4e', g);
+      rect(x + w * .8, y - 24, w * .05, 5, '#e08a6a', g);
+      return;
+    }
+    if (type === 'treadmill') {                              // §6 跑步机：控制台（向上长，0.9m）+ 两侧扶手
+      const cw = Math.max(14, w * .31), ch = Math.max(14, h * .68), mx = x + (w - cw) / 2, my = y + h * .34;
+      rect(mx, my - ch, cw, ch, '#2b2f38', g);
+      rect(mx + 2, my - ch + 2, cw - 4, ch * .55, '#182f38', g);
+      rect(mx + 3, my - ch + 4, cw * .5, 2, '#63c7c4', g);
+      rect(mx + 3, my - ch + 8, cw * .36, 2, '#4f9d9c', g);
+      rect(mx + cw / 2 - 1, my - 2, 2, 2, '#39414a', g);
+      rect(x + w * .1, my - 5, w * .09, 2, '#8d929a', g);
+      rect(x + w * .81, my - 5, w * .09, 2, '#8d929a', g);
+      return;
+    }
+    if (type === 'seat') {                                   // §6 座椅：一排椅背（向上长，含头枕）
+      const n = Math.max(3, Math.round(w / 22.4)), sw = Math.max(10, Math.min(16, w / n * .74));
+      for (let i = 0; i < n; i++) {
+        const sx = x + w * (i + .5) / n - sw / 2;
+        rect(sx, y + h * .1, sw, h * .72, '#8b4f47', g);
+        rect(sx, y + h * .1, sw, 3, '#c4837a', g);
+        rect(sx - 2, y + h * .52, 2, Math.max(3, h * .24), '#2b1a14', g);
+        rect(sx + sw, y + h * .52, 2, Math.max(3, h * .24), '#2b1a14', g);
+      }
+      return;
+    }
+  }
+  // §4 1F 食堂餐桌（六张『食堂餐桌一…六』）：规范组 80×24.7 在 rect 内居中，按
+  // 接地阴影 → 远排椅 → 桌面 → 餐具 → 桌裙/桌腿 → 近排椅 的固定顺序绘制（餐桌专属可读性顺序，
+  // 不能套通用的 Face→Top→Upright 三层，否则远排椅会盖在桌面上）。规范 rect=105.6×36，其余按比例缩放。
+  function drawDiningTable(f, g) {
+    const { x, y, w, h } = f;
+    const sx = w / 105.6, sy = h / 36;
+    const X = v => x + v * sx, Y = v => y + v * sy, W = v => v * sx, H = v => v * sy;
+    const chair = (cx, cy, down) => {                   // 餐椅：座面 blob + 靠背；远排朝上、近排朝下（近观者侧），避免近排椅背盖住桌面
+      const sw = W(15), sh = H(7), bh = H(12), sy0 = cy - sh * .5;
+      blob(g, cx, sy0, sw, sh, '#c96f4e');
+      const by = down ? sy0 + sh : sy0 - bh;
+      rect(cx, by, sw, bh, '#b3613f', g);
+      rect(cx, by, sw, Math.max(1, H(1)), '#e08a6a', g);
+      rect(cx, sy0 + sh - 1, sw, 1, '#2b1a14', g);
+    };
+    // 1) 接地阴影（两条渐窄矩形）
+    g.globalAlpha = .2;
+    rect(X(6), Y(30), W(94), Math.max(4, H(6)), '#120c14', g);
+    rect(X(3), Y(33), W(100), Math.max(3, H(3)), '#120c14', g);
+    g.globalAlpha = 1;
+    // 2) 远排椅 ×3（靠背朝上）
+    for (let i = 0; i < 3; i++) chair(X(28 + i * 16), Y(10.5), false);
+    // 3) 桌面（50×12，圆角 2px 由三段矩形堆出，不用 arc）
+    const tx = X(28), ty = Y(12.4), tw = W(50), th = H(12), rad = Math.max(2, W(2));
+    rect(tx + rad, ty, tw - 2 * rad, th, '#a5825b', g);
+    rect(tx, ty + rad, tw, th - 2 * rad, '#a5825b', g);
+    rect(tx, ty, tw, Math.max(2, H(2)), '#7d5c3f', g);                              // 远边
+    rect(tx, ty + th - Math.max(2, H(3)), tw, Math.max(2, H(3)), '#c19a6b', g);      // 近边
+    // 4) 餐具：沿桌面两长边各 3 位成对均布（盘 6×4 + 筷 1×7 + 杯 2×3；1 位加暖色汤碗）
+    for (let i = 0; i < 3; i++) {
+      const cx = X(30 + i * 16);
+      for (const far of [true, false]) {
+        const ey = far ? Y(13.4) : Y(21);
+        rect(cx, ey, W(6), H(4), (!far && i === 1) ? '#d9814f' : '#e6dfcd', g);
+        rect(cx, ey, W(6), Math.max(1, H(1)), '#b9b3a2', g);
+        rect(cx + W(7), ey - H(3), Math.max(1, W(1)), H(7), '#4a5058', g);
+        rect(cx + W(9), ey - H(1), W(2), Math.max(2, H(3)), '#dfe6e6', g);
+      }
+    }
+    // 5) 桌裙 / 前立面
+    rect(X(28), Y(18), W(50), Math.max(3, H(6)), '#543f2d', g);
+    rect(X(28), Y(18), W(50), Math.max(1, H(1)), '#8a6a48', g);
+    // 6) 桌腿 ×4
+    for (const lx of [30, 43, 60, 73]) {
+      rect(X(lx), Y(24), Math.max(2, W(3)), Math.max(3, H(4)), '#4a3524', g);
+      rect(X(lx), Y(24), Math.max(1, W(1)), Math.max(3, H(4)), '#6b4f36', g);
+    }
+    // 7) 近排椅 ×3（后画；靠背朝下 ⇒ 只压住桌裙/桌腿，不盖桌面）
+    for (let i = 0; i < 3; i++) chair(X(28 + i * 16), Y(28.5), true);
+  }
+  // §5 2F 工位：同一套零件（桌面板+显示器+键盘+桌下柜+转椅+屏风）按 rect 循环铺单体，绝不把整条带画成一块桌面。
+  // 单元 screenW=51.2、plan 深=23.3（§8.1 U），立面从 plan 下沿起 24。N/行=round(w/51.2)（铺满整带）；
+  // 行数=(rect深>=47)?2:1（§5.2）；双面岛=上排镜像(椅朝外、桌朝中线)+下排正常+中线屏风。
+  function drawWorkstation(f, g) {
+    const br = WORLD.deskBranch(f);
+    if (br && br !== 'island') {
+      // 单桌（workSingle / roomSingle）：桌+椅都画在碰撞块内 ⇒ 画=撞（房号单桌不再被画成工位岛）
+      const b = f.blocks[0], bx = b.x, by = b.y, bw = b.w, bh = b.h;
+      const chairH = Math.max(4, Math.min(8, bh * .35)), deskH = Math.max(4, bh - chairH);
+      rect(bx, by, bw, deskH, '#a5825b', g);
+      for (let gx = 4; gx < bw - 2; gx += 8) rect(bx + gx, by + 1, 1, Math.max(2, deskH - 2), '#96744e', g);
+      rect(bx, by, bw, 1, '#c4a072', g);
+      rect(bx, by + deskH - 1, bw, 1, '#6b4f36', g);
+      rect(bx - 1, by - 1, bw + 2, 1, '#241c14', g);
+      rect(bx - 1, by + bh - 1, bw + 2, 1, '#241c14', g);
+      rect(bx - 1, by - 1, 1, bh + 1, '#241c14', g);
+      rect(bx + bw, by - 1, 1, bh + 1, '#241c14', g);
+      const mw = Math.max(8, Math.min(22, bw + 6)), mx = bx + (bw - mw) / 2;
+      rect(mx, by - 9, mw, 10, '#2b2f38', g);
+      rect(mx + 1, by - 8, mw - 2, 6, '#182f38', g);
+      rect(mx + 2, by - 6, Math.max(3, mw * .5), 1, '#63c7c4', g);
+      const cw = Math.min(14, Math.max(8, bw)), cx = bx + (bw - cw) / 2, cyt = by + deskH;
+      rect(cx, cyt, cw, chairH, '#2b2f38', g);
+      rect(cx, cyt, cw, 1, '#e08a6a', g);
+      rect(cx - 1, cyt, 1, chairH, '#2b1a14', g);
+      rect(cx + cw, cyt, 1, chairH, '#2b1a14', g);
+      return;
+    }
+    // 与碰撞同源（world.js deskIsland）：行数阈值 / 岛深 / 位置一致 ⇒ 画什么撞什么。
+    const isl = WORLD.deskIsland(f);
+    const PLAN = isl.plan, UW = isl.unitW, Nper = isl.C, rows = isl.rows, gap = isl.gap;
+    const blockH = isl.islandH, totalW = isl.bw, ox = isl.ox, oy = isl.uy;
+    // 接地阴影（整块）
+    g.globalAlpha = .18;
+    rect(ox + 2, oy + blockH - 4, totalW - 4, 5, '#120c14', g);
+    g.globalAlpha = 1;
+    const unit = (ux, uyPlan, mirror) => {
+      const Y = (v, hh) => mirror ? uyPlan + PLAN - v - hh : uyPlan + v;   // 局部(0=plan上沿) → 屏幕
+      const dTopScreen = mirror ? uyPlan + PLAN - 12 : uyPlan;             // 桌面屏幕上沿
+      // 显示器（屏幕空间、永远竖直朝上；面板 22×16 + 支臂 + 底座）
+      rect(ux + 14.5, dTopScreen - 9, 23, 16, '#2b2f38', g);
+      rect(ux + 16, dTopScreen - 7.5, 20, 13, '#182f38', g);
+      rect(ux + 16.5, dTopScreen - 6, 15, 2, '#63c7c4', g);
+      rect(ux + 16.5, dTopScreen - 3, 11, 1, '#4f9d9c', g);
+      rect(ux + 16.5, dTopScreen - .5, 13, 1, '#4f9d9c', g);
+      rect(ux + 24, dTopScreen + 8, 4, 5, '#39414a', g);
+      rect(ux + 20, dTopScreen + 9, 11, 3, '#39414a', g);
+      // 桌面板（顶面 47×12）—— §5.3-A 达标色值：面 #a5825b / 远边 #c4a072 / 近边 #6b4f36 / 外描边 #241c14
+      const tyTop = Y(0, 12);
+      rect(ux + 2, tyTop, 47, 12, '#a5825b', g);
+      for (let gx = 4; gx < 48; gx += 8) rect(ux + gx, tyTop + 1, 1, 10, '#96744e', g);   // D3：仅竖向木纹
+      rect(ux + 2, Y(0, 2), 47, 2, '#c4a072', g);          // 远边高光
+      rect(ux + 2, Y(10, 2), 47, 2, '#6b4f36', g);         // 近边暗边
+      rect(ux + 1, tyTop - 1, 49, 1, '#241c14', g);        // 外描边：上
+      rect(ux + 1, tyTop + 12, 49, 1, '#241c14', g);       //           下
+      rect(ux + 1, tyTop - 1, 1, 14, '#241c14', g);        //           左
+      rect(ux + 49, tyTop - 1, 1, 14, '#241c14', g);       //           右
+      // 桌面前立面 47×5
+      rect(ux + 2, Y(12, 5), 47, 5, '#6b543c', g);
+      rect(ux + 2, Y(12, 1), 47, 1, '#8f7050', g);
+      // 桌下柜 / 主机 14×5 + 拉手
+      rect(ux + 3, Y(12, 5), 14, 5, '#523c2d', g);
+      rect(ux + 3, Y(14, 1), 14, 1, '#634b38', g);
+      rect(ux + 4, Y(14, 2), 2, 2, '#c8a86a', g);
+      // 键盘 24×3 + 鼠标 / 笔筒
+      rect(ux + 12, Y(7, 3), 24, 3, '#4a5058', g);
+      rect(ux + 12, Y(8, 1), 24, 1, '#6a7078', g);
+      rect(ux + 38, Y(6, 3), 4, 3, '#c96f4e', g);
+      rect(ux + 38, Y(5, 4), 4, 4, '#8d929a', g);
+      // 转椅（座 14×6 + 背 14×9）—— §5.3-B C3/C5：蓝黑背 + 顶沿暖橙 + 1px 描边（与青灰屏风靠色相分开）
+      rect(ux + 18, Y(19, 6), 14, 6, '#39414a', g);
+      rect(ux + 18, Y(19, 1), 14, 1, '#4a5058', g);
+      const byTop = Y(25, 9);
+      rect(ux + 18, byTop, 14, 9, '#2b2f38', g);
+      rect(ux + 18, byTop, 14, 1, '#e08a6a', g);           // 顶沿 1px 暖橙
+      rect(ux + 17, byTop - 1, 16, 1, '#2b1a14', g);
+      rect(ux + 17, byTop, 1, 9, '#2b1a14', g);
+      rect(ux + 32, byTop, 1, 9, '#2b1a14', g);
+      rect(ux + 17, Y(30, 3), 16, 3, '#4a5058', g);
+    };
+    for (let r = 0; r < rows; r++) {
+      const uyPlan = oy + r * (PLAN + gap);
+      const mirror = rows === 2 && r === 0;                 // 上排镜像
+      for (let i = 0; i < Nper; i++) unit(ox + i * UW, uyPlan, mirror);
+    }
+    if (rows === 2) {                                       // §5.3-B C1：屏风每 51.2px 一条 1px 竖缝 ⇒ 数得出席位数
+      const seamY = oy + PLAN + gap / 2;
+      const dTop = seamY - 11;
+      rect(ox, dTop, totalW, 11, '#4b6b70', g);
+      rect(ox, dTop, totalW, 2, '#62868b', g);
+      for (let s = 1; s < Nper; s++) rect(ox + s * UW, dTop + 2, 1, 9, '#2c4549', g);
+    }
+  }
+  function drawFurniture(f, g = ctx) {
+    const { x, y, w, h, type } = f;
+    if (type === 'table' && /^食堂餐桌/.test(f.label || '')) { drawDiningTable(f, g); return; }
+    if (WORLD.deskBranch(f)) { drawWorkstation(f, g); return; }   // 工位岛 / 工位单桌 / 房号竖放单桌
+    // §4 C-1 附属：后厨操作台是 0.9m 高操作台（浅石面），不是 1.8m 更衣柜造型 —— 按 label 借 counter 画法。
+    if (type === 'cabinet' && f.label === '后厨操作台') {
+      const g2 = Object.assign({}, f, { type: 'counter' }), FACE = 30;
+      furnShadow(g, x, y, w, h, FACE);
+      drawFurnitureFace(g2, g, x, y, w, FACE);
+      drawFurnitureTop(g2, g, x, y, w, h);
+      drawFurnitureUpright(g2, g, x, y, w);
+      return;
+    }
+    furnShadow(g, x, y, w, h, furnitureFace(type));
+    drawFurnitureFace(f, g, x, y, w, furnitureFace(type));
+    drawFurnitureTop(f, g, x, y, w, h);
+    drawFurnitureUpright(f, g, x, y, w);
   }
   function drawWindow(g, x, y, w, h) {
     rect(x - 5, y - 5, w + 10, h + 11, '#4a3a30', g); rect(x - 4, y - 4, w + 8, 3, '#6b5545', g);
@@ -1431,59 +2131,86 @@
     rect(cx - 4, 19, 8, 3, '#ffe0a8', g);
     glow(g, cx, 21, 46, .5);
   }
-  function buildBackground() {
-    const spots = [];
-    for (let z = 0; z < 4; z++) {
-      const base = z * 960;
-      for (let j = 0; j < 4; j++) spots.push({ x: base + 58 + j * 227 + 71, y: 110, r: 152, a: .15 });
-      spots.push({ x: base + 242, y: 21, r: 46, a: .5 }, { x: base + 696, y: 21, r: 46, a: .5 });
-      spots.push({ x: base + 242, y: 175, r: 196, a: .14 }, { x: base + 696, y: 175, r: 196, a: .14 }, { x: base + 480, y: 182, r: 214, a: .16 });
-    }
-    for (let z = 0; z < 4; z++) {
-      const base = z * 960, g = bgTiles[z].getContext('2d');
-      g.imageSmoothingEnabled = false;
-      g.save(); g.translate(-base, 0);
-      g.fillStyle = '#2b2333'; g.fillRect(base, 0, VW, VH);
-      const wall = g.createLinearGradient(0, 0, 0, 86);
-      wall.addColorStop(0, '#453a4e'); wall.addColorStop(1, '#332b3e');
-      g.fillStyle = wall; g.fillRect(base, 0, VW, 86);
-      for (let x = base; x < base + VW; x += 96) rect(x, 0, 1, 86, '#2b2334', g);
-      rect(base, 24, VW, 1, '#4b3d4b', g);
-      rect(base, 86, VW, 20, '#3a3145', g); rect(base, 86, VW, 2, '#514461', g);
-      for (let x = base; x < base + VW; x += 48) rect(x, 90, 1, 14, '#332b3e', g);
-      rect(base, 106, VW, 12, '#1f1a28', g); rect(base, 106, VW, 1, '#443a4e', g);
-      const planks = ['#54402f', '#4a3727', '#5b462f', '#453324', '#4f3c2c'];
-      g.fillStyle = '#4a3727'; g.fillRect(base, 118, VW, VH - 118);
-      for (let y = 118; y < VH; y += 16) {
-        const row = ((y - 118) / 16) | 0, stag = (row % 2) ? 32 : 0;
-        for (let x = base - 64 + stag; x < base + VW; x += 64) {
-          const k = Math.abs(row * 31 + Math.round(x / 64) * 17 + 97);
-          rect(x, y, 64, 16, planks[k % 5], g);
-          if (k % 7 === 0) rect(x + 9, y + 6, 18, 1, '#3c2c20', g);
-          else if (k % 5 === 0) rect(x + 31, y + 10, 11, 1, '#3c2c20', g);
-          if (k % 2) rect(x, y, 1, 16, '#3d2d20', g);
-        }
-        rect(base, y, VW, 1, '#5e4936', g);
-        rect(base, y + 15, VW, 1, '#33251b', g);
+  // 家具/墙体 sprite 只为所有楼层的非墙家具烘焙一次；墙体在场景中按程序化面板绘制。
+  (function bakeSprites() {
+    for (const key of Object.keys(WORLD.FLOORS)) {
+      for (const f of WORLD.FLOORS[key].furniture) {
+        // 阶段2-2a（§3 C0-2）：per-type 烘焙 padding；画布 (w+2padX)×(h+padUp+padDown)，绘制偏移 (-padX,-padUp)。
+        const pad = furniturePad(f.type);
+        const c = document.createElement('canvas'); c.width = f.w + pad.padX * 2; c.height = f.h + pad.padUp + pad.padDown;
+        const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+        const dx = pad.padX - f.x, dy = pad.padUp - f.y;
+        const local = {
+          ...f, x: pad.padX, y: pad.padUp,
+          ...(f.blocks ? { blocks: f.blocks.map(b => ({ ...b, x: b.x + dx, y: b.y + dy })) } : {}),
+          ...(f.footprint ? { footprint: { ...f.footprint, x: f.footprint.x + dx, y: f.footprint.y + dy } } : {})
+        };
+        drawFurniture(local, g); furnitureSprites.set(f.id, c);
       }
-      if (z) rect(base, 112, 4, VH - 112, '#2c211b', g);
-      for (let j = 0; j < 4; j++) drawWindow(g, base + 58 + j * 227, 13, 142, 51);
-      drawFrame(g, base + 12, 30, 42, 34);
-      drawClock(g, base + 571, 32, 24);
-      drawLamp(g, base + 242); drawLamp(g, base + 696);
-      drawRug(g, base + 200, 328, 560, 140);
-      drawSign(g, base + 380, 68, 200, 28, `0${z + 1}  /  ${zones[z]}`);
-      for (const s of spots) if (Math.abs(s.x - base - VW / 2) < 1200) glow(g, s.x, s.y, s.r, s.a);
-      g.restore();
     }
+  })();
+  function drawWallPanel(f) {
+    rect(f.x, f.y, f.w, f.h, '#5b4a3c');
+    rect(f.x, f.y, f.w, 3, '#8d745e');
+    rect(f.x, f.y + f.h - 3, f.w, 3, '#33251b');
+    if (f.w >= f.h) { for (let x = f.x + 18; x < f.x + f.w - 8; x += 36) rect(x, f.y + 6, 2, Math.max(0, f.h - 12), '#4b3a2d'); }
+    else { for (let y = f.y + 18; y < f.y + f.h - 8; y += 36) rect(f.x + 5, y, Math.max(0, f.w - 10), 2, '#4b3a2d'); }
   }
-  buildBackground();
-  for (const f of furniture) {
-    const c = document.createElement('canvas'); c.width = f.w + 24; c.height = f.h + 60;
-    const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
-    drawFurniture({ ...f, x: 12, y: 40 }, g); furnitureSprites.set(f.id, c);
+  // 需求2：电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 方向箭头 + 呼梯按钮。
+  // 端点（1F 下行 / 7F 上行）整体灰化；玩家站在门前并面向门时叠呼吸描边与「E」提示。
+  function drawElevatorHall(p, active) {
+    const cx = Math.round(p.x), cy = Math.round(p.y);
+    const disabled = !p.targetFloorId;
+    const accent = p.dir === 'up' ? '#7fe3ff' : '#ffd76a';
+    const hw = 21, hh = 9, x0 = cx - hw, y0 = cy - hh;
+    const metal = disabled ? '#5f646b' : '#8d929a', metalHi = disabled ? '#6f747b' : '#a9aeb6';
+    ctx.save();
+    // 厅地坪（把门从地板纹理里抬出来）
+    rect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 12, '#3a3f4a');
+    rect(x0 - 4, y0 - 4, hw * 2 + 8, 1, '#6b7480');
+    rect(x0 - 4, y0 + hh * 2 + 7, hw * 2 + 8, 1, '#242a33');
+    // 门框 + 两扇门 + 中缝 + 顶部高光
+    rect(x0 - 1, y0 - 1, hw * 2 + 2, hh * 2 + 2, '#39414a');
+    rect(x0 + 1, y0 + 1, hw - 2, hh * 2 - 2, metal);
+    rect(x0 + hw + 1, y0 + 1, hw - 2, hh * 2 - 2, metal);
+    rect(cx - 1, y0 + 1, 2, hh * 2 - 2, '#2b323a');
+    rect(x0 + 1, y0 + 1, hw - 2, 2, metalHi);
+    rect(x0 + hw + 1, y0 + 1, hw - 2, 2, metalHi);
+    // 楼层指示
+    rect(cx - 10, y0 - 9, 20, 7, '#1a1f26');
+    rect(cx - 10, y0 - 9, 20, 1, '#2f3640');
+    ctx.font = '6px ui-monospace,SFMono-Regular,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = disabled ? '#8a9099' : accent;
+    ctx.fillText(`${p.floorId}F`, cx, y0 - 5.5);
+    // 方向箭头（门下沿）
+    const ay = y0 + hh * 2 + 3, up = p.dir === 'up';
+    const arrow = disabled ? '#6f747b' : accent;
+    for (let i = 0; i < 3; i++) { const w = 1 + i * 2; rect(cx - (w - 1) / 2, up ? ay + i : ay + 2 - i, w, 1, arrow); }
+    rect(cx - .5, up ? ay + 3 : ay - 3, 1, 3, arrow);
+    // 呼梯按钮
+    rect(x0 + hw * 2 + 4, cy - 5, 5, 10, '#39414a');
+    rect(x0 + hw * 2 + 5, cy - 4, 3, 3, disabled ? '#6f747b' : '#7fe3ff');
+    rect(x0 + hw * 2 + 5, cy + 1, 3, 3, disabled ? '#6f747b' : '#ffd76a');
+    if (active) {
+      ctx.globalAlpha = .5 + .35 * Math.sin(clock * 4);
+      ctx.strokeStyle = accent; ctx.lineWidth = 2;
+      ctx.strokeRect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 10);
+      ctx.globalAlpha = 1; ctx.lineWidth = 1;
+      const label = p.targetFloorId
+        ? `E ${p.dir === 'up' ? '↑ 上行' : '↓ 下行'}至 ${p.targetFloorId}F`
+        : (p.dir === 'up' ? '已是最上层（7F）' : '已是最下层（1F）');
+      ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      const tw = Math.round(ctx.measureText(label).width) + 12, lx = cx - tw / 2, ly = y0 - 26;
+      ctx.fillStyle = 'rgba(8,11,18,.88)'; ctx.fillRect(lx, ly, tw, 16);
+      ctx.strokeStyle = disabled ? '#6f747b' : accent; ctx.lineWidth = 1;
+      ctx.strokeRect(lx + .5, ly + .5, tw - 1, 15);
+      ctx.fillStyle = disabled ? '#9aa1ab' : '#eaf4ff';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, cx, ly + 8.5);
+    }
+    ctx.restore();
   }
-
   // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
   // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
   function sprite(p) {
@@ -1506,8 +2233,8 @@
         stunStar(x + Math.cos(ang) * 9, yb - 59 + Math.round(Math.sin(ang) * 3));
       }
     }
-    // 被家具遮挡时（含自己）隐藏脚下指示与选中框，避免把位置信息透出去。
-    const covered = !!WORLD.coverFor(p, furniture);
+    // 被家具/墙体遮挡时（含自己）隐藏脚下指示与选中框，避免把位置信息透出去。
+    const covered = !!WORLD.coverFor(p, occluders);
     if (!p.npc && p.id === meId && p.id !== selectedId && !covered) {
       ctx.globalAlpha = .8 * a; ctx.strokeStyle = '#7cc4ff'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(x, p.y + 5, 13, 4, 0, 0, Math.PI * 2); ctx.stroke();
@@ -1532,43 +2259,68 @@
   // 命中框（x±21, y-53~y+8）与名牌偏移保持不变，外观升级不影响任何交互判定。
   let labels = [];
   function drawList() {
-    return [...players.filter(p => p.alive).map(p => {
+    return [...players.filter(p => p.alive && p.floorId === floorId).map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
       return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving, spriteFacing: p.spriteFacing || 'front' };
     }), ...npcs];
   }
   function makeLabels(list) {
-    // 任何被家具遮挡的角色（含自己与 NPC）都不生成名牌；解除遮挡同一帧恢复。
-    labels = list.filter(p => p.x >= cameraX - 130 && p.x <= cameraX + VW + 130 &&
-      !WORLD.coverFor(p, furniture))
+    // 任何被家具/墙体遮挡的角色（含自己与 NPC）都不生成名牌；解除遮挡同一帧恢复。
+    labels = list.filter(p => p.x >= drawCamX - 40 && p.x <= drawCamX + viewW + 40 &&
+      p.y >= drawCamY - 30 && p.y <= drawCamY + viewH + 30 &&
+      !WORLD.coverFor(p, occluders))
       .map(p => ({ x: p.x - 72, y: p.y + 12, w: 144, h: 31, ids: p.npc ? [] : [p.id], p }));
   }
   function draw() {
-    const sc = Math.round(cameraX), tile = Math.floor(sc / VW), off = sc - tile * VW;
-    if (off === 0) ctx.drawImage(bgTiles[tile], 0, 0);
-    else {
-      ctx.drawImage(bgTiles[tile], off, 0, VW - off, VH, 0, 0, VW - off, VH);
-      ctx.drawImage(bgTiles[Math.min(3, tile + 1)], 0, 0, off, VH, VW - off, 0, off, VH);
-    }
-    ctx.drawImage(VIGNETTE, 0, 0);
-    ctx.save(); ctx.translate(-Math.round(cameraX), 0);
+    if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
+    const camX = Math.round(cameraX), camY = Math.round(cameraY);
+    drawCamX = camX; drawCamY = camY;
+    const f = WORLD.floorById(floorId);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, cssW, cssH);
+    ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
+    // 楼面：按轮廓多边形裁剪后铺 512 分块地板；轮廓外保持非楼面（不补平）。
+    ctx.beginPath();
+    f.polygon.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y));
+    ctx.closePath();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = '#2b2333'; ctx.fillRect(camX, camY, viewW, viewH);
+    const c0x = Math.floor(camX / CHUNK), c1x = Math.floor((camX + viewW) / CHUNK);
+    const c0y = Math.floor(camY / CHUNK), c1y = Math.floor((camY + viewH) / CHUNK);
+    ensureChunks(c0x, c0y, c1x, c1y);
+    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkCache.get(cx + ':' + cy), cx * CHUNK, cy * CHUNK);
+    ctx.restore();
+    ctx.restore();
+    // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
+    if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
+    ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
     const list = drawList();
+    const near = (x, y, w, h, padx, pady) => x + w + padx > camX && x - padx < camX + viewW && y + h + pady > camY && y - (pady + 20) < camY + viewH;
     const scene = [
-      ...furniture.filter(f => f.x + f.w + 12 > cameraX && f.x - 12 < cameraX + VW).map(f => ({ depth: f.depth, f })),
-      ...list.filter(p => p.x > cameraX - 40 && p.x < cameraX + VW + 40).map(p => ({ depth: p.y, p }))
+      ...furniture.filter(f2 => near(f2.x, f2.y, f2.w, f2.h, 12, 12)).map(f2 => ({ depth: f2.depth, f: f2 })),
+      ...walls.filter(w => near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w })),
+      ...list.filter(p => p.x > camX - 12 && p.x < camX + viewW + 12 && p.y > camY - 25 && p.y < camY + viewH + 30).map(p => ({ depth: p.y, p }))
     ].sort((a, b) => a.depth - b.depth || Number(!!b.f) - Number(!!a.f));
     for (const item of scene) {
       if (item.f) {
-        const f = item.f;
-        ctx.drawImage(furnitureSprites.get(f.id), f.x - 12, f.y - 40);
+        const f2 = item.f;
+        if (f2.type === 'wall') { drawWallPanel(f2); continue; }
+        const pad = furniturePad(f2.type);
+        ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
         // 紧跟家具 sprite 之后画描边：深度更大的家具后画时会自然盖住描边，不穿透遮挡。
-        if (f.container) drawOutline(f.x, f.y, f.w, f.h, interactTier('container', f.id), '#7fe3ff');
+        if (f2.container) drawOutline(f2.x, f2.y, f2.w, f2.h, interactTier('container', f2.id), '#7fe3ff');
       } else {
         sprite(item.p);
         // NPC 描边对准命中框 x±21, y-53..y+8。
         if (item.p.npc) drawOutline(item.p.x - 21, item.p.y - 53, 42, 61, interactTier('npc', item.p.entityId), '#ffd76a');
       }
     }
+    // 需求2：当前层电梯厅（每层左右各一处，含上行/下行两扇门）。脉冲空框改为可辨认的电梯门，
+    // 当前可提交的那扇叠呼吸描边 + 「E ↑/↓ 至 nF」提示；端点画灰态。
+    const liftNow = elevatorTarget();
+    const liftId = liftNow && liftNow.access.allowed ? liftNow.portal.id : '';
+    for (const portal of portals) drawElevatorHall(portal, portal.id === liftId);
     makeLabels(list);
     ctx.textAlign = 'center';
     const meId = selfId();
@@ -1588,6 +2340,7 @@
       ctx.fillText(l.p.npc ? `${l.p.cost} 筹码 / 私密线索兑换` : l.p.sid, l.x + l.w / 2, l.y + 26);
     }
     ctx.restore();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   // ---------- 插值与镜头 ----------
@@ -1602,10 +2355,18 @@
       if (r.moving) r.walk += Math.hypot(dx * k, dy * k);
     }
     const self = selfPlayer() ? renderMap.get(selfId()) : null;
-    if (self) cameraX = clamp(self.x - VW / 2, 0, W - VW);
-    const zoneIndex = Math.min(3, Math.floor((self ? self.x : 0) / 960));
-    $('zone-name').textContent = zones[zoneIndex];
-    $('coordinate').textContent = `0${Math.min(4, zoneIndex + 1)} / 04`;
+    const fl = WORLD.floorById(floorId);
+    // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
+    if (self) {
+      cameraX = viewW >= fl.width ? (fl.width - viewW) / 2 : clamp(self.x - viewW / 2, 0, fl.width - viewW);
+      cameraY = viewH >= fl.height ? (fl.height - viewH) / 2 : clamp(self.y - viewH / 2, 0, fl.height - viewH);
+    } else {
+      cameraX = clamp(cameraX, 0, Math.max(0, fl.width - viewW));
+      cameraY = clamp(cameraY, 0, Math.max(0, fl.height - viewH));
+    }
+    $('floor-indicator').textContent = `${floorId}F`;
+    $('zone-name').textContent = floorName;
+    $('coordinate').textContent = `${floorId}F / 7F`;
     const tick = Math.floor(serverTime / 1000);
     if (tick !== lastSkillTick) {
       lastSkillTick = tick;
@@ -1630,24 +2391,27 @@
 
   // ---------- 交互 ----------
   function canvasPoint(e) {
-    const r = canvas.getBoundingClientRect(), scale = Math.min(r.width / VW, r.height / VH);
-    const ox = (r.width - VW * scale) / 2, oy = (r.height - VH * scale) / 2;
-    return { x: (e.clientX - r.left - ox) / scale + cameraX, y: (e.clientY - r.top - oy) / scale };
+    // 屏幕像素 → CSS 像素 → 世界坐标，使用与绘制同一帧的 drawCam；不再用 contain 留边。
+    const r = canvas.getBoundingClientRect();
+    const kx = cssW / (r.width || cssW || 1), ky = cssH / (r.height || cssH || 1);
+    const sx = (e.clientX - r.left) * kx, sy = (e.clientY - r.top) * ky;
+    return { x: sx / scale + drawCamX, y: sy / scale + drawCamY };
   }
   function showCandidates(ids) {
     closeExploration(); clearPrivate(true); closeWheel();
-    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id && p.alive)).sort((a, b) => a - b);
+    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id && p.alive && p.floorId === floorId)).sort((a, b) => a - b);
     $('candidates').hidden = false;
     $('candidates').innerHTML = `<div class="panel-heading"><div><small>OVERLAPPING PLAYERS</small><h2>请选择目标</h2></div><button id="candidate-close" class="icon-button" aria-label="关闭重叠候选">×</button></div><p>同一点击点有${list.length}位玩家，不会自动选人。</p>${list.map(id => row(players.find(p => p.id === id))).join('')}`;
     bindRows($('candidates'));
     $('candidate-close').onclick = () => { $('candidates').hidden = true; $('candidates').replaceChildren(); };
   }
   canvas.addEventListener('click', e => {
+    if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') { canvas.focus(); return; }
     const { x, y } = canvasPoint(e);
     const list = drawList();
     makeLabels(list);
-    const atLabel = l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h && !WORLD.pointOccluded(x, y, l.p, furniture);
-    const atBody = p => Math.abs(x - p.x) <= 21 && y >= p.y - 53 && y <= p.y + 8 && !WORLD.pointOccluded(x, y, p, furniture);
+    const atLabel = l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h && !WORLD.pointOccluded(x, y, l.p, occluders);
+    const atBody = p => Math.abs(x - p.x) <= 21 && y >= p.y - 53 && y <= p.y + 8 && !WORLD.pointOccluded(x, y, p, occluders);
     const labelHits = labels.filter(l => !l.p.npc && atLabel(l));
     const bodyHits = list.filter(p => !p.npc && atBody(p)).map(p => p.id);
     const hits = [...new Set([...labelHits.flatMap(l => l.ids), ...bodyHits])];
@@ -1657,6 +2421,14 @@
       if (label && y >= label.y + 15) copySID(label.p.sid);
       else select(hits[0]);
     } else {
+      // 需求2：点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径。
+      const portalHit = portals.find(pt => x >= pt.x - pt.w / 2 && x <= pt.x + pt.w / 2 && y >= pt.y - pt.h / 2 && y <= pt.y + pt.h / 2);
+      if (portalHit) {
+        const self = selfPlayer(), access = self ? WORLD.portalAccess(self, portalHit) : null;
+        if (access && access.allowed) requestFloorChange(portalHit.id);
+        else showToast(access ? access.reason : '请靠近角色或电梯门后再操作');
+        canvas.focus(); return;
+      }
       const npc = npcs.filter(p => atBody(p) || labels.some(l => l.p.id === p.id && atLabel(l))).sort((a, b) => b.y - a.y)[0];
       // 只点击最前面的家具，不能隔着另一件家具搜寻容器。
       const front = furniture.filter(f => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h).sort((a, b) => b.depth - a.depth)[0];
@@ -1665,6 +2437,7 @@
     }
     canvas.focus();
   });
+  $('floor-transition-close').onclick = () => dismissFloorNotice();
   function toggle(panel, button) {
     const visible = $(panel).hidden;
     $(panel).hidden = !visible;
@@ -1688,6 +2461,8 @@
   document.addEventListener('keydown', e => {
     if ($('rules-view').open || $('reset-confirm').open) return;
     if (e.key === 'Escape') {
+      // 电梯 10 秒静态提示可被 Esc 关闭（只隐藏提示，不改变换层状态）；其余保持原语义。
+      if (dismissFloorNotice()) { e.preventDefault(); return; }
       if (!$('finish-overlay').hidden) { hideFinish(); return; }
       if (wheelOpen) { closeWheel(); return; }
       if (!$('games').hidden) { e.preventDefault(); exitRps(); return; }
@@ -1695,13 +2470,24 @@
     }
     // 转盘 / 结算覆盖层打开时，忽略移动、E、J 等游戏内按键。
     if (wheelOpen || !$('finish-overlay').hidden || !$('games').hidden) return;
+    // 电梯过渡进行中：忽略移动 / E / J，避免在换层中途驱动旧层或重复发起。
+    if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return;
     if (isTyping()) return;
     if (e.code === 'KeyE') {
       e.preventDefault(); if (e.repeat) return;
       if (explorationPanel) { closeExploration(); return; }
+      // 需求2：站在电梯门前并面向门时，E 优先乘梯，不被旁边的玩家/NPC/容器抢走。
+      const lift = elevatorTarget();
+      if (lift) {
+        if (lift.access.allowed) requestFloorChange(lift.portal.id);
+        else showToast(lift.access.reason);
+        return;
+      }
       const hit = nearestInteractable();
-      if (hit) { if (hit.kind === 'player') select(hit.id); else openExploration(hit.kind, hit.id); }
-      else showToast('请靠近角色或容器/NPC（64 像素以内）');
+      if (hit) {
+        if (hit.kind === 'player') select(hit.id);
+        else openExploration(hit.kind, hit.id);
+      } else showToast('请靠近角色、容器/NPC 或电梯门（64 像素以内）');
       return;
     }
     if (e.code === 'KeyJ') {
@@ -1720,6 +2506,11 @@
   window.addEventListener('blur', clearAllInput);
   document.addEventListener('visibilitychange', () => { if (document.hidden) clearAllInput(); });
   document.addEventListener('focusin', () => { if (isTyping()) { keys.clear(); sendIntent(true); } });
+  // 视口尺寸变化（含全屏切换、窗口缩放、旋转）重建 backing 与统一缩放，自适应而不裁剪或拉伸。
+  window.addEventListener('resize', () => resizeCanvas());
+  window.addEventListener('orientationchange', () => resizeCanvas());
+  if (window.ResizeObserver) { try { new ResizeObserver(() => resizeCanvas()).observe($('map-view')); } catch { } }
+  resizeCanvas();
 
   // Rules are a static reading view in this document, not a second game/SSE session.
   const rules = $('rules-view');
