@@ -28,11 +28,27 @@ async function test(name, fn) {
 const realNow = Date.now;
 let CLOCK = 1_000_000_000;
 Date.now = () => CLOCK;
-const advance = ms => { CLOCK += ms; };
-const setClock = ms => { CLOCK = ms; };
+// 房间内部用 now() = Date.now() + room.clockOffset 计时，因此推进测试时钟时必须同步
+// clockOffset，否则房间时间与 CLOCK 不一致（deadline 判断会整体偏移）。
+let LIVE_ROOM = null;
+const ROOMS = [];
+// 房间内部用 now() = Date.now() + room.clockOffset 计时。测试里可能同时存在多间房
+// （例如先跑一间再跑第二间），所以推进时钟时必须把所有已建房间的 offset 一起同步，
+// 否则 setClock 只对最后创建的房间生效，其它房间的 deadline 判断会整体偏移。
+const syncRoom = () => {
+  for (const r of ROOMS) r.room.clockOffset = CLOCK - r.now();
+};
+const advance = ms => { CLOCK += ms; syncRoom(); };
+const setClock = ms => { CLOCK = ms; syncRoom(); };
+// ownChoice/ownRevision/phase 只存在于私有投影（gamesProjection 由 ch.selections 生成），
+// 玩家对象上的 games.rpsPending 只是原始元数据，不能直接读投影字段。
+const pend = (r, id = 0) => r.privateSnapshot(id).me.games.rpsPending;
 
 function fixture(count = 5) {
   const r = createRoom();
+  LIVE_ROOM = r;
+  r.room.clockOffset = CLOCK - r.now();
+  ROOMS.push(r);
   for (let i = 0; i < count; i++) {
     const p = r.join(`session-${i}`, `玩家${i}`).player;
     p.x = 500 + i * 20; p.y = 350; p.exploration.chips = 3;
@@ -54,7 +70,7 @@ function settleBoth(r, fromChoice, toChoice) {
   const cid = r.find(0).games.rpsPending.id;
   choose(r, 0, fromChoice, 1);
   choose(r, 1, toChoice, 1);
-  const deadline = r.find(0).games.rpsPending.deadline;
+  const deadline = pend(r,0).deadline;
   setClock(deadline + 1);
   r.step(0); // 触发 syncRoom 结算
   return cid;
@@ -90,16 +106,16 @@ await test('接受不结算：phase=selecting，截止前不结算、筹码不�
   const r = fixture(), from = r.find(0), to = r.find(1);
   assert.equal(invite(r).ok, true);
   assert.equal(r.play(to.sessionId, { commandId: nonce(), kind: 'rpsAccept', challengeId: to.games.rpsPending.id }).ok, true);
-  assert.equal(from.games.rpsPending.phase, 'selecting');
-  assert.equal(to.games.rpsPending.phase, 'selecting');
+  assert.equal(pend(r,0).phase, 'selecting');
+  assert.equal(pend(r,1).phase, 'selecting');
   // 双方都已选出拳后，仍不应结算
   choose(r, 0, 'rock', 1); choose(r, 1, 'scissors', 1);
-  const deadline = from.games.rpsPending.deadline;
+  const deadline = pend(r,0).deadline;
   setClock(deadline - 1); r.step(0);
   assert.equal(r.room.challenges.size, 1, '截止前不应结算');
   assert.equal(from.exploration.chips, 3); assert.equal(to.exploration.chips, 3);
   assert.equal(from.games.rpsResult, null); assert.equal(to.games.rpsResult, null);
-  assert.equal(from.games.rpsPending.phase, 'selecting');
+  assert.equal(pend(r,0).phase, 'selecting');
 });
 
 // ===== 3. 共同 deadline = startedAt + rpsRoundMs =====
@@ -107,19 +123,19 @@ await test('共同 deadline：startedAt 与 deadline 差值为 rpsRoundMs', () =
   const r = fixture(), from = r.find(0), to = r.find(1);
   assert.equal(invite(r).ok, true);
   assert.equal(accept(r).ok, true);
-  assert.equal(from.games.rpsPending.deadline - from.games.rpsPending.startedAt, C.rpsRoundMs);
-  assert.equal(from.games.rpsPending.deadline, to.games.rpsPending.deadline, '双方 deadline 一致');
+  assert.equal(pend(r,0).deadline - pend(r,0).startedAt, C.rpsRoundMs);
+  assert.equal(pend(r,0).deadline, pend(r,1).deadline, '双方 deadline 一致');
 });
 
 // ===== 4. deadline-1 可改，>=deadline 拒绝（已结算删除）=====
 await test('deadline-1 可改出拳，>=deadline 的修改请求被拒（已结算）', () => {
   const r = fixture(), from = r.find(0), to = r.find(1);
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
-  const deadline = from.games.rpsPending.deadline;
+  const deadline = pend(r,0).deadline;
   setClock(deadline - 1);
   assert.equal(choose(r, 0, 'rock', 1).ok, true);
   assert.equal(choose(r, 0, 'paper', 2).ok, true); // deadline-1 仍可改
-  assert.equal(r.find(0).games.rpsPending.ownChoice, 'paper');
+  assert.equal(pend(r,0).ownChoice, 'paper');
   setClock(deadline);
   // 此刻第一步 syncRoom 已结算；再 choose 时挑战已不存在
   const res = choose(r, 0, 'scissors', 3);
@@ -132,15 +148,15 @@ await test('deadline-1 可改出拳，>=deadline 的修改请求被拒（已结�
 await test('revision 递增安全整数：旧/乱序拒绝，相同幂等', () => {
   const r = fixture();
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
-  const deadline = r.find(0).games.rpsPending.deadline;
+  const deadline = pend(r,0).deadline;
   setClock(deadline - 1000);
   assert.equal(choose(r, 0, 'rock', 1).ok, true);
-  assert.equal(r.find(0).games.rpsPending.ownChoice, 'rock');
+  assert.equal(pend(r,0).ownChoice, 'rock');
   assert.equal(choose(r, 0, 'rock', 0).ok, false, '更低 revision 应拒绝');
   assert.equal(choose(r, 0, 'rock', 1).ok, true, '相同 revision+choice 幂等');
-  assert.equal(r.find(0).games.rpsPending.ownChoice, 'rock');
+  assert.equal(pend(r,0).ownChoice, 'rock');
   assert.equal(choose(r, 0, 'paper', 1).ok, true, '相同 revision 不同 choice 可改');
-  assert.equal(r.find(0).games.rpsPending.ownChoice, 'paper');
+  assert.equal(pend(r,0).ownChoice, 'paper');
   assert.equal(choose(r, 0, 'scissors', 2).ok, true);
   assert.equal(choose(r, 0, 'rock', 2).ok, true, '相同 revision（新choice）覆盖');
   assert.equal(choose(r, 0, 'rock', 3).ok, true);
@@ -173,11 +189,19 @@ await test('隐私：私有投影仅 ownChoice/ownRevision，公共投影无 gam
       assert.ok(!(k in pl), `公共不应含 ${k}`);
     }
   }
-  // A 自己的 rpsResult（结算后）含 opponentChoice，但仅 A 本人可见
+  // A 自己的 rpsResult：本次只有 A 出拳、B 未选 -> 截止后取消，绝不泄露“B 是否已选/选了什么”。
   const deadline = ap.deadline; setClock(deadline + 1); r.step(0);
   const own = r.privateSnapshot(0).me.games.rpsResult;
-  assert.equal(own.opponentChoice, 'rock'); // B 未选 -> 取消时仍不泄露，见下
-  // 注意：取消时 opponentChoice 为 null，resolved 才填入
+  assert.equal(own.status, 'cancelled');
+  assert.equal(own.opponentChoice, null, '取消时不泄露对手出拳');
+  // 结算（双方都出拳）时才向本人填入对手选择。
+  const r2 = fixture(3);
+  assert.equal(invite(r2).ok, true); assert.equal(accept(r2).ok, true);
+  choose(r2, 0, 'rock', 1); choose(r2, 1, 'scissors', 1);
+  setClock(pend(r2, 0).deadline + 1); r2.step(0);
+  const resolved = r2.privateSnapshot(0).me.games.rpsResult;
+  assert.equal(resolved.status, 'resolved');
+  assert.equal(resolved.opponentChoice, 'scissors');
 });
 
 // ===== 7. 双未选 / 单未选：取消无扣无分，反馈谁未选 =====
@@ -185,7 +209,7 @@ await test('双未选/单未选：取消无扣无分并反馈谁未选', () => {
   // 双未选
   let r = fixture();
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
-  let dl = r.find(0).games.rpsPending.deadline; setClock(dl + 1); r.step(0);
+  let dl = pend(r,0).deadline; setClock(dl + 1); r.step(0);
   assert.equal(r.room.challenges.size, 0);
   assert.equal(r.find(0).exploration.chips, 3); assert.equal(r.find(1).exploration.chips, 3);
   assert.equal(r.find(0).score, 0); assert.equal(r.find(1).score, 0);
@@ -195,16 +219,16 @@ await test('双未选/单未选：取消无扣无分并反馈谁未选', () => {
   r = fixture();
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
   choose(r, 0, 'rock', 1);
-  dl = r.find(0).games.rpsPending.deadline; setClock(dl + 1); r.step(0);
+  dl = pend(r,0).deadline; setClock(dl + 1); r.step(0);
   assert.equal(r.room.challenges.size, 0);
   assert.equal(r.find(0).exploration.chips, 3); assert.equal(r.find(1).exploration.chips, 3);
   assert.equal(r.find(0).score, 0); assert.equal(r.find(1).score, 0);
-  // 邀请方(A)未选 -> 其原因为“你未出拳”；对方(B)未选 -> 其原因为“对方未出拳”
+  // 邀请方(A)已出拳 -> 看到“对方未出拳”；被邀请方(B)未出拳 -> 看到“你未出拳”
   const ar = r.find(0).games.rpsResult, br = r.find(1).games.rpsResult;
   assert.equal(ar.status, 'cancelled'); assert.equal(br.status, 'cancelled');
   assert.equal(ar.opponentChoice, null, '取消不泄露对手出拳');
   assert.equal(br.opponentChoice, null);
-  assert.match(ar.reason, /你未出拳/); assert.match(br.reason, /对方未出拳/);
+  assert.match(ar.reason, /对方未出拳/); assert.match(br.reason, /你未出拳/);
 });
 
 // ===== 8. 邀请超时 / 拒绝 / 取消 =====
@@ -316,7 +340,7 @@ await test('筹码不足不负、积分只结算一次', () => {
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
   choose(r, 0, 'rock', 1); choose(r, 1, 'scissors', 1);
   from.exploration.chips = 0; // 结算前把发起方筹码降为不足
-  const dl = from.games.rpsPending.deadline; setClock(dl + 1); r.step(0);
+  const dl = pend(r,0).deadline; setClock(dl + 1); r.step(0);
   assert.equal(r.room.challenges.size, 0);
   assert.equal(from.exploration.chips, 0, '不应出现负筹码');
   assert.equal(to.exploration.chips, 3);
@@ -342,7 +366,7 @@ await test('结束同帧优先级：游戏结束后截止不结算', () => {
   r.finish();
   assert.equal(r.room.finished, true);
   // 再推进到 deadline 之后
-  const dl = r.find(0).games.rpsPending ? r.find(0).games.rpsPending.deadline : CLOCK + C.rpsRoundMs;
+  const dl = r.find(0).games.rpsPending ? pend(r,0).deadline : CLOCK + C.rpsRoundMs;
   setClock(dl + 1);
   r.step(0);
   assert.equal(r.find(0).exploration.chips, 3, '结束后不应结算筹码');
@@ -429,6 +453,10 @@ try {
   await test('HTTP 双方邀请→接受→双选→截止结算，与房间逻辑一致', async () => {
     const { users, a, b } = await joinClose();
     const inv = await httpPlay(a, 'rpsInvite', { targetId: users[1].playerId });
+    if (inv.status !== 200) {
+      const sa = await state(a), sb = await state(b);
+      console.error('DIAG invite', inv.status, JSON.stringify(inv.data), 'posA', sa.me && [sa.players.find(p => p.id === 0).x, sa.players.find(p => p.id === 0).y], 'posB', [sb.players.find(p => p.id === 1).x, sb.players.find(p => p.id === 1).y], 'chipsA', sa.me.exploration.chips, 'chipsB', sb.me.exploration.chips);
+    }
     assert.equal(inv.status, 200);
     assert.equal((await state(b)).me.games.rpsPending.phase, 'invited');
     const cid = (await state(a)).me.games.rpsPending.id;
@@ -437,8 +465,12 @@ try {
     assert.equal(pending.phase, 'selecting');
     assert.equal(pending.deadline - pending.startedAt, C.rpsRoundMs);
     // 双方出拳
-    assert.equal((await httpPlay(a, 'rpsChoose', { challengeId: cid, choice: 'rock', revision: 1 })).status, 200);
-    assert.equal((await httpPlay(b, 'rpsChoose', { challengeId: cid, choice: 'scissors', revision: 1 })).status, 200);
+    const ca = await httpPlay(a, 'rpsChoose', { challengeId: cid, choice: 'rock', revision: 1 });
+    if (ca.status !== 200) console.error('DIAG chooseA', ca.status, JSON.stringify(ca.data));
+    assert.equal(ca.status, 200);
+    const cb = await httpPlay(b, 'rpsChoose', { challengeId: cid, choice: 'scissors', revision: 1 });
+    if (cb.status !== 200) console.error('DIAG chooseB', cb.status, JSON.stringify(cb.data));
+    assert.equal(cb.status, 200);
     // 截止前不结算
     let st = await state(a);
     const toDeadline = st.me.games.rpsPending.deadline - st.serverTime;
