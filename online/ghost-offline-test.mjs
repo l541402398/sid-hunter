@@ -211,7 +211,16 @@ try {
   check('HTTP离线活人资源仍正常恢复', !(own(await state(fl),fl).online) && (await state(fl)).me.skills.probe.chargesRemaining===2);
   // Due offline recovery must be settled by manual finish, not by reading that player.
   await skill(fl,'probe',fa); await advance(90001);
-  await skill(fa,'probe',ft); // 2→1 immediately before finish; no due recovery to accidentally mask GH02.
+  // ft has already received three probes. Select a still-unrevealed living target instead.
+  const beforeFinishProbe = await state(fa);
+  const freshProbeTarget = beforeFinishProbe.players.find(p => p.alive && p.id !== fa.playerId && Object.values(p.traits).includes('***'));
+  check('GH02 HTTP预置选择存活且尚有未公开属性目标', !!freshProbeTarget, JSON.stringify(freshProbeTarget));
+  if (!freshProbeTarget) throw new Error('GH02 fixture has no eligible probe target');
+  const finishProbeResponse = await skill(fa,'probe',freshProbeTarget);
+  check('GH02 HTTP预置probe真实成功（200/ok）', finishProbeResponse.status === 200 && finishProbeResponse.ok, JSON.stringify(finishProbeResponse));
+  const afterFinishProbe = await state(fa);
+  check('GH02 HTTP结束前probe余额确实2→1', beforeFinishProbe.me.skills.probe.chargesRemaining === 2 && afterFinishProbe.me.skills.probe.chargesRemaining === 1,
+    `${beforeFinishProbe.me.skills.probe.chargesRemaining}→${afterFinishProbe.me.skills.probe.chargesRemaining}`);
   const freezeCap = await request('/api/dev/capabilities',token(fa));
   await request('/api/host/finish',token(fa),{confirm:true,csrfToken:freezeCap.csrfToken});
   const faFrozen = (await state(fa)).me;
