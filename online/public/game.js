@@ -52,6 +52,50 @@
 
   // ---------- 权威状态（全部来自服务端快照） ----------
   let players = [], logs = [], me = null;
+  let badSlots = [], badPoolAvailable = false, lastBadPoolSig = '';
+  // Only consume the dedicated anonymous projection, never infer identities from players.
+  function renderBadPool() {
+    const sig = JSON.stringify([badPoolAvailable, badSlots]);
+    if (sig === lastBadPoolSig) return;
+    lastBadPoolSig = sig;
+    const root = $('bad-slots'), fragment = document.createDocumentFragment();
+    const text = (tag, content, className) => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      node.textContent = content; return node;
+    };
+    if (!badPoolAvailable) {
+      fragment.append(text('p', '当前服务尚未提供匿名线索池；请勿把暂未提供解读为没有坏人。', 'bad-empty'));
+    } else if (!badSlots.length) {
+      fragment.append(text('p', '暂无坏人', 'bad-empty'));
+    } else {
+      for (const slot of badSlots) {
+        const card = document.createElement('article');
+        card.className = slot.alive ? 'bad-slot' : 'bad-slot is-out';
+        const head = document.createElement('header');
+        head.append(text('strong', slot.label), text('span', slot.alive ? '存活' : '已淘汰', 'bad-status'));
+        card.append(head);
+        let known = 0;
+        for (const [key, label] of Object.entries(traitNames)) {
+          const value = slot.traits && typeof slot.traits[key] === 'string' ? slot.traits[key] : MASK;
+          if (value !== MASK) known++;
+          const row = document.createElement('p'); row.className = 'bad-clue';
+          row.append(text('span', label), text('strong', value)); card.append(row);
+        }
+        if (!known) card.append(text('p', '暂无线索', 'bad-empty'));
+        fragment.append(card);
+      }
+    }
+    root.replaceChildren(fragment);
+  }
+  $('bad-toggle').onclick = () => {
+    const expanded = $('bad-slots').hidden;
+    $('bad-slots').hidden = !expanded;
+    $('bad-toggle').setAttribute('aria-expanded', String(expanded));
+    $('bad-toggle-label').textContent = expanded ? '收起−' : '展开＋';
+    renderBadPool();
+  };
+  renderBadPool();
   let finished = false, aliveCount = 0, outCount = 0, serverTime = Date.now();
   let selectedId = null, cameraX = 0, clock = 0;
   let privateOpen = false, mineOpen = false, pending = null, privateResult = '';
@@ -144,6 +188,9 @@
     finished = !!s.finished;
     logs = s.logs || [];
     players = s.players || [];
+    badPoolAvailable = Array.isArray(s.badSlots);
+    badSlots = badPoolAvailable ? s.badSlots : [];
+    renderBadPool();
     aliveCount = players.filter(p => p.alive).length;
     outCount = players.filter(p => !p.alive).length;
     if (s.me && s.me.id !== undefined) {
@@ -407,6 +454,9 @@
     sessionToken = null; devCsrf = null;
     localStorage.removeItem('sid_session_token'); localStorage.removeItem('sid_lan');
     players = []; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
+    badSlots = []; badPoolAvailable = false; lastBadPoolSig = '';
+    $('bad-slots').hidden = true; $('bad-toggle').setAttribute('aria-expanded', 'false');
+    $('bad-toggle-label').textContent = '展开＋'; renderBadPool();
     renderMap.clear(); offlineEvents.clear(); confirmedDigests.clear(); lastRosterSig = lastTargetSig = lastLogSig = '';
     $('target').replaceChildren(); $('target').hidden = true;
     $('candidates').replaceChildren(); $('candidates').hidden = true;

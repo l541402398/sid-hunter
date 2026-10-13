@@ -7,6 +7,15 @@ button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid 
 button:disabled{opacity:.42;cursor:not-allowed}
 button:active{transform:translateY(1px)}
 [hidden]{display:none!important}
+.bad-section{margin:16px 0;background:#12203a;border:1px solid #9d8156;border-radius:12px;overflow:hidden}
+.bad-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:44px;border:0;border-radius:0;background:transparent;font-size:14px;text-align:left;padding:12px 16px}
+.bad-toggle small{font-size:12px;color:#b8b7ba;margin-left:10px}.bad-toggle:focus-visible{outline:2px solid #f3c773;outline-offset:-3px}
+.bad-slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:12px;padding:12px 16px}
+.bad-slot{min-width:0;background:#18273d;border:1px solid #8e7755;border-radius:8px;padding:12px;font-size:13px;overflow-wrap:anywhere}
+.bad-slot header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.bad-slot header strong{font-size:14px}.bad-status{font-size:12px;color:#c6b48e}
+.bad-slot.is-out{background:#202936;border-color:#68717d}.bad-slot.is-out .bad-status{color:#b8c2ce}
+.bad-clue{display:flex;justify-content:space-between;gap:12px;line-height:1.8}.bad-clue span{color:#9cabbf;flex-shrink:0}.bad-clue strong{font-weight:500;text-align:right;min-width:0}
+.bad-empty,.bad-note{font-size:12px;color:#a4b1c4;line-height:1.8}.bad-note{padding:0 16px 12px}.bad-empty{grid-column:1/-1}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-thumb{background:#41546d;border-radius:6px}
 ::-webkit-scrollbar-track{background:transparent}

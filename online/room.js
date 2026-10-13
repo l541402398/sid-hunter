@@ -2,7 +2,7 @@
 // Authoritative room state. Server-only module.
 // Everything that decides the game (position, skill resolution, public state,
 // elimination, finish) is computed here. Clients only submit intents and render.
-const { randomUUID } = require('crypto');
+const { randomUUID, randomInt } = require('crypto');
 const WORLD = require('./shared/world.js');
 
 // Charge interval is a build-time switch: 90s for the LAN playtest build, 20 minutes
@@ -46,6 +46,34 @@ function createRoom({ random = Math.random } = {}) {
   const furniture = WORLD.makeFurniture();
   const now = () => Date.now() + room.clockOffset;
   const streams = new Map();
+  // Anonymous clue slots are independent of player IDs, roster order and camera views.
+  // Labels are random numbers, not join sequence numbers. Public clues can still be compared
+  // with already-public player information; this is a clue pool, not unlinkability protection.
+  const badSlotMap = new Map(), badSlotOrder = [], badSlotLabels = new Set();
+  let badSlotsDirty = true, badSlotsCache = Object.freeze([]);
+  function registerBadSlot(p) {
+    if (p.faction !== 'bad' || p.npc || badSlotMap.has(p.id)) return;
+    let label;
+    do { label = `坏人${randomInt(1, 1000000)}`; } while (badSlotLabels.has(label));
+    const slot = { key: randomUUID(), label };
+    badSlotLabels.add(label); badSlotMap.set(p.id, slot);
+    badSlotOrder.splice(randomInt(0, badSlotOrder.length + 1), 0, p.id);
+    badSlotsDirty = true;
+  }
+  function anonymousBadSlots() {
+    if (!badSlotsDirty) return badSlotsCache;
+    const byId = new Map(room.players.map(p => [p.id, p]));
+    for (const p of room.players) registerBadSlot(p);
+    badSlotsCache = Object.freeze(badSlotOrder.flatMap(id => {
+      const p = byId.get(id), slot = badSlotMap.get(id);
+      if (!p || p.faction !== 'bad' || p.npc) return [];
+      const traits = Object.freeze(Object.fromEntries(Object.keys(WORLD.TRAIT_NAMES)
+        .filter(k => p.traitPublic[k]).map(k => [k, p.traits[k]])));
+      return [Object.freeze({ key: slot.key, label: slot.label, alive: p.alive, traits })];
+    }));
+    badSlotsDirty = false;
+    return badSlotsCache;
+  }
   let interactionEpoch = randomUUID();
   const offlineHits = new Map();
   // Monotonic totals and acknowledged watermarks: an old ACK never clears new offline hits.
@@ -207,6 +235,7 @@ function createRoom({ random = Math.random } = {}) {
       frightUntil: 0, scareCooldownUntil: 0, scareAt: 0, frightAt: 0
     };
     room.players.push(player);
+    registerBadSlot(player);
     room.sessions.set(sessionId, id);
     room.pending.set(id, []);
     log(`${player.name}加入了办公室。`);
@@ -423,6 +452,7 @@ function createRoom({ random = Math.random } = {}) {
       finished: room.finished,
       aliveCount: room.players.filter(p => p.alive).length,
       players: room.players.map(p => publicProjection(p, viewer, camX)),
+      badSlots: anonymousBadSlots(),
       logs: room.logs.slice(),
       config: { chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs }
     };
@@ -483,6 +513,7 @@ function createRoom({ random = Math.random } = {}) {
     const key = unknown[Math.floor(random() * unknown.length)];
     if (!key) return reject('该目标没有未公开的隐藏属性，不消耗次数');
     target.traitPublic[key] = true;
+    if (target.faction === 'bad' && !target.npc) badSlotsDirty = true;
     queueEvent(target.id, { type: 'revealedTrait', traitName: WORLD.TRAIT_NAMES[key], traitValue: target.traits[key] }, t);
     log(`${target.name}的${WORLD.TRAIT_NAMES[key]}已公开：${target.traits[key]}。`, t);
     return { ok: true, kind: 'probe', resultText: `探查完成：${WORLD.TRAIT_NAMES[key]}为「${target.traits[key]}」。`, targetId: target.id };
@@ -497,6 +528,7 @@ function createRoom({ random = Math.random } = {}) {
       }
       freezeSkills(target, t);
       target.alive = false;
+      badSlotsDirty = true;
       room.eliminateEvents += 1;
       queueEvent(target.id, { type: 'eliminated' }, t);
       log(`${target.name}已淘汰。`, t);
@@ -521,6 +553,7 @@ function createRoom({ random = Math.random } = {}) {
     freezeSkills(target, t);
     target.hp = 0;
     target.alive = false;
+    if (target.faction === 'bad' && !target.npc) badSlotsDirty = true;
     room.eliminateEvents += 1;
     queueEvent(target.id, { type: 'eliminated' }, t);
     log(`${target.name}已淘汰。`, t);
@@ -622,6 +655,8 @@ function createRoom({ random = Math.random } = {}) {
     room.sessions.clear();
     room.processed.clear();
     room.pending.clear();
+    badSlotMap.clear(); badSlotOrder.length = 0; badSlotLabels.clear();
+    badSlotsCache = Object.freeze([]); badSlotsDirty = true;
     offlineHits.clear(); interactionEpoch = randomUUID(); finishedExpiryAt = -Infinity;
     for (const entry of streams.values()) { try { entry.res && entry.res.end(); } catch { /* already closed */ } }
     streams.clear();
