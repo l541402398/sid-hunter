@@ -56,6 +56,8 @@ function createRoom(options = {}) {
     finished: false,
     finishReason: '',
     ranking: null,
+    // 上一局结算快照：结束瞬间写入，reset 不会清掉，管理页/重开流程据此读取上局排名。
+    lastResult: null,
     startedAt: Date.now(),
     sessions: new Map(),
     processed: new Map(),
@@ -324,6 +326,36 @@ function createRoom(options = {}) {
       .sort((a, b) => (b.score - a.score) || (Number(b.alive) - Number(a.alive)) || (a.id - b.id))
       .map((p, index) => ({ rank: index + 1, id: p.id, name: p.name, score: p.score, alive: p.alive, faction: p.faction }));
   }
+  // 上局结算快照（只读派生）。ranking 为 null 表示该结束方式不按分数排名（存活淘汰至剩余 100 人），
+  // 此时照样记录最后一帧的存活名单，管理页只展示存活到最后的玩家。
+  function lastResultSummary() {
+    const archived = room.lastResult;
+    if (!archived || !Array.isArray(archived.roster)) return null;
+    const roster = archived.roster;
+    const survivors = roster.filter(p => p.alive).slice()
+      .sort((a, b) => (b.score - a.score) || (a.id - b.id))
+      .map((p, index) => ({ rank: index + 1, id: p.id, name: p.name, score: p.score, alive: true, faction: p.faction }));
+    const rankedList = Array.isArray(archived.ranking) && archived.ranking.length ? archived.ranking : null;
+    return {
+      finishReason: archived.finishReason || null,
+      finishedAt: archived.finishedAt,
+      playerCount: roster.length,
+      aliveCount: roster.filter(p => p.alive).length,
+      ranked: !!rankedList,
+      ranking: rankedList ? rankedList.map(r => ({ ...r })) : null,
+      survivors
+    };
+  }
+  // 结束前把当帧名册与排名冻结下来；重复调用以第一次为准，避免后到的事件改写历史。
+  function archiveResult(finishedAt) {
+    if (room.lastResult) return;
+    room.lastResult = {
+      finishReason: room.finishReason || '',
+      finishedAt: Number.isFinite(finishedAt) ? finishedAt : now(),
+      roster: room.players.map(p => ({ id: p.id, name: p.name, score: p.score, alive: p.alive, faction: p.faction })),
+      ranking: (room.ranking || []).map(r => ({ ...r }))
+    };
+  }
   // 仅三种结束方式。注意 aliveFloor 必须加 players.length > endRemainingPlayers 守卫：
   // 否则小房间（如 20 人）会在开局瞬间就满足“存活 <= 100”而立即结束，这是有意设计。
   function checkFinish(t = now()) {
@@ -340,6 +372,7 @@ function createRoom(options = {}) {
       room.finished = true;
       room.finishReason = reason;
       room.ranking = (reason === 'badWiped' || reason === 'timeUp') ? buildRanking() : null;
+      archiveResult(t);
       log(reason === 'aliveFloor' ? `游戏结束：存活人数已淘汰至剩余${rules.endRemainingPlayers}人。`
         : reason === 'badWiped' ? '游戏结束：坏人已全部出局。'
         : `游戏结束：时间到（${rules.timeLimitMs / 3600000}小时）。`);
@@ -724,6 +757,8 @@ function createRoom(options = {}) {
     }
     return mechanicsResponse(actor, true, resultText, target ? { hitId: target.id } : {});
   }
+  // 开新局：清空本局全部玩家与身份凭证，所有人必须重新加入。room.lastResult 故意不清，
+  // 管理页在重开后仍要能看到上一局排名。
   function reset() {
     room.players = [];
     room.logs = [];
@@ -746,6 +781,7 @@ function createRoom(options = {}) {
     room.finishReason = 'host';
     room.ranking = null;
     syncRoom(now());
+    archiveResult(now());
     log('游戏已结束：主持人结束了游戏。');
     for (const entry of streams.values()) { try { entry.res && entry.res.end(); } catch { /* already closed */ } }
     streams.clear();
@@ -753,7 +789,7 @@ function createRoom(options = {}) {
   return {
     room, streams, now, join, setOffline, setIntent, step, useSkill, interact, play, attack, ack,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
-    playerBySession, find, config: SKILL_CONFIG
+    playerBySession, find, lastResultSummary, rules, config: SKILL_CONFIG
   };
 }
 module.exports = { createRoom, SKILL_CONFIG, WORLD };

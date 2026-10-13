@@ -8,6 +8,7 @@ const path = require('path');
 const { randomBytes } = require('crypto');
 const { performance } = require('node:perf_hooks');
 const { createRoom, SKILL_CONFIG, WORLD } = require('./room.js');
+const { createManager } = require('./manager.js');
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0'; // Tests explicitly bind 127.0.0.1; live LAN default stays unchanged.
@@ -17,6 +18,10 @@ const ROOM = createRoom();
 const ALLOWED_EXT = new Set(['.html', '.css', '.js', '.ico']);
 const DEV_ENABLED = process.env.SID_DEV === '1';
 const resetTokens = new Map(); // Scoped to an existing session, revoked together with the room.
+// 公网管理控制台：独立于 SID_DEV 的授权码入口。授权码默认 091256，线上可通过
+// systemd 的 Environment=SID_MANAGER_CODE=... 覆盖，改完 systemctl restart sid-hunter 生效。
+const MANAGER_CODE = process.env.SID_MANAGER_CODE || '091256';
+const MANAGER = createManager({ room: ROOM, passcode: MANAGER_CODE });
 function everyMs(callback, interval) {
   let target = performance.now() + interval;
   let timer;
@@ -165,8 +170,54 @@ function openStream(req, res, player) {
   res.on('finish', close);
   res.on('error', close);
 }
+// 管理控制台会话：只认 HttpOnly 的 sid_manager Cookie（不提供 header/query 回退，
+// 缩小凭证暴露面）。授权码校验与限流在 manager.js 内完成。
+function managerSessionOf(req) {
+  return parseCookies(req.headers.cookie).sid_manager || null;
+}
+function managerReply(res, result) {
+  if (result.cookie) res.setHeader('Set-Cookie', result.cookie);
+  return send(res, result.status, result.body);
+}
+function isJsonRequest(req) {
+  return (req.headers['content-type'] || '').split(';')[0].trim() === 'application/json';
+}
 async function route(req, res, url) {
   const pathname = url.pathname;
+  if (pathname === '/manager') {
+    // 管理控制台入口：静态文件，但路径没有扩展名，静态服务只放行白名单后缀，所以单独路由。
+    return staticServe(req, res, '/manager.html');
+  }
+  if (pathname.startsWith('/api/manager/')) {
+    const action = pathname.slice('/api/manager/'.length);
+    const token = managerSessionOf(req);
+    if (action === 'login') {
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });
+      return managerReply(res, MANAGER.login(req, await readBody(req)));
+    }
+    if (action === 'session') {
+      if (req.method !== 'GET') return send(res, 405, { ok: false, error: '管理操作仅允许GET' });
+      // 固定 200：前端据此区分「未登录」与「接口不存在」。
+      return managerReply(res, MANAGER.sessionProbe(req, token));
+    }
+    if (action === 'state') {
+      if (req.method !== 'GET') return send(res, 405, { ok: false, error: '管理操作仅允许GET' });
+      const gate = MANAGER.sessionFor(req, token);
+      if (gate.status !== 200) return managerReply(res, gate);
+      return managerReply(res, MANAGER.state());
+    }
+    if (action === 'reset') {
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });
+      return managerReply(res, MANAGER.reset(req, token, await readBody(req)));
+    }
+    if (action === 'logout') {
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      return managerReply(res, MANAGER.logout(token));
+    }
+    return send(res, 404, { ok: false, error: 'unknown manager action' });
+  }
   if (pathname === '/api/stream') {
     const sid = sessionOf(req, url);
     const player = ROOM.playerBySession(sid);
