@@ -28,9 +28,14 @@ function fixture(options = {}, count = 5) {
 }
 const play = (r, id, kind, extra = {}) => r.play(r.find(id).sessionId, { commandId: nonce(), kind, ...extra });
 const attack = (r, id = 0, extra = {}) => r.attack(r.find(id).sessionId, { commandId: nonce(), ...extra });
-const invite = (r, extra = {}) => play(r, 0, 'rpsInvite', { targetId: 1, choice: 'rock', ...extra });
-const reply = (r, extra = {}) => play(r, 1, 'rpsReply', { challengeId: r.find(1).games.rpsPending?.id, choice: 'scissors', ...extra });
+// 新协议：rpsInvite{targetId} 无 choice；rpsReply 仅被邀请方“接受”（不结算）；
+// rpsChoose{challengeId,choice,revision} 双方各自出拳，revision 防旧/乱序；截止才结算。
+const invite = (r, extra = {}) => play(r, 0, 'rpsInvite', { targetId: 1, ...extra });
+const reply = (r, extra = {}) => play(r, 1, 'rpsReply', { challengeId: r.find(1).games.rpsPending?.id, ...extra });
+const choose = (r, id, choice, revision = 1, extra = {}) => play(r, id, 'rpsChoose', { challengeId: r.find(id).games.rpsPending?.id, choice, revision, ...extra });
 const advance = (r, ms) => { r.room.clockOffset += ms; };
+// 推进越过 10s deadline 并触发一次 syncRoom 结算（不降产品 rpsRoundMs 配置）。
+const settle = (r) => { advance(r, C.rpsRoundMs + 1); r.step(0); };
 function attackFixture() {
   const r = fixture();
   for (const p of r.room.players) { p.x = 1500 + p.id * 100; p.y = 350; }
@@ -47,7 +52,7 @@ function assertPublicSafe(r) {
 }
 
 await test('共享契约、全部九种猜拳组合及浏览器导出', async () => {
-  assert.deepEqual(C, { rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000 });
+  assert.deepEqual(C, { rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, rpsRoundMs: 10000, attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000 });
   const expected = [[0, -1, 1], [1, 0, -1], [-1, 1, 0]];
   for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) assert.equal(WORLD.rpsOutcome(choices[i], choices[j]), expected[i][j]);
   const source = await readFile(new URL('./shared/world.js', import.meta.url), 'utf8');

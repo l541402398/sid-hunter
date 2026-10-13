@@ -145,6 +145,7 @@ function openStream(req, res, player) {
   // the sweep below is the deterministic fallback that marks the player offline.
   const write = payload => { res.write(`data: ${JSON.stringify(payload)}\n\n`); };
   try { write({ ...ROOM.publicSnapshot(), me: ROOM.privateSnapshot(player.id).me }); } catch { }
+  const previousEntry = ROOM.streams.get(player.id);
   const entry = { res, lastAck: Date.now(), close };
   ROOM.streams.set(player.id, entry);
   let closed = false;
@@ -160,10 +161,15 @@ function openStream(req, res, player) {
     if (closed) return;
     closed = true;
     cancelTick();
-    if (ROOM.streams.get(player.id) === entry) ROOM.streams.delete(player.id);
-    if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
+    // 仅当本 entry 仍是该玩家当前流时才下线：刷新时新流已写入 ROOM.streams，旧流关闭
+    // 不应误触发 setOffline；真实断线（无新流）则当前流即最新，照常下线并取消猜拳。
+    if (ROOM.streams.get(player.id) === entry) {
+      ROOM.streams.delete(player.id);
+      if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
+    }
     try { res.end(); } catch { /* already closed */ }
   }
+  if (previousEntry && previousEntry !== entry) previousEntry.close();
   req.on('close', close);
   req.on('error', close);
   res.on('close', close);

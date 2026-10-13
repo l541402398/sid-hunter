@@ -101,8 +101,13 @@
   const keys = new Set();
   let lastIntent = '', toastTimer;
   // 新增互动状态：仅在自身私有投影与公开投影之间读取，不引入任何新身份线索。
-  let serverPerfBase = performance.now(), combatResult = '', gamesResult = '', rpsChoice = 'rock';
+  let serverPerfBase = performance.now(), combatResult = '', gamesResult = '';
   let combatFlight = null, gamesFlight = null, gamesDomReady = false;
+  // 猜拳本地乐观状态：与权威 pending.ownChoice / ownRevision 通过修订号屏障对齐，避免旧响应回滚。
+  let rpsLocalChoice = null, rpsRevision = 0, rpsAckRevision = 0, rpsRemoteRevision = 0;
+  let rpsChooseFlight = null, rpsChoosePending = null, rpsUnconfirmed = false;
+  let rpsResultDismissId = null, rpsAutoId = null, rpsAutoPhase = null, rpsLastSelfGlyph = '', rpsLastOppGlyph = '';
+  let snapshotGen = 0; // 每次快照自增；防止旧 HTTP 响应覆盖已更新的快照投影
   // 新增：大转盘覆盖层 / 排行榜 / 结算（均只读私有投影与公开投影，不新增身份线索）。
   let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
   let wheelSpinFlight = null, wheelResult = '';
@@ -193,8 +198,13 @@
   // ---------- 快照消费 ----------
   function applySnapshot(s) {
     if (!s || s.type !== 'snapshot') return;
+    snapshotGen++;
     if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) {
-      sessionGeneration++; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel();
+      sessionGeneration++; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel(); closeGames();
+      // 身份切换：清空猜拳本地乐观状态与队列，隔离旧响应生成。
+      rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
+      rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
+      rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
     }
     serverTime = s.serverTime || Date.now();
     serverPerfBase = performance.now();
@@ -222,7 +232,7 @@
     syncTarget();
     if (mineOpen) renderMine();
     syncExploration(); updateExplorationHUD();
-    syncGames(); updateCombatHUD();
+    syncRpsLifecycle(); syncGames(); updateCombatHUD();
     updateOfflineUI();
     updateScoreDisplay(); syncTimeLeft(); syncRanking();
     if (wheelOpen) updateWheelControls();
@@ -316,7 +326,7 @@
   function selected() { return selectedId === null ? null : players.find(p => p.id === selectedId) || null; }
   function syncTarget() {
     const p = selected();
-    const sig = p ? JSON.stringify((({ x, y, ...profile }) => profile)(p)) : '';
+    const sig = p ? JSON.stringify([(({ x, y, ...profile }) => profile)(p), isInviteable(p), me?.games?.rpsPending?.id || null, me?.games?.rpsResult?.id || null]) : '';
     if (sig === lastTargetSig) { if (holding()) updateSkillStatus(); return; }
     lastTargetSig = sig;
     renderTarget();
@@ -327,7 +337,7 @@
     const gate = $('private-gate'); if (gate) { gate.textContent = '展开私密操作'; gate.setAttribute('aria-expanded', 'false'); }
     if (clearMy) closeMine();
   }
-  function clearAllInput() { keys.clear(); sendIntent(true); clearPrivate(true); closeExploration(); closeGames(); closeWheel(); }
+  function clearAllInput() { keys.clear(); sendIntent(true); clearPrivate(true); closeExploration(); closeWheel(); }
   function select(id) {
     closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
@@ -338,8 +348,12 @@
     if (!p) { $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
     const status = p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作';
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
+    const inviteBtn = $('target-invite-rps');
+    if (inviteBtn) inviteBtn.onclick = () => { if (isInviteable(selected())) sendRps({ kind: 'rpsInvite', targetId: selected().id }); };
+    const returnBtn = $('target-return-rps');
+    if (returnBtn) returnBtn.onclick = () => { rpsResultDismissId = null; openGames(); };
     $('private-gate').onclick = () => {
       if (privateOpen) clearPrivate();
       else { closeExploration(); closeGames(); privateOpen = true; renderPrivate(); $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true'); }
@@ -468,7 +482,10 @@
     sessionGeneration++; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
     if (stream) { stream.close(); stream = null; }
     closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); hideFinish(); keys.clear(); lastIntent = '';
-    combatResult = ''; gamesResult = ''; rpsChoice = 'rock';
+    combatResult = ''; gamesResult = '';
+    rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
+    rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
+    rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
     rulesInfo = null; finishReason = ''; rankingList = null; finishShown = false; lastRankingSig = '';
     wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
     nearbySig = ''; $('nearby-items').replaceChildren();
@@ -538,6 +555,25 @@
       ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity }))]
       .filter(({ entity }) => entityDistance(entity) <= WORLD.INTERACT_RANGE)
       .sort((a, b) => entityDistance(a.entity) - entityDistance(b.entity));
+  }
+  // E 就近互动：同时比较附近玩家与家具/NPC，取距离最近者；已选中的近玩家在距离相当时优先。
+  function nearestInteractable() {
+    const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
+    let pBest = null, pD = Infinity;
+    for (const p of players) {
+      if (p.id === me.id || !p.alive || p.online === false) continue;
+      if (!WORLD.lineClear(self, p, furniture)) continue;
+      const d = WORLD.distanceToEntity(self, p);
+      if (d <= WORLD.INTERACT_RANGE && d < pD) { pD = d; pBest = { kind: 'player', id: p.id }; }
+    }
+    let eBest = null, eD = Infinity;
+    for (const item of nearbyEntities()) {
+      const d = entityDistance(item.entity);
+      if (d < eD) { eD = d; eBest = { kind: item.kind, id: item.id }; }
+    }
+    // 已选近玩家优先：与家具/NPC 距离相差不超过 32 像素时，保留/选择玩家。
+    if (pBest && (!eBest || pD <= eD + 32)) return pBest;
+    return eBest;
   }
   function closeExploration() {
     explorationGeneration++; explorationPanel = null; explorationResult = ''; explorationDataSig = '';
@@ -891,133 +927,239 @@
   }
   $('clue-bag').onclick = () => { if (explorationPanel?.kind === 'backpack') closeExploration(); else openExploration('backpack'); };
 
-  // ---------- 猜拳小游戏：只读私有投影；面板 DOM 只在打开时建立一次 ----------
+  // ---------- 猜拳小游戏：服务端权威 邀请 → 接受 → 10 秒可修改出拳 → 截止揭示 ----------
   const RPS_LABELS = { rock: '石头', paper: '布', scissors: '剪刀' };
   function rpsNow() { return serverNow(); }
+  // 三个可区分的像素手势（64 viewBox，crispEdges）：握拳 / 剪刀手 / 张开手掌；未出拳占位与问号。
+  function rpsGlyph(choice) {
+    if (choice === 'rock') {
+      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="12" y="22" width="40" height="30" rx="7" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="15" y="25" width="34" height="24" rx="5" fill="#f0c08c"/><rect x="9" y="30" width="14" height="15" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="19" y="39" width="3" height="9" fill="#c98f57"/><rect x="27" y="39" width="3" height="9" fill="#c98f57"/><rect x="35" y="39" width="3" height="9" fill="#c98f57"/></svg>`;
+    }
+    if (choice === 'scissors') {
+      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="20" y="33" width="24" height="21" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="23" y="36" width="18" height="15" rx="4" fill="#f0c08c"/><rect x="17" y="13" width="9" height="26" rx="4" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="38" y="13" width="9" height="26" rx="4" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="30" y="33" width="4" height="18" fill="#e7b27a"/></svg>`;
+    }
+    if (choice === 'paper') {
+      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="18" y="31" width="28" height="23" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="21" y="34" width="22" height="18" rx="4" fill="#f0c08c"/><rect x="13" y="19" width="7" height="19" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="23" y="14" width="7" height="24" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="33" y="14" width="7" height="24" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="43" y="19" width="7" height="19" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/></svg>`;
+    }
+    return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="14" y="20" width="36" height="30" rx="10" fill="none" stroke="#7e93ad" stroke-width="3" stroke-dasharray="6 5"/><circle cx="32" cy="35" r="9" fill="none" stroke="#7e93ad" stroke-width="3"/></svg>`;
+  }
+  function rpsQuestion() {
+    return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="14" y="20" width="36" height="30" rx="10" fill="#17273c" stroke="#5b83ad" stroke-width="3"/><text x="32" y="45" text-anchor="middle" font-family="ui-monospace,monospace" font-size="30" font-weight="700" fill="#9cc9ef">?</text></svg>`;
+  }
   function openGames() {
     const host = $('games');
     if (!host) return;
     closeWheel();
     host.hidden = false;
-    $('games-toggle').setAttribute('aria-expanded', 'true');
     if (!gamesDomReady) {
       gamesDomReady = true;
-      // 只建一次 DOM；20Hz 快照只更新文本 / disabled / class，绝不重建按钮。
-      host.innerHTML = `<div class="panel-heading"><div><small>MINI GAMES</small><h2>互动小游戏</h2></div><button id="games-close" class="icon-button" aria-label="关闭互动小游戏">×</button></div><div class="games-body"><p class="games-balance">我的筹码：<strong id="games-chips">0</strong></p><div class="rps-block"><p class="private-title">猜拳邀请</p><p id="games-rps-state" class="games-state"></p><div class="rps-choices" role="group" aria-label="选择出拳"><button type="button" id="games-choice-rock" data-choice="rock">石头</button><button type="button" id="games-choice-paper" data-choice="paper">布</button><button type="button" id="games-choice-scissors" data-choice="scissors">剪刀</button></div><div id="games-invite-list" class="games-invite-list"></div><p id="games-invite-empty" class="panel-note"></p><div id="games-pending" class="games-pending" hidden><p id="games-pending-text"></p><div class="games-pending-actions"><button type="button" id="games-reply" hidden>回应</button><button type="button" id="games-cancel" hidden>取消</button></div><p id="games-pending-timer" class="games-timer"></p></div></div><p id="games-result" class="private-result"></p><p class="hold-note">猜拳需双方在线、64 像素内、家具不挡视线且双方至少 1 筹码；邀请 30 秒未回应自动取消且不扣筹码，结算后 5 秒冷却。筹码与结果均由服务端权威结算，界面不会显示对方的出拳。</p></div>`;
-      $('games-close').onclick = closeGames;
-      for (const choice of ['rock', 'paper', 'scissors']) $(`games-choice-${choice}`).onclick = () => { rpsChoice = choice; syncGames(); };
-      $('games-reply').onclick = () => { if (me?.games?.rpsPending) sendRps({ kind: 'rpsReply', challengeId: me.games.rpsPending.id, choice: rpsChoice }); };
-      $('games-cancel').onclick = () => { if (me?.games?.rpsPending) sendRps({ kind: 'rpsCancel', challengeId: me.games.rpsPending.id }); };
+      // 只建一次 DOM；20Hz 快照 / 帧循环只更新文本、disabled、aria-pressed 与手势槽，绝不重建按钮。
+      host.innerHTML = `<div class="panel-heading"><div><small>RPS</small><h2>猜拳对战</h2></div><button id="games-close" class="icon-button" aria-label="取消并关闭猜拳">×</button></div><div class="games-body"><div id="games-rps" class="rps-arena" hidden><p class="games-balance">我的筹码：<strong id="games-chips">0</strong> · 分数 <strong id="games-score">0</strong></p><div class="rps-top"><div class="rps-side rps-self"><span class="rps-role">你</span><span class="rps-name" id="games-self-name"></span><span class="rps-glyph-slot" id="games-self-glyph"></span></div><div class="rps-vs">VS</div><div class="rps-side rps-opp"><span class="rps-role">对手</span><span class="rps-name" id="games-opp-name"></span><span class="rps-glyph-slot" id="games-opp-glyph"></span></div></div><p id="games-phase" class="rps-phase"></p><div class="rps-choices" role="group" aria-label="选择出拳"><button type="button" id="games-choice-rock" data-choice="rock" aria-pressed="false" aria-label="石头">${rpsGlyph('rock')}<span>石头</span></button><button type="button" id="games-choice-scissors" data-choice="scissors" aria-pressed="false" aria-label="剪刀">${rpsGlyph('scissors')}<span>剪刀</span></button><button type="button" id="games-choice-paper" data-choice="paper" aria-pressed="false" aria-label="布">${rpsGlyph('paper')}<span>布</span></button></div><p id="games-timer" class="games-timer"></p><p id="games-unconfirmed" class="rps-unconfirmed" hidden></p><div class="games-pending-actions"><button type="button" id="games-accept" class="rps-accept" hidden>接受</button><button type="button" id="games-reject" class="rps-reject" hidden>拒绝</button><button type="button" id="games-cancel" hidden>取消</button></div><p id="games-result" class="private-result" hidden></p><button type="button" id="games-result-close" class="rps-result-close" hidden>关闭结果</button></div></div>`;
+      $('games-close').onclick = exitRps;
+      for (const choice of ['rock', 'paper', 'scissors']) $(`games-choice-${choice}`).onclick = () => rpsChoose(choice);
+      $('games-accept').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsAccept', challengeId: p.id }); };
+      $('games-reject').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsReject', challengeId: p.id }); };
+      $('games-cancel').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsCancel', challengeId: p.id }); };
+      $('games-result-close').onclick = () => { const r = me?.games?.rpsResult; if (r) rpsResultDismissId = r.id; syncGames(); };
     }
+    syncRpsLifecycle();
     syncGames();
   }
   function closeGames() {
     const host = $('games');
-    gamesDomReady = false; gamesResult = '';
+    // 仅关闭视图；不发送 rpsCancel，进行中的邀请/对局在服务端继续，可随时重开恢复（由 target 菜单「返回正在进行的猜拳」或阶段迁移自动恢复）。
+    gamesDomReady = false; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
     if (host) { host.hidden = true; host.replaceChildren(); }
-    const toggle = $('games-toggle'); if (toggle) toggle.setAttribute('aria-expanded', 'false');
   }
-  function toggleGames() { if ($('games')?.hidden) openGames(); else closeGames(); }
-  function eligibleInvitees() {
-    if (!me || !me.alive || finished) return [];
-    const self = selfPlayer();
-    if (!self) return [];
-    // 与服务端 rpsValidation 一致的可见性条件：真实玩家、存活、在线、范围、视线无家具遮挡。
-    return players.filter(p => p.id !== me.id && p.alive && p.online !== false
-      && WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE
-      && WORLD.lineClear(self, p, furniture));
+  async function exitRps() {
+    const current = me?.games?.rpsPending;
+    if (current) {
+      if (gamesFlight) { showToast('正在处理请求，请稍后取消'); return; }
+      await sendRps({ kind: 'rpsCancel', challengeId: current.id });
+      if (me?.games?.rpsPending?.id === current.id) { showToast('取消未确认，请重试或等待权威结果'); return; }
+    }
+    if (me?.games?.rpsResult) rpsResultDismissId = me.games.rpsResult.id;
+    closeGames();
+  }
+  async function rpsApi(body) {
+    const response = await fetch('/api/play', { method: 'POST', headers: headers(), body: JSON.stringify(body), signal: AbortSignal.timeout(4000) });
+    let data = {}; try { data = await response.json(); } catch { }
+    return { ...data, status: response.status };
+  }
+  function isInviteable(p) {
+    if (!p || !me || !me.alive || finished || p.id === me.id || !p.alive || p.online === false) return false;
+    const self = selfPlayer(); if (!self) return false;
+    return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && WORLD.lineClear(self, p, furniture)
+      && !me.games?.rpsPending && rpsNow() >= (me.games?.rpsUntil || 0) && !selfDisabled() && !gamesFlight;
   }
   function inviteDisabled() {
     return !me || !me.alive || finished || selfDisabled() || !!gamesFlight
       || me.games?.rpsPending != null || rpsNow() < (me.games?.rpsUntil || 0);
   }
+  // 本地乐观选择 + 合并串行队列：每次点击立即更新 ownChoice，再按修订号递增提交最终最新选择。
+  function rpsChoose(choice) {
+    const pending = me?.games?.rpsPending;
+    if (!pending || pending.phase !== 'selecting' || rpsNow() >= pending.deadline || !me.alive || finished || selfDisabled() || !['rock', 'paper', 'scissors'].includes(choice)) return;
+    rpsLocalChoice = choice;
+    rpsRevision++;
+    rpsChoosePending = { revision: rpsRevision, choice };
+    rpsUnconfirmed = false;
+    syncGames();
+    pumpRpsChoose();
+  }
+  async function pumpRpsChoose() {
+    if (rpsChooseFlight || !rpsChoosePending || !me) return;
+    const pending = me.games?.rpsPending;
+    if (!pending || pending.phase !== 'selecting') { rpsChoosePending = null; return; }
+    const { revision, choice } = rpsChoosePending;
+    rpsChoosePending = null;
+    const request = { session: sessionGeneration, token: sessionToken, challengeId: pending.id };
+    const same = () => request.session === sessionGeneration && request.token === sessionToken && me?.games?.rpsPending?.id === request.challengeId;
+    rpsChooseFlight = request;
+    try {
+      const result = await rpsApi({ commandId: commandId(), kind: 'rpsChoose', challengeId: pending.id, choice, revision });
+      if (!same()) return;
+      if (result.status === 200 && result.ok) {
+        rpsAckRevision = Math.max(rpsAckRevision, revision); rpsUnconfirmed = false;
+        const pg = result.games?.rpsPending;
+        if (pg?.id === pending.id && typeof pg.ownRevision === 'number') {
+          rpsRemoteRevision = Math.max(rpsRemoteRevision, pg.ownRevision);
+          if (pg.ownRevision >= rpsRevision) rpsLocalChoice = pg.ownChoice;
+        }
+      } else {
+        rpsUnconfirmed = true;
+        if (revision === rpsRevision && !rpsChoosePending) rpsLocalChoice = me.games.rpsPending.ownChoice;
+      } // 服务端拒绝/网络失败：明确未确认，下一步以权威状态为准恢复
+    } catch { if (same()) { rpsUnconfirmed = true; if (revision === rpsRevision && !rpsChoosePending) rpsLocalChoice = me.games.rpsPending.ownChoice; } }
+    finally {
+      if (rpsChooseFlight === request) rpsChooseFlight = null;
+      if (same()) { syncGames(); updateScoreDisplay(); }
+      // 期间若有更新的本地选择，继续合并提交（仅最新修订号）。
+      if (rpsChoosePending && same()) pumpRpsChoose();
+    }
+  }
+  // 每次快照自动做阶段迁移、权威采纳与自动弹窗；帧循环只负责计时刷新。
+  function syncRpsLifecycle() {
+    const games = me?.games; if (!games) return;
+    const pending = games.rpsPending;
+    if (!pending) {
+      rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
+      rpsChoosePending = null; rpsUnconfirmed = false; rpsAutoId = null; rpsAutoPhase = null;
+      return;
+    }
+    const isNew = pending.id !== rpsAutoId, phaseChanged = pending.phase !== rpsAutoPhase;
+    if (isNew) {
+      rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
+      rpsRevision = pending.ownRevision || 0; rpsAckRevision = rpsRevision;
+      rpsLocalChoice = pending.ownChoice || null; rpsResultDismissId = null;
+    }
+    rpsRemoteRevision = pending.ownRevision || 0;
+    if (rpsRemoteRevision >= rpsRevision) {
+      rpsLocalChoice = pending.ownChoice || null;
+      rpsRevision = Math.max(rpsRevision, rpsRemoteRevision);
+      rpsAckRevision = Math.max(rpsAckRevision, rpsRemoteRevision);
+      rpsUnconfirmed = false;
+    }
+    rpsAutoId = pending.id; rpsAutoPhase = pending.phase;
+    if ((isNew || phaseChanged) && $("games")?.hidden && !finished) {
+      keys.clear(); sendIntent(true); openGames();
+    }
+  }
   function syncGames() {
-    const host = $('games');
+    const host = $("games");
     if (!host || host.hidden || !me || !gamesDomReady) return;
     const games = me.games || {}, pending = games.rpsPending;
-    $('games-chips').textContent = explorationState().chips;
-    for (const choice of ['rock', 'paper', 'scissors']) {
-      const button = $(`games-choice-${choice}`);
-      if (button) { button.classList.toggle('selected', rpsChoice === choice); button.disabled = !me.alive; }
-    }
-    const box = $('games-pending'), reply = $('games-reply'), cancel = $('games-cancel');
-    if (pending) {
-      box.hidden = false;
-      const secs = Math.max(0, Math.ceil((pending.expiresAt - rpsNow()) / 1000));
-      $('games-pending-text').textContent = pending.role === 'to'
-        ? `${pending.fromName} 已锁定出拳，等待你回应` : `已邀请 ${pending.toName}，等待对方回应`;
-      $('games-pending-timer').textContent = `剩余 ${secs} 秒 · 超时自动取消，不扣筹码`;
-      reply.hidden = pending.role !== 'to';
-      cancel.hidden = false;
-      reply.disabled = !!gamesFlight;
-      cancel.disabled = !!gamesFlight;
-    } else { box.hidden = true; reply.hidden = true; cancel.hidden = true; }
-    $('games-rps-state').textContent = !me.alive ? '已淘汰，无法参与小游戏'
-      : finished ? '游戏已结束，小游戏已冻结'
-        : selfDisabled() ? '你正在眩晕/僵直，暂时无法参与'
-          : pending ? '暂不能发起新邀请：已有待回应的猜拳（服务端同样会拒绝）'
-            : gamesFlight ? '正在确认结算…'
-              : rpsNow() < (games.rpsUntil || 0) ? `猜拳冷却中 · 剩余 ${Math.max(0, Math.ceil(((games.rpsUntil || 0) - rpsNow()) / 1000))} 秒`
-                : `当前出拳：${RPS_LABELS[rpsChoice]}（点选上方按钮切换）`;
-    $('games-result').textContent = gamesResult || games.lastResult || '';
-    $('games-result').hidden = !gamesResult && !games.lastResult;
-    syncInviteList();
+    const result = pending ? null : games.rpsResult;
+    if ((!pending && !result) || (!pending && result.id === rpsResultDismissId)) { closeGames(); return; }
+    $("games-chips").textContent = explorationState().chips;
+    $("games-score").textContent = me.score || 0;
+    $("games-rps").hidden = false;
+    renderArena(pending, result);
   }
-  function syncInviteList() {
-    const host = $('games-invite-list');
-    if (!host) return;
-    const eligible = eligibleInvitees(), ids = new Set(eligible.map(p => String(p.id))), disabled = inviteDisabled();
-    // 按玩家 id 复用按钮：只新增/隐藏，绝不在快照里重建已有按钮（避免按下瞬间被替换）。
-    for (const p of eligible) {
-      const key = String(p.id);
-      if (!host.querySelector(`[data-invite="${key}"]`)) {
-        const button = document.createElement('button');
-        button.type = 'button'; button.dataset.invite = key;
-        button.textContent = `邀请 ${p.name} 猜拳`;
-        button.onclick = () => sendRps({ kind: 'rpsInvite', targetId: Number(button.dataset.invite), choice: rpsChoice });
-        host.append(button);
-      }
+  function renderArena(pending, result) {
+    const oppName = pending ? (pending.role === 'from' ? pending.toName : pending.fromName) : (result ? result.opponentName : '');
+    $('games-self-name').textContent = me.name || '你';
+    $('games-opp-name').textContent = oppName || '对手';
+    let selfGlyph = rpsGlyph(rpsLocalChoice), oppGlyph = rpsQuestion();
+    if (result) {
+      selfGlyph = rpsGlyph(result.ownChoice);
+      oppGlyph = result.status === 'resolved' ? rpsGlyph(result.opponentChoice) : rpsQuestion();
     }
-    for (const button of [...host.children]) {
-      const key = button.dataset.invite, p = players.find(pl => String(pl.id) === key), ok = ids.has(key) && p;
-      button.hidden = !ok;
-      if (ok) { button.textContent = `邀请 ${p.name} 猜拳`; button.disabled = disabled; }
+    // 仅在手势变化时重写 innerHTML，避免 20Hz/帧循环重建。
+    if (rpsLastSelfGlyph !== selfGlyph) { $('games-self-glyph').innerHTML = selfGlyph; rpsLastSelfGlyph = selfGlyph; }
+    if (rpsLastOppGlyph !== oppGlyph) { $('games-opp-glyph').innerHTML = oppGlyph; rpsLastOppGlyph = oppGlyph; }
+    $('games-self-glyph').dataset.choice = result ? (result.ownChoice || 'none') : (rpsLocalChoice || 'none');
+    $('games-self-glyph').setAttribute('aria-label', `自己的手势：${RPS_LABELS[result ? result.ownChoice : rpsLocalChoice] || '未选择'}`);
+    $('games-opp-glyph').dataset.choice = result?.status === 'resolved' ? result.opponentChoice : 'hidden';
+    $('games-opp-glyph').setAttribute('aria-label', result?.status === 'resolved' ? `对手手势：${RPS_LABELS[result.opponentChoice]}` : '对手选择尚未揭示');
+    const phaseEl = $('games-phase'), timerEl = $('games-timer');
+    const choices = ['rock', 'paper', 'scissors'].map(c => $(`games-choice-${c}`));
+    const accept = $('games-accept'), reject = $('games-reject'), cancel = $('games-cancel');
+    const unconfirmed = $('games-unconfirmed'), resultEl = $('games-result'), resultClose = $('games-result-close');
+    const now = serverNow();
+    if (result) {
+      const status = result.status, outcome = result.outcome;
+      const delta = typeof result.delta === 'number' ? result.delta : 0;
+      phaseEl.textContent = status === 'resolved'
+        ? (outcome === 'win' ? '你获胜' : outcome === 'lose' ? '你落败' : outcome === 'draw' ? '平局' : '已结算')
+        : '已取消';
+      timerEl.textContent = '';
+      for (const b of choices) { b.disabled = true; b.setAttribute('aria-pressed', 'false'); }
+      accept.hidden = reject.hidden = cancel.hidden = true;
+      unconfirmed.hidden = true;
+      resultEl.hidden = false;
+      resultEl.textContent = status === 'resolved'
+        ? `你出${RPS_LABELS[result.ownChoice]}，对方出${RPS_LABELS[result.opponentChoice]} · ${outcome === 'win' ? `你获胜，筹码 +${delta}` : outcome === 'lose' ? `你落败，筹码 ${delta}` : '平局，筹码不变'}`
+        : `本次取消：${result.reason || '对战已结束'} · 不扣筹码、不计胜负`;
+      resultClose.hidden = false;
+      return;
     }
-    const empty = $('games-invite-empty');
-    if (empty) {
-      empty.hidden = eligible.length > 0;
-      empty.textContent = eligible.length ? '' : (!me.alive ? '已淘汰，无法邀请' : finished ? '游戏已结束'
-        : '暂无可邀请对象：需要对方在线、双方 64 像素内、家具不挡视线，且双方至少 1 筹码。');
+    const phase = pending.phase === 'selecting' ? 'selecting' : 'invited';
+    if (phase === 'invited') {
+      phaseEl.textContent = pending.role === 'to' ? `${pending.fromName} 邀请你猜拳，是否接受？` : `已邀请 ${pending.toName}，等待对方接受`;
+      const left = Math.max(0, Math.ceil((pending.expiresAt - now) / 1000));
+      timerEl.textContent = `邀请 ${left} 秒后超时自动取消，不扣筹码`;
+      for (const b of choices) { b.disabled = true; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
+      accept.hidden = pending.role !== 'to'; reject.hidden = pending.role !== 'to'; cancel.hidden = false;
+      unconfirmed.hidden = true; resultEl.hidden = true; resultClose.hidden = true;
+    } else {
+      phaseEl.textContent = '十秒选择 · 倒计时结束统一揭示（截止前可改）';
+      const deadline = pending.deadline;
+      const settled = now >= deadline; // 截止但权威结果未到
+      const left = Math.max(0, Math.ceil((deadline - now) / 1000));
+      timerEl.textContent = settled ? '等待结算…' : `剩余 ${left} 秒 · 截止前可改`;
+      const canChoose = !settled && me.alive && !finished && !selfDisabled();
+      for (const b of choices) { b.disabled = !canChoose; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
+      accept.hidden = reject.hidden = true; cancel.hidden = false;
+      unconfirmed.hidden = !rpsUnconfirmed;
+      if (rpsUnconfirmed) unconfirmed.textContent = '最近一次出拳未确认，已以权威状态为准；可继续修改。';
+      resultEl.hidden = true; resultClose.hidden = true;
     }
   }
   async function sendRps(extra) {
     if (gamesFlight || !me) return;
     if (extra.kind === 'rpsInvite' ? inviteDisabled() : (selfDisabled() || !me.alive || finished)) return;
     const request = { session: sessionGeneration, token: sessionToken, games: JSON.stringify(me.games || {}) };
-    const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me && !$('games').hidden;
-    gamesFlight = request; gamesResult = ''; keys.clear(); lastIntent = '';
+    // 不依赖面板可见性：关闭后的成功请求不会被丢弃（same 不含 host.hidden）。
+    const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    gamesFlight = request; gamesResult = '';
     syncGames();
     try {
-      // 统一请求流程：停意图 → 提交 → 会话/面板失效校验。
-      const stopped = await api('/api/input', { up: false, down: false, left: false, right: false });
-      if (!same()) return;
-      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
-      const result = await api('/api/play', { commandId: commandId(), ...extra });
+      keys.clear(); sendIntent(true);
+      const result = await rpsApi({ commandId: commandId(), ...extra });
       if (!same()) return;
       if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结果未确认');
-      // 状态未变时才采纳服务端游戏/筹码投影，旧响应不覆盖新快照。
+      // 状态未变时才采纳服务端投影，旧响应不覆盖新快照。
       if (request.games === JSON.stringify(me.games || {})) {
         if (result.games) me = { ...me, games: result.games };
         if (result.exploration) me = { ...me, exploration: result.exploration };
       }
-      if (typeof result.score === 'number') me = { ...me, score: result.score };
-      gamesResult = result.ok ? (result.resultText || '已结算') : (result.error || '请求被拒绝');
-    } catch {
-      if (same()) gamesResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
-    } finally {
-      if (gamesFlight === request) gamesFlight = null;
-      if (same()) { syncGames(); updateScoreDisplay(); }
-    }
+      if (typeof result.score === 'number') me = { ...me, score: Math.max(me.score || 0, result.score) };
+      syncRpsLifecycle();
+      gamesResult = result.ok ? (result.resultText || '') : (result.error || '请求被拒绝');
+      if (!result.ok && gamesResult) showToast(gamesResult);
+    } catch { if (same()) { gamesResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showToast(gamesResult); } }
+    finally { if (gamesFlight === request) gamesFlight = null; if (same()) { syncGames(); updateScoreDisplay(); } }
   }
   // ---------- J 互动：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
   async function attack() {
@@ -1062,7 +1204,6 @@
     const status = $('combat-status');
     if (status) { status.textContent = combatResult; status.hidden = !combatResult; }
   }
-  $('games-toggle').onclick = toggleGames;
   $('attack-button').onclick = () => attack();
   $('ranking-toggle').onclick = () => { if ($('ranking').hidden) openRanking(); else closeRanking(); };
   $('ranking-close').onclick = closeRanking;
@@ -1549,15 +1690,18 @@
     if (e.key === 'Escape') {
       if (!$('finish-overlay').hidden) { hideFinish(); return; }
       if (wheelOpen) { closeWheel(); return; }
+      if (!$('games').hidden) { e.preventDefault(); exitRps(); return; }
       clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return;
     }
     // 转盘 / 结算覆盖层打开时，忽略移动、E、J 等游戏内按键。
-    if (wheelOpen || !$('finish-overlay').hidden) return;
+    if (wheelOpen || !$('finish-overlay').hidden || !$('games').hidden) return;
     if (isTyping()) return;
     if (e.code === 'KeyE') {
       e.preventDefault(); if (e.repeat) return;
-      if (explorationPanel) closeExploration();
-      else { const nearest = nearbyEntities()[0]; if (nearest) openExploration(nearest.kind, nearest.id); else showToast('请靠近容器或 NPC（64 像素以内）'); }
+      if (explorationPanel) { closeExploration(); return; }
+      const hit = nearestInteractable();
+      if (hit) { if (hit.kind === 'player') select(hit.id); else openExploration(hit.kind, hit.id); }
+      else showToast('请靠近角色或容器/NPC（64 像素以内）');
       return;
     }
     if (e.code === 'KeyJ') {
