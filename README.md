@@ -116,14 +116,15 @@ node online/progression-browser-test.mjs   # 转盘/特殊券/计分/结算：19
 node online/mechanics-browser-test.mjs     # 17 项
 node online/exploration-browser-test.mjs   # 17 项
 node online/manager-browser-test.mjs       # 管理控制台真实浏览器：13 项
+SID_CHROME=/usr/bin/google-chrome node online/manager-live-browser-test.mjs https://game.afann.xyz 091256  # 公网只读验收：7 项
 
 # 公网部署冒烟（打完线上地址，32 项）
 node online/deploy-smoke.mjs https://game.afann.xyz
 ```
 
-> Chrome 路径默认取 Windows 的 `C:/Program Files/Google/Chrome/Application/chrome.exe`；在 Linux 上跑浏览器脚本时用 `SID_CHROME=/usr/bin/google-chrome` 覆盖（管理页浏览器脚本已支持该环境变量）。
+> Chrome 路径默认取 Windows 的 `C:/Program Files/Google/Chrome/Application/chrome.exe`；在 Linux 上跑浏览器脚本时用 `SID_CHROME=/usr/bin/google-chrome` 覆盖（管理页两个浏览器脚本已支持该环境变量）。
 
-最近一次结果：服务端 **29/25/15/11/14/30/35/23/23** 与浏览器 **19/17/17** 全部通过，页面全程无 JavaScript 异常；新增的管理控制台自测 **60/60**、真实浏览器验收 **13/13**、线上冒烟 **32/32**。浏览器脚本零依赖，结束时关闭自身启动的 Chrome 与 HTTP 子进程，日志与截图写入 `outputs/`。
+最近一次结果：服务端 **29/25/15/11/14/30/35/23/23** 与浏览器 **19/17/17** 全部通过，页面全程无 JavaScript 异常；新增的管理控制台自测 **60/60**、本地真实浏览器验收 **13/13**、公网只读浏览器验收 **7/7**、线上冒烟 **32/32**，VPS 隔离端口端到端（结束局→读排名→开新局）**12/12**。浏览器脚本零依赖，结束时关闭自身启动的 Chrome 与 HTTP 子进程，日志与截图写入 `outputs/`。
 
 ## 管理控制台（/manager）
 
