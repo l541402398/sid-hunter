@@ -145,6 +145,7 @@ function openStream(req, res, player) {
   // the sweep below is the deterministic fallback that marks the player offline.
   const write = payload => { res.write(`data: ${JSON.stringify(payload)}\n\n`); };
   try { write({ ...ROOM.publicSnapshot(), me: ROOM.privateSnapshot(player.id).me }); } catch { }
+  const previousEntry = ROOM.streams.get(player.id);
   const entry = { res, lastAck: Date.now(), close };
   ROOM.streams.set(player.id, entry);
   let closed = false;
@@ -160,10 +161,15 @@ function openStream(req, res, player) {
     if (closed) return;
     closed = true;
     cancelTick();
-    if (ROOM.streams.get(player.id) === entry) ROOM.streams.delete(player.id);
-    if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
+    // 仅当本 entry 仍是该玩家当前流时才下线：刷新时新流已写入 ROOM.streams，旧流关闭
+    // 不应误触发 setOffline；真实断线（无新流）则当前流即最新，照常下线并取消猜拳。
+    if (ROOM.streams.get(player.id) === entry) {
+      ROOM.streams.delete(player.id);
+      if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
+    }
     try { res.end(); } catch { /* already closed */ }
   }
+  if (previousEntry && previousEntry !== entry) previousEntry.close();
   req.on('close', close);
   req.on('error', close);
   res.on('close', close);
@@ -315,6 +321,15 @@ async function route(req, res, url) {
     const action = pathname.replace('/api/test/', '');
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (action === 'advance') { ROOM.room.clockOffset += Number(body.ms) || 0; return send(res, 200, { ok: true, offset: ROOM.room.clockOffset }); }
+    // 测试专用资源注入：猜拳要求双方各至少 1 筹码，但真实玩家从 0 筹码起步且获取途径是
+    // 随机转盘/搜寻，端到端用例需要确定性前置条件。仅在 SID_TEST=1 下存在。
+    if (action === 'resources') {
+      const target = ROOM.find(Number(body.playerId));
+      if (!target) return send(res, 404, { ok: false, error: 'player not found' });
+      if (Number.isFinite(Number(body.chips))) target.exploration.chips = Math.max(0, Number(body.chips));
+      if (Number.isFinite(Number(body.score))) target.score = Math.max(0, Number(body.score));
+      return send(res, 200, { ok: true, playerId: target.id, chips: target.exploration.chips, score: target.score });
+    }
     if (action === 'sessions') {
       return send(res, 200, { ok: true, sessions: [...ROOM.room.sessions].map(([sessionId, playerId]) => ({ sessionId, playerId })) });
     }

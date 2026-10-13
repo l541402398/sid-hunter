@@ -35,7 +35,7 @@ PORT=8787 node online/server.js
 
 ## 玩法与操作
 
-`WASD` / 方向键移动，`E` 就近打开/关闭容器或 NPC 互动，`J` 互动（无伤害），点击角色或名单查看公开档案，「线索背包」查看自己的筹码与线索，「排行榜」查看分数与结束条件，「我的信息」需按住/点击后才显示。
+`WASD` / 方向键移动，`E` 就近打开玩家交互菜单、容器或 NPC 互动，`J` 攻击（无伤害）。点击角色或名单查看公开档案，靠近玩家后可在菜单选择「邀请猜拳」；「线索背包」查看自己的筹码与线索，「排行榜」查看分数与结束条件，「我的信息」点击后显示。
 
 ## 游戏设计：单局连续对局
 
@@ -72,6 +72,15 @@ PORT=8787 node online/server.js
   - **洗心革面券**（绿，仅坏人转盘）：将自己由坏人转换为好人。
   - **轮回券**（红，仅坏人转盘）：重新随机自己的身份特征（颜色/隐藏属性/S-ID，并重置公开状态）。
 
+### 联机猜拳：邀请确认与十秒选择
+
+- 靠近玩家（64 像素内、家具不挡视线）后按 `E` 或点击角色，在交互菜单选择「邀请猜拳」。已移除工具栏「互动小游戏」入口，不保留旧邀请路径；NPC 转盘仍从原 NPC 互动面板打开。
+- 被邀请者自动收到确认界面，可同意或拒绝；邀请 30 秒未回应自动取消。双方需在线、存活且各有至少 1 筹码。
+- 同意后由服务端设置共同的 **10 秒**选择截止时间；上方左侧显示自己的像素手势，右侧隐藏对手选择，下方选择石头、剪刀、布。截止前可反复修改，本方立即反馈。
+- 即使双方提前选完也不会提前揭示；截止后服务端锁定最后有效选择、同步揭示并判胜负。胜者筹码 +1、败者 −1、平局不变，沿用原积分与 5 秒冷却。
+- 任一方未出拳、拒绝、取消、离线、淘汰或整局结束，本次取消、不扣筹码、不计胜负。重复邀请、越权操作和过期选择会被拒绝；乱序选择用递增版本号保护。
+- 选择阶段对手手势不下发给客户端；结算后只向两位参与者下发各自的回合结果，第三方公开快照始终不含猜拳私密状态。
+
 ### 其它既有机制
 - **躲藏**：家具视觉与底部碰撞足迹分离，角色身体可被家具遮挡；遮挡时人物与下方名牌同帧隐藏（含自己与 NPC），解除同帧恢复。
 - **交互描边**：仅 9 个容器与 2 名 NPC 有描边，亮色=可操作 / 灰色=范围内不可用 / 暗色=太远。
@@ -86,20 +95,21 @@ PORT=8787 node online/server.js
 | --- | --- | --- |
 | `RULES` | `endRemainingPlayers` / `timeLimitMs` | `100` / `7200000`（2 小时） |
 | `WHEEL` | `slotCount` / `spinCosts` / `chipAmounts` / `specialCount` / `specials` | `10` / 见上 / 见上 / `{good:2,bad:2}` / `{good:['clue'],bad:['reform','rebirth']}` |
-| `PLAY_CONFIG` | `rpsStake` `rpsTimeoutMs` `rpsCooldownMs` `attackRange` `attackCooldownMs` `attackConeCos` `stunMs` `freezeMs` | `1` `30000` `5000` `48` `12000` `0.5` `800` `1000` |
+| `PLAY_CONFIG` | `rpsStake` `rpsTimeoutMs` `rpsRoundMs` `rpsCooldownMs` `attackRange` `attackCooldownMs` `attackConeCos` `stunMs` `freezeMs` | `1` `30000` `10000` `5000` `48` `1200` `0.5` `800` `1000` |
 | — | `INTERACT_RANGE` | `64`（容器/NPC 互动与猜拳的距离门槛） |
 
 ## 权威性与隐私边界
 
 - 位置、移动、技能、探索奖励、转盘落格与费用、猜拳结算、J 互动、计分与结束判定全部由服务端计算，客户端只提交意图并渲染快照。
 - 公开投影只含位置、公开颜色、已公开属性、已公开 S-ID 段、`score` 以及动画用 `facing`/`lastAttackAt`/`stunUntil`/`freezeUntil`；筹码、线索、技能次数、身份、生命仅本人可见。
-- 私密线索不进入公开档案、名单搜索与公共日志；对方猜拳出拳不会下发给对手。
+- 私密线索不进入公开档案、名单搜索与公共日志；猜拳选择阶段仅下发本人出拳，对手出拳只在服务端截止结算后向两位参与者揭示。
 - 服务端 20Hz 快照采用截止时间补偿调度（单次长卡顿只补一次，不突发追赶）。
 
 ## 测试与验收
 
 ```bash
 # 服务端（零依赖，直接 node 运行）
+node online/rps-flow-test.mjs              # 新猜拳状态机、隐私与截止边界
 node online/mechanics-test.mjs             # 机制：29 项
 node online/exploration-test.mjs           # 探索/兑换/重置：25 项
 node online/progression-test.mjs           # 转盘/特殊券/计分/三种结束：15 项
@@ -112,6 +122,7 @@ node online/privacy-reset-qa.mjs           # 23 项
 node online/manager-test.mjs               # 管理控制台：授权码/上局排名/开新局/限流：60 项
 
 # 真实 Chrome（原生 CDP，需系统 Chrome）
+SID_CHROME=/usr/bin/google-chrome node online/rps-browser-test.mjs # 双玩家猜拳与窄屏验收
 node online/progression-browser-test.mjs   # 转盘/特殊券/计分/结算：19 项
 node online/mechanics-browser-test.mjs     # 17 项
 node online/exploration-browser-test.mjs   # 17 项

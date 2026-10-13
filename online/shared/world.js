@@ -18,7 +18,7 @@
   // 转盘奖励（原 wheelRewards）已迁移到 WHEEL：单局连续对局取消“每局一次”限制，
   // 首次免费、之后每次消耗筹码且次数越多越贵，每次放置 slotCount 个物品（筹码 + 特殊券）。
   const PLAY_CONFIG = {
-    rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000,
+    rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, rpsRoundMs: 10000,
     attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000
   };
   // 结束规则：仅三种结束方式——存活淘汰至 endRemainingPlayers、坏人全灭、时间到。

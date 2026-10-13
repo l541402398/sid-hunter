@@ -154,7 +154,7 @@ function createRoom(options = {}) {
       walk: 0,
       spriteFacing: 'front',
       exploration: { chips: 0, clues: [], searched: [] },
-      games: { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '' },
+      games: { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
       combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
       skills: makeSkills(faction)
     };
@@ -173,6 +173,10 @@ function createRoom(options = {}) {
     p.online = false;
     p.lastSeen = now();
     p.input = { up: false, down: false, left: false, right: false };
+    // 任意断线立即取消其参与的猜拳，不扣筹码、不计分（结算需双方在线）。
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === id || ch.toId === id) cancelChallenge(ch, now(), '参与者已离线');
+    }
   }
   function movementLocked(p, t) {
     return t < p.combat.stunUntil || t < p.combat.freezeUntil;
@@ -194,8 +198,8 @@ function createRoom(options = {}) {
   }
   function step(dt) {
     const t = now();
-    syncRoom(t);
     checkFinish(t);
+    syncRoom(t);
     if (room.finished) return;
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(0.05, dt)) : 0;
     for (const p of room.players) {
@@ -358,7 +362,7 @@ function createRoom(options = {}) {
   }
   // 仅三种结束方式。注意 aliveFloor 必须加 players.length > endRemainingPlayers 守卫：
   // 否则小房间（如 20 人）会在开局瞬间就满足“存活 <= 100”而立即结束，这是有意设计。
-  function checkFinish(t = now()) {
+  function checkFinish(t = now(), syncChallenges = true) {
     if (room.finished) return;
     if (!room.players.length) return;
     const alive = room.players.filter(p => p.alive);
@@ -377,8 +381,8 @@ function createRoom(options = {}) {
         : reason === 'badWiped' ? '游戏结束：坏人已全部出局。'
         : `游戏结束：时间到（${rules.timeLimitMs / 3600000}小时）。`);
     }
-    // 未结束时同样清理过期/失效挑战（淘汰会因此关闭猜拳），与旧实现保持一致；syncRoom 不回调查 checkFinish，无递归。
-    syncRoom(t);
+    // syncRoom 以 false 调用此函数只判整体结束；避免相互递归。
+    if (syncChallenges) syncRoom(t);
   }
   // Strict uppercase match. Whitespace is ignored so a pasted value still works, but
   // lowercase input is a format error: it never consumes a charge or starts a cooldown.
@@ -449,8 +453,8 @@ function createRoom(options = {}) {
   }
   function useSkill(sessionId, body) {
     const t = now();
-    syncRoom(t);
     checkFinish(t);
+    syncRoom(t);
     if (room.finished) return reject('游戏已结束，技能已冻结');
     const actor = playerBySession(sessionId);
     if (!actor) return reject('身份无效，请重新加入');
@@ -510,7 +514,9 @@ function createRoom(options = {}) {
     return null;
   }
   function interact(sessionId, body) {
-    checkFinish(now());
+    const t = now();
+    checkFinish(t);
+    syncRoom(t);
     const actor = playerBySession(sessionId);
     const fail = reason => ({ ...reject(reason), resultText: reason, exploration: actor ? explorationProjection(actor) : null });
     if (!actor) return fail('身份无效，请重新加入');
@@ -558,8 +564,25 @@ function createRoom(options = {}) {
     return { ok: true, resultText, exploration: explorationProjection(actor) };
   }
   function gamesProjection(p) {
-    return { wheelSpins: { ...p.games.wheelSpins }, rpsPending: p.games.rpsPending ? { ...p.games.rpsPending } : null,
-      rpsUntil: p.games.rpsUntil, lastResult: p.games.lastResult };
+    // rpsPending 投影：仅展示本人 ownChoice/ownRevision，绝不泄露对手出拳或是否已选。
+    const pending = p.games.rpsPending;
+    let rpsPending = null;
+    if (pending) {
+      const ch = room.challenges.get(pending.id);
+      const sel = ch ? ch.selections[p.id] : null;
+      rpsPending = {
+        id: pending.id, fromId: pending.fromId, fromName: pending.fromName,
+        toId: pending.toId, toName: pending.toName, role: pending.role,
+        phase: pending.phase, expiresAt: pending.expiresAt,
+        startedAt: pending.startedAt || 0, deadline: pending.deadline || 0,
+        ownChoice: sel ? sel.choice : null, ownRevision: sel ? sel.revision : 0
+      };
+    }
+    return {
+      wheelSpins: { ...p.games.wheelSpins }, rpsPending, rpsUntil: p.games.rpsUntil,
+      lastResult: p.games.lastResult,
+      rpsResult: p.games.rpsResult ? { ...p.games.rpsResult } : null
+    };
   }
   function combatProjection(p) {
     return { facing: { ...p.combat.facing }, attackUntil: p.combat.attackUntil, lastAttackAt: p.combat.lastAttackAt,
@@ -571,23 +594,88 @@ function createRoom(options = {}) {
       exploration: actor ? explorationProjection(actor) : null,
       games: actor ? gamesProjection(actor) : null, combat: actor ? combatProjection(actor) : null, ...extra };
   }
-  function closeChallenge(challenge, t, resultFor) {
+  // 取消挑战：不扣筹码、不计分，写入私密末局结果（取消不泄露对手选择）。
+  // reason 可为字符串或 (player)=>string，用于按本人视角反馈“谁未选”。
+  function cancelChallenge(challenge, t, reason) {
+    const from = find(challenge.fromId), to = find(challenge.toId);
     room.challenges.delete(challenge.id);
-    for (const id of [challenge.fromId, challenge.toId]) {
-      const p = find(id);
+    for (const p of [from, to]) {
       if (!p) continue;
+      const text = typeof reason === 'function' ? reason(p) : reason;
+      const mySel = challenge.selections[p.id];
       p.games.rpsPending = null;
       p.games.rpsUntil = t + playConfig.rpsCooldownMs;
-      p.games.lastResult = resultFor(p);
+      p.games.lastResult = `猜拳已取消：${text}，不扣筹码。`;
+      p.games.rpsResult = {
+        id: challenge.id, status: 'cancelled',
+        ownChoice: mySel ? mySel.choice : null,
+        opponentChoice: null,
+        opponentName: p.id === challenge.fromId ? (to && to.name) : (from && from.name),
+        outcome: null, delta: 0, reason: text, completedAt: t
+      };
     }
   }
-  // 所有请求与投影在同一同步调用栈内先清理过期挑战，再验证并结算。
+  // 截止结算：仅当双方都已选且仍存活/在线/筹码足够才结算；否则取消（未选齐则反馈谁未选）。
+  // 进入选择阶段后锁定双方，不重新限制距离与视线。
+  function settleChallenge(challenge, t) {
+    const from = find(challenge.fromId), to = find(challenge.toId);
+    const fromSel = challenge.selections[challenge.fromId], toSel = challenge.selections[challenge.toId];
+    const fromChose = !!fromSel.choice, toChose = !!toSel.choice;
+    const valid = from && to && from.alive && to.alive && from.online && to.online &&
+      from.exploration.chips >= playConfig.rpsStake && to.exploration.chips >= playConfig.rpsStake;
+    if (valid && fromChose && toChose) {
+      const delta = WORLD.rpsOutcome(fromSel.choice, toSel.choice) * playConfig.rpsStake;
+      from.exploration.chips += delta;
+      to.exploration.chips = Math.max(0, to.exploration.chips - delta);
+      if (delta > 0) { award(from, 'rpsWin'); award(to, 'rpsLose'); }
+      else if (delta < 0) { award(to, 'rpsWin'); award(from, 'rpsLose'); }
+      else { award(from, 'rpsDraw'); award(to, 'rpsDraw'); }
+      const labels = { rock: '石头', paper: '布', scissors: '剪刀' };
+      room.challenges.delete(challenge.id);
+      for (const p of [from, to]) {
+        const mine = p.id === challenge.fromId ? fromSel : toSel, opp = p.id === challenge.fromId ? toSel : fromSel;
+        const outcome = delta === 0 ? 'draw' : (p.id === challenge.fromId ? (delta > 0 ? 'win' : 'lose') : (delta > 0 ? 'lose' : 'win'));
+        p.games.rpsPending = null;
+        p.games.rpsUntil = t + playConfig.rpsCooldownMs;
+        const change = p.id === challenge.fromId ? delta : -delta;
+        p.games.lastResult = `猜拳结算：你出${labels[mine.choice]}，${p.id === challenge.fromId ? to.name : from.name}出${labels[opp.choice]}；${change === 0 ? '平局' : change > 0 ? '你获胜' : '你落败'}，筹码${change > 0 ? '+' : ''}${change}。`;
+        p.games.rpsResult = {
+          id: challenge.id, status: 'resolved',
+          ownChoice: mine.choice, opponentChoice: opp.choice,
+          opponentName: p.id === challenge.fromId ? to.name : from.name,
+          outcome, delta: p.id === challenge.fromId ? delta : -delta,
+          reason: 'settled', completedAt: t
+        };
+      }
+      return;
+    }
+    if (!valid) { cancelChallenge(challenge, t, '结算条件不满足（在线、存活或筹码不足）'); return; }
+    const reason = p => {
+      const meChose = p.id === challenge.fromId ? fromChose : toChose;
+      const otherChose = p.id === challenge.fromId ? toChose : fromChose;
+      if (!meChose && !otherChose) return '双方均未出拳';
+      return meChose ? '对方未出拳' : '你未出拳';
+    };
+    cancelChallenge(challenge, t, reason);
+  }
+  // 统一同步入口：所有请求与投影先判整体结束条件，结束后立即取消不结算；
+  // 邀请阶段仅在超时取消，选择阶段到 deadline 才同步结算一次（即便双方都已选也不提前结算）。
   function syncRoom(t) {
-    for (const challenge of room.challenges.values()) {
-      const from = find(challenge.fromId), to = find(challenge.toId);
-      const reason = room.finished ? '游戏已结束' : !from || !to || !from.alive || !to.alive ? '参与者已淘汰'
-        : t >= challenge.expiresAt ? '邀请已超时' : '';
-      if (reason) closeChallenge(challenge, t, () => `猜拳已取消：${reason}，不扣筹码。`);
+    checkFinish(t, false);
+    if (room.finished) {
+      for (const ch of [...room.challenges.values()]) cancelChallenge(ch, t, '游戏已结束');
+      return;
+    }
+    for (const ch of [...room.challenges.values()]) {
+      const from = find(ch.fromId), to = find(ch.toId);
+      // 任一参与者被淘汰/不存在则立即取消（不结算），覆盖“淘汰同步取消挑战”。
+      if (!from || !to || !from.alive || !to.alive) { cancelChallenge(ch, t, '参与者已淘汰'); continue; }
+      if (!from.online || !to.online) { cancelChallenge(ch, t, '参与者不在线'); continue; }
+      if (ch.phase === 'invited') {
+        if (t >= ch.expiresAt) cancelChallenge(ch, t, '邀请已超时');
+      } else if (ch.phase === 'selecting') {
+        if (t >= ch.deadline) settleChallenge(ch, t);
+      }
     }
   }
   function rpsValidation(from, to) {
@@ -601,15 +689,15 @@ function createRoom(options = {}) {
   }
   function play(sessionId, body) {
     const t = now();
-    syncRoom(t);
     checkFinish(t);
+    syncRoom(t);
     const actor = playerBySession(sessionId);
     const fail = reason => mechanicsResponse(actor, false, reason);
     if (!actor) return fail('身份无效，请重新加入');
     if (room.finished) return fail('游戏已结束，小游戏已冻结');
     if (!actor.alive) return fail('你已淘汰，不能参与小游戏');
     if (movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能参与小游戏');
-    if (!actor.online && (!body || !['rpsReply', 'rpsCancel'].includes(body.kind))) return fail('你不在线，不能参与小游戏');
+    if (!actor.online && (!body || !['rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(body.kind))) return fail('你不在线，不能参与小游戏');
     if (!body || typeof body !== 'object') return fail('小游戏指令无效');
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
     if (!commandId.trim()) return fail('缺少 commandId');
@@ -667,50 +755,79 @@ function createRoom(options = {}) {
       checkFinish(now());
       extra = { wheel: { slots: pool, slotIndex, item }, cost, spins: spins + 1, faction: actor.faction, prize: item.kind === 'chips' ? item.amount : null };
     } else if (body.kind === 'rpsInvite') {
-      if (!validChoice(body.choice)) return fail('出拳必须是 rock、paper 或 scissors');
-      const target = typeof body.targetId === 'number' || typeof body.targetId === 'string' && body.targetId.trim()
+      // 邀请不需 choice：rpsPending 仅保存邀请/选择元数据，不预选出拳；旧邀请若带 choice 也不锁定。
+      const target = typeof body.targetId === 'number' || (typeof body.targetId === 'string' && body.targetId.trim())
         ? find(Number(body.targetId)) : null;
       const reason = rpsValidation(actor, target);
       if (reason) return fail(reason);
-      if (actor.games.rpsPending || target.games.rpsPending) return fail('参与者已有待回应的猜拳');
+      if (actor.games.rpsPending || target.games.rpsPending) return fail('参与者已有待回应或进行的猜拳');
       if (t < actor.games.rpsUntil || t < target.games.rpsUntil) return fail('猜拳冷却中');
-      const challenge = { id: randomUUID(), fromId: actor.id, toId: target.id, choice: body.choice,
-        expiresAt: t + playConfig.rpsTimeoutMs };
+      const challenge = {
+        id: randomUUID(), fromId: actor.id, toId: target.id, phase: 'invited',
+        createdAt: t, expiresAt: t + playConfig.rpsTimeoutMs, startedAt: 0, deadline: 0,
+        selections: {
+          [actor.id]: { choice: null, revision: 0 },
+          [target.id]: { choice: null, revision: 0 }
+        }
+      };
       room.challenges.set(challenge.id, challenge);
       const metadata = { id: challenge.id, fromId: actor.id, fromName: actor.name, toId: target.id,
-        toName: target.name, expiresAt: challenge.expiresAt };
-      actor.games.rpsPending = { ...metadata, role: 'from' };
+        toName: target.name, role: 'from', phase: 'invited', expiresAt: challenge.expiresAt, startedAt: 0, deadline: 0 };
+      actor.games.rpsPending = { ...metadata };
       target.games.rpsPending = { ...metadata, role: 'to' };
-      actor.games.lastResult = `已邀请${target.name}猜拳，出拳已锁定，等待对方回应。`;
+      // 新邀请清理双方旧的末局结果。
+      actor.games.rpsResult = null;
+      target.games.rpsResult = null;
+      actor.games.lastResult = `已邀请${target.name}猜拳，等待对方回应。`;
       target.games.lastResult = `${actor.name}邀请你猜拳，可自愿回应或取消。`;
-    } else if (body.kind === 'rpsReply' || body.kind === 'rpsCancel') {
+    } else if (body.kind === 'rpsReply' || body.kind === 'rpsAccept' || body.kind === 'rpsReject') {
+      // rpsReply 与 rpsAccept 同为“接受”（仅 to）；rpsReject 仅 to 拒绝；rpsCancel 任一方见下。
       const challenge = room.challenges.get(body.challengeId);
       if (!challenge) return fail('猜拳邀请不存在或已结束');
       if (actor.id !== challenge.fromId && actor.id !== challenge.toId) return fail('无权操作他人的猜拳');
-      if (body.kind === 'rpsCancel') {
-        closeChallenge(challenge, t, () => '猜拳已取消，不扣筹码。');
+      if (challenge.phase !== 'invited') return fail('当前阶段无法回应此猜拳');
+      if (actor.id !== challenge.toId) return fail('只有被邀请者可以回应');
+      if (body.kind === 'rpsReject') {
+        cancelChallenge(challenge, t, '对方拒绝');
       } else {
-        if (actor.id !== challenge.toId) return fail('只有被邀请者可以回应');
-        if (!validChoice(body.choice)) return fail('出拳必须是 rock、paper 或 scissors');
+        // 接受仍需按现有距离/视线/余额校验；校验失败则取消（不扣）。
         const from = find(challenge.fromId), to = find(challenge.toId);
         const reason = rpsValidation(from, to);
         if (reason) {
-          closeChallenge(challenge, t, () => `猜拳已取消：${reason}，不扣筹码。`);
-          room.processed.set(commandId, t);
-          return fail(actor.games.lastResult);
+          cancelChallenge(challenge, t, reason);
+          return fail(`猜拳已取消：${reason}，不扣筹码。`);
         }
-        const delta = WORLD.rpsOutcome(challenge.choice, body.choice) * playConfig.rpsStake;
-        from.exploration.chips += delta;
-        to.exploration.chips -= delta;
-        if (delta > 0) { award(from, 'rpsWin'); award(to, 'rpsLose'); }
-        else if (delta < 0) { award(to, 'rpsWin'); award(from, 'rpsLose'); }
-        else { award(from, 'rpsDraw'); award(to, 'rpsDraw'); }
-        const labels = { rock: '石头', paper: '布', scissors: '剪刀' };
-        closeChallenge(challenge, t, p => {
-          const isFrom = p.id === from.id, change = isFrom ? delta : -delta;
-          return `猜拳结算：你出${labels[isFrom ? challenge.choice : body.choice]}，${isFrom ? to.name : from.name}出${labels[isFrom ? body.choice : challenge.choice]}；${change === 0 ? '平局' : change > 0 ? '你获胜' : '你落败'}，筹码${change > 0 ? '+' : ''}${change}。`;
-        });
-        extra = { delta: -delta };
+        // 接受设共同 startedAt 与 deadline=t+rpsRoundMs，phase 进入 selecting；截止前不结算。
+        challenge.phase = 'selecting';
+        challenge.startedAt = t;
+        challenge.deadline = t + playConfig.rpsRoundMs;
+        for (const p of [from, to]) {
+          p.games.rpsPending.phase = 'selecting';
+          p.games.rpsPending.startedAt = t;
+          p.games.rpsPending.deadline = challenge.deadline;
+        }
+        actor.games.lastResult = `你已接受${from.id === actor.id ? to.name : from.name}的猜拳，请在倒计时内出拳。`;
+      }
+    } else if (body.kind === 'rpsCancel') {
+      const challenge = room.challenges.get(body.challengeId);
+      if (!challenge) return fail('猜拳邀请不存在或已结束');
+      if (actor.id !== challenge.fromId && actor.id !== challenge.toId) return fail('无权操作他人的猜拳');
+      cancelChallenge(challenge, t, '已取消');
+    } else if (body.kind === 'rpsChoose') {
+      // 双方均可修改自己的出拳；choices 只保存在 room.challenges，private 投影仅本人的 ownChoice/ownRevision。
+      const challenge = room.challenges.get(body.challengeId);
+      if (!challenge) return fail('猜拳邀请不存在或已结束');
+      if (actor.id !== challenge.fromId && actor.id !== challenge.toId) return fail('无权操作他人的猜拳');
+      if (challenge.phase !== 'selecting') return fail('尚未进入出拳阶段');
+      if (!validChoice(body.choice)) return fail('出拳必须是 rock、paper 或 scissors');
+      if (typeof body.revision !== 'number' || !Number.isSafeInteger(body.revision) || body.revision < 0) return fail('revision 必须为非负安全整数');
+      const sel = challenge.selections[actor.id];
+      // 用每人递增安全整数 revision 拒绝旧/乱序请求；相同 revision+choice 视为幂等成功。
+      if (body.revision < sel.revision) return fail('请求已过期或乱序，请使用更大的 revision');
+      if (body.revision !== sel.revision || body.choice !== sel.choice) {
+        sel.choice = body.choice;
+        sel.revision = body.revision;
+        actor.games.lastResult = `你已出拳：${body.choice}，等待截止结算。`;
       }
     } else return fail('未知小游戏');
     room.processed.set(commandId, t);
@@ -718,8 +835,8 @@ function createRoom(options = {}) {
   }
   function attack(sessionId, body) {
     const t = now();
-    syncRoom(t);
     checkFinish(t);
+    syncRoom(t);
     const actor = playerBySession(sessionId);
     const fail = reason => mechanicsResponse(actor, false, reason);
     if (!actor) return fail('身份无效，请重新加入');

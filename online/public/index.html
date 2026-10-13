@@ -15,7 +15,7 @@
     <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span></div>
   </header>
   <nav class="toolbar" aria-label="公共功能">
-    <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="log-toggle" aria-expanded="false">≡ 公共日志 <span id="log-count">0</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="games-toggle" aria-expanded="false" aria-controls="games">互动小游戏</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking">排行榜</button></div>
+    <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="log-toggle" aria-expanded="false">≡ 公共日志 <span id="log-count">0</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking">排行榜</button></div>
     <div class="toolbar-right"><span class="private-hint">点击开闭 · 眼睛独立显示</span><span class="score-chip" title="我的分数">分数 <b id="score-value">0</b></span><button id="clue-bag" aria-label="打开或关闭私密线索背包" aria-controls="exploration" aria-expanded="false">线索背包</button><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false">我的信息</button></div>
   </nav>
   <main class="stage" id="stage">
@@ -38,7 +38,7 @@
     <section id="candidates" class="panel candidates" hidden aria-label="重叠角色候选"></section>
     <section id="mine" class="panel mine" hidden aria-label="我的信息，秘密字段可独立切换显示"></section>
     <section id="exploration" class="panel exploration" hidden aria-label="私密探索与线索背包"></section>
-    <section id="games" class="panel games" hidden aria-label="猜拳与互动小游戏"></section>
+    <section id="games" class="panel games" hidden aria-label="猜拳对战"></section>
     <section id="offline-summary" class="panel offline-summary" hidden aria-label="离线期间事件摘要"></section>
     <aside id="ranking" class="panel ranking" hidden aria-label="实时排行榜">
       <div class="panel-heading"><div><small>SCOREBOARD</small><h2>排行榜</h2></div><button id="ranking-close" class="icon-button" aria-label="收起排行榜">×</button></div>
