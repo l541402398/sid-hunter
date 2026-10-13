@@ -102,6 +102,7 @@
   const revealedFieldIds = new Set();
   let devCsrf = null, resetBusy = false, npcBusy = false;
   let sessionToken = null, stream = null, awaitingFirst = true, lastSkillTick = -1;
+  let ssoRequired = false, ssoLoginUrl = '', ssoLogoutUrl = '', loginRedirecting = false;
   let lastTargetSig = '', lastLogSig = '', lastRosterSig = '';
   const offlineEvents = new Set();
   const confirmedDigests = new Set(); // only populated after server ACK succeeds
@@ -122,13 +123,55 @@
   function headers() {
     const h = { 'Content-Type': 'application/json' };
     const token = sessionToken || localStorage.getItem('sid_session_token');
+    const user = localStorage.getItem('sid_user_token');
     if (token) h['X-Sid-Session'] = token;
+    if (user) h['User-Token'] = user;
     return h;
+  }
+  function serviceUrl() { return location.origin + location.pathname; }
+  function redirectLogin() {
+    if (loginRedirecting) return;
+    loginRedirecting = true;
+    if (!ssoLoginUrl) { loginRedirecting = false; showRelogin('无法打开单点登录'); return; }
+    const service = encodeURIComponent(serviceUrl());
+    location.href = ssoLoginUrl.includes('{service}')
+      ? ssoLoginUrl.replace('{service}', service)
+      : ssoLoginUrl + (ssoLoginUrl.includes('?') ? '&' : '?') + 'service=' + service;
+  }
+  function redirectLogout() {
+    localStorage.removeItem('sid_user_token');
+    localStorage.removeItem('sid_session_token');
+    sessionToken = null;
+    if (stream) { try { stream.close(); } catch { } stream = null; }
+    const logout = ssoLogoutUrl || String(ssoLoginUrl || '').split('?')[0].replace(/\/login\/?$/, '/logout');
+    if (!logout) { showRelogin('已退出本局'); return; }
+    loginRedirecting = true;
+    location.href = logout;
+  }
+  function showRelogin(message) {
+    $('join-page').hidden = false;
+    $('join-hint').textContent = message;
+    $('join-error').textContent = '';
+    $('nickname').hidden = true;
+    $('join-submit').hidden = false;
+    $('join-submit').textContent = '重新登录';
+    $('join-submit').dataset.mode = 'relogin';
+  }
+  function showUser(user) {
+    if (!user) return;
+    const el = $('sso-user');
+    el.hidden = false;
+    el.textContent = `${user.name || user.emp_no}（${user.emp_no}）`;
+    $('sso-logout').hidden = false;
   }
   async function api(path, body, method) {
     const res = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: headers(), body: body ? JSON.stringify(body) : undefined });
     let data = {};
     try { data = await res.json(); } catch { data = {}; }
+    if (data && data.auth === false) {
+      localStorage.removeItem('sid_user_token');
+      redirectLogin();
+    }
     return { ...data, status: res.status };
   }
   // Insecure LAN contexts have no crypto.randomUUID, so the command id is random string based.
@@ -146,19 +189,35 @@
   }
   function openStream() {
     const token = sessionToken || localStorage.getItem('sid_session_token');
+    const user = localStorage.getItem('sid_user_token');
     if (stream) { try { stream.close(); } catch { } }
     awaitingFirst = true;
     // EventSource cannot set headers, so the reconnect token rides in the query string.
     // It is the same random credential as the HttpOnly cookie; identity is never derived
-    // from a nickname.
-    stream = new EventSource(token ? `/api/stream?sid_token=${encodeURIComponent(token)}` : '/api/stream');
+    // from a nickname. user_token is the same CAS session as the User-Token header.
+    const query = new URLSearchParams();
+    if (token) query.set('sid_token', token);
+    if (user) query.set('user_token', user);
+    const qs = query.toString();
+    stream = new EventSource(qs ? `/api/stream?${qs}` : '/api/stream');
     stream.addEventListener('reset', resetToJoin);
     stream.onmessage = event => { try { applySnapshot(JSON.parse(event.data)); } catch { } };
     stream.onerror = () => { /* EventSource retries on its own with the advertised retry. */ };
   }
   async function join(nickname) {
-    const r = await api('/api/join', { nickname: String(nickname || '').slice(0, 8) });
-    if (r.status !== 200 || !r.ok) { $('join-error').textContent = r.error || '加入失败'; return; }
+    const r = await api('/api/join', ssoRequired ? {} : { nickname: String(nickname || '').slice(0, 8) });
+    if (r.auth === false) return;
+    if (r.status !== 200 || !r.ok) {
+      $('join-error').textContent = r.error || '加入失败';
+      $('join-page').hidden = false;
+      if (ssoRequired) {
+        $('nickname').hidden = true;
+        $('join-submit').hidden = false;
+        $('join-submit').textContent = '进入办公室';
+        $('join-submit').dataset.mode = 'join';
+      }
+      return;
+    }
     sessionToken = r.sessionToken;
     localStorage.setItem('sid_session_token', r.sessionToken);
     const host = (r.lan && r.lan[0]) || location.hostname || '127.0.0.1';
@@ -170,13 +229,68 @@
     openStream();
     loadCapabilities();
   }
+  async function ensureLogin() {
+    const params = new URLSearchParams(location.search);
+    const ticket = params.get('ticket');
+    if (ticket) history.replaceState(null, '', location.pathname + location.hash);
+    let token = localStorage.getItem('sid_user_token');
+    if (ticket && !token) {
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ticket, service: serviceUrl() })
+        });
+        const data = await res.json();
+        if (data.token) {
+          token = data.token;
+          localStorage.setItem('sid_user_token', token);
+          if (data.user && data.user.emp_no) return data.user;
+        }
+      } catch { /* 没有换到会话时再提示重试 */ }
+      if (!token) { showRelogin('单点登录失败，请重试'); return null; }
+    }
+    if (!token) { redirectLogin(); return null; }
+    const me = await api('/api/auth/me', null, 'GET').catch(() => null);
+    if (me && me.emp_no) return me;
+    if (me && me.auth === false) return null;
+    showRelogin('无法确认登录状态');
+    return null;
+  }
   async function boot() {
+    let cfg = { required: false, loginUrl: '' };
+    try { cfg = await (await fetch('/api/auth/config')).json(); } catch { cfg = { required: false, loginUrl: '' }; }
+    ssoRequired = !!cfg.required;
+    ssoLoginUrl = cfg.loginUrl || '';
+    ssoLogoutUrl = cfg.logoutUrl || '';
+    if (!ssoRequired) {
+      sessionToken = localStorage.getItem('sid_session_token');
+      const storedLan = localStorage.getItem('sid_lan');
+      if (storedLan) $('lan-address').textContent = storedLan;
+      const s = await api('/api/state', null, 'GET').catch(() => ({}));
+      if (s && s.me && s.me.id !== undefined) { applySnapshot(s); $('join-page').hidden = true; openStream(); loadCapabilities(); }
+      else { localStorage.removeItem('sid_session_token'); sessionToken = null; $('join-page').hidden = false; }
+      requestAnimationFrame(frame);
+      return;
+    }
+    $('nickname').hidden = true;
+    $('join-submit').hidden = true;
+    $('join-hint').textContent = '正在通过单点登录确认身份…';
+    $('join-page').hidden = false;
+    const user = await ensureLogin();
+    if (!user) { requestAnimationFrame(frame); return; }
+    showUser(user);
     sessionToken = localStorage.getItem('sid_session_token');
     const storedLan = localStorage.getItem('sid_lan');
     if (storedLan) $('lan-address').textContent = storedLan;
     const s = await api('/api/state', null, 'GET').catch(() => ({}));
+    if (s && s.auth === false) { requestAnimationFrame(frame); return; }
     if (s && s.me && s.me.id !== undefined) { applySnapshot(s); $('join-page').hidden = true; openStream(); loadCapabilities(); }
-    else { localStorage.removeItem('sid_session_token'); sessionToken = null; $('join-page').hidden = false; }
+    else {
+      localStorage.removeItem('sid_session_token');
+      sessionToken = null;
+      await join();
+    }
     requestAnimationFrame(frame);
   }
 
@@ -464,8 +578,20 @@
     $('dev-reset').hidden = true; $('dev-npc').hidden = true; $('dev-management').hidden = true; closeResetDialog(false);
     if ($('rules-view').open) closeRules();
     renderPublic(); renderRoster(); renderLogs(); updateOfflineUI();
-    $('join-page').hidden = false; $('join-error').textContent = '本局已重置，请主动加入新局。';
-    $('nickname').value = ''; $('nickname').focus({ preventScroll: true });
+    $('join-page').hidden = false;
+    if (ssoRequired) {
+      $('nickname').hidden = true;
+      $('join-submit').hidden = false;
+      $('join-submit').textContent = '进入办公室';
+      $('join-submit').dataset.mode = 'join';
+      $('join-hint').textContent = '本局已重置。确认后以当前登录身份进入新局。';
+      $('join-error').textContent = '';
+    } else {
+      $('join-error').textContent = '本局已重置，请主动加入新局。';
+      $('nickname').hidden = false;
+      $('nickname').value = '';
+      $('nickname').focus({ preventScroll: true });
+    }
   }
   const resetDialog = $('reset-confirm');
   function closeResetDialog(returnFocus = true) {
@@ -1081,7 +1207,15 @@
   $('log-toggle').onclick = () => toggle('logs', 'log-toggle');
   $('log-close').onclick = () => toggle('logs', 'log-toggle');
   $('search').oninput = renderRoster;
-  $('join-form').addEventListener('submit', e => { e.preventDefault(); join($('nickname').value); });
+  $('join-form').addEventListener('submit', e => {
+    e.preventDefault();
+    if ($('join-submit').dataset.mode === 'relogin') { redirectLogin(); return; }
+    join($('nickname').value);
+  });
+  $('sso-logout').onclick = async () => {
+    await api('/api/auth/logout', {}).catch(() => {});
+    redirectLogout();
+  };
   $('my-info').onclick = () => {
     if (mineOpen) { clearPrivate(true); return; }
     clearAllInput(); mineOpen = true; revealedFieldIds.clear();
@@ -1095,7 +1229,7 @@
   const actionToast = { text: '', at: 0 };
   async function sendAction(kind) {
     const r = await api('/api/action', { kind }).catch(() => ({ ok: false, error: '网络异常，动作未执行' }));
-    if (r.ok) { actionToast.text = ''; return; }
+    if (r.ok || r.auth === false) { actionToast.text = ''; return; }
     if (r.status !== 401 && r.status !== undefined) return; // cooldown/airborne/control/frozen: silent
     const msg = r.status === 401 ? '连接身份已失效，请重新加入。' : '网络暂时不稳定。';
     const at = Date.now();

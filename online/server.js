@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { randomBytes } = require('crypto');
 const { createRoom, SKILL_CONFIG } = require('./room.js');
+const sso = require('./sso.js');
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || '0.0.0.0'; // Tests explicitly bind 127.0.0.1; live LAN default stays unchanged.
@@ -63,6 +64,27 @@ function setSessionCookie(res, sid) {
   // HttpOnly: the page script never reads the credential, so identity cannot be claimed
   // by guessing a nickname. SameSite=Lax keeps it working over plain LAN HTTP.
   res.setHeader('Set-Cookie', `sid_session=${sid}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 12}`);
+}
+function setUserCookie(res, token) {
+  res.setHeader('Set-Cookie', `sid_user=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sso.tokenExpire()}`);
+}
+function clearAuthCookies(res) {
+  res.setHeader('Set-Cookie', [
+    'sid_user=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+    'sid_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'
+  ]);
+}
+function newSid() { return randomBytes(24).toString('base64url').slice(0, 32); }
+function userTokenOf(req, url) {
+  return req.headers['user-token'] || parseCookies(req.headers.cookie).sid_user || (url && url.searchParams.get('user_token')) || '';
+}
+function currentPlayer(req, url) {
+  const player = ROOM.playerBySession(sessionOf(req, url));
+  if (!player) return null;
+  if (process.env.SID_TEST === '1') return player;
+  const user = req.ssoUser;
+  if (!user || player.empNo !== user.emp_no) return null;
+  return player;
 }
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -143,9 +165,35 @@ function openStream(req, res, player) {
 }
 async function route(req, res, url) {
   const pathname = url.pathname;
+  if (pathname === '/api/auth/config' && req.method === 'GET') {
+    const required = process.env.SID_TEST !== '1';
+    return send(res, 200, { required, loginUrl: required ? sso.loginUrl() : '', logoutUrl: required ? sso.logoutUrl() : '' });
+  }
+  if (pathname === '/api/auth/login' && req.method === 'POST') {
+    const body = await readBody(req);
+    if (!sso.serviceAllowed(body.service, req.headers.host)) return send(res, 400, { token: '', error: '回调地址不匹配' });
+    const token = await sso.authenticate(body.ticket, body.service);
+    if (!token) return send(res, 200, { token: '' });
+    setUserCookie(res, token);
+    return send(res, 200, { token, user: await sso.getProfile(token) });
+  }
+  if (pathname === '/api/auth/logout' && req.method === 'POST') {
+    await sso.revoke(userTokenOf(req, url));
+    clearAuthCookies(res);
+    return send(res, 200, { ok: true });
+  }
+  // 正式服务的游戏接口必须带 CAS 会话。SID_TEST=1 保持原昵称加入，供既有自测使用。
+  if (pathname.startsWith('/api/') && process.env.SID_TEST !== '1') {
+    const user = await sso.getProfile(userTokenOf(req, url));
+    if (!user) return send(res, 401, { error: '未登录或会话已过期', auth: false });
+    req.ssoUser = user;
+  }
+  if (pathname === '/api/auth/me' && req.method === 'GET') {
+    if (!req.ssoUser) return send(res, 401, { error: '未登录或会话已过期', auth: false });
+    return send(res, 200, req.ssoUser);
+  }
   if (pathname === '/api/stream') {
-    const sid = sessionOf(req, url);
-    const player = ROOM.playerBySession(sid);
+    const player = currentPlayer(req, url);
     if (!player) return send(res, 401, { error: 'no identity' });
     ROOM.prepareReconnect(player);
     player.online = true;
@@ -156,15 +204,24 @@ async function route(req, res, url) {
   if (pathname === '/api/join' && req.method === 'POST') {
     const body = await readBody(req);
     const oldSid = sessionOf(req);
-    const sid = ROOM.playerBySession(oldSid) ? oldSid : randomBytes(24).toString('base64url').slice(0, 32);
-    const result = ROOM.join(sid, body.nickname);
+    if (process.env.SID_TEST === '1') {
+      const sid = ROOM.playerBySession(oldSid) ? oldSid : newSid();
+      const result = ROOM.join(sid, body.nickname);
+      if (result.error) return send(res, 409, { error: result.error });
+      setSessionCookie(res, sid);
+      return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, lan: lanAddresses(), port: PORT });
+    }
+    const user = req.ssoUser;
+    const bound = ROOM.playerByEmpNo(user.emp_no);
+    const sid = bound && oldSid && bound.sessionId === oldSid ? oldSid : newSid();
+    const result = ROOM.join(sid, null, { empNo: user.emp_no, name: user.name || user.emp_no });
     if (result.error) return send(res, 409, { error: result.error });
     setSessionCookie(res, sid);
     return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, lan: lanAddresses(), port: PORT });
   }
   if (pathname === '/api/input' && req.method === 'POST') {
     const body = await readBody(req);
-    const player = ROOM.playerBySession(sessionOf(req));
+    const player = currentPlayer(req, url);
     if (!player) return send(res, 401, { error: 'no identity' });
     ROOM.setIntent(player.id, body);
     return send(res, 200, { ok: true });
@@ -174,33 +231,36 @@ async function route(req, res, url) {
   // 而本通道不消耗任何资源，写入的全是绝对时间戳，重复请求被冷却 / 腾空检查挡成空操作。
   if (pathname === '/api/action' && req.method === 'POST') {
     const body = await readBody(req);
-    const player = ROOM.playerBySession(sessionOf(req));
+    const player = currentPlayer(req, url);
     if (!player) return send(res, 401, { error: 'no identity' });
     const result = ROOM.performAction(player.id, body.kind);
     return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/skill' && req.method === 'POST') {
     const body = await readBody(req);
-    const result = ROOM.useSkill(sessionOf(req), body);
+    const actor = currentPlayer(req, url);
+    if (!actor) return send(res, 401, { error: 'no identity' });
+    const result = ROOM.useSkill(actor.sessionId, body);
     return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/ack' && req.method === 'POST') {
     const body = await readBody(req);
-    const player = ROOM.playerBySession(sessionOf(req));
+    const player = currentPlayer(req, url);
     if (!player) return send(res, 401, { error: 'no identity' });
     const result = ROOM.ack(player.id, body.eventIds, body.interaction);
     return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/state' && req.method === 'GET') {
-    const player = ROOM.playerBySession(sessionOf(req));
+    const player = currentPlayer(req, url);
     if (!player) return send(res, 401, { error: 'no identity' });
     return send(res, 200, { ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
   }
   if (pathname === '/api/dev/capabilities') {
     if (req.method !== 'GET') return send(res, 405, { canReset: false });
     if (!trustedDevRequest(req)) return send(res, 403, { canReset: false });
-    const sid = sessionOf(req);
-    if (!ROOM.playerBySession(sid)) return send(res, 401, { canReset: false });
+    const player = currentPlayer(req, url);
+    const sid = player && player.sessionId;
+    if (!sid) return send(res, 401, { canReset: false });
     if (!resetTokens.has(sid)) resetTokens.set(sid, randomBytes(32).toString('base64url'));
     return send(res, 200, { canReset: true, csrfToken: resetTokens.get(sid) });
   }
@@ -212,8 +272,9 @@ async function route(req, res, url) {
     if (req.method !== 'POST') return send(res, 405, { error: '管理操作仅允许POST' });
     if (!trustedDevRequest(req, true)) return send(res, 403, { error: '开发管理未启用或来源无权' });
     if ((req.headers['content-type'] || '').split(';')[0].trim() !== 'application/json') return send(res, 415, { error: '管理操作仅允许JSON' });
-    const sid = sessionOf(req);
-    if (!ROOM.playerBySession(sid)) return send(res, 401, { error: '身份凭证已失效' });
+    const hostPlayer = currentPlayer(req, url);
+    const sid = hostPlayer && hostPlayer.sessionId;
+    if (!sid) return send(res, 401, { error: '身份凭证已失效' });
     const body = await readBody(req);
     if (!resetTokens.has(sid) || body.csrfToken !== resetTokens.get(sid)) return send(res, 403, { error: '管理凭证无效' });
     if (body.confirm !== true) return send(res, 400, { error: '管理操作需二次确认' });
@@ -237,8 +298,8 @@ async function route(req, res, url) {
     if (req.method !== 'POST') return send(res, 405, { error: '管理操作仅允许POST' });
     if (!trustedDevRequest(req, true)) return send(res, 403, { error: '开发管理未启用或来源无权' });
     if ((req.headers['content-type'] || '').split(';')[0].trim() !== 'application/json') return send(res, 415, { error: '管理操作仅允许JSON' });
-    const sid = sessionOf(req);
-    const me = ROOM.playerBySession(sid);
+    const me = currentPlayer(req, url);
+    const sid = me && me.sessionId;
     if (!me) return send(res, 401, { error: '身份凭证已失效' });
     const body = await readBody(req);
     if (!resetTokens.has(sid) || body.csrfToken !== resetTokens.get(sid)) return send(res, 403, { error: '管理凭证无效' });
@@ -256,7 +317,7 @@ async function route(req, res, url) {
     }
     if (action === 'place') {
       const owner = body.playerId === undefined || body.playerId === null
-        ? ROOM.playerBySession(sessionOf(req))
+        ? currentPlayer(req, url)
         : ROOM.find(Number(body.playerId));
       if (!owner) return send(res, 404, { error: 'player not found' });
       if (Number.isFinite(Number(body.x))) owner.x = Number(body.x);
@@ -303,6 +364,7 @@ server.listen(PORT, HOST, () => {
   console.log(`S-ID 联机试玩服务已启动`);
   console.log(`本机访问: http://127.0.0.1:${PORT}`);
   console.log(`开发重置: ${DEV_ENABLED ? '启用（仅本机、已加入身份、同源Origin和CSRF）' : '关闭（需维护时以SID_DEV=1重启启用）'}；本机路径 http://127.0.0.1:${PORT}/`);
+  console.log(`单点登录: ${process.env.SID_TEST === '1' ? '测试模式关闭，仍用昵称加入' : '已启用，CAS 姓名直接进局；会话在本进程内存，重启后需重新登录'}`);
   for (const address of lan) console.log(`局域网访问: http://${address}:${PORT}`);
   console.log(`技能次数恢复周期: ${SKILL_CONFIG.chargeIntervalMs / 1000}s（正式版改 room.js SKILL_CONFIG.chargeIntervalMs 为 1200000）`);
   if (!lan.length) console.log('未检测到局域网 IPv4 地址，同事可能无法通过局域网访问。');

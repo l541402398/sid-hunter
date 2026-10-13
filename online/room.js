@@ -141,6 +141,15 @@ function createRoom({ random = Math.random } = {}) {
     const id = room.sessions.get(sid);
     return id === undefined ? null : find(id);
   }
+  function playerByEmpNo(empNo) {
+    if (!empNo) return null;
+    return room.players.find(p => p.empNo === empNo && !p.npc) || null;
+  }
+  function displayName(name, fallback) {
+    const text = String(name || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    const clipped = [...text].slice(0, 32).join('');
+    return clipped || String(fallback || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 32) || '玩家';
+  }
   function localTime(ms) { return new Date(ms).toLocaleTimeString('zh-CN', { hour12: false }); }
   function log(text, t = now()) {
     room.logs.unshift({ time: localTime(t), text });
@@ -193,9 +202,26 @@ function createRoom({ random = Math.random } = {}) {
     while (room.players.some(p => p.name === `${name}${n}`)) n++;
     return `${name}${n}`;
   }
-  function join(sessionId, nickname) {
+  function bindSession(player, sessionId) {
+    if (player.sessionId && player.sessionId !== sessionId) room.sessions.delete(player.sessionId);
+    player.sessionId = sessionId;
+    player.online = true;
+    player.lastSeen = now();
+    room.sessions.set(sessionId, player.id);
+  }
+  function join(sessionId, nickname, identity) {
+    const empNo = identity && identity.empNo ? String(identity.empNo) : '';
+    if (empNo) {
+      const bound = playerByEmpNo(empNo);
+      if (bound) {
+        // 同一工号回到原座位，不新开角色，也不改已经发下的阵营。
+        bindSession(bound, sessionId);
+        return { player: bound, revived: true };
+      }
+    }
     const existing = playerBySession(sessionId);
     if (existing) {
+      if (empNo && existing.empNo && existing.empNo !== empNo) return { error: '身份凭证已绑定其他玩家' };
       // Restore identity only; stream freezes the digest before setting online.
       return { player: existing, revived: true };
     }
@@ -205,9 +231,11 @@ function createRoom({ random = Math.random } = {}) {
     const faction = isFirst ? 'bad' : 'good';
     const id = room.players.length;
     const rawName = typeof nickname === 'string' ? nickname.trim().slice(0, 8) : '';
+    const name = empNo ? uniqueName(displayName(identity.name, empNo)) : uniqueName(rawName || pick(NAME_POOL));
     const player = {
       id,
-      name: uniqueName(rawName || pick(NAME_POOL)),
+      name,
+      empNo: empNo || null,
       colors: randomColors(),
       traits: randomTraits(),
       traitPublic: { saying: false, food: false, sport: false },
@@ -673,7 +701,7 @@ function createRoom({ random = Math.random } = {}) {
   return {
     room, streams, now, join, setOffline, setIntent, step, useSkill, performAction, spawnNpc, prepareReconnect, ack,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
-    playerBySession, find, config: SKILL_CONFIG
+    playerBySession, playerByEmpNo, find, config: SKILL_CONFIG
   };
 }
 module.exports = { createRoom, SKILL_CONFIG, WORLD };
