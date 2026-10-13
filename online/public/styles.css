@@ -183,14 +183,22 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .self-combat-state{color:#ffd0a8;font-size:10px;line-height:1.5}
 .self-combat-state:empty{display:none}
 .combat-status{color:#c5dcf7;font-size:10px;line-height:1.6}
-/* 就近互动区保留功能、去掉说明文字：
-   - #nearby-items 是玩家靠近容器/NPC 时唯一的可点入口，必须保留；
-   - #combat-status / #self-combat-state 承载命中、空挥、冷却与眩晕反馈，保留；
-   - #cover-status（遮挡自述）、#nearby-empty（提示语）、.combat-note（无伤害说明）属啰嗦文案，隐藏。
-   - J 攻击已改为纯键盘触发：按钮留在 DOM 里（game.js 直接取该元素绑定 onclick）但不可见。 */
-#cover-status,#nearby-empty,.combat-note{display:none}
-.exploration-hud:has(#cover-status){background:none;border:0;padding:0;max-width:none;overflow:visible}
+/* 左上角彻底清空（区域名、遮挡自述、无伤害说明、道具/技能提示条）：
+   - .world-chip 已在 HTML 里置 hidden；
+   - #cover-status / #nearby-empty / .combat-note / #self-combat-state 一律不显示；
+   - 就近互动区退化成不带背板、自适应宽度的小容器，只承载 #nearby-items 可点按钮，
+     没有可交互目标时整块不占位、不可见；
+   - 命中/空挥/冷却反馈移到右下角浮层 #combat-status，不再常驻遮挡左上视野；
+   - J 攻击为纯键盘触发：按钮留在 DOM（game.js 直接取该元素绑定 onclick）但不可见。 */
+#cover-status,#nearby-empty,.combat-note,#self-combat-state,.world-chip{display:none}
+.exploration-hud{display:flex;flex-direction:column;align-items:flex-start;width:max-content;max-width:none;left:18px;top:15px;padding:0;border:0;background:none;backdrop-filter:none;max-height:none;overflow:visible;z-index:5}
+.exploration-hud:not(:has(.nearby-items button)){display:none}
+.exploration-hud .nearby-items{margin-top:0}
+.exploration-hud .nearby-items button{background:#0d1728f2;border:1px solid #3b5470;border-radius:9px;box-shadow:0 6px 16px -10px #000}
+.exploration-hud .combat-hud{margin:0;padding:0;border:0;gap:0}
 #attack-button[hidden]{display:none}
+.map-foot{position:absolute}
+#combat-status{position:absolute;left:0;bottom:calc(100% + 8px);z-index:40;max-width:min(360px,52vw);margin:0;padding:8px 12px;border:1px solid #3b5470;border-radius:9px;background:#0d1728f2;box-shadow:0 10px 26px -14px #000;overflow-wrap:anywhere}
 .combat-note{color:#8098b9;font-size:9px;line-height:1.5}
 @media(max-width:850px){.games{width:288px}}
 /* 分数槽、时间提示：延续顶部胶囊样式，只做稳定值槽。 */
