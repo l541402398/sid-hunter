@@ -10,9 +10,9 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 const root = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { createRoom } = require('./room.js');
-const NODE = '/Users/jiarunwu/.workbuddy/binaries/node/versions/22.22.2-6/bin/node';
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const { createRoom, WORLD } = require('./room.js');
+const NODE = process.execPath;
+const CHROME = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const pause = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise((resolve, reject) => { const s = createServer(); s.once('error', reject); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
 const results = [], errors = [];
@@ -100,15 +100,38 @@ await test('06 四技能各自独立恢复；重复用不重置计时、长离�
   s = privateMe(r,0).skills;
   for (const k of Object.keys(s)) { assert.equal(s[k].chargesRemaining,2); assert.equal(s[k].nextChargeAt,0); }
 });
-await test('07 完整SID精确匹配；试玩结束仍从多人降到2且有淘汰', () => {
+await test('07 完整SID精确匹配；结束仅三种（badWiped/aliveFloor/timeUp），小房间不再按存活数结束', () => {
   const r = fixture();
   assert.equal(use(r,'bad','kill',2,{sid:'bad-format'}).ok,false);
   assert.equal(r.find(0).skills.kill.chargesRemaining,2);
   assert.equal(use(r,'bad','kill',2,{sid:r.find(2).sid.segments.join('-')}).ok,true);
-  assert.equal(r.room.finished,false); assert.equal(r.room.players.filter(p=>p.alive).length,3);
+  assert.equal(r.room.finished,false);
+  // 再淘汰一名好人：存活降到 2，但旧“存活<=2 且有淘汰即结束”已废除，坏人仍在场 -> 不结束。
   r.room.clockOffset += 13000;
   use(r,'bad','kill',3,{sid:r.find(3).sid.segments.join('-')});
-  assert.equal(r.room.finished,true); assert.equal(r.room.players.filter(p=>p.alive).length,2);
+  assert.equal(r.room.finished,false);
+  assert.equal(r.room.players.filter(p=>p.alive).length,2);
+  // badWiped：两名好人各指认唯一坏人一次（hp 2→0）-> 坏人全灭，结束并下发排名。
+  const w = fixture();
+  assert.equal(use(w,'good','accuse',0).ok,true); assert.equal(w.find(0).hp,1); assert.equal(w.room.finished,false);
+  w.room.clockOffset += 13000;
+  assert.equal(use(w,'target','accuse',0).ok,true);
+  assert.equal(w.room.finished,true); assert.equal(w.room.finishReason,'badWiped');
+  assert.ok(Array.isArray(w.room.ranking)&&w.room.ranking.length===4);
+  // aliveFloor：用 options.rules 把阈值降到 2 -> 淘汰一名好人后存活降到阈值即结束（无排名）。
+  const f = createRoom({rules:{endRemainingPlayers:2}});
+  f.join('fa','甲'); f.join('fb','乙'); f.join('fc','丙');
+  assert.equal(f.useSkill('fa',{commandId:'floor-1',skill:'kill',targetId:1,sid:f.find(1).sid.segments.join('-')}).ok,true);
+  assert.equal(f.room.finished,true); assert.equal(f.room.finishReason,'aliveFloor'); assert.equal(f.room.ranking,null);
+  // timeUp：推进时钟越过时间上限 -> 结束并下发排名与公开 rules。
+  const t = createRoom(); t.join('ta','甲'); t.join('tb','乙');
+  t.room.clockOffset += WORLD.RULES.timeLimitMs;
+  const snap = t.publicSnapshot();
+  assert.equal(t.room.finished,true); assert.equal(t.room.finishReason,'timeUp');
+  assert.ok(Array.isArray(t.room.ranking)&&t.room.ranking.length===2);
+  assert.deepEqual(Object.keys(snap.rules).sort(),['endRemainingPlayers','endsAt','timeLimitMs']);
+  assert.ok(snap.players.every(p=>typeof p.score==='number'));
+  // 小房间未命中三条件不结束。
   const fresh = createRoom(); fresh.join('a'); fresh.join('b'); assert.equal(fresh.room.finished,false);
 });
 
@@ -137,7 +160,7 @@ try {
   assert.notEqual(port,8787);
   server=spawn(NODE,[join(root,'server.js')],{env:{...process.env,HOST:'127.0.0.1',PORT:String(port),SID_TEST:'1'},stdio:'ignore'});
   await until('isolated server',async()=>{try{return (await fetch(base+'/api/state')).status===401;}catch{return false;}});
-  const debug=await freePort(); profile=await mkdtemp(join(tmpdir(),'sid-rules-'));
+  const debug=await freePort(); profile=await mkdtemp(join(root,'../outputs/sid-rules-'));
   chrome=spawn(CHROME,['--headless=new','--no-sandbox','--no-first-run','--no-default-browser-check',`--remote-debugging-port=${debug}`,'--remote-debugging-address=127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
   let page;
   await until('chrome',async()=>{try{page=(await (await fetch(`http://127.0.0.1:${debug}/json/list`)).json()).find(p=>p.type==='page');return !!page;}catch{return false;}});
@@ -175,11 +198,10 @@ try {
     await until('nickname page rendered',()=>evaluate(`document.readyState==='complete'&&document.getElementById('roster-count').textContent==='4'&&document.getElementById('join-page').hidden`));
     await until('nickname identity',()=>evaluate(`fetch('/api/state').then(r=>r.json()).then(s=>s.me.name==='<script>')`));
     await cdp('Page.bringToFront');
-    await evaluate(`document.getElementById('my-info').focus()`); await key('keyDown',' ','Space',32);
+    await evaluate(`document.getElementById('my-info').focus()`); await key('keyDown',' ','Space',32); await key('keyUp',' ','Space',32);
     await until('mine visible',()=>evaluate(`!document.getElementById('mine').hidden`));
     assert.ok((await evaluate(`document.getElementById('mine').textContent`)).includes('<script>'));
     assert.equal(await evaluate(`document.querySelectorAll('#mine script').length`),0);
-    await key('keyUp',' ','Space',32);
     // Restore the original bad browser identity, without touching live 8787.
     await cdp('Network.setCookie',{name:'sid_session',value:token,url:base,httpOnly:true,path:'/'});
     await evaluate(`localStorage.setItem('sid_session_token',${JSON.stringify(token)})`); await cdp('Page.navigate',{url:base+'/'});
@@ -190,25 +212,30 @@ try {
   await test('10 真实私密界面四技能；我的信息四项；规则打开销毁私密DOM',async()=>{
     await click('#roster-toggle'); await click(`[data-player="${good.playerId}"]`); await click('#private-gate');
     assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-skill]')].map(e=>e.dataset.skill)`),['probe','accuse','spy','kill']);
-    await evaluate(`document.getElementById('my-info').focus()`); await key('keyDown',' ','Space',32);
-    const text=await evaluate(`document.getElementById('mine').textContent`); for(const n of ['探查','指认','刺探','击杀'])assert.ok(text.includes(n));
+    await evaluate(`document.getElementById('my-info').focus()`); await key('keyDown',' ','Space',32); await key('keyUp',' ','Space',32);
+    // 身份眼睛同时解锁血量与技能明细，四项技能文案随之出现在“我的信息”。
+    await click('#eye-identity');
+    const text=await evaluate(`document.getElementById('mine').textContent`); for(const n of ['探查','指认','刺探','击杀'])assert.ok(text.includes(n),n);
     await click('#rules-toggle');
     assert.equal(await evaluate(`document.getElementById('mine').childElementCount`),0);
     assert.equal(await evaluate(`document.getElementById('private-content').childElementCount`),0);
-    await key('keyUp',' ','Space',32); await click('#rules-close');
+    await click('#rules-close');
   });
-  await test('11 入口紧邻日志/琥珀高对比；规则7区SVG/色块/流程；示例不读取本人SID',async()=>{
+  await test('11 入口紧邻日志/琥珀高对比；规则8区SVG/色块/流程；三种结束方式与示例不读取本人SID',async()=>{
     assert.equal(await evaluate(`document.getElementById('log-toggle').nextElementSibling.id`),'rules-toggle');
     const style=await evaluate(`getComputedStyle(document.getElementById('rules-toggle')).backgroundImage`); assert.ok(style.includes('gradient'));
     await click('#rules-toggle');
     assert.equal(await evaluate(`document.getElementById('rules-view').open`),true);
     assert.equal(await evaluate(`document.activeElement.id`),'rules-close');
-    assert.equal(await evaluate(`document.querySelectorAll('#rules-view .rule-section').length`),7);
+    assert.equal(await evaluate(`document.querySelectorAll('#rules-view .rule-section').length`),8);
     assert.ok(await evaluate(`document.querySelectorAll('#rules-view svg').length>0&&document.querySelectorAll('.rule-color-grid i').length===4&&document.querySelectorAll('.mini-flow').length>=6`));
     const text=await evaluate(`document.getElementById('rules-view').textContent`);
     assert.ok(text.includes('A7C-9K2-3M8')); assert.ok(text.includes('***-9K2-***')); assert.ok(!text.includes((await state(token)).me.sid));
-    assert.ok(!text.includes('浏览甲')); assert.ok(text.includes('仅剩 100 人')); assert.ok(text.includes('从多人降至 2 人')); assert.ok(text.includes('时长待公布'));
-    assert.ok(text.includes('当前试玩未开放')); assert.ok(text.includes('阅读规则时游戏仍在继续'));
+    assert.ok(!text.includes('浏览甲'));
+    // 新结束规则：仅三种（存活淘汰至剩余 100 人 / 坏人全灭 / 时间到 2 小时），并按分数结算排名。
+    assert.ok(text.includes('存活淘汰至剩余 100 人')); assert.ok(text.includes('坏人全灭')); assert.ok(text.includes('时间到（2 小时）'));
+    assert.ok(text.includes('按分数排名')); assert.ok(text.includes('仅三种'));
+    assert.ok(text.includes('待补充')); assert.ok(text.includes('阅读规则时游戏仍在继续'));
     const streams=await (await fetch(base+'/api/test/streams')).json(); assert.equal(streams.count,1);
     await click('#rules-close'); assert.equal(await evaluate(`document.activeElement.id`),'rules-toggle');
   });
@@ -240,7 +267,7 @@ try {
 finally {
   if(ws)ws.close();
   for(const proc of [chrome,server]) if(proc&&proc.exitCode===null){const done=new Promise(r=>proc.once('exit',r));proc.kill('SIGTERM');await Promise.race([done,pause(2500)]);if(proc.exitCode===null)proc.kill('SIGKILL');}
-  if(profile)await rm(profile,{recursive:true,force:true,maxRetries:3}).catch(()=>{});
+  // 保留 outputs 下的独立 Chrome profile，不递归删除。
   await writeFile(join(root,'rules-skill-test-results.json'),JSON.stringify({date:new Date().toISOString(),bind:'127.0.0.1',port,live8787Untouched:true,results,summary:{passed:results.filter(r=>r.pass).length,total:results.length},runtimeErrors:errors,limitations:['仅本机隔离随机端口与真实Chrome CDP测试，不是独立QA或跨设备验收','恢复边界使用服务端clockOffset加速，不等待真实90秒','bad指认bad分支用服务端内存目标fixture覆盖；正式加入规则仍仅首人为bad','未启动/停止/重置既有8787进程；四技能需主持人以后安排重启才在既有服务生效','旧self-test/qa脚本与报告未修改；不将旧报告算作新版本验收']},null,2));
   if(results.some(r=>!r.pass))process.exitCode=1;
   console.log(JSON.stringify({passed:results.filter(r=>r.pass).length,total:results.length}));

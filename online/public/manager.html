@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex,nofollow">
+<title>S-ID 管理控制台</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="manager.css">
+<script src="manager.js" defer></script>
+</head>
+<body>
+<main class="manager-shell">
+
+  <!-- 未登录：授权码登录卡片（默认可见，会话校验通过后切换为控制台） -->
+  <section class="manager-login" id="manager-login-card" aria-labelledby="manager-login-title">
+    <small class="eyebrow">MANAGER ACCESS</small>
+    <h2 id="manager-login-title">S-ID 管理控制台</h2>
+    <p class="manager-login-note">查看当前对局状态与上局结算排名，并可重新开始下一局。</p>
+    <form id="manager-login-form" novalidate>
+      <label class="sr-only" for="manager-code">管理员授权码</label>
+      <input id="manager-code" name="code" type="password" inputmode="numeric" autocomplete="current-password"
+             placeholder="请输入管理员授权码" aria-describedby="manager-login-error" required>
+      <button id="manager-login" type="submit">进入控制台</button>
+    </form>
+    <p id="manager-login-error" class="manager-login-error" role="alert" aria-live="polite"></p>
+    <p class="manager-foot">S-ID 年终生存战 · 服务端权威结算</p>
+  </section>
+
+  <!-- 已登录：控制台 -->
+  <section class="manager-app" id="manager-app" hidden aria-label="管理控制台">
+    <header class="manager-bar">
+      <div class="manager-brand">
+        <span class="brand-mark">S<span>·</span>ID</span>
+        <div>
+          <small class="eyebrow">MANAGER CONSOLE</small>
+          <h1>S-ID 管理控制台</h1>
+        </div>
+      </div>
+      <button id="manager-logout" type="button">退出</button>
+    </header>
+
+    <div class="manager-status" aria-live="polite">
+      <span class="manager-chip"><i class="dot gray" id="manager-state-dot"></i><span id="manager-state">载入中…</span></span>
+      <span class="manager-chip">存活 <b id="manager-alive">—</b></span>
+      <span class="manager-chip">玩家 <b id="manager-players">—</b></span>
+      <div class="manager-teams" id="manager-teams" hidden></div>
+    </div>
+
+    <section class="manager-result" aria-labelledby="manager-result-title">
+      <div class="manager-section-head">
+        <div><small class="eyebrow">LAST MATCH</small><h2 id="manager-result-title">上局结算</h2></div>
+      </div>
+      <p id="manager-result-reason" class="manager-result-reason">正在载入…</p>
+      <p id="manager-result-meta" class="manager-result-meta"></p>
+      <div class="manager-table-wrap" role="region" aria-label="上局排名表格，可横向滚动" tabindex="0">
+        <table class="manager-table">
+          <caption class="sr-only">上局排名：名次、玩家、分数、存活、阵营</caption>
+          <thead>
+            <tr>
+              <th scope="col">名次</th>
+              <th scope="col">玩家</th>
+              <th scope="col">分数</th>
+              <th scope="col">存活</th>
+              <th scope="col">阵营</th>
+            </tr>
+          </thead>
+          <tbody id="manager-ranking"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="manager-action">
+      <button id="manager-start" type="button">开始下一局</button>
+      <p id="manager-action-note" class="manager-action-note">重开会清空本局全部数据，操作前会再次确认。</p>
+    </section>
+
+    <p class="manager-foot">
+      <span id="manager-tick">每 5 秒自动刷新</span> · 授权码由服务端校验，不会保存在页面中
+    </p>
+  </section>
+
+</main>
+
+<!-- 二次确认弹窗 -->
+<dialog id="manager-confirm" class="manager-confirm" aria-labelledby="manager-confirm-title">
+  <h2 id="manager-confirm-title">确认开始下一局？</h2>
+  <p class="manager-warn">⚠ 将清空全部玩家与身份凭证，所有人需要重新输入昵称加入</p>
+  <ul class="manager-confirm-list">
+    <li>当前对局的存活、分数与日志会被清空</li>
+    <li>所有玩家需重新输入昵称加入新对局</li>
+    <li>上局结算排名仍会保留展示</li>
+  </ul>
+  <div class="manager-confirm-actions">
+    <button id="manager-confirm-cancel" type="button">取消</button>
+    <button id="manager-confirm-accept" type="button" class="manager-danger">确认重开</button>
+  </div>
+</dialog>
+
+<div class="manager-toast" id="manager-toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

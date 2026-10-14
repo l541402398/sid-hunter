@@ -2,24 +2,119 @@
 // LAN playtest client. Pure presentation: it submits intents and renders snapshots.
 // Position, skill resolution, public state, elimination and finish are all server-side.
 // The furniture layout comes from /shared/world.js, the same file the server loads, so
-// the baked background and the authoritative collision can never drift apart.
+// 家具绘制、深度、遮挡与服务端足迹碰撞共用同一份地图。
 (() => {
   const $ = id => document.getElementById(id);
-  const W = WORLD.WORLD_W, H = WORLD.WORLD_H, VW = WORLD.VIEW_W, VH = WORLD.VIEW_H;
-  const MIN_X = WORLD.MIN_X, MAX_X = WORLD.MAX_X, MIN_Y = WORLD.MIN_Y, MAX_Y = WORLD.MAX_Y;
   const BODY_HALF = WORLD.BODY_HALF, FOOT_TOP = WORLD.FOOT_TOP, FOOT_BOTTOM = WORLD.FOOT_BOTTOM;
   const fieldNames = WORLD.FIELD_NAMES, traitNames = WORLD.TRAIT_NAMES, MASK = WORLD.MASK;
   const palettes = WORLD.PALETTES, zones = WORLD.ZONES;
-  const furniture = WORLD.makeFurniture();
   // 肢体互动常量与服务端共用同一份 world.js；渲染层只读，不自行判定命中或击晕。
-  const ACTION = WORLD.ACTION;
+  const ACTION = WORLD.ACTION || { jumpMs: 520, jumpHeight: 16, jumpDodgeFrom: 0.18, jumpDodgeTo: 0.82, hammerRange: 58, hammerCooldownMs: 1000, frightMs: 750, stunMs: 750, bumpMs: 15000, maxBumps: 3 };
+  const BASE_H = WORLD.FLOOR_BASE_HEIGHT || 640;
+  // ---------- 动态视口状态 ----------
+  // 统一缩放 s = 地图视区 CSS 高 / BASE_H；世界与屏幕共用同一 s，屏幕变宽=看到更多世界。
+  let cssW = 960, cssH = 640, scale = 1, viewW = 960, viewH = BASE_H, dpr = 1;
+  let cameraX = 0, cameraY = 0, drawCamX = 0, drawCamY = 0;
+  // ---------- 楼层渲染状态：只对应当前层，换层时整层原子替换 ----------
+  let floorId = 1, floorName = '';
+  let furniture = [], walls = [], containers = [], occluders = [], npcs = [], portals = [];
+  const furnitureSprites = new Map();
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function buildNpcs(id) {
+    return WORLD.floorNpcs(id).map((n, i) => ({ ...n, entityId: n.id, id: -i - 1, npc: true, alive: true, walk: 0, moving: false,
+      colors: Object.fromEntries(Object.entries(palettes).map(([key, options], j) => [key, options[(i + j + 2) % options.length]])) }));
+  }
+  // 换层时整层原子替换：floorId、家具/墙/NPC/容器/入口/碰撞集合、点击标签、HUD 全部对应同一新层。
+  function loadFloorLocal(id) {
+    floorId = id; floorName = WORLD.floorById(id).name;
+    furniture = WORLD.floorFurniture(id); walls = WORLD.floorWalls(id);
+    occluders = furniture.concat(walls); containers = furniture.filter(f => f.container);
+    npcs = buildNpcs(id); portals = WORLD.floorPortals(id);
+  }
+  loadFloorLocal(1);
+  // 互动、结束条件、计分与转盘全部读服务端共享配置（window.WORLD），客户端不新增硬编码数值。
+  // world.js 尚未导出新契约时用等价兜底，避免旧版本直接抛错。
+  const RULES = WORLD.RULES || { endRemainingPlayers: 100, timeLimitMs: 7200000 };
+  const WHEEL = WORLD.WHEEL || { slotCount: 10, spinCosts: [0, 1, 2, 4, 6, 9, 12, 16, 20, 25, 30, 36, 42, 49, 56, 64], chipAmounts: [0, 1, 2, 3, 5, 8], specialCount: { good: 2, bad: 2 }, specials: { good: ['clue'], bad: ['reform', 'rebirth'] } };
+  const WHEEL_ITEMS = WORLD.WHEEL_ITEMS || {
+    clue: { key: 'clue', label: '线索券', desc: '获取一名坏人的一条线索', color: '#3B82F6', glyph: '?' },
+    reform: { key: 'reform', label: '洗心革面券', desc: '将自己由坏人转换为好人', color: '#22C55E', glyph: '♻' },
+    rebirth: { key: 'rebirth', label: '轮回券', desc: '重新随机自己的身份特征', color: '#EF4444', glyph: '↻' }
+  };
+  const WHEEL_CHIP_COLOR = WORLD.WHEEL_CHIP_COLOR || '#F59E0B';
+  function wheelSpinCost(priorSpins) {
+    if (typeof WORLD.wheelSpinCost === 'function') return WORLD.wheelSpinCost(priorSpins);
+    const costs = WHEEL.spinCosts, i = Math.max(0, Math.min(costs.length - 1, priorSpins | 0));
+    return costs[i];
+  }
+  // 预览用的服务端同构池；服务端 buildWheelPool 存在时优先使用。落点始终以服务端返回的 slots 为准。
+  function buildWheelPool(faction) {
+    if (typeof WORLD.buildWheelPool === 'function') return WORLD.buildWheelPool(faction);
+    const key = faction === 'bad' ? 'bad' : 'good', slots = [];
+    const specials = WHEEL.specials[key] || [], specialCount = WHEEL.specialCount[key] || 0;
+    for (let i = 0; i < specialCount; i++) {
+      const item = WHEEL_ITEMS[specials[i % specials.length]];
+      if (item) slots.push({ kind: 'special', key: item.key, label: item.label, desc: item.desc, color: item.color, glyph: item.glyph });
+    }
+    for (let ci = 0; slots.length < WHEEL.slotCount; ci++) {
+      const amount = WHEEL.chipAmounts[ci % WHEEL.chipAmounts.length];
+      slots.push({ kind: 'chips', amount, label: String(amount), color: WHEEL_CHIP_COLOR, glyph: '●' });
+    }
+    for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = slots[i]; slots[i] = slots[j]; slots[j] = t; }
+    return slots;
+  }
 
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
   ctx.imageSmoothingEnabled = false;
-  // 离屏背景：静态场景烘焙一次，逐帧只做一次贴图，把预算留给角色与交互。
-  // 背景按分区切成四张 960×640 贴图，逐帧只取当前视口覆盖的一到两张。
-  const bgTiles = [0, 1, 2, 3].map(() => { const c = document.createElement('canvas'); c.width = VW; c.height = VH; return c; });
+  // 背景：固定 512×512 分块，按相机矩形枚举相交块；每块惰性烘焙一次后复用，与视口宽度解耦。
+  const CHUNK = 256; // 阶段2-阶段1：512→256（世界÷4 后 512 已大于楼层高度 400，会浪费；分块仍是显式 canvas，口径不变）
+  // QA-D14：分块缓存加 LRU 上限。原先 cx:cy 键无上限、跨楼层共享，最多 8×4=32 块≈32MiB 常驻；
+  // 改为只保留与当前相机相交的块 + 少量预取，容量上限 10 块（≈10MiB），超出按 LRU 淘汰。
+  // 被淘汰块后续按世界坐标（cx:cy）确定性重建，图案纯世界坐标 → 视觉无可观察差异；绝不淘汰当前可见块。
+  const CHUNK_CACHE_LIMIT = 10;
+  const chunkCache = new Map(); // key 'cx:cy' → canvas；Map 迭代顺序即 LRU 顺序（队首最旧）
+  let chunkTotal = 0;
+  function pruneChunks(keep) {
+    while (chunkTotal > CHUNK_CACHE_LIMIT) {
+      let victim = null;
+      for (const k of chunkCache.keys()) { if (!keep || !keep.has(k)) { victim = k; break; } }
+      if (victim === null) break; // 可见块本身已达上限：保留，不淘汰（宁可多留也不闪空）
+      chunkCache.delete(victim); chunkTotal--;
+    }
+  }
+  function chunkFor(cx, cy) {
+    const key = cx + ':' + cy;
+    const hit = chunkCache.get(key); if (hit) return hit;
+    const c = document.createElement('canvas'); c.width = CHUNK; c.height = CHUNK;
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+    g.fillStyle = '#4a3727'; g.fillRect(0, 0, CHUNK, CHUNK);
+    const planks = ['#54402f', '#4a3727', '#5b462f', '#453324', '#4f3c2c'];
+    // 阶段2-阶段1：地板纹理模块 64×16 → 32×8（1.0m×0.25m 宽板），保持缩小后的屏幕观感。
+    for (let y = 0; y < CHUNK; y += 8) {
+      const row = ((cy * CHUNK + y) / 8) | 0, stag = (row % 2) ? 16 : 0;
+      for (let x = -32 + stag; x < CHUNK; x += 32) {
+        const worldCol = Math.round((cx * CHUNK + x) / 32);
+        const k = Math.abs(row * 31 + worldCol * 17 + 97);
+        g.fillStyle = planks[k % 5]; g.fillRect(x, y, 32, 8);
+        if (k % 7 === 0) { g.fillStyle = '#3c2c20'; g.fillRect(x + 5, y + 3, 9, 1); }
+        else if (k % 5 === 0) { g.fillStyle = '#3c2c20'; g.fillRect(x + 16, y + 5, 6, 1); }
+        if (k % 2) { g.fillStyle = '#3d2d20'; g.fillRect(x, y, 1, 8); }
+      }
+      g.fillStyle = '#5e4936'; g.fillRect(0, y, CHUNK, 1);
+      g.fillStyle = '#33251b'; g.fillRect(0, y + 7, CHUNK, 1);
+    }
+    chunkCache.set(key, c); chunkTotal++; return c;
+  }
+  // 每帧先把相机矩形相交的块全部就绪并做 LRU 触及，再淘汰离屏块：保证本帧绘制零重烘焙、可见块不被淘汰。
+  function ensureChunks(c0x, c0y, c1x, c1y) {
+    const keep = new Set();
+    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) {
+      const key = cx + ':' + cy; keep.add(key);
+      if (chunkCache.has(key)) { const v = chunkCache.get(key); chunkCache.delete(key); chunkCache.set(key, v); } // LRU 触及
+      else chunkFor(cx, cy);
+    }
+    pruneChunks(keep);
+  }
   const glowSprite = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const g = c.getContext('2d');
@@ -27,13 +122,30 @@
     rg.addColorStop(0, 'rgba(255,214,158,1)'); rg.addColorStop(1, 'rgba(255,180,110,0)');
     g.fillStyle = rg; g.fillRect(0, 0, 128, 128); return c;
   })();
-  const VIGNETTE = (() => {
-    const c = document.createElement('canvas'); c.width = VW; c.height = VH;
+  let vignette = null;
+  function rebuildVignette() {
+    const w = Math.max(1, Math.round(cssW)), h = Math.max(1, Math.round(cssH));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
     const g = c.getContext('2d');
-    const rg = g.createRadialGradient(VW / 2, VH * .44, 190, VW / 2, VH * .48, 650);
+    const rg = g.createRadialGradient(w / 2, h * .44, Math.min(w, h) * .3, w / 2, h * .48, Math.max(w, h) * 1.02);
     rg.addColorStop(0, 'rgba(255,216,152,.05)'); rg.addColorStop(.55, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(6,4,10,.42)');
-    g.fillStyle = rg; g.fillRect(0, 0, VW, VH); return c;
-  })();
+    g.fillStyle = rg; g.fillRect(0, 0, w, h); vignette = c;
+  }
+  // 视口尺寸/DPR 变化时重建 backing，并重新设置 transform 与 imageSmoothingEnabled。
+  function resizeCanvas() {
+    const cw = Math.max(1, Math.round(canvas.clientWidth || cssW || 960));
+    const ch = Math.max(1, Math.round(canvas.clientHeight || cssH || 640));
+    cssW = cw; cssH = ch;
+    dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(4000000 / (cw * ch)));
+    scale = ch / BASE_H;
+    viewH = BASE_H; viewW = cw / scale;
+    const bw = Math.max(1, Math.round(cw * dpr)), bh = Math.max(1, Math.round(ch * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    rebuildVignette();
+    window.__viewport = { cssW: cw, cssH: ch, viewW, viewH, scale, drawCamX, drawCamY, dpr };
+  }
   // 明暗派生：所有渐变色都由公开颜色计算，不引入新的身份线索。
   const shadeCache = new Map();
   function shade(hex, k) {
@@ -52,63 +164,48 @@
 
   // ---------- 权威状态（全部来自服务端快照） ----------
   let players = [], logs = [], me = null;
-  let badSlots = [], badPoolAvailable = false, lastBadPoolSig = '';
-  // Only consume the dedicated anonymous projection, never infer identities from players.
-  function renderBadPool() {
-    const sig = JSON.stringify([badPoolAvailable, badSlots]);
-    if (sig === lastBadPoolSig) return;
-    lastBadPoolSig = sig;
-    const root = $('bad-slots'), fragment = document.createDocumentFragment();
-    const text = (tag, content, className) => {
-      const node = document.createElement(tag);
-      if (className) node.className = className;
-      node.textContent = content; return node;
-    };
-    if (!badPoolAvailable) {
-      fragment.append(text('p', '当前服务尚未提供匿名线索池；请勿把暂未提供解读为没有坏人。', 'bad-empty'));
-    } else if (!badSlots.length) {
-      fragment.append(text('p', '暂无坏人', 'bad-empty'));
-    } else {
-      for (const slot of badSlots) {
-        const card = document.createElement('article');
-        card.className = slot.alive ? 'bad-slot' : 'bad-slot is-out';
-        const head = document.createElement('header');
-        head.append(text('strong', slot.label), text('span', slot.alive ? '存活' : '已淘汰', 'bad-status'));
-        card.append(head);
-        let known = 0;
-        for (const [key, label] of Object.entries(traitNames)) {
-          const value = slot.traits && typeof slot.traits[key] === 'string' ? slot.traits[key] : MASK;
-          if (value !== MASK) known++;
-          const row = document.createElement('p'); row.className = 'bad-clue';
-          row.append(text('span', label), text('strong', value)); card.append(row);
-        }
-        if (!known) card.append(text('p', '暂无线索', 'bad-empty'));
-        fragment.append(card);
-      }
-    }
-    root.replaceChildren(fragment);
-  }
-  $('bad-toggle').onclick = () => {
-    const expanded = $('bad-slots').hidden;
-    $('bad-slots').hidden = !expanded;
-    $('bad-toggle').setAttribute('aria-expanded', String(expanded));
-    $('bad-toggle-label').textContent = expanded ? '收起−' : '展开＋';
-    renderBadPool();
-  };
-  renderBadPool();
   let finished = false, aliveCount = 0, outCount = 0, serverTime = Date.now();
-  let selectedId = null, cameraX = 0, clock = 0;
+  let selectedId = null, clock = 0;
+  // 电梯过渡状态机：IDLE_SOURCE → PREPARING → SUBMITTING → TARGET_READY → OPENING → IDLE_TARGET
+  // 失败分 FAILED_SOURCE（已证实未换层，恢复源层）与 UNCONFIRMED（结果不明，只读对账）。
+  let floorState = 'IDLE_SOURCE', floorFlight = null, floorPending = null;
+  let floorStartedAt = 0, floorNoticeTimer = null, floorStageTimer = null, roundId = null;
   let privateOpen = false, mineOpen = false, pending = null, privateResult = '';
+  let sessionGeneration = 0, privateGeneration = 0, explorationGeneration = 0;
+  let explorationPanel = null, explorationResult = '', interactionFlight = null;
+  let explorationDataSig = '', nearbySig = '';
   const revealedFieldIds = new Set();
-  let devCsrf = null, resetBusy = false, npcBusy = false;
+  let devCsrf = null, resetBusy = false;
   let sessionToken = null, stream = null, awaitingFirst = true, lastSkillTick = -1;
+  // dev 分支并入：单点登录状态、匿名坏人线索池、摘要确认集合与开发 NPC 忙标志。
   let ssoRequired = false, ssoLoginUrl = '', ssoLogoutUrl = '', loginRedirecting = false;
+  let badSlots = [], badPoolAvailable = false, lastBadPoolSig = '';
+  let npcBusy = false;
+  const confirmedDigests = new Set(); // 只有服务端 ACK 成功后才登记
   let lastTargetSig = '', lastLogSig = '', lastRosterSig = '';
   const offlineEvents = new Set();
-  const confirmedDigests = new Set(); // only populated after server ACK succeeds
   const renderMap = new Map();
   const keys = new Set();
   let lastIntent = '', toastTimer;
+  // 新增互动状态：仅在自身私有投影与公开投影之间读取，不引入任何新身份线索。
+  let serverPerfBase = performance.now(), combatResult = '', gamesResult = '';
+  let combatFlight = null, gamesFlight = null, gamesDomReady = false;
+  // 猜拳本地乐观状态：与权威 pending.ownChoice / ownRevision 通过修订号屏障对齐，避免旧响应回滚。
+  let rpsLocalChoice = null, rpsRevision = 0, rpsAckRevision = 0, rpsRemoteRevision = 0;
+  let rpsChooseFlight = null, rpsChoosePending = null, rpsUnconfirmed = false;
+  let rpsResultDismissId = null, rpsAutoId = null, rpsAutoPhase = null, rpsLastSelfGlyph = '', rpsLastOppGlyph = '';
+  let snapshotGen = 0; // 每次快照自增；防止旧 HTTP 响应覆盖已更新的快照投影
+  // 新增：大转盘覆盖层 / 排行榜 / 结算（均只读私有投影与公开投影，不新增身份线索）。
+  let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
+  let wheelSpinFlight = null, wheelResult = '';
+  let rulesInfo = null, finishReason = '', rankingList = null, finishShown = false, lastRankingSig = '', lastFinishSig = '';
+  // serverTime 只在快照到达时更新；本地用单调时钟插值，避免计时与动画在快照间隙抖动/闪烁。
+  function serverNow() { return serverTime + (performance.now() - serverPerfBase); }
+  function selfDisabled() {
+    if (!me || !me.combat) return false;
+    const t = serverNow();
+    return t < (me.combat.stunUntil || 0) || t < (me.combat.freezeUntil || 0);
+  }
 
   function selfId() { return me ? me.id : -1; }
   function selfPlayer() { return players.find(p => p.id === selfId()) || null; }
@@ -128,6 +225,83 @@
     if (user) h['User-Token'] = user;
     return h;
   }
+  async function api(path, body, method) {
+    const res = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: headers(), body: body ? JSON.stringify(body) : undefined });
+    let data = {};
+    try { data = await res.json(); } catch { data = {}; }
+    if (data && data.auth === false) {
+      localStorage.removeItem('sid_user_token');
+      redirectLogin();
+    }
+    return { ...data, status: res.status };
+  }
+  // Insecure LAN contexts have no crypto.randomUUID, so the command id is random string based.
+  const commandId = () => 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  // 换层保护字段：所有可能驱动移动/互动的上行请求都带上 roundId 与 expectedFloorRevision，
+  // 让服务端丢弃换层前按住的迟到指令（不静默放行）。技能 /api/skill 不受楼层限制，不带这些字段。
+  function floorFields() {
+    const f = {};
+    if (roundId) f.roundId = roundId;
+    if (me && typeof me.floorRevision === 'number') f.expectedFloorRevision = me.floorRevision;
+    return f;
+  }
+  function sendIntent(force) {
+    const sig = ['KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyS', 'ArrowDown', 'KeyD', 'ArrowRight'].map(c => keys.has(c) ? 1 : 0).join('');
+    if (!force && sig === lastIntent) return;
+    lastIntent = sig;
+    api('/api/input', {
+      up: keys.has('KeyW') || keys.has('ArrowUp'),
+      down: keys.has('KeyS') || keys.has('ArrowDown'),
+      left: keys.has('KeyA') || keys.has('ArrowLeft'),
+      right: keys.has('KeyD') || keys.has('ArrowRight'),
+      ...floorFields()
+    }).catch(() => { });
+  }
+  // 停止意图也带楼层保护字段；换层期间只发送零移动，绝不携带换层指令。
+  function stopIntent() { return api('/api/input', { up: false, down: false, left: false, right: false, ...floorFields() }); }
+  function openStream() {
+    const token = sessionToken || localStorage.getItem('sid_session_token');
+    if (stream) { try { stream.close(); } catch { } }
+    awaitingFirst = true;
+    // EventSource cannot set headers, so the reconnect token rides in the query string.
+    // It is the same random credential as the HttpOnly cookie; identity is never derived
+    // from a nickname.
+    // EventSource 不能带自定义头，CAS 会话与重连令牌一样走查询串（与 HttpOnly Cookie 同值）。
+    const user = localStorage.getItem('sid_user_token');
+    const query = new URLSearchParams();
+    if (token) query.set('sid_token', token);
+    if (user) query.set('user_token', user);
+    const qs = query.toString();
+    stream = new EventSource(qs ? `/api/stream?${qs}` : '/api/stream');
+    const activeStream = stream, generation = sessionGeneration;
+    stream.addEventListener('reset', () => { if (stream === activeStream) resetToJoin(); });
+    stream.onmessage = event => {
+      if (stream !== activeStream || generation !== sessionGeneration) return;
+      try { applySnapshot(JSON.parse(event.data)); } catch { }
+    };
+    stream.onerror = () => { /* EventSource retries on its own with the advertised retry. */ };
+  }
+  async function join(nickname) {
+    const r = await api('/api/join', ssoRequired ? {} : { nickname: String(nickname || '').slice(0, 8) });
+    if (r.auth === false) return;
+    if (r.status !== 200 || !r.ok) {
+      $('join-error').textContent = r.error || '加入失败';
+      $('join-page').hidden = false;
+      if (ssoRequired) { $('nickname').hidden = true; $('join-submit').hidden = false; $('join-submit').textContent = '进入办公室'; $('join-submit').dataset.mode = 'join'; }
+      return;
+    }
+    sessionToken = r.sessionToken;
+    localStorage.setItem('sid_session_token', r.sessionToken);
+    const host = (r.lan && r.lan[0]) || location.hostname || '127.0.0.1';
+    localStorage.setItem('sid_lan', `http://${host}:${r.port || location.port || 8787}`);
+    $('lan-address').textContent = localStorage.getItem('sid_lan');
+    $('join-page').hidden = true;
+    const snapshot = await api('/api/state', null, 'GET').catch(() => null);
+    if (snapshot) applySnapshot(snapshot);
+    openStream();
+    loadCapabilities();
+  }
+  // ---------- CAS 单点登录（dev 分支并入） ----------
   function serviceUrl() { return location.origin + location.pathname; }
   function redirectLogin() {
     if (loginRedirecting) return;
@@ -164,71 +338,6 @@
     el.textContent = `${user.name || user.emp_no}（${user.emp_no}）`;
     $('sso-logout').hidden = false;
   }
-  async function api(path, body, method) {
-    const res = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: headers(), body: body ? JSON.stringify(body) : undefined });
-    let data = {};
-    try { data = await res.json(); } catch { data = {}; }
-    if (data && data.auth === false) {
-      localStorage.removeItem('sid_user_token');
-      redirectLogin();
-    }
-    return { ...data, status: res.status };
-  }
-  // Insecure LAN contexts have no crypto.randomUUID, so the command id is random string based.
-  const commandId = () => 'c-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
-  function sendIntent(force) {
-    const sig = ['KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyS', 'ArrowDown', 'KeyD', 'ArrowRight'].map(c => keys.has(c) ? 1 : 0).join('');
-    if (!force && sig === lastIntent) return;
-    lastIntent = sig;
-    api('/api/input', {
-      up: keys.has('KeyW') || keys.has('ArrowUp'),
-      down: keys.has('KeyS') || keys.has('ArrowDown'),
-      left: keys.has('KeyA') || keys.has('ArrowLeft'),
-      right: keys.has('KeyD') || keys.has('ArrowRight')
-    }).catch(() => { });
-  }
-  function openStream() {
-    const token = sessionToken || localStorage.getItem('sid_session_token');
-    const user = localStorage.getItem('sid_user_token');
-    if (stream) { try { stream.close(); } catch { } }
-    awaitingFirst = true;
-    // EventSource cannot set headers, so the reconnect token rides in the query string.
-    // It is the same random credential as the HttpOnly cookie; identity is never derived
-    // from a nickname. user_token is the same CAS session as the User-Token header.
-    const query = new URLSearchParams();
-    if (token) query.set('sid_token', token);
-    if (user) query.set('user_token', user);
-    const qs = query.toString();
-    stream = new EventSource(qs ? `/api/stream?${qs}` : '/api/stream');
-    stream.addEventListener('reset', resetToJoin);
-    stream.onmessage = event => { try { applySnapshot(JSON.parse(event.data)); } catch { } };
-    stream.onerror = () => { /* EventSource retries on its own with the advertised retry. */ };
-  }
-  async function join(nickname) {
-    const r = await api('/api/join', ssoRequired ? {} : { nickname: String(nickname || '').slice(0, 8) });
-    if (r.auth === false) return;
-    if (r.status !== 200 || !r.ok) {
-      $('join-error').textContent = r.error || '加入失败';
-      $('join-page').hidden = false;
-      if (ssoRequired) {
-        $('nickname').hidden = true;
-        $('join-submit').hidden = false;
-        $('join-submit').textContent = '进入办公室';
-        $('join-submit').dataset.mode = 'join';
-      }
-      return;
-    }
-    sessionToken = r.sessionToken;
-    localStorage.setItem('sid_session_token', r.sessionToken);
-    const host = (r.lan && r.lan[0]) || location.hostname || '127.0.0.1';
-    localStorage.setItem('sid_lan', `http://${host}:${r.port || location.port || 8787}`);
-    $('lan-address').textContent = localStorage.getItem('sid_lan');
-    $('join-page').hidden = true;
-    const snapshot = await api('/api/state', null, 'GET').catch(() => null);
-    if (snapshot) applySnapshot(snapshot);
-    openStream();
-    loadCapabilities();
-  }
   async function ensureLogin() {
     const params = new URLSearchParams(location.search);
     const ticket = params.get('ticket');
@@ -237,26 +346,22 @@
     if (ticket && !token) {
       try {
         const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ticket, service: serviceUrl() })
         });
         const data = await res.json();
-        if (data.token) {
-          token = data.token;
-          localStorage.setItem('sid_user_token', token);
-          if (data.user && data.user.emp_no) return data.user;
-        }
+        if (data.token) { token = data.token; localStorage.setItem('sid_user_token', token); if (data.user && data.user.emp_no) return data.user; }
       } catch { /* 没有换到会话时再提示重试 */ }
       if (!token) { showRelogin('单点登录失败，请重试'); return null; }
     }
     if (!token) { redirectLogin(); return null; }
-    const me = await api('/api/auth/me', null, 'GET').catch(() => null);
-    if (me && me.emp_no) return me;
-    if (me && me.auth === false) return null;
+    const profile = await api('/api/auth/me', null, 'GET').catch(() => null);
+    if (profile && profile.emp_no) return profile;
+    if (profile && profile.auth === false) return null;
     showRelogin('无法确认登录状态');
     return null;
   }
+
   async function boot() {
     let cfg = { required: false, loginUrl: '' };
     try { cfg = await (await fetch('/api/auth/config')).json(); } catch { cfg = { required: false, loginUrl: '' }; }
@@ -273,6 +378,7 @@
       requestAnimationFrame(frame);
       return;
     }
+    // CAS 单点登录模式：先确认身份，再决定是否需要加入新局。
     $('nickname').hidden = true;
     $('join-submit').hidden = true;
     $('join-hint').textContent = '正在通过单点登录确认身份…';
@@ -286,20 +392,28 @@
     const s = await api('/api/state', null, 'GET').catch(() => ({}));
     if (s && s.auth === false) { requestAnimationFrame(frame); return; }
     if (s && s.me && s.me.id !== undefined) { applySnapshot(s); $('join-page').hidden = true; openStream(); loadCapabilities(); }
-    else {
-      localStorage.removeItem('sid_session_token');
-      sessionToken = null;
-      await join();
-    }
+    else { localStorage.removeItem('sid_session_token'); sessionToken = null; await join(); }
     requestAnimationFrame(frame);
   }
 
   // ---------- 快照消费 ----------
   function applySnapshot(s) {
     if (!s || s.type !== 'snapshot') return;
-    if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) clearPrivate(true);
+    snapshotGen++;
+    if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) {
+      sessionGeneration++; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel(); closeGames();
+      // 身份切换：清空猜拳本地乐观状态与队列，隔离旧响应生成。
+      rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
+      rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
+      rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
+    }
     serverTime = s.serverTime || Date.now();
+    if (s.roundId) roundId = s.roundId;
+    serverPerfBase = performance.now();
     finished = !!s.finished;
+    if (s.rules) rulesInfo = s.rules;
+    rankingList = Array.isArray(s.ranking) ? s.ranking : null;
+    if (typeof s.finishReason === 'string') finishReason = s.finishReason;
     logs = s.logs || [];
     players = s.players || [];
     badPoolAvailable = Array.isArray(s.badSlots);
@@ -311,6 +425,7 @@
       // The first snapshot after (re)connecting carries everything queued while offline.
       if (awaitingFirst) { for (const e of (s.me.pending || [])) offlineEvents.add(e.eventId); awaitingFirst = false; }
       me = s.me;
+      // 已确认过的摘要不再重复提示（失败/重连时保持同一摘要可用）。
       if (me.interactionSummary && confirmedDigests.has(`${me.interactionSummary.epoch}:${me.interactionSummary.id}`)) {
         me = { ...me, interactionSummary: null };
       }
@@ -319,18 +434,40 @@
       if (me.skills.action) me = { ...me, legacy: true, skills: me.faction === 'bad'
         ? { spy: me.skills.probe, kill: me.skills.action }
         : { probe: me.skills.probe, accuse: me.skills.action } };
+      // 权威楼层采纳：非过渡期间若服务端楼层与本地不同（例如重连、被动换层、换层结果未确认后
+      // 权威对账），整层原子切换。UNCONFIRMED/FAILED_SOURCE 在对账成立后收敛回 IDLE。
+      if (floorFlight && floorFlight.submitted && me.floorId === floorFlight.targetFloorId &&
+          me.floorRevision > floorFlight.expectedFloorRevision &&
+          (floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED')) {
+        const authoritative = selfPlayer();
+        floorArrived(floorFlight, { floor: { id: me.floorId, name: me.floorName, revision: me.floorRevision },
+          position: authoritative && { x: authoritative.x, y: authoritative.y } });
+      } else if (me.floorId && me.floorId !== floorId && !floorFlight) {
+        adoptFloor(me.floorId);
+      }
     }
-    for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false, facing: 1 });
+    for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false });
     if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
     renderPublic();
     syncTarget();
     if (mineOpen) renderMine();
+    syncExploration(); updateExplorationHUD();
+    syncRpsLifecycle(); syncGames(); updateCombatHUD();
     updateOfflineUI();
+    updateScoreDisplay(); syncTimeLeft(); syncRanking();
+    if (wheelOpen) updateWheelControls();
+    // 结算只自动弹出一次：关闭后不因 20Hz 快照反复弹出，新一轮开始时重置。
+    if (finished) {
+      if (!$('finish-overlay').hidden) renderFinish();
+      else if (!finishShown) { finishShown = true; showFinish(); }
+    } else {
+      finishShown = false;
+      if (!$('finish-overlay').hidden) hideFinish();
+    }
   }
 
   // ---------- 名单 / 日志 / 目标档案 ----------
   function portrait(p) {
-    if (!p.alive) return '<svg class="portrait" viewBox="0 0 40 54" aria-label="幽灵 · 已淘汰"><path d="M6 46V24a14 14 0 0 1 28 0v22l-7-5-7 5-7-5-7 5Z" fill="#eeeae0" stroke="#a8a9af"/><circle cx="15" cy="25" r="2" fill="#424957"/><circle cx="25" cy="25" r="2" fill="#424957"/></svg>';
     const c = p.colors;
     const hi = Math.max(0, palettes.hair.findIndex(o => o[0] === c.hair[0]));
     const skin = SKIN[hi], hair = c.hair[1], style = hi % 4;
@@ -375,7 +512,7 @@
     return `<small class="roster-match">${text}${shown.length > 2 ? ` 等${shown.length}项` : ''}</small>`;
   }
   function row(p, hits) {
-    const tag = !p.alive ? `<span class="out-label">幽灵 · 已淘汰${p.online === false ? ' · 离线' : ''}</span>`
+    const tag = !p.alive ? '<span class="out-label">淘汰</span>'
       : p.id === selfId() ? '<span class="self-label">自己</span>'
         : p.online === false ? '<span class="offline-tag">离线</span>' : '';
     return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong><small>${sidHTML(p.sid)}</small>${matchHint(hits)}</span>${tag}</button>`;
@@ -402,20 +539,20 @@
   function renderPublic() {
     $('alive-count').textContent = aliveCount;
     $('out-count').textContent = outCount;
-    $('player-count').textContent = `${players.length} 位玩家 · 服务端权威${finished ? ' · 本局已结束' : ''}`;
+    $('player-count').textContent = `${players.length} 位玩家 · 服务端权威${finished ? ' · 游戏已结束' : ''}`;
     $('roster-count').textContent = players.length;
     renderRoster(); renderLogs();
   }
   function selected() { return selectedId === null ? null : players.find(p => p.id === selectedId) || null; }
   function syncTarget() {
     const p = selected();
-    const sig = p ? JSON.stringify((({ x, y, ...profile }) => profile)(p)) : '';
+    const sig = p ? JSON.stringify([(({ x, y, ...profile }) => profile)(p), isInviteable(p), me?.games?.rpsPending?.id || null, me?.games?.rpsResult?.id || null]) : '';
     if (sig === lastTargetSig) { if (holding()) updateSkillStatus(); return; }
     lastTargetSig = sig;
     renderTarget();
   }
   function clearPrivate(clearMy) {
-    privateOpen = false; pending = null; privateResult = '';
+    privateGeneration++; privateOpen = false; pending = null; privateResult = '';
     const block = $('private-content'); if (block) block.replaceChildren();
     const gate = $('private-gate'); if (gate) { gate.textContent = '展开私密操作'; gate.setAttribute('aria-expanded', 'false'); }
     if (clearMy) {
@@ -423,9 +560,20 @@
       $('offline-summary').hidden = true; $('offline-summary').replaceChildren();
     }
   }
-  function clearAllInput() { keys.clear(); sendIntent(true); clearPrivate(true); }
+  // 切出页面 / 失焦 / pointercancel 统一入口：清空方向集合、释放指针捕获、只发一次零移动意图；
+  // 绝不在此触发或重发换层指令（换层只由显式 E / 点击入口发起，且提交后不重复）。
+  const pointerIds = new Set();
+  canvas.addEventListener('pointerdown', e => pointerIds.add(e.pointerId));
+  function clearAllInput(e) {
+    keys.clear();
+    if (e && typeof e.pointerId === 'number') pointerIds.add(e.pointerId);
+    for (const id of pointerIds) { try { if (canvas.hasPointerCapture && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch { } }
+    pointerIds.clear();
+    // blur 与 hidden 连续发生时零意图签名去重；不重发任何换层 POST。
+    sendIntent(false); clearPrivate(true); closeExploration(); closeWheel();
+  }
   function select(id) {
-    clearPrivate(true); selectedId = id;
+    closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
     lastTargetSig = ''; renderTarget(); renderRoster();
   }
@@ -433,20 +581,22 @@
     const p = selected();
     if (!p) { $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
-    const status = p.alive ? '存活 · 公开档案' : '幽灵 · 已淘汰 · 不可施技';
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
+    const status = p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作';
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
+    const inviteBtn = $('target-invite-rps');
+    if (inviteBtn) inviteBtn.onclick = () => { if (isInviteable(selected())) sendRps({ kind: 'rpsInvite', targetId: selected().id }); };
+    const returnBtn = $('target-return-rps');
+    if (returnBtn) returnBtn.onclick = () => { rpsResultDismissId = null; openGames(); };
     $('private-gate').onclick = () => {
       if (privateOpen) clearPrivate();
-      else { privateOpen = true; renderPrivate(); $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true'); }
+      else { closeExploration(); closeGames(); privateOpen = true; renderPrivate(); $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true'); }
     };
     if (holding()) renderPrivate();
   }
   // ---------- 私密操作（点击展开，不再依赖 Shift） ----------
   function holding() { return privateOpen; }
-  // Private skill resources stop at the authoritative freeze time, even while ghosts keep moving.
-  const skillTime = () => me && me.skillsFrozenAt != null ? me.skillsFrozenAt : serverTime;
-  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - skillTime()) / 1000));
+  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - serverTime) / 1000));
   const skillNames = { probe: '探查', accuse: '指认', spy: '刺探', kill: '击杀' };
   function availableSkills() {
     // Old running servers may still have action. Keep reading them until a planned restart.
@@ -460,8 +610,7 @@
   function canTarget(p) { return !!(p && me && p.id !== me.id && p.alive && me.alive && !finished); }
   function skillStatus(id, skill) {
     const cooldown = secondsLeft(skill.cooldownUntil);
-    const frozen = me && me.skillsFrozenAt != null;
-    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${cooldown ? `冷却 ${cooldown}s` : '就绪'} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s ${frozen ? '恢复剩余（冻结）' : '后 +1'}` : '储存已满'}${frozen ? ' · 技能资源已冻结' : ''}`;
+    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${cooldown ? `冷却 ${cooldown}s` : '就绪'} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '储存已满'}`;
   }
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
@@ -475,7 +624,7 @@
     if (!holding() || !me) return;
     const p = selected(), info = $('skill-info'); if (!info || !p) return;
     const ids = availableSkills();
-    info.textContent = (!canTarget(p) ? (finished ? '本局已结束，技能已冻结。 ' : '自己或已淘汰目标不可操作。 ') : '')
+    info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : '自己或已淘汰目标不可操作。 ') : '')
       + ids.map(id => skillStatus(id, me.skills[id])).join('；')
       + (me.legacy ? '；运行中服务仍是旧技能版本，四技能需主持人安排重启后生效。' : '');
     for (const id of ids) {
@@ -500,7 +649,9 @@
     const skill = me.legacy ? (requested === 'spy' ? 'probe' : requested === 'accuse' || requested === 'kill' ? 'action' : requested) : requested;
     const body = { commandId: commandId(), skill, targetId: p.id };
     if (pending.kind === 'kill') body.sid = String(input || '');
-    const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，未结算' }));
+    const generation = privateGeneration, session = sessionGeneration;
+    const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，结果未确认' }));
+    if (session !== sessionGeneration || generation !== privateGeneration || !holding()) return false;
     privateResult = result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
     pending = null;
     renderConfirmation(); renderResult(); updateSkillStatus();
@@ -531,7 +682,7 @@
       });
     }
     $('mine-name').textContent = `我的信息 · ${me.name}`;
-    $('mine-alive').textContent = me.alive ? '存活 · 本人档案' : '已淘汰 · 本人档案';
+    $('mine-alive').textContent = (me.alive ? '存活' : '已淘汰') + ` · 本人档案 · 分数 ${typeof me.score === 'number' ? me.score : 0}`;
     const colors = selfPlayer() ? selfPlayer().colors : {};
     const colorHTML = Object.entries(colors).map(([k,c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${escapeText(c[0])}</div>`).join('');
     if ($('mine-colors').innerHTML !== colorHTML) $('mine-colors').innerHTML = colorHTML;
@@ -557,14 +708,22 @@
       const cap = await api('/api/dev/capabilities', null, 'GET');
       if (expectedSession !== sessionToken || !me) return;
       if (cap.status === 200 && cap.canReset === true && typeof cap.csrfToken === 'string' && cap.csrfToken) {
-        devCsrf = cap.csrfToken;
-        $('dev-npc').hidden = false; $('dev-reset').hidden = false; $('dev-management').hidden = false;
+        devCsrf = cap.csrfToken; $('dev-npc').hidden = false; $('dev-reset').hidden = false; $('dev-management').hidden = false;
       }
     } catch { /* Older backend, denied, or network failure: fail closed. */ }
   }
   function resetToJoin() {
+    sessionGeneration++; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
     if (stream) { stream.close(); stream = null; }
-    clearPrivate(true); keys.clear(); lastIntent = '';
+    closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); hideFinish(); keys.clear(); lastIntent = '';
+    combatResult = ''; gamesResult = '';
+    rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
+    rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
+    rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
+    rulesInfo = null; finishReason = ''; rankingList = null; finishShown = false; lastRankingSig = '';
+    wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
+    nearbySig = ''; $('nearby-items').replaceChildren();
+    $('copy-toast').hidden = true; $('copy-toast').textContent = ''; clearTimeout(toastTimer);
     sessionToken = null; devCsrf = null;
     localStorage.removeItem('sid_session_token'); localStorage.removeItem('sid_lan');
     players = []; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
@@ -577,7 +736,8 @@
     $('offline-summary').replaceChildren(); $('offline-summary').hidden = true;
     $('dev-reset').hidden = true; $('dev-npc').hidden = true; $('dev-management').hidden = true; closeResetDialog(false);
     if ($('rules-view').open) closeRules();
-    renderPublic(); renderRoster(); renderLogs(); updateOfflineUI();
+    renderPublic(); renderRoster(); renderLogs(); updateOfflineUI(); updateExplorationHUD();
+    syncGames(); updateCombatHUD(); updateScoreDisplay(); syncTimeLeft();
     $('join-page').hidden = false;
     if (ssoRequired) {
       $('nickname').hidden = true;
@@ -642,6 +802,702 @@
     finally { resetBusy = false; $('dev-reset').disabled = false; $('reset-accept').disabled = false; }
   };
 
+  // ---------- 私密探索：权威奖励只读 me.exploration，不进入公开档案 ----------
+  function explorationState() { return me?.exploration || { chips: 0, clues: [], searched: [] }; }
+  function explorationEntity(kind, id) {
+    return kind === 'container' ? containers.find(f => f.id === id) : kind === 'npc' ? npcs.find(n => n.entityId === id) : null;
+  }
+  function entityDistance(entity) {
+    const self = selfPlayer();
+    return self && entity ? WORLD.distanceToEntity(self, entity) : Infinity;
+  }
+  function nearbyEntities() {
+    if (!me?.alive || finished) return [];
+    return [...containers.map(entity => ({ kind: 'container', id: entity.id, entity })),
+      ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity }))]
+      .filter(({ entity }) => entityDistance(entity) <= WORLD.INTERACT_RANGE)
+      .sort((a, b) => entityDistance(a.entity) - entityDistance(b.entity));
+  }
+  // 需求2：电梯门候选 = 当前层「进入 64px 且面向门（spriteFacing cos≥0.5）」的**最近** portal。
+  // 唯一归属 = 最近门（不因另一扇可用就改投）⇒ 站在禁用门前的反馈稳定、不会被悄悄换方向。
+  function elevatorTarget() {
+    const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
+    let best = null, bd = Infinity, bestAccess = null;
+    for (const portal of portals) {
+      const access = WORLD.portalAccess(self, portal);
+      if (!access.inReach || !access.facingOk) continue;
+      const d = WORLD.distanceToEntity(self, { x: portal.x, y: portal.y });
+      if (d < bd) { bd = d; best = portal; bestAccess = access; }
+    }
+    return best ? { portal: best, access: bestAccess } : null;
+  }
+  // E 就近互动：同时比较附近玩家、家具/NPC 与楼梯入口，取距离最近者；已选中的近玩家在距离相当时优先。
+  // 玩家必须同层（floorId 一致）才参与就近判定。
+  function nearestInteractable() {
+    const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
+    let pBest = null, pD = Infinity;
+    for (const p of players) {
+      if (p.id === me.id || !p.alive || p.online === false || p.floorId !== me.floorId) continue;
+      if (!WORLD.lineClear(self, p, occluders)) continue;
+      const d = WORLD.distanceToEntity(self, p);
+      if (d <= WORLD.INTERACT_RANGE && d < pD) { pD = d; pBest = { kind: 'player', id: p.id }; }
+    }
+    let eBest = null, eD = Infinity;
+    for (const item of nearbyEntities()) {
+      const d = entityDistance(item.entity);
+      if (d < eD) { eD = d; eBest = { kind: item.kind, id: item.id }; }
+    }
+    // 电梯门不进入这套「就近取最近」的仲裁：它由 elevatorTarget() 单独处理（必须先于玩家/容器），
+    // 否则玩家只要靠近门就会在未面向门时也能乘梯，与「面对电梯按 E」冲突。
+    const candidates = [];
+    if (pBest) candidates.push({ d: pD, hit: pBest });
+    if (eBest) candidates.push({ d: eD, hit: eBest });
+    if (!candidates.length) return null;
+    // 已选玩家在距离相差不超过 32 像素时优先（保持与旧版一致的手感）。
+    if (pBest) {
+      const player = candidates.find(c => c.hit === pBest);
+      const other = candidates.filter(c => c.hit !== pBest).sort((a, b) => a.d - b.d)[0];
+      if (!other || player.d <= other.d + 32) return pBest;
+    }
+    candidates.sort((a, b) => a.d - b.d);
+    return candidates[0].hit;
+  }
+  function closeExploration() {
+    explorationGeneration++; explorationPanel = null; explorationResult = ''; explorationDataSig = '';
+    $('exploration').replaceChildren(); $('exploration').hidden = true;
+    $('clue-bag').setAttribute('aria-expanded', 'false');
+  }
+  function openExploration(kind, id = null) {
+    if (!me || (kind !== 'backpack' && !explorationEntity(kind, id))) return;
+    clearAllInput(); selectedId = null; lastTargetSig = '';
+    $('candidates').hidden = true; $('candidates').replaceChildren(); renderTarget(); renderRoster();
+    explorationPanel = { kind, entityId: id };
+    const entity = explorationEntity(kind, id), host = $('exploration');
+    host.hidden = false; $('clue-bag').setAttribute('aria-expanded', String(kind === 'backpack'));
+    const heading = kind === 'backpack' ? '线索背包' : kind === 'container' ? entity.container.name : entity.name;
+    // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
+    host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE EXPLORATION</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭私密探索">×</button></div><div class="exploration-body"><p class="exploration-balance">我的筹码：<strong id="exploration-chips"></strong></p>${kind === 'backpack'
+      ? '<p id="exploration-clue-count" class="panel-note"></p><div id="exploration-clues" class="clue-list"></div>'
+      : `<p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p>${kind === 'npc' ? `<p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="wheel-block"><p class="private-title">大转盘</p><p class="panel-note">10 格等概率 · 首次免费，之后按次数阶梯收费</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div>` : ''}<p class="panel-note">${kind === 'container' ? '每名玩家每个容器限搜一次，奖励由服务端结算。' : `每次 ${entity.cost} 筹码兑换一条尚未拥有的真实隐藏属性线索；无新线索不扣筹码。`}</p><button id="exploration-action">${kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 筹码兑换线索`}</button>`}<p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即销毁显示，不回滚已结算奖励。</p></div>`;
+    $('exploration-close').onclick = closeExploration;
+    if ($('exploration-action')) $('exploration-action').onclick = commitInteraction;
+    if ($('exploration-wheel')) $('exploration-wheel').onclick = () => openWheel(entity.entityId, entity.name);
+    // 远处容器/NPC 仍可打开面板查看，但按钮禁用并给出「靠近」提示。
+    if (kind !== 'backpack' && entityDistance(entity) > WORLD.INTERACT_RANGE) showToast('距离太远，请靠近后再互动（64 像素以内）');
+    syncExploration();
+  }
+  function syncExploration() {
+    if (!explorationPanel || !me) return;
+    const { kind, entityId } = explorationPanel, entity = explorationEntity(kind, entityId);
+    const state = explorationState(), dataSig = JSON.stringify(state);
+    if (dataSig !== explorationDataSig) {
+      explorationDataSig = dataSig;
+      $('exploration-chips').textContent = state.chips;
+      if (kind === 'backpack') {
+        $('exploration-clue-count').textContent = `仅自己可见 · ${state.clues.length} 条真实线索 · 不改变玩家公开档案`;
+        $('exploration-clues').innerHTML = state.clues.length ? state.clues.map(c => `<article class="clue-card"><strong>${escapeText(c.targetName)} · ${escapeText(c.label)}</strong><p>${escapeText(c.text)}</p><small>来源：${escapeText(c.source)}</small></article>`).join('') : '<p class="panel-note">背包为空。靠近容器搜寻，或向 NPC 兑换线索。</p>';
+      }
+    }
+    if (kind !== 'backpack') {
+      const distance = entityDistance(entity), inRange = distance <= WORLD.INTERACT_RANGE;
+      const searched = kind === 'container' && state.searched.includes(entityId);
+      $('exploration-distance').textContent = `距离：${Number.isFinite(distance) ? Math.ceil(distance) + ' 像素' : '未知'} / 范围 ${WORLD.INTERACT_RANGE} · ${inRange ? '可近距离互动' : '距离太远，请靠近后再试'}`;
+      $('exploration-state').textContent = finished ? '游戏已结束，探索已冻结' : !me.alive ? '已淘汰，无法探索' : kind === 'container' ? (searched ? '已搜寻 · 不可重复搜寻' : '未搜寻 · 每人限搜一次') : state.chips < entity.cost ? `筹码不足，需要 ${entity.cost} 筹码` : `可确认支付 ${entity.cost} 筹码兑换`;
+      const button = $('exploration-action');
+      button.disabled = !!interactionFlight || !me.alive || finished || !inRange || searched || (kind === 'npc' && state.chips < entity.cost);
+      button.textContent = interactionFlight ? '正在确认结算…' : kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 筹码兑换线索`;
+      const wheel = $('exploration-wheel');
+      if (wheel) {
+        const spins = wheelSpinsFor(entityId), cost = wheelSpinCost(spins);
+        // 不再因「已领取」禁用：转盘可重复转动，只有淘汰/结束/距离/眩晕才禁用。
+        wheel.disabled = !me.alive || finished || !inRange || selfDisabled();
+        wheel.textContent = '打开大转盘';
+        $('exploration-wheel-state').textContent = !me.alive ? '已淘汰，无法转动'
+          : finished ? '游戏已结束，转盘已冻结'
+            : !inRange ? '距离太远，请靠近后再试'
+              : selfDisabled() ? '眩晕/僵直中，暂时无法互动'
+                : cost > 0 && state.chips < cost ? `第 ${spins + 1} 次 · 需 ${cost} 筹码（当前 ${state.chips}）· 筹码不足`
+                  : `第 ${spins + 1} 次 · ${cost === 0 ? '免费' : `需 ${cost} 筹码（当前 ${state.chips}）`}`;
+      }
+    }
+    $('exploration-result').textContent = explorationResult;
+    $('exploration-result').hidden = !explorationResult;
+  }
+  async function commitInteraction() {
+    if (!explorationPanel || interactionFlight || !me || $('exploration-action')?.disabled) return;
+    const { kind, entityId } = explorationPanel;
+    if (!['container', 'npc'].includes(kind)) return;
+    const request = { session: sessionGeneration, token: sessionToken, panel: explorationGeneration, state: JSON.stringify(explorationState()) };
+    const sameSession = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    const samePanel = () => sameSession() && request.panel === explorationGeneration && !!explorationPanel;
+    interactionFlight = request; explorationResult = ''; keys.clear(); lastIntent = '';
+    syncExploration();
+    try {
+      // 先等待停止意图被服务端确认，再提交探索；提交期间禁止移动与双击。
+      const stopped = await stopIntent();
+      if (!samePanel()) return;
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const result = await api('/api/interact', { commandId: commandId(), kind: kind === 'container' ? 'search' : 'exchange', entityId, ...floorFields() });
+      if (!samePanel()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean' || !result.exploration) throw new Error('结算结果未确认');
+      // 相同会话内也不以旧响应覆盖已变化的探索快照。
+      if (request.state === JSON.stringify(explorationState())) me = { ...me, exploration: result.exploration };
+      if (typeof result.score === 'number') me = { ...me, score: result.score };
+      explorationResult = result.resultText || result.error || (result.ok ? '已结算' : '结算被拒绝');
+    } catch {
+      if (samePanel()) explorationResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
+    } finally {
+      if (interactionFlight === request) interactionFlight = null;
+      if (sameSession() && explorationPanel) syncExploration();
+    }
+  }
+  // ---------- 大转盘覆盖层：预览用 buildWheelPool，落点用服务端返回的 slots ----------
+  function wheelSpinsFor(entityId) { return (me && me.games && me.games.wheelSpins && me.games.wheelSpins[entityId]) || 0; }
+  function openWheel(entityId, name) {
+    if (!me || !entityId) return;
+    closeGames(); closeRanking();
+    selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster();
+    wheelTarget = { entityId, name: name || '大转盘' };
+    wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
+    wheelSlots = buildWheelPool(me.faction);
+    wheelOpen = true;
+    const overlay = $('wheel-overlay'); overlay.hidden = false;
+    const result = $('wheel-result'); result.textContent = ''; result.hidden = true;
+    drawWheel(wheelSlots, wheelAngle);
+    updateWheelControls();
+    $('wheel-close').focus({ preventScroll: true });
+  }
+  function closeWheel() {
+    if (!wheelOpen) return;
+    wheelOpen = false; wheelTarget = null; wheelSlots = null; wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
+    if (wheelAnim) { cancelAnimationFrame(wheelAnim); wheelAnim = 0; }
+    const overlay = $('wheel-overlay'); if (overlay) overlay.hidden = true;
+    const result = $('wheel-result'); if (result) { result.textContent = ''; result.hidden = true; }
+    const canvasEl = $('wheel-canvas');
+    if (canvasEl) { const g = canvasEl.getContext('2d'); g.clearRect(0, 0, canvasEl.width, canvasEl.height); }
+  }
+  function showWheelResult() {
+    const result = $('wheel-result'); if (!result) return;
+    result.textContent = wheelResult; result.hidden = !wheelResult;
+  }
+  function updateWheelControls() {
+    if (!wheelOpen || !wheelTarget || !me) return;
+    const spins = wheelSpinsFor(wheelTarget.entityId), chips = explorationState().chips, cost = wheelSpinCost(spins);
+    const busy = !!wheelSpinFlight || wheelAnimating;
+    $('wheel-title').textContent = wheelTarget.name;
+    let costText = cost === 0 ? `第 ${spins + 1} 次：免费` : `第 ${spins + 1} 次：${cost} 筹码（当前 ${chips}）`;
+    if (!me.alive) costText += ' · 已淘汰';
+    else if (finished) costText += ' · 游戏已结束';
+    else if (selfDisabled()) costText += ' · 眩晕/僵直中';
+    else if (cost > chips) costText += ' · 筹码不足';
+    $('wheel-cost').textContent = costText;
+    const button = $('wheel-spin');
+    button.disabled = busy || !me.alive || finished || selfDisabled() || cost > chips;
+    button.textContent = busy ? '转动中…' : '转动转盘';
+    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率。首次免费，之后次数越多越贵（费用见 WHEEL.spinCosts）。${me.faction === 'good' ? '好人转盘含线索券。' : '坏人转盘含洗心革面券与轮回券。'}`;
+  }
+  function drawWheel(slots, angle) {
+    const canvasEl = $('wheel-canvas'); if (!canvasEl) return;
+    const g = canvasEl.getContext('2d');
+    const w = canvasEl.width, h = canvasEl.height, cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 10;
+    g.clearRect(0, 0, w, h);
+    // 外圈：延续像素 / 发光风格的双描边。
+    g.save();
+    g.strokeStyle = WHEEL_CHIP_COLOR; g.globalAlpha = .9; g.lineWidth = 3;
+    g.beginPath(); g.arc(cx, cy, R + 4, 0, Math.PI * 2); g.stroke();
+    g.globalAlpha = .25; g.lineWidth = 8;
+    g.beginPath(); g.arc(cx, cy, R + 9, 0, Math.PI * 2); g.stroke();
+    g.restore();
+    if (!slots || !slots.length) return;
+    const n = slots.length, slice = Math.PI * 2 / n;
+    for (let i = 0; i < n; i++) {
+      const mid = -Math.PI / 2 + i * slice + angle, a0 = mid - slice / 2, a1 = mid + slice / 2, slot = slots[i];
+      g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R, a0, a1); g.closePath();
+      g.fillStyle = slot.color || '#334155'; g.fill();
+      g.strokeStyle = '#0F172A'; g.lineWidth = 2; g.stroke();
+      // 文字沿扇区中线排布；左半圈翻转，保证正向可读。
+      g.save();
+      g.translate(cx + Math.cos(mid) * R * 0.62, cy + Math.sin(mid) * R * 0.62);
+      g.rotate(Math.cos(mid) < 0 ? mid + Math.PI : mid);
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#0F172A';
+      if (slot.kind === 'special') {
+        g.font = '700 19px -apple-system,"PingFang SC",sans-serif';
+        g.fillText(slot.glyph || '★', 0, -9);
+        g.font = '700 11px -apple-system,"PingFang SC",sans-serif';
+        g.fillText(String(slot.label || '').replace('券', '').slice(0, 2), 0, 9);
+      } else {
+        g.font = '700 22px ui-monospace,monospace';
+        g.fillText(String(slot.amount), 0, 0);
+      }
+      g.restore();
+    }
+    // 中心轴。
+    g.beginPath(); g.arc(cx, cy, 34, 0, Math.PI * 2); g.fillStyle = '#0F172A'; g.fill();
+    g.strokeStyle = WHEEL_CHIP_COLOR; g.lineWidth = 3; g.stroke();
+    g.fillStyle = '#E2E8F0'; g.font = '700 14px -apple-system,"PingFang SC",sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('转盘', cx, cy);
+    // 顶部指针：固定不随转盘旋转。
+    g.beginPath(); g.moveTo(cx, cy - R + 16); g.lineTo(cx - 12, cy - R - 12); g.lineTo(cx + 12, cy - R - 12); g.closePath();
+    g.fillStyle = WHEEL_CHIP_COLOR; g.fill(); g.strokeStyle = '#0F172A'; g.lineWidth = 2; g.stroke();
+  }
+  // 旋转动画：4 圈 + 目标角，约 1.2s，缓出；结束时 slotIndex 落在顶部指针处。
+  function animateWheel(slots, slotIndex, done) {
+    if (wheelAnim) { cancelAnimationFrame(wheelAnim); wheelAnim = 0; }
+    const n = slots.length || WHEEL.slotCount, slice = Math.PI * 2 / n;
+    const start = wheelAngle;
+    const startMod = ((start % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const endMod = (((-slotIndex * slice) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    const delta = ((endMod - startMod) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+    const end = start + 4 * Math.PI * 2 + delta, duration = 1200, t0 = performance.now();
+    const ease = t => 1 - Math.pow(1 - t, 3);
+    const tick = now => {
+      const t = Math.min(1, (now - t0) / duration);
+      wheelAngle = start + (end - start) * ease(t);
+      drawWheel(slots, wheelAngle);
+      if (t < 1) wheelAnim = requestAnimationFrame(tick);
+      else { wheelAnim = 0; wheelAngle = endMod; drawWheel(slots, wheelAngle); if (done) done(); }
+    };
+    wheelAnim = requestAnimationFrame(tick);
+  }
+  async function spinWheel() {
+    if (!wheelOpen || !wheelTarget || wheelSpinFlight || !me) return;
+    const entityId = wheelTarget.entityId, button = $('wheel-spin');
+    if (!button || button.disabled) return;
+    const request = { session: sessionGeneration, token: sessionToken };
+    const sameSession = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    const samePanel = () => sameSession() && wheelOpen && wheelTarget && wheelTarget.entityId === entityId;
+    wheelSpinFlight = request; wheelResult = ''; showWheelResult(); keys.clear(); lastIntent = '';
+    updateWheelControls();
+    try {
+      // 沿用既有请求纪律：先确认停止意图，再提交；不做任何本地筹码预扣。
+      const stopped = await stopIntent();
+      if (!samePanel()) return;
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const result = await api('/api/play', { commandId: commandId(), kind: 'wheel', entityId, ...floorFields() });
+      if (!samePanel()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结算结果未确认');
+      if (!result.ok) { wheelResult = result.error || '转动被拒绝'; showWheelResult(); updateWheelControls(); return; }
+      const wheel = result.wheel || {};
+      const slots = (Array.isArray(wheel.slots) && wheel.slots.length) ? wheel.slots : buildWheelPool(me.faction);
+      const slotIndex = Number.isInteger(wheel.slotIndex) ? wheel.slotIndex : 0;
+      // 先旋转到落点；动画结束后才采纳投影并显示结果，避免提前泄露筹码变化。
+      wheelSlots = slots;
+      wheelAnimating = true; updateWheelControls();
+      animateWheel(slots, slotIndex, () => {
+        wheelAnimating = false;
+        if (!samePanel()) return;
+        if (result.exploration) me = { ...me, exploration: result.exploration };
+        if (result.games) me = { ...me, games: result.games };
+        if (typeof result.score === 'number') me = { ...me, score: result.score };
+        if (result.faction) me = { ...me, faction: result.faction };
+        wheelResult = result.resultText || '已结算';
+        updateScoreDisplay(); showWheelResult(); updateWheelControls();
+      });
+    } catch {
+      if (samePanel()) { wheelResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showWheelResult(); }
+    } finally {
+      if (wheelSpinFlight === request) wheelSpinFlight = null;
+      if (sameSession()) { updateWheelControls(); if (explorationPanel && explorationPanel.kind === 'npc') syncExploration(); }
+    }
+  }
+
+  // ---------- 分数 / 排行榜 / 结算 / 剩余时间：只读公开投影与私有 me ----------
+  function selfScore() { return me && typeof me.score === 'number' ? me.score : (selfPlayer() && typeof selfPlayer().score === 'number' ? selfPlayer().score : 0); }
+  function updateScoreDisplay() {
+    const node = $('score-value'); if (!node) return;
+    const text = String(selfScore());
+    if (node.textContent !== text) node.textContent = text;
+  }
+  function formatDuration(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000)), hh = Math.floor(total / 3600), mm = Math.floor((total % 3600) / 60), ss = total % 60;
+    return `${hh}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+  function syncTimeLeft() {
+    const node = $('time-left'); if (!node) return;
+    const endsAt = rulesInfo && rulesInfo.endsAt;
+    if (!endsAt) { node.textContent = finished ? '已结束' : '--:--'; return; }
+    const left = endsAt - serverNow();
+    node.textContent = left <= 0 ? (finished ? '已结束' : '00:00:00') : formatDuration(left);
+  }
+  function finishReasonText(reason) {
+    return reason === 'aliveFloor' ? '存活人数已淘汰至剩余 100 人'
+      : reason === 'badWiped' ? '坏人全灭'
+        : reason === 'timeUp' ? '时间到（2 小时）'
+          : reason === 'host' ? '主持人结束了游戏' : '游戏已结束';
+  }
+  function rankingRowHTML(entry, index) {
+    const rank = entry.rank != null ? entry.rank : index + 1;
+    const p = players.find(pl => pl.id === entry.id);
+    const name = entry.name || (p ? p.name : '玩家');
+    const out = entry.alive === false ? '<span class="out-label">淘汰</span>' : '';
+    return `<div class="ranking-row" data-player="${escapeText(entry.id)}"><span class="ranking-rank">${rank}</span>${p ? portrait(p) : ''}<span class="ranking-name">${escapeText(name)}</span>${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
+  }
+  function renderRankingRows(host, list) {
+    if (!host) return;
+    host.innerHTML = list.length ? list.map(rankingRowHTML).join('') : '<p class="panel-note">暂无排名数据。</p>';
+  }
+  function updateRankingHeader() {
+    const rules = $('ranking-rules'); if (!rules) return;
+    const endsAt = rulesInfo && rulesInfo.endsAt, left = endsAt ? Math.max(0, endsAt - serverNow()) : null;
+    rules.textContent = `结束方式：存活淘汰至剩余 ${RULES.endRemainingPlayers} 人 / 坏人全灭 / 时间到（2 小时）`
+      + (left != null ? ` · 距时间到还有 ${formatDuration(left)}` : '')
+      + (finished ? ` · 已结束：${finishReasonText(finishReason)}` : '');
+  }
+  function syncRanking() {
+    const host = $('ranking'); if (!host || host.hidden) return;
+    updateRankingHeader();
+    const sorted = players.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    const sig = JSON.stringify([finishReason, aliveCount, players.map(p => [p.id, p.name, p.score || 0, p.alive]), rankingList]);
+    if (sig === lastRankingSig) return;
+    lastRankingSig = sig;
+    $('ranking-alive').textContent = aliveCount;
+    const source = rankingList && rankingList.length
+      ? rankingList
+      : sorted.map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, score: p.score || 0, alive: p.alive }));
+    renderRankingRows($('ranking-items'), source);
+  }
+  function openRanking() {
+    const host = $('ranking'); if (!host) return;
+    closeWheel();
+    host.hidden = false; $('ranking-toggle').setAttribute('aria-expanded', 'true');
+    lastRankingSig = ''; syncRanking();
+  }
+  function closeRanking() {
+    const host = $('ranking'); if (!host || host.hidden) return;
+    host.hidden = true; $('ranking-toggle').setAttribute('aria-expanded', 'false');
+  }
+  function renderFinish() {
+    const overlay = $('finish-overlay'); if (!overlay) return;
+    const sig = JSON.stringify([finishReason, rankingList, players.map(p => [p.id, p.name, p.score || 0, p.alive])]);
+    if (sig === lastFinishSig) return;
+    lastFinishSig = sig;
+    $('finish-reason').textContent = finishReasonText(finishReason);
+    const host = $('finish-ranking');
+    if (rankingList && rankingList.length) { renderRankingRows(host, rankingList); return; }
+    // 存活淘汰至剩余 100 人（ranking 为 null）：不按分数排名，只展示存活到最后的玩家。
+    const survivors = players.filter(p => p.alive).sort((a, b) => (b.score || 0) - (a.score || 0));
+    host.innerHTML = '<p class="panel-note">该结束方式不按分数排名，以下为存活到最后的玩家：</p>'
+      + (survivors.length
+        ? survivors.map(p => `<div class="ranking-row" data-player="${escapeText(p.id)}"><span class="ranking-rank">✓</span>${portrait(p)}<span class="ranking-name">${escapeText(p.name)}</span><span class="ranking-score">${p.score || 0} 分</span></div>`).join('')
+        : '<p class="panel-note">没有存活玩家。</p>');
+  }
+  function showFinish() {
+    const overlay = $('finish-overlay'); if (!overlay) return;
+    lastFinishSig = ''; renderFinish(); overlay.hidden = false;
+  }
+  function hideFinish() {
+    const overlay = $('finish-overlay'); if (!overlay) return;
+    overlay.hidden = true; lastFinishSig = '';
+    $('finish-reason').textContent = ''; $('finish-ranking').replaceChildren();
+  }
+  function updateExplorationHUD() {
+    const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
+    $('cover-status').textContent = self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入';
+    $('clue-bag').disabled = !me;
+    const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
+    if (sig !== nearbySig) {
+      nearbySig = sig;
+      // 名称控件按实体复用；进出范围也不替换按下中的按钮。
+      const host = $('nearby-items');
+      for (const item of nearby) {
+        let button = [...host.children].find(b => b.dataset.entity === item.id);
+        if (!button) {
+          button = document.createElement('button'); button.dataset.entity = item.id;
+          button.textContent = item.kind === 'container' ? item.entity.container.name : `${item.entity.name} · NPC / ${item.entity.cost} 筹码`;
+          button.onclick = () => openExploration(item.kind, item.id); host.append(button);
+        }
+      }
+      for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
+    }
+    $('nearby-empty').hidden = nearby.length > 0;
+    $('nearby-empty').textContent = !me ? '加入后靠近容器或 NPC' : finished ? '游戏已结束，探索已冻结' : !me.alive ? '已淘汰，无法探索' : '靠近容器或 NPC，按 E 互动（64 像素）';
+  }
+  $('clue-bag').onclick = () => { if (explorationPanel?.kind === 'backpack') closeExploration(); else openExploration('backpack'); };
+
+  // ---------- 猜拳小游戏：服务端权威 邀请 → 接受 → 10 秒可修改出拳 → 截止揭示 ----------
+  const RPS_LABELS = { rock: '石头', paper: '布', scissors: '剪刀' };
+  function rpsNow() { return serverNow(); }
+  // 三个可区分的像素手势（64 viewBox，crispEdges）：握拳 / 剪刀手 / 张开手掌；未出拳占位与问号。
+  function rpsGlyph(choice) {
+    if (choice === 'rock') {
+      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="12" y="22" width="40" height="30" rx="7" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="15" y="25" width="34" height="24" rx="5" fill="#f0c08c"/><rect x="9" y="30" width="14" height="15" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="19" y="39" width="3" height="9" fill="#c98f57"/><rect x="27" y="39" width="3" height="9" fill="#c98f57"/><rect x="35" y="39" width="3" height="9" fill="#c98f57"/></svg>`;
+    }
+    if (choice === 'scissors') {
+      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="20" y="33" width="24" height="21" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="23" y="36" width="18" height="15" rx="4" fill="#f0c08c"/><rect x="17" y="13" width="9" height="26" rx="4" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="38" y="13" width="9" height="26" rx="4" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="30" y="33" width="4" height="18" fill="#e7b27a"/></svg>`;
+    }
+    if (choice === 'paper') {
+      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="18" y="31" width="28" height="23" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="21" y="34" width="22" height="18" rx="4" fill="#f0c08c"/><rect x="13" y="19" width="7" height="19" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="23" y="14" width="7" height="24" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="33" y="14" width="7" height="24" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="43" y="19" width="7" height="19" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/></svg>`;
+    }
+    return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="14" y="20" width="36" height="30" rx="10" fill="none" stroke="#7e93ad" stroke-width="3" stroke-dasharray="6 5"/><circle cx="32" cy="35" r="9" fill="none" stroke="#7e93ad" stroke-width="3"/></svg>`;
+  }
+  function rpsQuestion() {
+    return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="14" y="20" width="36" height="30" rx="10" fill="#17273c" stroke="#5b83ad" stroke-width="3"/><text x="32" y="45" text-anchor="middle" font-family="ui-monospace,monospace" font-size="30" font-weight="700" fill="#9cc9ef">?</text></svg>`;
+  }
+  function openGames() {
+    const host = $('games');
+    if (!host) return;
+    closeWheel();
+    host.hidden = false;
+    if (!gamesDomReady) {
+      gamesDomReady = true;
+      // 只建一次 DOM；20Hz 快照 / 帧循环只更新文本、disabled、aria-pressed 与手势槽，绝不重建按钮。
+      host.innerHTML = `<div class="panel-heading"><div><small>RPS</small><h2>猜拳对战</h2></div><button id="games-close" class="icon-button" aria-label="取消并关闭猜拳">×</button></div><div class="games-body"><div id="games-rps" class="rps-arena" hidden><p class="games-balance">我的筹码：<strong id="games-chips">0</strong> · 分数 <strong id="games-score">0</strong></p><div class="rps-top"><div class="rps-side rps-self"><span class="rps-role">你</span><span class="rps-name" id="games-self-name"></span><span class="rps-glyph-slot" id="games-self-glyph"></span></div><div class="rps-vs">VS</div><div class="rps-side rps-opp"><span class="rps-role">对手</span><span class="rps-name" id="games-opp-name"></span><span class="rps-glyph-slot" id="games-opp-glyph"></span></div></div><p id="games-phase" class="rps-phase"></p><div class="rps-choices" role="group" aria-label="选择出拳"><button type="button" id="games-choice-rock" data-choice="rock" aria-pressed="false" aria-label="石头">${rpsGlyph('rock')}<span>石头</span></button><button type="button" id="games-choice-scissors" data-choice="scissors" aria-pressed="false" aria-label="剪刀">${rpsGlyph('scissors')}<span>剪刀</span></button><button type="button" id="games-choice-paper" data-choice="paper" aria-pressed="false" aria-label="布">${rpsGlyph('paper')}<span>布</span></button></div><p id="games-timer" class="games-timer"></p><p id="games-unconfirmed" class="rps-unconfirmed" hidden></p><div class="games-pending-actions"><button type="button" id="games-accept" class="rps-accept" hidden>接受</button><button type="button" id="games-reject" class="rps-reject" hidden>拒绝</button><button type="button" id="games-cancel" hidden>取消</button></div><p id="games-result" class="private-result" hidden></p><button type="button" id="games-result-close" class="rps-result-close" hidden>关闭结果</button></div></div>`;
+      $('games-close').onclick = exitRps;
+      for (const choice of ['rock', 'paper', 'scissors']) $(`games-choice-${choice}`).onclick = () => rpsChoose(choice);
+      $('games-accept').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsAccept', challengeId: p.id }); };
+      $('games-reject').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsReject', challengeId: p.id }); };
+      $('games-cancel').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsCancel', challengeId: p.id }); };
+      $('games-result-close').onclick = () => { const r = me?.games?.rpsResult; if (r) rpsResultDismissId = r.id; syncGames(); };
+    }
+    syncRpsLifecycle();
+    syncGames();
+  }
+  function closeGames() {
+    const host = $('games');
+    // 仅关闭视图；不发送 rpsCancel，进行中的邀请/对局在服务端继续，可随时重开恢复（由 target 菜单「返回正在进行的猜拳」或阶段迁移自动恢复）。
+    gamesDomReady = false; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
+    if (host) { host.hidden = true; host.replaceChildren(); }
+  }
+  async function exitRps() {
+    const current = me?.games?.rpsPending;
+    if (current) {
+      if (gamesFlight) { showToast('正在处理请求，请稍后取消'); return; }
+      await sendRps({ kind: 'rpsCancel', challengeId: current.id });
+      if (me?.games?.rpsPending?.id === current.id) { showToast('取消未确认，请重试或等待权威结果'); return; }
+    }
+    if (me?.games?.rpsResult) rpsResultDismissId = me.games.rpsResult.id;
+    closeGames();
+  }
+  async function rpsApi(body) {
+    const response = await fetch('/api/play', { method: 'POST', headers: headers(), body: JSON.stringify({ ...body, ...floorFields() }), signal: AbortSignal.timeout(4000) });
+    let data = {}; try { data = await response.json(); } catch { }
+    return { ...data, status: response.status };
+  }
+  function isInviteable(p) {
+    if (!p || !me || !me.alive || finished || p.id === me.id || !p.alive || p.online === false) return false;
+    const self = selfPlayer(); if (!self) return false;
+    return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && p.floorId === me.floorId && WORLD.lineClear(self, p, occluders)
+      && !me.games?.rpsPending && rpsNow() >= (me.games?.rpsUntil || 0) && !selfDisabled() && !gamesFlight;
+  }
+  function inviteDisabled() {
+    return !me || !me.alive || finished || selfDisabled() || !!gamesFlight
+      || me.games?.rpsPending != null || rpsNow() < (me.games?.rpsUntil || 0);
+  }
+  // 本地乐观选择 + 合并串行队列：每次点击立即更新 ownChoice，再按修订号递增提交最终最新选择。
+  function rpsChoose(choice) {
+    const pending = me?.games?.rpsPending;
+    if (!pending || pending.phase !== 'selecting' || rpsNow() >= pending.deadline || !me.alive || finished || selfDisabled() || !['rock', 'paper', 'scissors'].includes(choice)) return;
+    rpsLocalChoice = choice;
+    rpsRevision++;
+    rpsChoosePending = { revision: rpsRevision, choice };
+    rpsUnconfirmed = false;
+    syncGames();
+    pumpRpsChoose();
+  }
+  async function pumpRpsChoose() {
+    if (rpsChooseFlight || !rpsChoosePending || !me) return;
+    const pending = me.games?.rpsPending;
+    if (!pending || pending.phase !== 'selecting') { rpsChoosePending = null; return; }
+    const { revision, choice } = rpsChoosePending;
+    rpsChoosePending = null;
+    const request = { session: sessionGeneration, token: sessionToken, challengeId: pending.id };
+    const same = () => request.session === sessionGeneration && request.token === sessionToken && me?.games?.rpsPending?.id === request.challengeId;
+    rpsChooseFlight = request;
+    try {
+      const result = await rpsApi({ commandId: commandId(), kind: 'rpsChoose', challengeId: pending.id, choice, revision });
+      if (!same()) return;
+      if (result.status === 200 && result.ok) {
+        rpsAckRevision = Math.max(rpsAckRevision, revision); rpsUnconfirmed = false;
+        const pg = result.games?.rpsPending;
+        if (pg?.id === pending.id && typeof pg.ownRevision === 'number') {
+          rpsRemoteRevision = Math.max(rpsRemoteRevision, pg.ownRevision);
+          if (pg.ownRevision >= rpsRevision) rpsLocalChoice = pg.ownChoice;
+        }
+      } else {
+        rpsUnconfirmed = true;
+        if (revision === rpsRevision && !rpsChoosePending) rpsLocalChoice = me.games.rpsPending.ownChoice;
+      } // 服务端拒绝/网络失败：明确未确认，下一步以权威状态为准恢复
+    } catch { if (same()) { rpsUnconfirmed = true; if (revision === rpsRevision && !rpsChoosePending) rpsLocalChoice = me.games.rpsPending.ownChoice; } }
+    finally {
+      if (rpsChooseFlight === request) rpsChooseFlight = null;
+      if (same()) { syncGames(); updateScoreDisplay(); }
+      // 期间若有更新的本地选择，继续合并提交（仅最新修订号）。
+      if (rpsChoosePending && same()) pumpRpsChoose();
+    }
+  }
+  // 每次快照自动做阶段迁移、权威采纳与自动弹窗；帧循环只负责计时刷新。
+  function syncRpsLifecycle() {
+    const games = me?.games; if (!games) return;
+    const pending = games.rpsPending;
+    if (!pending) {
+      rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
+      rpsChoosePending = null; rpsUnconfirmed = false; rpsAutoId = null; rpsAutoPhase = null;
+      return;
+    }
+    const isNew = pending.id !== rpsAutoId, phaseChanged = pending.phase !== rpsAutoPhase;
+    if (isNew) {
+      rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
+      rpsRevision = pending.ownRevision || 0; rpsAckRevision = rpsRevision;
+      rpsLocalChoice = pending.ownChoice || null; rpsResultDismissId = null;
+    }
+    rpsRemoteRevision = pending.ownRevision || 0;
+    if (rpsRemoteRevision >= rpsRevision) {
+      rpsLocalChoice = pending.ownChoice || null;
+      rpsRevision = Math.max(rpsRevision, rpsRemoteRevision);
+      rpsAckRevision = Math.max(rpsAckRevision, rpsRemoteRevision);
+      rpsUnconfirmed = false;
+    }
+    rpsAutoId = pending.id; rpsAutoPhase = pending.phase;
+    if ((isNew || phaseChanged) && $("games")?.hidden && !finished) {
+      keys.clear(); sendIntent(true); openGames();
+    }
+  }
+  function syncGames() {
+    const host = $("games");
+    if (!host || host.hidden || !me || !gamesDomReady) return;
+    const games = me.games || {}, pending = games.rpsPending;
+    const result = pending ? null : games.rpsResult;
+    if ((!pending && !result) || (!pending && result.id === rpsResultDismissId)) { closeGames(); return; }
+    $("games-chips").textContent = explorationState().chips;
+    $("games-score").textContent = me.score || 0;
+    $("games-rps").hidden = false;
+    renderArena(pending, result);
+  }
+  function renderArena(pending, result) {
+    const oppName = pending ? (pending.role === 'from' ? pending.toName : pending.fromName) : (result ? result.opponentName : '');
+    $('games-self-name').textContent = me.name || '你';
+    $('games-opp-name').textContent = oppName || '对手';
+    let selfGlyph = rpsGlyph(rpsLocalChoice), oppGlyph = rpsQuestion();
+    if (result) {
+      selfGlyph = rpsGlyph(result.ownChoice);
+      oppGlyph = result.status === 'resolved' ? rpsGlyph(result.opponentChoice) : rpsQuestion();
+    }
+    // 仅在手势变化时重写 innerHTML，避免 20Hz/帧循环重建。
+    if (rpsLastSelfGlyph !== selfGlyph) { $('games-self-glyph').innerHTML = selfGlyph; rpsLastSelfGlyph = selfGlyph; }
+    if (rpsLastOppGlyph !== oppGlyph) { $('games-opp-glyph').innerHTML = oppGlyph; rpsLastOppGlyph = oppGlyph; }
+    $('games-self-glyph').dataset.choice = result ? (result.ownChoice || 'none') : (rpsLocalChoice || 'none');
+    $('games-self-glyph').setAttribute('aria-label', `自己的手势：${RPS_LABELS[result ? result.ownChoice : rpsLocalChoice] || '未选择'}`);
+    $('games-opp-glyph').dataset.choice = result?.status === 'resolved' ? result.opponentChoice : 'hidden';
+    $('games-opp-glyph').setAttribute('aria-label', result?.status === 'resolved' ? `对手手势：${RPS_LABELS[result.opponentChoice]}` : '对手选择尚未揭示');
+    const phaseEl = $('games-phase'), timerEl = $('games-timer');
+    const choices = ['rock', 'paper', 'scissors'].map(c => $(`games-choice-${c}`));
+    const accept = $('games-accept'), reject = $('games-reject'), cancel = $('games-cancel');
+    const unconfirmed = $('games-unconfirmed'), resultEl = $('games-result'), resultClose = $('games-result-close');
+    const now = serverNow();
+    if (result) {
+      const status = result.status, outcome = result.outcome;
+      const delta = typeof result.delta === 'number' ? result.delta : 0;
+      phaseEl.textContent = status === 'resolved'
+        ? (outcome === 'win' ? '你获胜' : outcome === 'lose' ? '你落败' : outcome === 'draw' ? '平局' : '已结算')
+        : '已取消';
+      timerEl.textContent = '';
+      for (const b of choices) { b.disabled = true; b.setAttribute('aria-pressed', 'false'); }
+      accept.hidden = reject.hidden = cancel.hidden = true;
+      unconfirmed.hidden = true;
+      resultEl.hidden = false;
+      resultEl.textContent = status === 'resolved'
+        ? `你出${RPS_LABELS[result.ownChoice]}，对方出${RPS_LABELS[result.opponentChoice]} · ${outcome === 'win' ? `你获胜，筹码 +${delta}` : outcome === 'lose' ? `你落败，筹码 ${delta}` : '平局，筹码不变'}`
+        : `本次取消：${result.reason || '对战已结束'} · 不扣筹码、不计胜负`;
+      resultClose.hidden = false;
+      return;
+    }
+    const phase = pending.phase === 'selecting' ? 'selecting' : 'invited';
+    if (phase === 'invited') {
+      phaseEl.textContent = pending.role === 'to' ? `${pending.fromName} 邀请你猜拳，是否接受？` : `已邀请 ${pending.toName}，等待对方接受`;
+      const left = Math.max(0, Math.ceil((pending.expiresAt - now) / 1000));
+      timerEl.textContent = `邀请 ${left} 秒后超时自动取消，不扣筹码`;
+      for (const b of choices) { b.disabled = true; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
+      accept.hidden = pending.role !== 'to'; reject.hidden = pending.role !== 'to'; cancel.hidden = false;
+      unconfirmed.hidden = true; resultEl.hidden = true; resultClose.hidden = true;
+    } else {
+      phaseEl.textContent = '十秒选择 · 倒计时结束统一揭示（截止前可改）';
+      const deadline = pending.deadline;
+      const settled = now >= deadline; // 截止但权威结果未到
+      const left = Math.max(0, Math.ceil((deadline - now) / 1000));
+      timerEl.textContent = settled ? '等待结算…' : `剩余 ${left} 秒 · 截止前可改`;
+      const canChoose = !settled && me.alive && !finished && !selfDisabled();
+      for (const b of choices) { b.disabled = !canChoose; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
+      accept.hidden = reject.hidden = true; cancel.hidden = false;
+      unconfirmed.hidden = !rpsUnconfirmed;
+      if (rpsUnconfirmed) unconfirmed.textContent = '最近一次出拳未确认，已以权威状态为准；可继续修改。';
+      resultEl.hidden = true; resultClose.hidden = true;
+    }
+  }
+  async function sendRps(extra) {
+    if (gamesFlight || !me) return;
+    if (extra.kind === 'rpsInvite' ? inviteDisabled() : (selfDisabled() || !me.alive || finished)) return;
+    const request = { session: sessionGeneration, token: sessionToken, games: JSON.stringify(me.games || {}) };
+    // 不依赖面板可见性：关闭后的成功请求不会被丢弃（same 不含 host.hidden）。
+    const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    gamesFlight = request; gamesResult = '';
+    syncGames();
+    try {
+      keys.clear(); sendIntent(true);
+      const result = await rpsApi({ commandId: commandId(), ...extra });
+      if (!same()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结果未确认');
+      // 状态未变时才采纳服务端投影，旧响应不覆盖新快照。
+      if (request.games === JSON.stringify(me.games || {})) {
+        if (result.games) me = { ...me, games: result.games };
+        if (result.exploration) me = { ...me, exploration: result.exploration };
+      }
+      if (typeof result.score === 'number') me = { ...me, score: Math.max(me.score || 0, result.score) };
+      syncRpsLifecycle();
+      gamesResult = result.ok ? (result.resultText || '') : (result.error || '请求被拒绝');
+      if (!result.ok && gamesResult) showToast(gamesResult);
+    } catch { if (same()) { gamesResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showToast(gamesResult); } }
+    finally { if (gamesFlight === request) gamesFlight = null; if (same()) { syncGames(); updateScoreDisplay(); } }
+  }
+  // ---------- J 互动：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
+  async function attack() {
+    if (combatFlight || !me || !me.alive || finished || selfDisabled() || rpsNow() < (me.combat?.attackUntil || 0)) return;
+    const request = { session: sessionGeneration, token: sessionToken, combat: JSON.stringify(me.combat || {}) };
+    const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
+    combatFlight = request; keys.clear(); lastIntent = '';
+    updateCombatHUD();
+    try {
+      const stopped = await stopIntent();
+      if (!same()) return;
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const result = await api('/api/attack', { commandId: commandId(), ...floorFields() });
+      if (!same()) return;
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结果未确认');
+      if (request.combat === JSON.stringify(me.combat || {})) {
+        if (result.combat) me = { ...me, combat: result.combat };
+        if (result.exploration) me = { ...me, exploration: result.exploration };
+        if (result.games) me = { ...me, games: result.games };
+      }
+      if (typeof result.score === 'number') me = { ...me, score: result.score };
+      combatResult = result.ok
+        ? `${result.resultText || '已互动'}（无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营）`
+        : (result.error || '互动被拒绝');
+    } catch {
+      if (same()) combatResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
+    } finally {
+      if (combatFlight === request) combatFlight = null;
+      if (same()) { updateCombatHUD(); updateScoreDisplay(); }
+    }
+  }
+  function updateCombatHUD() {
+    const now = serverNow(), button = $('attack-button'), combat = me?.combat;
+    const cooldown = combat ? Math.max(0, Math.ceil(((combat.attackUntil || 0) - now) / 1000)) : 0;
+    if (button) {
+      button.disabled = !me || !me.alive || finished || selfDisabled() || !!interactionFlight || !!combatFlight || !!gamesFlight || cooldown > 0;
+      button.textContent = cooldown > 0 ? `J · 互动 · 冷却 ${cooldown}s` : 'J · 互动';
+    }
+    const selfState = $('self-combat-state');
+    if (selfState) selfState.textContent = !me ? '' : now < (combat?.freezeUntil || 0) ? '你被冻结中 · 暂时无法移动/互动'
+      : now < (combat?.stunUntil || 0) ? '你被僵直中 · 暂时无法移动/互动' : '';
+    const status = $('combat-status');
+    if (status) { status.textContent = combatResult; status.hidden = !combatResult; }
+  }
+  $('attack-button').onclick = () => attack();
+  $('ranking-toggle').onclick = () => { if ($('ranking').hidden) openRanking(); else closeRanking(); };
+  $('ranking-close').onclick = closeRanking;
+  $('wheel-close').onclick = closeWheel;
+  $('wheel-spin').onclick = () => spinWheel();
+  $('finish-close').onclick = hideFinish;
+
   // ---------- 离线事件：横幅 + 一次性摘要（不含操作者） ----------
   function pendingList() { return (me && me.pending) || []; }
   function updateOfflineUI() {
@@ -676,15 +1532,189 @@
       const response = await api('/api/ack', {
         eventIds: ids, interaction: digest ? { id: digest.id, epoch: digest.epoch } : undefined
       });
+      // 只有服务端确认成功后才改本地状态；失败/重连时同一摘要仍可用。
       if (!response.ok || owner !== sessionToken || !me) return;
-      // Only remove local state after confirmed ACK. Failure/reconnect keeps the same digest available.
       const known = new Set(ids);
       for (const id of known) offlineEvents.delete(id);
       me.pending = pendingList().filter(e => !known.has(e.eventId));
       if (digest) confirmedDigests.add(`${digest.epoch}:${digest.id}`);
       if (digest && me.interactionSummary && me.interactionSummary.id === digest.id) me.interactionSummary = null;
       updateOfflineUI();
-    } catch { /* Keep unacknowledged payload; retry after reopening the summary. */ }
+    } catch { /* 保留未确认载荷，重新打开摘要可重试。 */ }
+  }
+
+  // ---------- 电梯过渡（客户端）：IDLE_SOURCE → PREPARING → SUBMITTING → TARGET_READY → OPENING → IDLE_TARGET ----------
+  // 顺序：准备目标资源 + 保留源画面 → 单次原子提交 → 权威确认 + 目标层首帧就绪 → 开门 → 恢复输入。
+  // 失败分 FAILED_SOURCE（已证实未换层，回源层）与 UNCONFIRMED（结果不明，只读对账，不重发）。
+  const reduceMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  function floorArrowText(from, to, dir) { return `${from}F ${dir === 'down' ? '↓' : dir === 'up' ? '↑' : '→'} ${to}F`; }
+  function showFloorOverlay(arrow, phase, detail) {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    overlay.hidden = false;
+    $('floor-arrow').textContent = arrow || '';
+    $('floor-phase').textContent = phase || '';
+    $('floor-detail').textContent = detail || '';
+  }
+  function floorDoorsClosed(closed) {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    overlay.classList.toggle('closed', !!closed);
+  }
+  function floorNoticeMode(on) {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    overlay.classList.toggle('notice', !!on);
+    const button = $('floor-transition-close'); if (button) button.hidden = !on;
+    if (on) { clearTimeout(floorStageTimer); clearTimeout(floorNoticeTimer); }
+  }
+  function closeFloorOverlay() {
+    const overlay = $('floor-transition'); if (!overlay) return;
+    clearTimeout(floorStageTimer); clearTimeout(floorNoticeTimer);
+    overlay.hidden = true;
+    overlay.classList.remove('closed', 'notice');
+    const button = $('floor-transition-close'); if (button) button.hidden = true;
+  }
+  // 2 秒仍在未完成阶段：补一句如实的细节，不催促、不视为失败。
+  function floorSlowStage() {
+    if (floorState !== 'PREPARING' && floorState !== 'SUBMITTING') return;
+    const detail = $('floor-detail');
+    if (detail) detail.textContent = '已等待 2 秒仍未收到服务端确认 · 换层仍在进行，请勿重复操作';
+  }
+  // 10 秒门帘上限：切成可关闭的静态提示（Esc 可关），但 10 秒 ≠ 允许返回源层。
+  function floorCurtainMax() {
+    if (floorState !== 'PREPARING' && floorState !== 'SUBMITTING' && floorState !== 'UNCONFIRMED') return;
+    floorNoticeMode(true);
+    const detail = $('floor-detail');
+    if (!detail) return;
+    detail.textContent = floorState === 'UNCONFIRMED'
+      ? '换层结果仍未确认 · 可关闭此提示继续观察；未确认期间不会本地换层，请等待权威状态对账'
+      : '服务端确认已超过 10 秒 · 可关闭此提示；换层请求不会重复发送';
+  }
+  // 关闭静态提示：只隐藏覆盖层，不改变换层状态（可能仍在等待权威对账）。
+  function dismissFloorNotice() {
+    const overlay = $('floor-transition'); if (!overlay || overlay.hidden || !overlay.classList.contains('notice')) return false;
+    overlay.hidden = true; overlay.classList.remove('notice');
+    const button = $('floor-transition-close'); if (button) button.hidden = true;
+    return true;
+  }
+  // 整层原子切换：楼层、家具/墙/NPC/容器/入口、碰撞集合、点击标签、相机、插值同时对应新层。
+  // 插值重新从权威坐标播种；朝向 spriteFacing 保留；不改动战斗状态（无无敌/眩晕/僵直，不动 J 冷却）。
+  function adoptFloor(id, position) {
+    loadFloorLocal(id);
+    if (position) {
+      const authoritative = selfPlayer();
+      if (authoritative) { authoritative.floorId = id; authoritative.x = position.x; authoritative.y = position.y; }
+    }
+    for (const p of players) {
+      if (p.floorId !== id) continue;
+      const seed = (p.id === selfId() && position) ? position : { x: p.x, y: p.y };
+      renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false });
+    }
+    // 属于源层的即时面板与选择一次性清空，避免残留指向旧层。
+    closeExploration(); closeGames(); closeWheel();
+    $('candidates').hidden = true; $('candidates').replaceChildren();
+    selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); clearPrivate(true);
+    nearbySig = ''; // 强制重建就近列表与描边
+    keys.clear(); lastIntent = '';
+    sendIntent(true);
+    const self = selfPlayer(); const fl = WORLD.floorById(id);
+    if (self) {
+      cameraX = viewW >= fl.width ? (fl.width - viewW) / 2 : clamp(self.x - viewW / 2, 0, fl.width - viewW);
+      cameraY = viewH >= fl.height ? (fl.height - viewH) / 2 : clamp(self.y - viewH / 2, 0, fl.height - viewH);
+      drawCamX = cameraX; drawCamY = cameraY;
+    }
+    labels = []; updateScoreDisplay(); updateExplorationHUD();
+    draw();
+  }
+  function requestFloorChange(portalId) {
+    if (!me || !me.alive || finished) return;
+    if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return; // 过渡期间不重复发起
+    if (selfDisabled()) { showToast('眩晕/僵直中，暂时无法乘梯'); return; }
+    if (interactionFlight || combatFlight || gamesFlight || wheelSpinFlight) return;
+    const portal = portals.find(p => p.id === portalId);
+    if (!portal) return;
+    // 客户端预判边界（服务端仍会再判一次，双端一致文案）。
+    if (portal.dir === 'up' && floorId >= 7) { showToast('7F 已是最上层，无法上行'); return; }
+    if (portal.dir === 'down' && floorId <= 1) { showToast('1F 已是最下层，无法下行'); return; }
+    if (!portal.targetFloorId) { showToast('该入口当前不可用'); return; }
+    const self = selfPlayer();
+    if (self && WORLD.distanceToEntity(self, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) { showToast('距离入口太远，请靠近后再试（64 像素以内）'); return; }
+    // PREPARING：保留源画面 + 收拢输入 + 准备目标资源（各层 sprite 均已预烘焙）。
+    keys.clear(); lastIntent = '';
+    clearPrivate(true); closeExploration(); closeGames(); closeWheel();
+    $('candidates').hidden = true; $('candidates').replaceChildren(); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster();
+    floorFlight = {
+      commandId: commandId(), portalId, fromFloorId: floorId, targetFloorId: portal.targetFloorId,
+      dir: portal.dir, roundId, expectedFloorRevision: me.floorRevision, submitted: false
+    };
+    floorState = 'PREPARING';
+    showFloorOverlay(floorArrowText(floorId, portal.targetFloorId, portal.dir), '正在准备目标楼层…', '保留当前画面 · 准备目标楼层资源');
+    floorDoorsClosed(true);
+    floorStartedAt = performance.now();
+    floorStageTimer = setTimeout(floorSlowStage, 2000);
+    floorNoticeTimer = setTimeout(floorCurtainMax, 10000);
+    submitFloorChange();
+  }
+  async function submitFloorChange() {
+    const flight = floorFlight;
+    if (!flight || flight.submitted || floorState !== 'PREPARING') return;
+    flight.submitted = true; // 单次原子提交：任何情况下都不重复发送同一次换层
+    floorState = 'SUBMITTING';
+    if ($('floor-transition').hidden === false) {
+      $('floor-phase').textContent = '正在请求服务端裁决…';
+    }
+    let res = null;
+    try {
+      res = await api('/api/floor-change', {
+        commandId: flight.commandId, roundId: flight.roundId, portalId: flight.portalId,
+        expectedFloorId: flight.fromFloorId, expectedFloorRevision: flight.expectedFloorRevision
+      });
+    } catch { res = null; }
+    if (floorFlight !== flight) return; // 已被新的过渡替换 / 已收敛
+    if (!res) { floorUnconfirmed('网络异常，换层结果未确认'); return; }
+    if (res.status === 200 && res.ok === true && res.floor && res.position) { floorArrived(flight, res); return; }
+    if (res.status === 400 && res.ok === false) { floorRejected(flight, res.error || '换层被拒绝'); return; }
+    floorUnconfirmed('服务端响应未能确认换层结果');
+  }
+  function floorArrived(flight, res) {
+    // 权威确认：先落 me 的权威楼层/版本，再整层原子切换（首帧就绪），最后开门。
+    if (me) me = { ...me, floorId: res.floor.id, floorRevision: res.floor.revision, floorName: res.floor.name };
+    const pos = res.position || (selfPlayer() ? { x: selfPlayer().x, y: selfPlayer().y } : null);
+    floorState = 'TARGET_READY';
+    adoptFloor(res.floor.id, pos);
+    showFloorOverlay(floorArrowText(flight.fromFloorId, res.floor.id, flight.dir), `已到达 ${res.floor.name}`, '正在开门 · 即将恢复操作');
+    floorState = 'OPENING';
+    floorDoorsClosed(false);
+    const delay = reduceMotion() ? 0 : 320;
+    setTimeout(() => {
+      if (floorState !== 'OPENING') return;
+      floorState = 'IDLE_TARGET'; floorFlight = null;
+      closeFloorOverlay();
+    }, delay);
+  }
+  function floorRejected(flight, message) {
+    // 已证实未换层：留在源层，开门并恢复。
+    floorState = 'FAILED_SOURCE';
+    floorDoorsClosed(false);
+    showFloorOverlay(`${flight.fromFloorId}F`, '换层未成功', `${message}（仍在当前楼层）`);
+    floorNoticeMode(true);
+    showToast(message);
+    const delay = reduceMotion() ? 0 : 320;
+    setTimeout(() => {
+      if (floorState !== 'FAILED_SOURCE') return;
+      floorState = 'IDLE_SOURCE'; floorFlight = null;
+      closeFloorOverlay();
+    }, delay);
+  }
+  function floorUnconfirmed(message) {
+    // 结果不明：保留门帘，不做本地换层，不重发；等待权威快照对账（applySnapshot 会收敛）。
+    floorState = 'UNCONFIRMED';
+    floorNoticeMode(true);
+    showFloorOverlay('换层结果未确认', '等待权威状态对账…', `${message} · 不会自动重试换层`);
+    const flight = floorFlight;
+    // 仅 GET 对账；源层快照不能证明 POST 未执行，故不因此恢复输入或再次 POST。
+    api('/api/state', null, 'GET').then(snapshot => {
+      if (floorFlight !== flight || !snapshot.me || snapshot.roundId !== flight.roundId) return;
+      if (snapshot.me.floorId === flight.targetFloorId && snapshot.me.floorRevision > flight.expectedFloorRevision) applySnapshot(snapshot);
+    }).catch(() => { });
   }
 
   // ---------- 像素绘制 ----------
@@ -696,100 +1726,522 @@
   }
   function diamond(g, cx, cy, r, c) { for (let i = 0; i < r; i++) { const wd = (i + 1) * 2; rect(cx - i - 1, cy - r + i, wd, 1, c, g); rect(cx - i - 1, cy + r - i, wd, 1, c, g); } rect(cx - r, cy, 2 * r, 1, c, g); }
   function blob(g, x, y, w, h, c) { const hh = Math.max(2, Math.round(h)); for (let i = 0; i < hh; i++) { const k = Math.sin((i / (hh - 1)) * Math.PI); const ww = Math.max(1, Math.round(w * (0.35 + 0.65 * k))); rect(Math.round(x + (w - ww) / 2), Math.round(y + i), ww, 1, c, g); } }
-  function drawFurniture(f, g = ctx) {
-    const { x, y, w, h, type } = f;
-    g.globalAlpha = .2; rect(x + 8, y + h - 6, w - 12, 11, '#120c14', g); rect(x + 3, y + h - 3, w - 6, 6, '#120c14', g); g.globalAlpha = 1;
+  function stunStar(cx, cy) {
+    cx = Math.round(cx); cy = Math.round(cy);
+    rect(cx - 1, cy - 4, 3, 9, '#ffe066'); rect(cx - 4, cy - 1, 9, 3, '#ffe066');
+    rect(cx - 1, cy - 1, 3, 3, '#fff6c2');
+  }
+  // ---------- 可交互描边：仅带 container 的家具与两个 NPC，且描边状态与真实可交互性一致 ----------
+  function interactTier(kind, id) {
+    // idle：自己已淘汰 / 本局结束 / 超出 INTERACT_RANGE。
+    if (!me || !me.alive || finished) return 'idle';
+    const entity = explorationEntity(kind, id);
+    if (!entity || entityDistance(entity) > WORLD.INTERACT_RANGE) return 'idle';
+    // blocked：在范围内但当前不能操作（自己眩晕/僵直 / 容器已搜 / NPC 筹码不足）。
+    if (selfDisabled()) return 'blocked';
+    const state = explorationState();
+    const usable = kind === 'container' ? !state.searched.includes(id) : state.chips >= entity.cost;
+    return usable ? 'ready' : 'blocked';
+  }
+  function drawOutline(x, y, w, h, tier, readyColor) {
+    const rx = Math.round(x), ry = Math.round(y), rw = Math.round(w), rh = Math.round(h);
+    if (tier === 'ready') {
+      // 亮色描边 + 轻微呼吸脉冲；只用 strokeRect，无模糊/滤镜，保证 60fps。
+      const pulse = .6 + .34 * (0.5 + 0.5 * Math.sin(clock * 3.2));
+      ctx.globalAlpha = pulse; ctx.strokeStyle = readyColor; ctx.lineWidth = 2;
+      ctx.strokeRect(rx - 1, ry - 1, rw + 2, rh + 2);
+      ctx.globalAlpha = Math.min(1, pulse + .12); ctx.lineWidth = 1;
+      ctx.strokeRect(rx - 2.5, ry - 2.5, rw + 5, rh + 5);
+    } else if (tier === 'blocked') {
+      ctx.globalAlpha = .7; ctx.strokeStyle = '#8b93a6'; ctx.lineWidth = 2;
+      ctx.strokeRect(rx - .5, ry - .5, rw + 1, rh + 1);
+    } else {
+      ctx.globalAlpha = .18; ctx.strokeStyle = '#8b93a6'; ctx.lineWidth = 2;
+      ctx.strokeRect(rx - .5, ry - .5, rw + 1, rh + 1);
+    }
+    ctx.globalAlpha = 1; ctx.lineWidth = 1;
+  }
+  // ---------- 家具三层绘制（阶段2-2a，美术规格 §3 C-0）----------
+  // 视角约定：rect = 平面投影；立面占 rect 下沿起 facePx（柜类可越过 y，故需 padUp）；
+  // 顶面 = 立面之上的可见上表面；立式部件自 y 向上生长。子件一律按 w / h / facePx 比例
+  // （仅 1–2px 高光 / 描边为绝对像素）。"第 N 分格" 一律用 cellC(x,w,i,N) 均匀分布。
+  const FURN_FACE = { desk: 24, table: 24, counter: 30, cabinet: 58, reception: 34, sofa: 26, plant: 19,
+    treadmill: 42, rack: 35, mat: 2, seat: 30, stage: 13, wall: 7 };
+  const FURN_PAD = {
+    default: { padX: 16, padUp: 64, padDown: 32 },
+    plant: { padX: 26, padUp: 44, padDown: 12 },
+    sofa: { padX: 16, padUp: 12, padDown: 12 },
+    mat: { padX: 16, padUp: 8, padDown: 8 },
+    stage: { padX: 16, padUp: 20, padDown: 16 },
+    wall: { padX: 4, padUp: 4, padDown: 4 }
+  };
+  const furnitureFace = type => (FURN_FACE[type] == null ? 24 : FURN_FACE[type]);
+  const furniturePad = type => FURN_PAD[type] || FURN_PAD.default;
+  const cellC = (x, w, i, N) => x + w * (i + 0.5) / N;   // 第 i 个（共 N 个）分格中心
+  // 接地阴影：随 facePx 缩放，保证不同尺度下厚度一致。
+  function furnShadow(g, x, y, w, h, facePx) {
+    g.globalAlpha = .2;
+    rect(x + w * .06, y + h - facePx * .20, w * .88, Math.max(4, facePx * .38), '#120c14', g);
+    rect(x + w * .03, y + h - facePx * .10, w * .94, Math.max(3, facePx * .20), '#120c14', g);
+    g.globalAlpha = 1;
+  }
+  // 立面：前挡板 / 柜体 / 桌腿 / 器身。
+  function drawFurnitureFace(f, g, x, y, w, facePx) {
+    const { h, type } = f, b = y + h, dp = h * .28 * (facePx / 24); // dp ≈ 视觉进深
     if (type === 'plant') {
-      const px = x + w * .28, pw = Math.round(w * .46);
-      rect(x + w * .49, y + h * .26, 4, h * .3, '#3f7a52', g);
-      blob(g, x + w * .02, y + h * .04, w * .5, h * .46, '#3f7a52');
-      blob(g, x + w * .46, y + h * .0, w * .46, h * .48, '#4a8a5d');
-      blob(g, x + w * .14, y + h * .24, w * .4, h * .34, '#2f6242');
-      blob(g, x + w * .44, y + h * .26, w * .44, h * .32, '#58996a');
-      rect(x + w * .12, y + h * .1, w * .14, 2, '#7fbb8c', g); rect(x + w * .6, y + h * .06, w * .12, 2, '#7fbb8c', g);
-      rect(px, y + h * .52, pw, Math.round(h * .46), '#8a4f33', g);
-      rect(px + 1, y + h * .52, pw - 2, 4, '#b0714a', g);
-      rect(px, y + h * .58, pw, Math.round(h * .36), '#7a452c', g);
-      rect(px + 3, y + h * .92, pw - 6, 4, '#5f3623', g);
-      rect(px + 3, y + h * .52, pw - 6, 3, '#3a2a22', g);
+      const px = x + w * .28, pw = w * .44, py = y + h * .52, ph = h * .46;
+      rect(px, py, pw, ph, '#8a4f33', g);
+      rect(px + 1, py, pw - 2, Math.max(2, ph * .14), '#b0714a', g);
+      rect(px, py + ph * .14, pw, ph * .74, '#7a452c', g);
+      rect(px + pw * .12, py + ph * .86, pw * .76, Math.max(2, ph * .16), '#5f3623', g);
       return;
     }
     if (type === 'sofa') {
-      rect(x + 4, y, w - 8, 24, '#4b6b70', g); rect(x + 4, y, w - 8, 3, '#62868b', g); rect(x + 4, y + 21, w - 8, 3, '#2c4549', g);
-      rect(x, y + 20, w, h - 28, '#415f63', g); rect(x, y + 20, w, 3, '#6b9095', g); rect(x, y + h - 6, w, 3, '#25393c', g);
-      const cw = Math.max(6, Math.round((w - 26) / 2));
-      rect(x + 9, y + 24, cw, h - 38, '#4b6d71', g); rect(x + 9, y + 24, cw, 2, '#62868b', g);
-      rect(x + 17 + cw, y + 24, cw, h - 38, '#4b6d71', g); rect(x + 17 + cw, y + 24, cw, 2, '#62868b', g);
-      rect(x + w / 2 - 1, y + 25, 2, h - 40, '#2c4549', g);
-      rect(x, y + 14, 15, h - 20, '#55797d', g); rect(x, y + 14, 15, 3, '#7ba0a4', g); rect(x + 13, y + 16, 2, h - 24, '#2c4549', g);
-      rect(x + w - 15, y + 14, 15, h - 20, '#55797d', g); rect(x + w - 15, y + 14, 15, 3, '#7ba0a4', g); rect(x + w - 15, y + 16, 2, h - 24, '#2c4549', g);
-      rect(x + 22, y + 25, 20, 13, '#a4665c', g); rect(x + 22, y + 25, 20, 2, '#c4837a', g); rect(x + 22, y + 36, 20, 2, '#7d4a44', g);
-      rect(x + 7, y + h - 5, 9, 6, '#4a3524', g); rect(x + w - 16, y + h - 5, 9, 6, '#4a3524', g);
+      rect(x + w * .02, y + facePx * 1.05, w * .96, h - facePx * 1.05, '#415f63', g);
+      rect(x + w * .02, y + facePx * 1.05, w * .96, 3, '#6b9095', g);
+      rect(x + w * .02, b - 4, w * .96, 3, '#25393c', g);
+      rect(x + w * .05, y + facePx * 1.2, w * .16, h - facePx * 1.5, '#55797d', g);
+      rect(x + w * .79, y + facePx * 1.2, w * .16, h - facePx * 1.5, '#55797d', g);
+      const lw = Math.max(4, w * .05);
+      rect(x + w * .06, b - facePx * .16, lw, facePx * .16, '#4a3524', g);
+      rect(x + w * .88, b - facePx * .16, lw, facePx * .16, '#4a3524', g);
       return;
     }
     if (type === 'cabinet') {
-      rect(x, y, w, h, '#4e3c2c', g); rect(x + 2, y + 2, w - 4, h - 4, '#6b543c', g); rect(x + 2, y + 2, w - 4, 3, '#8a6e52', g); rect(x + 2, y + h - 4, w - 4, 3, '#3d2f22', g);
-      rect(x + w / 2 - 1, y + 5, 2, h - 10, '#3d2f22', g);
-      rect(x + 7, y + 10, w / 2 - 11, h - 22, '#7a6247', g); rect(x + 7, y + 10, w / 2 - 11, 2, '#93744a', g);
-      rect(x + w / 2 + 4, y + 10, w / 2 - 11, h - 22, '#7a6247', g); rect(x + w / 2 + 4, y + 10, w / 2 - 11, 2, '#93744a', g);
-      rect(x + w / 2 - 9, y + h / 2 - 3, 3, 11, '#c8a86a', g); rect(x + w / 2 + 6, y + h / 2 - 3, 3, 11, '#c8a86a', g);
-      rect(x + 8, y - 11, 22, 12, '#8a5a4a', g); rect(x + 10, y - 9, 18, 2, '#a97262', g); rect(x + 10, y - 11, 6, 2, '#b98272', g);
-      rect(x + 34, y - 9, 16, 10, '#4f6b74', g); rect(x + 34, y - 9, 16, 2, '#64868f', g);
-      rect(x + 54, y - 7, 12, 8, '#6b7f5c', g); rect(x + 54, y - 7, 12, 2, '#87a078', g);
+      const bd = Math.max(2, w * .02);
+      rect(x, y, w, h, '#4e3c2c', g);
+      rect(x + bd, y + bd, w - 2 * bd, h - 2 * bd, '#6b543c', g);
+      rect(x + bd, y + bd, w - 2 * bd, 3, '#8a6e52', g);
+      rect(x + bd, b - 3 - bd, w - 2 * bd, 3, '#3d2f22', g);
+      rect(x + w / 2 - 1, y + bd * 2, 2, h - bd * 4, '#3d2f22', g);
+      const dh = h * .34, dy = y + h * .18;
+      rect(x + w * .06, dy, w * .40, dh, '#7a6247', g); rect(x + w * .06, dy, w * .40, 2, '#93744a', g);
+      rect(x + w * .54, dy, w * .40, dh, '#7a6247', g); rect(x + w * .54, dy, w * .40, 2, '#93744a', g);
+      const hw = Math.max(2, w * .015);
+      rect(x + w * .30, y + h * .46, hw, h * .20, '#c8a86a', g); rect(x + w * .68, y + h * .46, hw, h * .20, '#c8a86a', g);
       return;
     }
     if (type === 'desk') {
-      rect(x + 6, y + 30, 7, h - 30, '#4a3524', g); rect(x + w - 13, y + 30, 7, h - 30, '#4a3524', g);
-      rect(x + 4, y + 22, w - 8, h - 22, '#5a4231', g); rect(x + 4, y + 22, w - 8, 3, '#8a6a48', g); rect(x + 4, y + h - 5, w - 8, 5, '#3f2f22', g);
-      rect(x - 5, y + 8, w + 10, 16, '#7d5c3f', g); rect(x - 5, y + 8, w + 10, 3, '#a5825b', g); rect(x - 5, y + 21, w + 10, 3, '#543f2d', g);
-      rect(x + 10, y + 29, w - 66, h - 37, '#523c2d', g); rect(x + 10, y + 29, w - 66, 1, '#634b38', g); rect(x + 10, y + h - 11, w - 66, 2, '#3f2f22', g);
-      rect(x + w - 49, y + 33, 43, 17, '#6b5238', g); rect(x + w - 47, y + 35, 39, 2, '#8f7050', g); rect(x + w - 31, y + 39, 14, 3, '#c8a86a', g);
-      rect(x + 37, y - 31, 58, 36, '#2b2f38', g); rect(x + 39, y - 29, 54, 30, '#182f38', g); rect(x + 39, y - 29, 54, 2, '#0d1e25', g);
-      rect(x + 42, y - 26, 48, 3, '#63c7c4', g); rect(x + 42, y - 20, 32, 2, '#4f9d9c', g); rect(x + 42, y - 15, 40, 2, '#4f9d9c', g); rect(x + 42, y - 10, 24, 2, '#4f9d9c', g);
-      rect(x + 58, y + 3, 12, 6, '#39414a', g); rect(x + 50, y + 8, 28, 4, '#4a5058', g);
-      rect(x + 40, y + 13, 40, 6, '#d5cfbe', g); rect(x + 42, y + 15, 36, 1, '#8f8a7e', g); rect(x + 40, y + 18, 40, 1, '#a49e8e', g);
-      rect(x + w - 27, y + 11, 10, 9, '#c96f4e', g); rect(x + w - 27, y + 11, 10, 2, '#e08a6a', g); rect(x + w - 17, y + 13, 3, 4, '#c96f4e', g);
-      rect(x + 6, y + 12, 22, 7, '#e6dfcd', g); rect(x + 8, y + 14, 18, 1, '#b9b3a2', g); rect(x + 8, y + 16, 14, 1, '#b9b3a2', g);
+      rect(x + w * .07, b - dp, w * .05, dp, '#4a3524', g);
+      rect(x + w * .88, b - dp, w * .05, dp, '#4a3524', g);
+      rect(x + w * .06, b - dp * 1.35, w * .88, dp * 1.35, '#5a4231', g);
+      rect(x + w * .06, b - dp * 1.35, w * .88, 3, '#8a6a48', g);
+      rect(x + w * .86, b - dp * 1.2, w * .11, dp * .86, '#6b5238', g);
+      rect(x + w * .87, b - dp * 1.08, w * .09, 2, '#8f7050', g);
+      rect(x + w * .89, b - dp * .86, w * .05, 2, '#c8a86a', g);
+      rect(x + w * .12, b - dp * 1.1, w * .58, dp * .62, '#523c2d', g);
+      rect(x + w * .12, b - dp * 1.1, w * .58, 1, '#634b38', g);
       return;
     }
     if (type === 'counter') {
-      rect(x + 4, y + 24, w - 8, h - 24, '#48524f', g); rect(x + 4, y + 24, w - 8, 3, '#5f6b66', g); rect(x + 4, y + h - 5, w - 8, 5, '#2f3937', g);
-      for (let i = 1; i < 4; i++) {
-        const px = x + i * (w / 4);
-        rect(px, y + 28, 1, h - 30, '#333d3b', g);
-        rect(px + 6, y + 32, w / 4 - 12, h - 42, '#525d59', g);
-        rect(px + 6, y + 32, w / 4 - 12, 1, '#606c67', g); rect(px + 6, y + h - 12, w / 4 - 12, 2, '#3c4644', g);
+      rect(x + w * .03, y + facePx * .78, w * .94, h - facePx * .78, '#48524f', g);
+      rect(x + w * .03, y + facePx * .78, w * .94, 3, '#5f6b66', g);
+      rect(x + w * .03, b - Math.max(3, facePx * .16), w * .94, Math.max(3, facePx * .16), '#2f3937', g);
+      const N = 4;
+      for (let i = 1; i < N; i++) {
+        const px = x + w * i / N, cw = w / N - w * .04;
+        rect(px, y + facePx * .9, 1, h - facePx * .95, '#333d3b', g);
+        rect(px + w * .02, y + facePx, cw, h - facePx * 1.35, '#525d59', g);
+        rect(px + w * .02, y + facePx, cw, 1, '#606c67', g);
+        rect(px + w * .02, b - facePx * .32, cw, 2, '#3c4644', g);
       }
-      rect(x - 5, y + 8, w + 10, 17, '#cfc7bb', g); rect(x - 5, y + 8, w + 10, 3, '#e8e2d6', g); rect(x - 5, y + 22, w + 10, 3, '#9a9184', g);
-      rect(x + 16, y - 26, 40, 34, '#39414a', g); rect(x + 18, y - 24, 36, 10, '#1e2a30', g); rect(x + 22, y - 20, 10, 3, '#d9814f', g);
-      rect(x + 18, y - 12, 36, 4, '#2b323a', g); rect(x + 28, y - 8, 14, 6, '#c9c4b4', g);
-      rect(x + 92, y - 16, 24, 24, '#8d929a', g); rect(x + 94, y - 14, 20, 3, '#a9aeb6', g); rect(x + 112, y - 21, 4, 6, '#5f646b', g); rect(x + 98, y - 23, 10, 7, '#5f646b', g);
-      for (let i = 0; i < 4; i++) { const cx = x + 140 + i * 24; rect(cx, y + 11, 9, 9, '#dfe6e6', g); rect(cx, y + 11, 9, 2, '#f2f7f7', g); rect(cx, y + 18, 9, 2, '#9aa4a4', g); }
-      rect(x + 206, y + 13, 26, 6, '#b58a5c', g); rect(x + 208, y + 8, 7, 7, '#c96f4e', g); rect(x + 217, y + 9, 7, 6, '#8a9a5c', g); rect(x + 224, y + 10, 6, 5, '#d9b45c', g);
       return;
     }
     if (type === 'table') {
-      rect(x + 8, y + 24, 7, h - 24, '#4a3524', g); rect(x + w - 15, y + 24, 7, h - 24, '#4a3524', g);
-      rect(x - 6, y + 8, w + 12, 17, '#7d5c3f', g); rect(x - 6, y + 8, w + 12, 3, '#a5825b', g); rect(x - 6, y + 22, w + 12, 3, '#543f2d', g);
-      rect(x + 16, y - 12, 34, 20, '#39414a', g); rect(x + 18, y - 10, 30, 15, '#182f38', g); rect(x + 20, y - 8, 20, 2, '#63c7c4', g); rect(x + 20, y - 4, 24, 2, '#4f9d9c', g);
-      rect(x + 12, y + 8, 42, 5, '#4a5058', g); rect(x + 14, y + 9, 38, 1, '#6a7078', g);
-      rect(x + 64, y + 12, 24, 7, '#e6dfcd', g); rect(x + 66, y + 14, 20, 1, '#b9b3a2', g); rect(x + 66, y + 16, 14, 1, '#b9b3a2', g);
-      rect(x + 96, y + 11, 10, 9, '#d9814f', g); rect(x + 96, y + 11, 10, 2, '#e8a173', g);
+      rect(x + w * .08, y + h * .38, w * .05, h * .58, '#4a3524', g);
+      rect(x + w * .87, y + h * .38, w * .05, h * .58, '#4a3524', g);
       return;
     }
     if (type === 'reception') {
-      rect(x + 4, y + 18, w - 8, h - 18, '#5a4231', g); rect(x + 4, y + 18, w - 8, 3, '#8a6a48', g); rect(x + 4, y + h - 5, w - 8, 5, '#3f2f22', g);
-      for (let i = 1; i < 3; i++) rect(x + i * (w / 3), y + 22, 1, h - 24, '#46341f', g);
-      rect(x - 5, y + 6, w + 10, 13, '#cfc7bb', g); rect(x - 5, y + 6, w + 10, 3, '#e8e2d6', g); rect(x - 5, y + 16, w + 10, 3, '#9a9184', g);
-      rect(x + 6, y + 23, w - 12, 2, '#c8a86a', g);
-      rect(x + 12, y - 20, 42, 26, '#2b2f38', g); rect(x + 14, y - 18, 38, 20, '#182f38', g); rect(x + 16, y - 16, 30, 3, '#63c7c4', g); rect(x + 16, y - 11, 22, 2, '#4f9d9c', g);
-      rect(x + 26, y + 6, 12, 6, '#39414a', g); rect(x + 20, y + 11, 24, 4, '#4a5058', g);
-      rect(x + w - 34, y - 6, 16, 12, '#8a5a4a', g); rect(x + w - 32, y - 4, 12, 2, '#a97262', g);
-      rect(x + w - 28, y - 19, 3, 14, '#3f7a52', g); rect(x + w - 32, y - 25, 8, 6, '#c96f4e', g); rect(x + w - 24, y - 21, 6, 5, '#e08a6a', g);
+      rect(x + w * .03, y + h * .5, w * .94, h * .5, '#5a4231', g);
+      rect(x + w * .03, y + h * .5, w * .94, 3, '#8a6a48', g);
+      rect(x + w * .03, b - 4, w * .94, 4, '#3f2f22', g);
+      for (let i = 1; i < 3; i++) rect(x + w * i / 3, y + h * .56, 1, h * .4, '#46341f', g);
       return;
     }
-    rect(x, y, w, h, '#5a4231', g); rect(x, y, w, 3, '#8a6a48', g); rect(x, y + h - 4, w, 4, '#3f2f22', g);
-    rect(x + 6, y + h, 9, 6, '#4a3524', g); rect(x + w - 15, y + h, 9, 6, '#4a3524', g);
+    if (type === 'stage') {                                  // §6 舞台：台体立面 + 台沿
+      rect(x, b - facePx, w, facePx, '#8a6a48', g);
+      rect(x, b - facePx, w, 2, '#a5825b', g);
+      rect(x, b - Math.max(2, facePx * .34), w, Math.max(2, facePx * .34), '#3f2f22', g);
+      return;
+    }
+    if (type === 'rack') {                                   // §6 哑铃架：底座 2 腿
+      rect(x + w * .22, b - 4, Math.max(3, w * .05), 4, '#3a2820', g);
+      rect(x + w * .73, b - 4, Math.max(3, w * .05), 4, '#3a2820', g);
+      return;
+    }
+    if (type === 'seat') {                                   // §6 座椅：座面 blob（近观者侧）
+      const cw = Math.max(10, Math.min(16, w * .24)), ch = Math.max(5, h * .34);
+      blob(g, x + w / 2 - cw / 2, y + h - ch * 1.6, cw, ch, '#a4665c');
+      rect(x + w / 2 - cw * .66, y + h - ch * 1.6 - 2, cw * 1.32, 2, '#2b1a14', g);
+      return;
+    }
+    if (type === 'mat') return;                              // §6 训练垫：无立面
+    // default：通用柜体
+    rect(x, y, w, h, '#5a4231', g); rect(x, y, w, 3, '#8a6a48', g); rect(x, b - 4, w, 4, '#3f2f22', g);
+    const lw = Math.max(4, w * .05);
+    rect(x + w * .05, b, lw, facePx * .2, '#4a3524', g); rect(x + w * .9, b, lw, facePx * .2, '#4a3524', g);
+  }
+  // 顶面：可见上表面 + 台面器物。
+  function drawFurnitureTop(f, g, x, y, w, planPx) {
+    const { h, type } = f, facePx = furnitureFace(type);
+    const topH = Math.max(4, h - facePx);          // 立面之上的可见上表面高度
+    const slab = Math.max(5, Math.min(topH, facePx * .6)); // 台面板厚
+    if (type === 'plant') {
+      rect(x + w * .49, y + h * .26, Math.max(3, w * .08), h * .3, '#3f7a52', g);
+      blob(g, x + w * .02, y + h * .04, w * .5, h * .46, '#3f7a52', g);
+      blob(g, x + w * .46, y + h * .0, w * .46, h * .48, '#4a8a5d', g);
+      blob(g, x + w * .14, y + h * .24, w * .4, h * .34, '#2f6242', g);
+      blob(g, x + w * .44, y + h * .26, w * .44, h * .32, '#58996a', g);
+      rect(x + w * .12, y + h * .1, w * .14, 2, '#7fbb8c', g); rect(x + w * .6, y + h * .06, w * .12, 2, '#7fbb8c', g);
+      return;
+    }
+    if (type === 'sofa') {
+      rect(x + w * .03, y, w * .94, topH * .6, '#4b6b70', g);
+      rect(x + w * .03, y, w * .94, 3, '#62868b', g);
+      rect(x + w * .03, y + topH * .52, w * .94, 3, '#2c4549', g);
+      const cw = (w - w * .18) / 2;
+      rect(x + w * .09, y + topH * .6, cw, Math.max(3, h - topH * .95), '#4b6d71', g);
+      rect(x + w * .09, y + topH * .6, cw, 2, '#62868b', g);
+      rect(x + w * .55, y + topH * .6, cw, Math.max(3, h - topH * .95), '#4b6d71', g);
+      rect(x + w * .55, y + topH * .6, cw, 2, '#62868b', g);
+      rect(x + w / 2 - 1, y + topH * .6, 2, Math.max(3, h - topH), '#2c4549', g);
+      rect(x + w * .15, y + topH * .6, w * .14, topH * .34, '#a4665c', g);
+      rect(x + w * .15, y + topH * .6, w * .14, 2, '#c4837a', g);
+      return;
+    }
+    if (type === 'cabinet') {
+      rect(x, y, w, Math.max(3, topH), '#6b543c', g);
+      rect(x, y, w, 2, '#8a6e52', g);
+      return;
+    }
+    if (type === 'desk') {
+      rect(x - w * .02, y, w * 1.04, Math.max(5, topH), '#7d5c3f', g);
+      rect(x - w * .02, y, w * 1.04, 3, '#a5825b', g);
+      rect(x - w * .02, y + Math.max(5, topH) - 3, w * 1.04, 3, '#543f2d', g);
+      rect(x + w * .11, y + topH * .3, w * .3, Math.max(3, topH * .5), '#4a5058', g);
+      rect(x + w * .12, y + topH * .34, w * .28, 1, '#6a7078', g);
+      rect(x + w * .6, y + topH * .3, w * .28, Math.max(3, topH * .5), '#d5cfbe', g);
+      rect(x + w * .61, y + topH * .34, w * .26, 1, '#8f8a7e', g);
+      rect(x + w * .8, y + topH * .2, w * .13, topH * .75, '#e6dfcd', g);
+      rect(x + w * .81, y + topH * .26, w * .11, 1, '#b9b3a2', g);
+      rect(x + w * .9, y + topH * .16, w * .05, topH * .5, '#c96f4e', g);
+      rect(x + w * .9, y + topH * .16, w * .05, 2, '#e08a6a', g);
+      return;
+    }
+    if (type === 'counter') {
+      rect(x - w * .015, y, w * 1.03, slab, '#cfc7bb', g);
+      rect(x - w * .015, y, w * 1.03, 3, '#e8e2d6', g);
+      rect(x - w * .015, y + slab - 3, w * 1.03, 3, '#9a9184', g);
+      const N = Math.max(2, Math.round(w / (facePx * 4)));   // 台面器物按宽度均布
+      for (let i = 0; i < N; i++) {
+        const cx = cellC(x, w, i, N), cw = w / N * .22;
+        rect(cx - cw / 2, y + slab * .18, cw, slab * .6, '#dfe6e6', g);
+        rect(cx - cw / 2, y + slab * .18, cw, 2, '#f2f7f7', g);
+        rect(cx - cw / 2, y + slab * .66, cw, 2, '#9aa4a4', g);
+      }
+      return;
+    }
+    if (type === 'table') {
+      rect(x - w * .015, y, w * 1.03, slab, '#7d5c3f', g);
+      rect(x - w * .015, y, w * 1.03, 3, '#a5825b', g);
+      rect(x - w * .015, y + slab - 3, w * 1.03, 3, '#543f2d', g);
+      rect(x + w * .05, y + slab * .2, w * .28, Math.max(3, slab * .5), '#4a5058', g);   // 健盘
+      const px = x + w * .42, pw = w * .3;                                               // 盘子
+      rect(px, y + slab * .2, pw, Math.max(3, slab * .6), '#e6dfcd', g);
+      rect(px + 2, y + slab * .32, pw - 4, 1, '#b9b3a2', g);
+      rect(x + w * .8, y + slab * .16, w * .1, Math.max(3, slab * .66), '#d9814f', g);   // 汤碗
+      rect(x + w * .8, y + slab * .16, w * .1, 2, '#e8a173', g);
+      return;
+    }
+    if (type === 'reception') {
+      rect(x - w * .015, y, w * 1.03, slab, '#cfc7bb', g);
+      rect(x - w * .015, y, w * 1.03, 3, '#e8e2d6', g);
+      rect(x - w * .015, y + slab - 3, w * 1.03, 3, '#9a9184', g);
+      rect(x + w * .04, y + slab * .3, w * .5, Math.max(2, slab * .4), '#4a5058', g);   // 健盘
+      rect(x + w * .6, y + slab * .2, w * .2, Math.max(3, slab * .6), '#c8a86a', g);    // 名牌金条
+      return;
+    }
+    if (type === 'treadmill') {                              // §6 跑步机：机架平面 + 2 跑带
+      const mw = w * .75, mh = Math.max(6, h * .29), mx = x + (w - mw) / 2, my = y + h * .34;
+      rect(mx, my, mw, mh, '#39414a', g);
+      rect(mx, my, mw, 1, '#54606b', g);
+      const bw = mw * .1, gp = mw * .07;
+      rect(mx + mw * .16, my + 1, bw, mh - 2, '#2b2f38', g);
+      rect(mx + mw * .16 + bw + gp, my + 1, bw, mh - 2, '#182f38', g);
+      return;
+    }
+    if (type === 'rack') {                                   // §6 哑铃架：架体 + 3 层横杆 + 每层 5 个哑铃
+      const rw = w * .5, rh = Math.max(5, h * .26), rx = x + (w - rw) / 2, ry = y + h * .3;
+      rect(rx, ry, rw, rh, '#4a3528', g);
+      rect(rx, ry, rw, 1, '#6b4f36', g);
+      for (let L = 0; L < 3; L++) {
+        const by = ry + rh * (L + .5) / 3;
+        rect(rx, by, rw, 2, '#8d929a', g);
+        for (let d = 0; d < 5; d++) {
+          const dx = rx + rw * (d + .5) / 5 - 3;
+          rect(dx, by - 1, 6, 3, ((d + L) % 2) ? '#39414a' : '#8d929a', g);
+        }
+      }
+      return;
+    }
+    if (type === 'mat') {                                    // §6 训练垫：垫区圆角 + 亮边 + 中缝（无立面）
+      const n = Math.max(1, Math.round(w / 48)), mw = Math.min(48, w / n), mh = Math.min(h * .84, 26.7);
+      const mx0 = x + (w - n * mw) / 2, my = y + (h - mh) / 2;
+      for (let i = 0; i < n; i++) {
+        const mx = mx0 + i * mw;
+        rect(mx + 2, my, mw - 4, mh, '#4b6b70', g);
+        rect(mx, my + 2, mw, mh - 4, '#4b6b70', g);
+        rect(mx + 2, my, mw - 4, 2, '#62868b', g);
+        rect(mx + 2, my + mh - 2, mw - 4, 2, '#62868b', g);
+        rect(mx, my + 2, 2, mh - 4, '#62868b', g);
+        rect(mx + mw - 2, my + 2, 2, mh - 4, '#62868b', g);
+        rect(mx + mw / 2 - .5, my + 2, 1, mh - 4, '#2c4549', g);
+      }
+      return;
+    }
+    if (type === 'stage') {                                  // §6 舞台：台面 + 沿 x 每 32px 木纹
+      const th = Math.max(3, h - facePx);
+      rect(x, y, w, th, '#8a6a48', g);
+      rect(x, y, w, 2, '#a5825b', g);
+      for (let gx = 32; gx < w - 4; gx += 32) rect(x + gx, y, 1, th, '#7d5c3f', g);
+      return;
+    }
+    rect(x, y, w, Math.max(3, topH), '#8a6a48', g);
+  }
+  // 立式部件：显示器 / 收纳盒 / 收银机 / 花瓶等，自 y 向上生长。
+  function drawFurnitureUpright(f, g, x, y, w) {
+    const { h, type } = f;
+    if (type === 'desk') {
+      const mw = w * .16, mh = mw * .62, mx = x + w * .3;
+      rect(mx - 2, y - mh - 2, mw + 4, mh + 4, '#2b2f38', g);
+      rect(mx, y - mh, mw, mh, '#182f38', g);
+      rect(mx, y - mh, mw, 2, '#0d1e25', g);
+      rect(mx + mw * .06, y - mh + mh * .16, mw * .88, 3, '#63c7c4', g);
+      rect(mx + mw * .06, y - mh + mh * .38, mw * .6, 2, '#4f9d9c', g);
+      rect(mx + mw * .06, y - mh + mh * .58, mw * .74, 2, '#4f9d9c', g);
+      rect(mx + mw * .34, y - mh * .28, mw * .12, mh * .28, '#39414a', g);
+      rect(mx + mw * .16, y - 4, mw * .5, 4, '#4a5058', g);
+      return;
+    }
+    if (type === 'cabinet') {
+      rect(x + w * .07, y - 12, w * .19, 12, '#8a5a4a', g); rect(x + w * .09, y - 10, w * .15, 2, '#a97262', g);
+      rect(x + w * .3, y - 10, w * .14, 10, '#4f6b74', g); rect(x + w * .3, y - 10, w * .14, 2, '#64868f', g);
+      rect(x + w * .48, y - 8, w * .1, 8, '#6b7f5c', g); rect(x + w * .48, y - 8, w * .1, 2, '#87a078', g);
+      return;
+    }
+    if (type === 'counter') {
+      const rw = w * .12, rh = rw * .85;
+      rect(x + w * .04, y - rh - 4, rw, rh + 4, '#39414a', g);
+      rect(x + w * .05, y - rh - 2, rw * .9, rh * .28, '#1e2a30', g);
+      rect(x + w * .07, y - rh + rh * .3, rw * .25, 3, '#d9814f', g);
+      rect(x + w * .05, y - rh * .5, rw * .9, 4, '#2b323a', g);
+      const mw = w * .07, mh = mw;
+      rect(x + w * .26, y - mh - 6, mw, mh + 6, '#8d929a', g);
+      rect(x + w * .27, y - mh - 4, mw * .85, 3, '#a9aeb6', g);
+      rect(x + w * .26 + mw * .5, y - mh - 11, mw * .12, 6, '#5f646b', g);
+      return;
+    }
+    if (type === 'table') {
+      const mw = w * .12, mh = mw * .6, mx = x + w * .12;
+      rect(mx, y - mh - 2, mw, mh + 2, '#39414a', g);
+      rect(mx + 2, y - mh, mw - 4, mh * .74, '#182f38', g);
+      rect(mx + 4, y - mh + mh * .18, mw * .55, 2, '#63c7c4', g);
+      return;
+    }
+    if (type === 'reception') {
+      const mw = w * .2, mh = mw * .62, mx = x + w * .1;
+      rect(mx, y - mh - 2, mw, mh + 2, '#2b2f38', g);
+      rect(mx + 2, y - mh, mw - 4, mh * .78, '#182f38', g);
+      rect(mx + 4, y - mh + mh * .2, mw * .7, 3, '#63c7c4', g);
+      rect(x + w * .78, y - 20, w * .1, 20, '#3f7a52', g);
+      rect(x + w * .74, y - 28, w * .17, 8, '#c96f4e', g);
+      rect(x + w * .8, y - 24, w * .05, 5, '#e08a6a', g);
+      return;
+    }
+    if (type === 'treadmill') {                              // §6 跑步机：控制台（向上长，0.9m）+ 两侧扶手
+      const cw = Math.max(14, w * .31), ch = Math.max(14, h * .68), mx = x + (w - cw) / 2, my = y + h * .34;
+      rect(mx, my - ch, cw, ch, '#2b2f38', g);
+      rect(mx + 2, my - ch + 2, cw - 4, ch * .55, '#182f38', g);
+      rect(mx + 3, my - ch + 4, cw * .5, 2, '#63c7c4', g);
+      rect(mx + 3, my - ch + 8, cw * .36, 2, '#4f9d9c', g);
+      rect(mx + cw / 2 - 1, my - 2, 2, 2, '#39414a', g);
+      rect(x + w * .1, my - 5, w * .09, 2, '#8d929a', g);
+      rect(x + w * .81, my - 5, w * .09, 2, '#8d929a', g);
+      return;
+    }
+    if (type === 'seat') {                                   // §6 座椅：一排椅背（向上长，含头枕）
+      const n = Math.max(3, Math.round(w / 22.4)), sw = Math.max(10, Math.min(16, w / n * .74));
+      for (let i = 0; i < n; i++) {
+        const sx = x + w * (i + .5) / n - sw / 2;
+        rect(sx, y + h * .1, sw, h * .72, '#8b4f47', g);
+        rect(sx, y + h * .1, sw, 3, '#c4837a', g);
+        rect(sx - 2, y + h * .52, 2, Math.max(3, h * .24), '#2b1a14', g);
+        rect(sx + sw, y + h * .52, 2, Math.max(3, h * .24), '#2b1a14', g);
+      }
+      return;
+    }
+  }
+  // §4 1F 食堂餐桌（六张『食堂餐桌一…六』）：规范组 80×24.7 在 rect 内居中，按
+  // 接地阴影 → 远排椅 → 桌面 → 餐具 → 桌裙/桌腿 → 近排椅 的固定顺序绘制（餐桌专属可读性顺序，
+  // 不能套通用的 Face→Top→Upright 三层，否则远排椅会盖在桌面上）。规范 rect=105.6×36，其余按比例缩放。
+  function drawDiningTable(f, g) {
+    const { x, y, w, h } = f;
+    const sx = w / 105.6, sy = h / 36;
+    const X = v => x + v * sx, Y = v => y + v * sy, W = v => v * sx, H = v => v * sy;
+    const chair = (cx, cy, down) => {                   // 餐椅：座面 blob + 靠背；远排朝上、近排朝下（近观者侧），避免近排椅背盖住桌面
+      const sw = W(15), sh = H(7), bh = H(12), sy0 = cy - sh * .5;
+      blob(g, cx, sy0, sw, sh, '#c96f4e');
+      const by = down ? sy0 + sh : sy0 - bh;
+      rect(cx, by, sw, bh, '#b3613f', g);
+      rect(cx, by, sw, Math.max(1, H(1)), '#e08a6a', g);
+      rect(cx, sy0 + sh - 1, sw, 1, '#2b1a14', g);
+    };
+    // 1) 接地阴影（两条渐窄矩形）
+    g.globalAlpha = .2;
+    rect(X(6), Y(30), W(94), Math.max(4, H(6)), '#120c14', g);
+    rect(X(3), Y(33), W(100), Math.max(3, H(3)), '#120c14', g);
+    g.globalAlpha = 1;
+    // 2) 远排椅 ×3（靠背朝上）
+    for (let i = 0; i < 3; i++) chair(X(28 + i * 16), Y(10.5), false);
+    // 3) 桌面（50×12，圆角 2px 由三段矩形堆出，不用 arc）
+    const tx = X(28), ty = Y(12.4), tw = W(50), th = H(12), rad = Math.max(2, W(2));
+    rect(tx + rad, ty, tw - 2 * rad, th, '#a5825b', g);
+    rect(tx, ty + rad, tw, th - 2 * rad, '#a5825b', g);
+    rect(tx, ty, tw, Math.max(2, H(2)), '#7d5c3f', g);                              // 远边
+    rect(tx, ty + th - Math.max(2, H(3)), tw, Math.max(2, H(3)), '#c19a6b', g);      // 近边
+    // 4) 餐具：沿桌面两长边各 3 位成对均布（盘 6×4 + 筷 1×7 + 杯 2×3；1 位加暖色汤碗）
+    for (let i = 0; i < 3; i++) {
+      const cx = X(30 + i * 16);
+      for (const far of [true, false]) {
+        const ey = far ? Y(13.4) : Y(21);
+        rect(cx, ey, W(6), H(4), (!far && i === 1) ? '#d9814f' : '#e6dfcd', g);
+        rect(cx, ey, W(6), Math.max(1, H(1)), '#b9b3a2', g);
+        rect(cx + W(7), ey - H(3), Math.max(1, W(1)), H(7), '#4a5058', g);
+        rect(cx + W(9), ey - H(1), W(2), Math.max(2, H(3)), '#dfe6e6', g);
+      }
+    }
+    // 5) 桌裙 / 前立面
+    rect(X(28), Y(18), W(50), Math.max(3, H(6)), '#543f2d', g);
+    rect(X(28), Y(18), W(50), Math.max(1, H(1)), '#8a6a48', g);
+    // 6) 桌腿 ×4
+    for (const lx of [30, 43, 60, 73]) {
+      rect(X(lx), Y(24), Math.max(2, W(3)), Math.max(3, H(4)), '#4a3524', g);
+      rect(X(lx), Y(24), Math.max(1, W(1)), Math.max(3, H(4)), '#6b4f36', g);
+    }
+    // 7) 近排椅 ×3（后画；靠背朝下 ⇒ 只压住桌裙/桌腿，不盖桌面）
+    for (let i = 0; i < 3; i++) chair(X(28 + i * 16), Y(28.5), true);
+  }
+  // §5 2F 工位：同一套零件（桌面板+显示器+键盘+桌下柜+转椅+屏风）按 rect 循环铺单体，绝不把整条带画成一块桌面。
+  // 单元 screenW=51.2、plan 深=23.3（§8.1 U），立面从 plan 下沿起 24。N/行=round(w/51.2)（铺满整带）；
+  // 行数=(rect深>=47)?2:1（§5.2）；双面岛=上排镜像(椅朝外、桌朝中线)+下排正常+中线屏风。
+  function drawWorkstation(f, g) {
+    const br = WORLD.deskBranch(f);
+    if (br && br !== 'island') {
+      // 单桌（workSingle / roomSingle）：桌+椅都画在碰撞块内 ⇒ 画=撞（房号单桌不再被画成工位岛）
+      const b = f.blocks[0], bx = b.x, by = b.y, bw = b.w, bh = b.h;
+      const chairH = Math.max(4, Math.min(8, bh * .35)), deskH = Math.max(4, bh - chairH);
+      rect(bx, by, bw, deskH, '#a5825b', g);
+      for (let gx = 4; gx < bw - 2; gx += 8) rect(bx + gx, by + 1, 1, Math.max(2, deskH - 2), '#96744e', g);
+      rect(bx, by, bw, 1, '#c4a072', g);
+      rect(bx, by + deskH - 1, bw, 1, '#6b4f36', g);
+      rect(bx - 1, by - 1, bw + 2, 1, '#241c14', g);
+      rect(bx - 1, by + bh - 1, bw + 2, 1, '#241c14', g);
+      rect(bx - 1, by - 1, 1, bh + 1, '#241c14', g);
+      rect(bx + bw, by - 1, 1, bh + 1, '#241c14', g);
+      const mw = Math.max(8, Math.min(22, bw + 6)), mx = bx + (bw - mw) / 2;
+      rect(mx, by - 9, mw, 10, '#2b2f38', g);
+      rect(mx + 1, by - 8, mw - 2, 6, '#182f38', g);
+      rect(mx + 2, by - 6, Math.max(3, mw * .5), 1, '#63c7c4', g);
+      const cw = Math.min(14, Math.max(8, bw)), cx = bx + (bw - cw) / 2, cyt = by + deskH;
+      rect(cx, cyt, cw, chairH, '#2b2f38', g);
+      rect(cx, cyt, cw, 1, '#e08a6a', g);
+      rect(cx - 1, cyt, 1, chairH, '#2b1a14', g);
+      rect(cx + cw, cyt, 1, chairH, '#2b1a14', g);
+      return;
+    }
+    // 与碰撞同源（world.js deskIsland）：行数阈值 / 岛深 / 位置一致 ⇒ 画什么撞什么。
+    const isl = WORLD.deskIsland(f);
+    const PLAN = isl.plan, UW = isl.unitW, Nper = isl.C, rows = isl.rows, gap = isl.gap;
+    const blockH = isl.islandH, totalW = isl.bw, ox = isl.ox, oy = isl.uy;
+    // 接地阴影（整块）
+    g.globalAlpha = .18;
+    rect(ox + 2, oy + blockH - 4, totalW - 4, 5, '#120c14', g);
+    g.globalAlpha = 1;
+    const unit = (ux, uyPlan, mirror) => {
+      const Y = (v, hh) => mirror ? uyPlan + PLAN - v - hh : uyPlan + v;   // 局部(0=plan上沿) → 屏幕
+      const dTopScreen = mirror ? uyPlan + PLAN - 12 : uyPlan;             // 桌面屏幕上沿
+      // 显示器（屏幕空间、永远竖直朝上；面板 22×16 + 支臂 + 底座）
+      rect(ux + 14.5, dTopScreen - 9, 23, 16, '#2b2f38', g);
+      rect(ux + 16, dTopScreen - 7.5, 20, 13, '#182f38', g);
+      rect(ux + 16.5, dTopScreen - 6, 15, 2, '#63c7c4', g);
+      rect(ux + 16.5, dTopScreen - 3, 11, 1, '#4f9d9c', g);
+      rect(ux + 16.5, dTopScreen - .5, 13, 1, '#4f9d9c', g);
+      rect(ux + 24, dTopScreen + 8, 4, 5, '#39414a', g);
+      rect(ux + 20, dTopScreen + 9, 11, 3, '#39414a', g);
+      // 桌面板（顶面 47×12）—— §5.3-A 达标色值：面 #a5825b / 远边 #c4a072 / 近边 #6b4f36 / 外描边 #241c14
+      const tyTop = Y(0, 12);
+      rect(ux + 2, tyTop, 47, 12, '#a5825b', g);
+      for (let gx = 4; gx < 48; gx += 8) rect(ux + gx, tyTop + 1, 1, 10, '#96744e', g);   // D3：仅竖向木纹
+      rect(ux + 2, Y(0, 2), 47, 2, '#c4a072', g);          // 远边高光
+      rect(ux + 2, Y(10, 2), 47, 2, '#6b4f36', g);         // 近边暗边
+      rect(ux + 1, tyTop - 1, 49, 1, '#241c14', g);        // 外描边：上
+      rect(ux + 1, tyTop + 12, 49, 1, '#241c14', g);       //           下
+      rect(ux + 1, tyTop - 1, 1, 14, '#241c14', g);        //           左
+      rect(ux + 49, tyTop - 1, 1, 14, '#241c14', g);       //           右
+      // 桌面前立面 47×5
+      rect(ux + 2, Y(12, 5), 47, 5, '#6b543c', g);
+      rect(ux + 2, Y(12, 1), 47, 1, '#8f7050', g);
+      // 桌下柜 / 主机 14×5 + 拉手
+      rect(ux + 3, Y(12, 5), 14, 5, '#523c2d', g);
+      rect(ux + 3, Y(14, 1), 14, 1, '#634b38', g);
+      rect(ux + 4, Y(14, 2), 2, 2, '#c8a86a', g);
+      // 键盘 24×3 + 鼠标 / 笔筒
+      rect(ux + 12, Y(7, 3), 24, 3, '#4a5058', g);
+      rect(ux + 12, Y(8, 1), 24, 1, '#6a7078', g);
+      rect(ux + 38, Y(6, 3), 4, 3, '#c96f4e', g);
+      rect(ux + 38, Y(5, 4), 4, 4, '#8d929a', g);
+      // 转椅（座 14×6 + 背 14×9）—— §5.3-B C3/C5：蓝黑背 + 顶沿暖橙 + 1px 描边（与青灰屏风靠色相分开）
+      rect(ux + 18, Y(19, 6), 14, 6, '#39414a', g);
+      rect(ux + 18, Y(19, 1), 14, 1, '#4a5058', g);
+      const byTop = Y(25, 9);
+      rect(ux + 18, byTop, 14, 9, '#2b2f38', g);
+      rect(ux + 18, byTop, 14, 1, '#e08a6a', g);           // 顶沿 1px 暖橙
+      rect(ux + 17, byTop - 1, 16, 1, '#2b1a14', g);
+      rect(ux + 17, byTop, 1, 9, '#2b1a14', g);
+      rect(ux + 32, byTop, 1, 9, '#2b1a14', g);
+      rect(ux + 17, Y(30, 3), 16, 3, '#4a5058', g);
+    };
+    for (let r = 0; r < rows; r++) {
+      const uyPlan = oy + r * (PLAN + gap);
+      const mirror = rows === 2 && r === 0;                 // 上排镜像
+      for (let i = 0; i < Nper; i++) unit(ox + i * UW, uyPlan, mirror);
+    }
+    if (rows === 2) {                                       // §5.3-B C1：屏风每 51.2px 一条 1px 竖缝 ⇒ 数得出席位数
+      const seamY = oy + PLAN + gap / 2;
+      const dTop = seamY - 11;
+      rect(ox, dTop, totalW, 11, '#4b6b70', g);
+      rect(ox, dTop, totalW, 2, '#62868b', g);
+      for (let s = 1; s < Nper; s++) rect(ox + s * UW, dTop + 2, 1, 9, '#2c4549', g);
+    }
+  }
+  function drawFurniture(f, g = ctx) {
+    const { x, y, w, h, type } = f;
+    if (type === 'table' && /^食堂餐桌/.test(f.label || '')) { drawDiningTable(f, g); return; }
+    if (WORLD.deskBranch(f)) { drawWorkstation(f, g); return; }   // 工位岛 / 工位单桌 / 房号竖放单桌
+    // §4 C-1 附属：后厨操作台是 0.9m 高操作台（浅石面），不是 1.8m 更衣柜造型 —— 按 label 借 counter 画法。
+    if (type === 'cabinet' && f.label === '后厨操作台') {
+      const g2 = Object.assign({}, f, { type: 'counter' }), FACE = 30;
+      furnShadow(g, x, y, w, h, FACE);
+      drawFurnitureFace(g2, g, x, y, w, FACE);
+      drawFurnitureTop(g2, g, x, y, w, h);
+      drawFurnitureUpright(g2, g, x, y, w);
+      return;
+    }
+    furnShadow(g, x, y, w, h, furnitureFace(type));
+    drawFurnitureFace(f, g, x, y, w, furnitureFace(type));
+    drawFurnitureTop(f, g, x, y, w, h);
+    drawFurnitureUpright(f, g, x, y, w);
   }
   function drawWindow(g, x, y, w, h) {
     rect(x - 5, y - 5, w + 10, h + 11, '#4a3a30', g); rect(x - 4, y - 4, w + 8, 3, '#6b5545', g);
@@ -843,62 +2295,114 @@
     rect(cx - 4, 19, 8, 3, '#ffe0a8', g);
     glow(g, cx, 21, 46, .5);
   }
-  function buildBackground() {
-    const spots = [];
-    for (let z = 0; z < 4; z++) {
-      const base = z * 960;
-      for (let j = 0; j < 4; j++) spots.push({ x: base + 58 + j * 227 + 71, y: 110, r: 152, a: .15 });
-      spots.push({ x: base + 242, y: 21, r: 46, a: .5 }, { x: base + 696, y: 21, r: 46, a: .5 });
-      spots.push({ x: base + 242, y: 175, r: 196, a: .14 }, { x: base + 696, y: 175, r: 196, a: .14 }, { x: base + 480, y: 182, r: 214, a: .16 });
-    }
-    for (let z = 0; z < 4; z++) {
-      const base = z * 960, g = bgTiles[z].getContext('2d');
-      g.imageSmoothingEnabled = false;
-      g.save(); g.translate(-base, 0);
-      g.fillStyle = '#2b2333'; g.fillRect(base, 0, VW, VH);
-      const wall = g.createLinearGradient(0, 0, 0, 86);
-      wall.addColorStop(0, '#453a4e'); wall.addColorStop(1, '#332b3e');
-      g.fillStyle = wall; g.fillRect(base, 0, VW, 86);
-      for (let x = base; x < base + VW; x += 96) rect(x, 0, 1, 86, '#2b2334', g);
-      rect(base, 24, VW, 1, '#4b3d4b', g);
-      rect(base, 86, VW, 20, '#3a3145', g); rect(base, 86, VW, 2, '#514461', g);
-      for (let x = base; x < base + VW; x += 48) rect(x, 90, 1, 14, '#332b3e', g);
-      rect(base, 106, VW, 12, '#1f1a28', g); rect(base, 106, VW, 1, '#443a4e', g);
-      const planks = ['#54402f', '#4a3727', '#5b462f', '#453324', '#4f3c2c'];
-      g.fillStyle = '#4a3727'; g.fillRect(base, 118, VW, VH - 118);
-      for (let y = 118; y < VH; y += 16) {
-        const row = ((y - 118) / 16) | 0, stag = (row % 2) ? 32 : 0;
-        for (let x = base - 64 + stag; x < base + VW; x += 64) {
-          const k = Math.abs(row * 31 + Math.round(x / 64) * 17 + 97);
-          rect(x, y, 64, 16, planks[k % 5], g);
-          if (k % 7 === 0) rect(x + 9, y + 6, 18, 1, '#3c2c20', g);
-          else if (k % 5 === 0) rect(x + 31, y + 10, 11, 1, '#3c2c20', g);
-          if (k % 2) rect(x, y, 1, 16, '#3d2d20', g);
-        }
-        rect(base, y, VW, 1, '#5e4936', g);
-        rect(base, y + 15, VW, 1, '#33251b', g);
+  // 家具/墙体 sprite 只为所有楼层的非墙家具烘焙一次；墙体在场景中按程序化面板绘制。
+  (function bakeSprites() {
+    for (const key of Object.keys(WORLD.FLOORS)) {
+      for (const f of WORLD.FLOORS[key].furniture) {
+        // 阶段2-2a（§3 C0-2）：per-type 烘焙 padding；画布 (w+2padX)×(h+padUp+padDown)，绘制偏移 (-padX,-padUp)。
+        const pad = furniturePad(f.type);
+        const c = document.createElement('canvas'); c.width = f.w + pad.padX * 2; c.height = f.h + pad.padUp + pad.padDown;
+        const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+        const dx = pad.padX - f.x, dy = pad.padUp - f.y;
+        const local = {
+          ...f, x: pad.padX, y: pad.padUp,
+          ...(f.blocks ? { blocks: f.blocks.map(b => ({ ...b, x: b.x + dx, y: b.y + dy })) } : {}),
+          ...(f.footprint ? { footprint: { ...f.footprint, x: f.footprint.x + dx, y: f.footprint.y + dy } } : {})
+        };
+        drawFurniture(local, g); furnitureSprites.set(f.id, c);
       }
-      if (z) rect(base, 112, 4, VH - 112, '#2c211b', g);
-      for (let j = 0; j < 4; j++) drawWindow(g, base + 58 + j * 227, 13, 142, 51);
-      drawFrame(g, base + 12, 30, 42, 34);
-      drawClock(g, base + 571, 32, 24);
-      drawLamp(g, base + 242); drawLamp(g, base + 696);
-      drawRug(g, base + 200, 328, 560, 140);
-      drawSign(g, base + 380, 68, 200, 28, `0${z + 1}  /  ${zones[z]}`);
-      for (const s of spots) if (Math.abs(s.x - base - VW / 2) < 1200) glow(g, s.x, s.y, s.r, s.a);
-      for (const f of furniture) if (f.x + f.w / 2 >= base && f.x + f.w / 2 < base + VW) drawFurniture(f, g);
-      g.restore();
     }
+  })();
+  function drawWallPanel(f) {
+    rect(f.x, f.y, f.w, f.h, '#5b4a3c');
+    rect(f.x, f.y, f.w, 3, '#8d745e');
+    rect(f.x, f.y + f.h - 3, f.w, 3, '#33251b');
+    if (f.w >= f.h) { for (let x = f.x + 18; x < f.x + f.w - 8; x += 36) rect(x, f.y + 6, 2, Math.max(0, f.h - 12), '#4b3a2d'); }
+    else { for (let y = f.y + 18; y < f.y + f.h - 8; y += 36) rect(f.x + 5, y, Math.max(0, f.w - 10), 2, '#4b3a2d'); }
   }
-  buildBackground();
-
-  // ---- 肢体互动表现：肿包 / 眩晕星星 / 挥锤 / 命中星芒 ----
-  // 全部只读服务端快照里的 bumps / bumpUntil / stunUntil / swingAt / hitAt，渲染层不做任何判定。
+  // 需求2：电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 方向箭头 + 呼梯按钮。
+  // 端点（1F 下行 / 7F 上行）整体灰化；玩家站在门前并面向门时叠呼吸描边与「E」提示。
+  function drawElevatorHall(p, active) {
+    const cx = Math.round(p.x), cy = Math.round(p.y);
+    const disabled = !p.targetFloorId;
+    const accent = p.dir === 'up' ? '#7fe3ff' : '#ffd76a';
+    const hw = 21, hh = 9, x0 = cx - hw, y0 = cy - hh;
+    const metal = disabled ? '#5f646b' : '#8d929a', metalHi = disabled ? '#6f747b' : '#a9aeb6';
+    ctx.save();
+    // 厅地坪（把门从地板纹理里抬出来）
+    rect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 12, '#3a3f4a');
+    rect(x0 - 4, y0 - 4, hw * 2 + 8, 1, '#6b7480');
+    rect(x0 - 4, y0 + hh * 2 + 7, hw * 2 + 8, 1, '#242a33');
+    // 门框 + 两扇门 + 中缝 + 顶部高光
+    rect(x0 - 1, y0 - 1, hw * 2 + 2, hh * 2 + 2, '#39414a');
+    rect(x0 + 1, y0 + 1, hw - 2, hh * 2 - 2, metal);
+    rect(x0 + hw + 1, y0 + 1, hw - 2, hh * 2 - 2, metal);
+    rect(cx - 1, y0 + 1, 2, hh * 2 - 2, '#2b323a');
+    rect(x0 + 1, y0 + 1, hw - 2, 2, metalHi);
+    rect(x0 + hw + 1, y0 + 1, hw - 2, 2, metalHi);
+    // 楼层指示
+    rect(cx - 10, y0 - 9, 20, 7, '#1a1f26');
+    rect(cx - 10, y0 - 9, 20, 1, '#2f3640');
+    ctx.font = '6px ui-monospace,SFMono-Regular,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = disabled ? '#8a9099' : accent;
+    ctx.fillText(`${p.floorId}F`, cx, y0 - 5.5);
+    // 方向箭头（门下沿）
+    const ay = y0 + hh * 2 + 3, up = p.dir === 'up';
+    const arrow = disabled ? '#6f747b' : accent;
+    for (let i = 0; i < 3; i++) { const w = 1 + i * 2; rect(cx - (w - 1) / 2, up ? ay + i : ay + 2 - i, w, 1, arrow); }
+    rect(cx - .5, up ? ay + 3 : ay - 3, 1, 3, arrow);
+    // 呼梯按钮
+    rect(x0 + hw * 2 + 4, cy - 5, 5, 10, '#39414a');
+    rect(x0 + hw * 2 + 5, cy - 4, 3, 3, disabled ? '#6f747b' : '#7fe3ff');
+    rect(x0 + hw * 2 + 5, cy + 1, 3, 3, disabled ? '#6f747b' : '#ffd76a');
+    if (active) {
+      ctx.globalAlpha = .5 + .35 * Math.sin(clock * 4);
+      ctx.strokeStyle = accent; ctx.lineWidth = 2;
+      ctx.strokeRect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 10);
+      ctx.globalAlpha = 1; ctx.lineWidth = 1;
+      const label = p.targetFloorId
+        ? `E ${p.dir === 'up' ? '↑ 上行' : '↓ 下行'}至 ${p.targetFloorId}F`
+        : (p.dir === 'up' ? '已是最上层（7F）' : '已是最下层（1F）');
+      ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      const tw = Math.round(ctx.measureText(label).width) + 12, lx = cx - tw / 2, ly = y0 - 26;
+      ctx.fillStyle = 'rgba(8,11,18,.88)'; ctx.fillRect(lx, ly, tw, 16);
+      ctx.strokeStyle = disabled ? '#6f747b' : accent; ctx.lineWidth = 1;
+      ctx.strokeRect(lx + .5, ly + .5, tw - 1, 15);
+      ctx.fillStyle = disabled ? '#9aa1ab' : '#eaf4ff';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, cx, ly + 8.5);
+    }
+    ctx.restore();
+  }
+  // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
+  // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
+  // 幽灵（dev 分支并入）：中性轮廓，不含任何由秘密派生的形状或颜色。
+  function ghostSprite(p) {
+    const x = Math.round(p.x);
+    const bob = Math.round(Math.sin(clock * 1.7 + p.id) * 1.5);
+    const y = Math.round(p.y) + bob;
+    ctx.globalAlpha = p.online === false ? .5 : .8;
+    ctx.fillStyle = p.online === false ? '#b1b3b8' : '#eeeae0';
+    ctx.strokeStyle = '#a8a9af'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 14, y); ctx.lineTo(x - 14, y - 26);
+    ctx.arc(x, y - 26, 14, Math.PI, 0);
+    ctx.lineTo(x + 14, y); ctx.lineTo(x + 7, y - 5); ctx.lineTo(x, y); ctx.lineTo(x - 7, y - 5);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    rect(x - 6, y - 25, 3, 4, '#424957'); rect(x + 3, y - 25, 3, 4, '#424957');
+    const scareAge = serverTime - (Number(p.scareAt) || 0);
+    if (p.visible !== false && scareAge >= 0 && scareAge < 300) {
+      ctx.strokeStyle = '#a8deee'; ctx.beginPath(); ctx.arc(x, y - 20, 19, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (p.id === selectedId || p.id === selfId()) { ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 1; ctx.strokeRect(x - 17, y - 43, 34, 47); }
+    ctx.globalAlpha = 1; ctx.lineWidth = 1;
+  }
+  // 肿包：只读服务端的 bumps / bumpUntil，到期前 1.5 秒按剩余比例缩小淡出。
   function drawBumps(p, x, yb, a) {
     const n = Math.min(ACTION.maxBumps, Number(p.bumps) || 0);
     if (!n) return;
-    // 到期前 1.5 秒按剩余时间比例缩小淡出。
-    const remain = (Number(p.bumpUntil) || 0) - serverTime;
+    const remain = (Number(p.bumpUntil) || 0) - serverNow();
     const k = remain < 1500 ? Math.max(0, remain / 1500) : 1;
     if (k <= 0) return;
     ctx.globalAlpha = a * (.5 + .5 * k);
@@ -912,171 +2416,41 @@
     }
     ctx.globalAlpha = a;
   }
-  function pixelStar(cx, cy, dark, light) {
-    rect(cx - 3, cy, 7, 1, dark); rect(cx, cy - 3, 1, 7, dark);
-    rect(cx - 2, cy, 5, 1, light); rect(cx, cy - 2, 1, 5, light);
-    rect(cx - 1, cy - 1, 3, 3, '#fff6d8');
-  }
-  // 眩晕只画旋转星星 + 身体摇晃，绝不灰度化：灰度是离线专属视觉。
-  function drawStunStars(x, yb, a) {
-    ctx.globalAlpha = a;
-    const cy = yb - 58;
-    for (let i = 0; i < 3; i++) {
-      const ang = clock * 3.6 + i * (Math.PI * 2 / 3);
-      pixelStar(x + Math.round(Math.cos(ang) * 12), cy + Math.round(Math.sin(ang) * 4), '#6b4a12', '#ffd85e');
-    }
-  }
-  // 挥锤后 300ms 内画一把像素锤子，从抬起插值到劈下；朝向只用渲染层自己的 facing。
-  function drawSwing(p, x, yb, a) {
-    const since = serverTime - (Number(p.swingAt) || 0);
-    if (!(since >= 0 && since < 300)) return;
-    const k = since / 300, ease = k * k * (3 - 2 * k);
-    const facing = p.facing === -1 ? -1 : 1;
-    const ang = (-100 + 118 * ease) * Math.PI / 180;
-    const hx = x + facing * 12, hy = yb - 28;
-    const hx2 = hx + Math.cos(ang) * facing * 13, hy2 = hy + Math.sin(ang) * 13;
-    ctx.globalAlpha = a;
-    for (let i = 1; i <= 8; i++) {
-      const px = hx + (hx2 - hx) * (i / 8), py = hy + (hy2 - hy) * (i / 8);
-      rect(px - 2, py - 2, 5, 5, '#1c1620');
-    }
-    for (let i = 1; i <= 8; i++) {
-      const px = hx + (hx2 - hx) * (i / 8), py = hy + (hy2 - hy) * (i / 8);
-      rect(px - 1, py - 1, 3, 3, '#8a5f3a');
-    }
-    rect(hx2 - 6, hy2 - 5, 13, 11, '#1c1620');
-    rect(hx2 - 5, hy2 - 4, 11, 9, '#9aa0a6');
-    rect(hx2 - 5, hy2 - 4, 11, 2, '#c3c8cd');
-    rect(hx2 - 5, hy2 + 3, 11, 2, '#6f757b');
-  }
-  // 被敲中后 250ms 内在头顶爆开几根白色短星芒。
-  function drawHitBurst(p, x, yb, a) {
-    const since = serverTime - (Number(p.hitAt) || 0);
-    if (!(since >= 0 && since < 250)) return;
-    const k = since / 250, rad = 5 + 13 * k;
-    ctx.globalAlpha = a * (1 - k);
-    const n = 5, cy = yb - 46;
-    for (let i = 0; i < n; i++) {
-      const ang = -Math.PI / 2 + (i - (n - 1) / 2) * .52;
-      const sx = x + Math.round(Math.cos(ang) * rad), sy = cy + Math.round(Math.sin(ang) * rad);
-      rect(sx - 2, sy, 5, 1, '#ffffff'); rect(sx, sy - 2, 1, 5, '#ffffff');
-    }
-  }
-
-  // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
-  // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
-  // Cached neutral ghost path, anchored at logical feet. No secret-derived shape or color.
-  const ghostPath = new Path2D();
-  ghostPath.moveTo(-14, 0); ghostPath.lineTo(-14, -26);
-  ghostPath.arc(0, -26, 14, Math.PI, 0);
-  ghostPath.lineTo(14, 0); ghostPath.lineTo(7, -5); ghostPath.lineTo(0, 0);
-  ghostPath.lineTo(-7, -5); ghostPath.closePath();
-  function ghostSprite(p) {
-    const x = Math.round(p.x), y = Math.round(p.y);
-    ctx.save(); ctx.translate(x, y);
-    ctx.globalAlpha = p.online === false ? .5 : .8;
-    ctx.fillStyle = p.online === false ? '#b1b3b8' : '#eeeae0';
-    ctx.strokeStyle = '#a8a9af'; ctx.lineWidth = 1; ctx.fill(ghostPath); ctx.stroke(ghostPath);
-    rect(-6, -25, 3, 4, '#424957'); rect(3, -25, 3, 4, '#424957');
-    if (p.visible !== false && serverTime - p.scareAt >= 0 && serverTime - p.scareAt < 300) {
-      ctx.strokeStyle = '#a8deee'; ctx.beginPath(); ctx.arc(0, -20, 19, 0, Math.PI * 2); ctx.stroke();
-    }
-    if (p.id === selectedId || p.id === selfId()) {
-      ctx.strokeStyle = '#8fd0ff'; ctx.strokeRect(-17, -43, 34, 47);
-    }
-    ctx.restore();
-  }
   function sprite(p) {
     if (!p.alive) { ghostSprite(p); return; }
-    const x = Math.round(p.x), c = p.colors, meId = selfId();
-    const hi = Math.max(0, palettes.hair.findIndex(o => o[0] === c.hair[0]));
-    const skin = SKIN[hi], skinLo = shade(skin, -.24);
-    const hair = c.hair[1], hairHi = shade(hair, .3), hairLo = shade(hair, -.3);
-    const top = c.top[1], topHi = shade(top, .24), topLo = shade(top, -.3);
-    const pants = c.pants[1], pantsHi = shade(pants, .18), pantsLo = shade(pants, -.26);
-    const shoes = c.shoes[1], shoeLo = shade(shoes, -.32);
-    const OL = '#1c1620';
-    const ph = p.walk * .13, sw = p.moving ? Math.sin(ph) : 0;
+    const x = Math.round(p.x), meId = selfId();
+    const ph = p.walk * .13;
     const bob = p.moving ? -Math.round(Math.abs(Math.sin(ph)) * 2) : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7);
-    // 可见性开关：不可见时服务端已把锤戏字段置 0，这里再以 visible 为准显式兜一层，
-    // visible:false 区分裁剪产生的 0 与可见目标的真实 0，防止把远处状态误读为真实无硬控。
-    const seen = p.visible !== false;
-    // 跳跃只在画面上把整身抬高：地面坐标（点击命中盒、名牌、阴影）一律不变。
-    const z = seen ? (Number(p.z) || 0) : 0, zk = Math.min(1, z / ACTION.jumpHeight);
-    const air = z > 0;
-    const stunned = seen && serverTime < (Number(p.stunUntil) || 0);
-    const frightened = seen && serverTime < (Number(p.frightUntil) || 0);
-    const legShake = frightened ? Math.round(Math.sin(clock * 30)) : 0;
-    const wobble = stunned ? Math.round(Math.sin(clock * 17) * 1.5) : 0;
-    const yb = Math.round(p.y) + bob - z;
-    const liftL = air ? 0 : Math.max(0, sw) * 2, liftR = air ? 0 : Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
-    // 腾空时收腿：双脚并拢并抬高 2px。
-    const tuck = air ? 2 : 0;
-    const fx1 = (air ? x - 8 : x - 11) + legShake, fx2 = (air ? x - 2 : x + 1) - legShake;
+    const yb = Math.round(p.y) + bob;
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
-    // 地面阴影始终留在 p.y：随高度略微缩小并变淡，不跟着人一起抬高。
-    const sf = 1 - .45 * zk;
-    ctx.globalAlpha = Math.max(0, .3 * a * (1 - .5 * zk));
-    rect(x - Math.round(22 * sf) / 2, p.y + 2, Math.round(22 * sf), 5, '#0f0a12');
-    rect(x - Math.round(16 * sf) / 2, p.y + 1, Math.round(16 * sf), 6, '#0f0a12');
-    ctx.globalAlpha = a;
-    ctx.save(); if (wobble) ctx.translate(wobble, 0);
-    const parts = [
-      [fx1, yb - 3 - tuck, 10, 4, shoes], [fx2, yb - 3 - tuck, 10, 4, shoes],
-      [x - 9 + legShake, yb - 12 - tuck, 7, 9 - liftL, pantsLo], [x + 2 - legShake, yb - 12 - tuck, 7, 9 - liftR, pantsLo],
-      [x - 10, yb - 17, 20, 6, pants],
-      [x - 11, yb - 31, 22, 16, top],
-      [x - 16, yb - 30 + arm, 5, 12, topLo], [x + 11, yb - 30 - arm, 5, 12, topLo],
-      [x - 16, yb - 19 + arm, 5, 5, skin], [x + 11, yb - 19 - arm, 5, 5, skin],
-      [x - 4, yb - 34, 8, 5, skinLo],
-      [x - 10, yb - 47, 20, 16, skin],
-      [x - 11, yb - 49, 22, 7, hair]
-    ];
-    const style = hi % 4;
-    if (style === 1) parts.push([x - 13, yb - 44, 3, 16, hair], [x + 10, yb - 44, 3, 16, hair]);
-    else parts.push([x - 12, yb - 44, 3, 10, hairLo], [x + 9, yb - 44, 3, 10, hairLo]);
-    if (style === 2) parts.push([x + 11, yb - 43, 4, 12, hairLo]);
-    if (style === 3) parts.push([x - 5, yb - 53, 10, 5, hair]);
-    for (const q of parts) rect(q[0] - 1, q[1] - 1, q[2] + 2, q[3] + 2, OL);
-    for (const q of parts) rect(q[0], q[1], q[2], q[3], q[4]);
-    rect(x - 9, yb - 48, 9, 2, hairHi);
-    rect(x - 11, yb - 31, 22, 2, topHi); rect(x - 11, yb - 17, 22, 2, topLo);
-    rect(x - 11, yb - 31, 2, 16, shade(top, .1)); rect(x + 9, yb - 31, 2, 16, topLo);
-    rect(x - 1, yb - 31, 2, 5, shade(top, -.45)); rect(x - 10, yb - 17, 20, 1, shade(pants, -.5));
-    rect(x - 9 + legShake, yb - 12 - tuck, 7, 2, pantsHi); rect(x + 2 - legShake, yb - 12 - tuck, 7, 2, pantsHi);
-    rect(fx1, yb - tuck, 10, 1, shoeLo); rect(fx2, yb - tuck, 10, 1, shoeLo);
-    rect(x - 11, yb - 40, 1, 4, skinLo); rect(x + 10, yb - 40, 1, 4, skinLo);
-    rect(x - 8, yb - 45, 4, 1, hairLo); rect(x + 4, yb - 45, 4, 1, hairLo);
-    rect(x - 7, yb - 43, 3, 3, '#2b2230'); rect(x + 4, yb - 43, 3, 3, '#2b2230');
-    rect(x - 7, yb - 43, 1, 1, '#f4f8ff'); rect(x + 4, yb - 43, 1, 1, '#f4f8ff');
-    rect(x - 1, yb - 39, 2, 1, skinLo);
-    rect(x - 3, yb - 36, 6, 1, '#a8706a'); rect(x - 4, yb - 37, 1, 1, '#a8706a'); rect(x + 3, yb - 37, 1, 1, '#a8706a');
-    if (seen) {
-      drawBumps(p, x, yb, a);
-      if (stunned) drawStunStars(x, yb, a);
-      drawSwing(p, x, yb, a);
-      drawHitBurst(p, x, yb, a);
+    const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
+    // dev 分支并入：跳跃只在画面上把整身抬高（地面坐标不参与），镜头外由 visible 兜一层。
+    const seen = p.visible !== false;
+    const z = seen ? (Number(p.z) || 0) : 0;
+    ctx.save(); if (z) ctx.translate(0, -z);
+    WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection);
+    // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
+    if (p.freezeUntil && p.freezeUntil > now) {
+      ctx.globalAlpha = .4 * a; rect(x - 13, yb - 55, 26, 62, '#bfe8ff');
+      ctx.globalAlpha = .55 * a; ctx.strokeStyle = '#e8f7ff'; ctx.lineWidth = 1;
+      ctx.strokeRect(x - 13.5, yb - 55.5, 27, 63); ctx.globalAlpha = 1;
     }
-    ctx.restore();
-    if (frightened) {
-      ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = '#88d6e9';
-      for (const dx of [-16, 16]) {
-        ctx.beginPath(); ctx.moveTo(x + dx, p.y - 8);
-        ctx.quadraticCurveTo(x + dx - 4, p.y - 2, x + dx, p.y);
-        ctx.quadraticCurveTo(x + dx + 4, p.y - 2, x + dx, p.y - 8); ctx.fill();
+    if (p.stunUntil && p.stunUntil > now) {
+      for (let i = 0; i < 3; i++) {
+        const ang = clock * 3 + i * (Math.PI * 2 / 3);
+        stunStar(x + Math.cos(ang) * 9, yb - 59 + Math.round(Math.sin(ang) * 3));
       }
-      ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('受惊', x, p.y - 14);
-      ctx.restore();
     }
-    ctx.globalAlpha = 1;
-    if (p.id === meId && p.id !== selectedId) {
+    // 被家具/墙体遮挡时（含自己）隐藏脚下指示与选中框，避免把位置信息透出去。
+    const covered = !!WORLD.coverFor(p, occluders);
+    if (!p.npc && p.id === meId && p.id !== selectedId && !covered) {
       ctx.globalAlpha = .8 * a; ctx.strokeStyle = '#7cc4ff'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(x, p.y + 5, 13, 4, 0, 0, Math.PI * 2); ctx.stroke();
       const off = Math.round(Math.sin(clock * 2.6) * 1.5);
       rect(x - 3, yb - 60 + off, 6, 3, '#9ed4ff'); rect(x - 2, yb - 57 + off, 4, 2, '#9ed4ff');
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
     }
-    if (p.id === selectedId) {
+    if (!p.npc && !covered && p.id === selectedId) {
       ctx.globalAlpha = (.55 + .3 * Math.sin(clock * 4.2)) * a;
       ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 2; ctx.strokeRect(x - 20.5, yb - 52.5, 41, 58);
       ctx.globalAlpha = a; ctx.lineWidth = 1;
@@ -1089,40 +2463,94 @@
       rect(x - 4, yb - 61 + off, 8, 3, '#8fd0ff'); rect(x - 3, yb - 59 + off, 6, 2, '#8fd0ff'); rect(x - 2, yb - 57 + off, 4, 2, '#8fd0ff');
       ctx.globalAlpha = 1;
     }
+    if (seen) {
+      drawBumps(p, x, yb, a);
+      if (p.frightUntil && p.frightUntil > now) {
+        ctx.globalAlpha = a; ctx.fillStyle = '#88d6e9';
+        for (const dx of [-15, 15]) {
+          ctx.beginPath(); ctx.moveTo(x + dx, yb - 44);
+          ctx.quadraticCurveTo(x + dx - 4, yb - 38, x + dx, yb - 36);
+          ctx.quadraticCurveTo(x + dx + 4, yb - 38, x + dx, yb - 44); ctx.fill();
+        }
+        ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('受惊', x, yb - 48);
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.restore();
   }
   // 命中框（x±21, y-53~y+8）与名牌偏移保持不变，外观升级不影响任何交互判定。
   let labels = [];
   function drawList() {
-    return players.map(p => {
+    return [...players.filter(p => p.floorId === floorId).map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
-      return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving, facing: r.facing };
-    });
+      return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving, spriteFacing: p.spriteFacing || 'front' };
+    }), ...npcs];
   }
   function makeLabels(list) {
-    labels = list.filter(p => p.x >= cameraX - 130 && p.x <= cameraX + VW + 130)
-      .map(p => ({ x: p.x - 72, y: p.y + 12, w: 144, h: 31, ids: [p.id], p }));
+    // 任何被家具/墙体遮挡的角色（含自己与 NPC）都不生成名牌；解除遮挡同一帧恢复。
+    // 合并适配：幽灵仍在画面上可见（dev 分支的幽灵互动需要），但沿用 main 的隐私取向
+    // ——不给已淘汰者生成地图名牌/选中框，档案与名单里仍可查看其公开信息。
+    labels = list.filter(p => p.alive && p.x >= drawCamX - 40 && p.x <= drawCamX + viewW + 40 &&
+      p.y >= drawCamY - 30 && p.y <= drawCamY + viewH + 30 &&
+      !WORLD.coverFor(p, occluders))
+      .map(p => ({ x: p.x - 72, y: p.y + 12, w: 144, h: 31, ids: p.npc ? [] : [p.id], p }));
   }
   function draw() {
-    const sc = Math.round(cameraX), tile = Math.floor(sc / VW), off = sc - tile * VW;
-    if (off === 0) ctx.drawImage(bgTiles[tile], 0, 0);
-    else {
-      ctx.drawImage(bgTiles[tile], off, 0, VW - off, VH, 0, 0, VW - off, VH);
-      ctx.drawImage(bgTiles[Math.min(3, tile + 1)], 0, 0, off, VH, VW - off, 0, off, VH);
-    }
-    ctx.drawImage(VIGNETTE, 0, 0);
-    ctx.save(); ctx.translate(-Math.round(cameraX), 0);
+    if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
+    const camX = Math.round(cameraX), camY = Math.round(cameraY);
+    drawCamX = camX; drawCamY = camY;
+    const f = WORLD.floorById(floorId);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, cssW, cssH);
+    ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
+    // 楼面：按轮廓多边形裁剪后铺 512 分块地板；轮廓外保持非楼面（不补平）。
+    ctx.beginPath();
+    f.polygon.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y));
+    ctx.closePath();
+    ctx.save(); ctx.clip();
+    ctx.fillStyle = '#2b2333'; ctx.fillRect(camX, camY, viewW, viewH);
+    const c0x = Math.floor(camX / CHUNK), c1x = Math.floor((camX + viewW) / CHUNK);
+    const c0y = Math.floor(camY / CHUNK), c1y = Math.floor((camY + viewH) / CHUNK);
+    ensureChunks(c0x, c0y, c1x, c1y);
+    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkCache.get(cx + ':' + cy), cx * CHUNK, cy * CHUNK);
+    ctx.restore();
+    ctx.restore();
+    // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
+    if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
+    ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
     const list = drawList();
-    for (const p of list.filter(p => p.x > cameraX - 40 && p.x < cameraX + VW + 40).sort((a, b) => a.y - b.y || a.id - b.id)) {
-      ctx.save();
-      if (p.online === false) ctx.filter = 'grayscale(1)'; // offline-only; public color data unchanged
-      sprite(p); ctx.restore();
+    const near = (x, y, w, h, padx, pady) => x + w + padx > camX && x - padx < camX + viewW && y + h + pady > camY && y - (pady + 20) < camY + viewH;
+    const scene = [
+      ...furniture.filter(f2 => near(f2.x, f2.y, f2.w, f2.h, 12, 12)).map(f2 => ({ depth: f2.depth, f: f2 })),
+      ...walls.filter(w => near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w })),
+      ...list.filter(p => p.x > camX - 12 && p.x < camX + viewW + 12 && p.y > camY - 25 && p.y < camY + viewH + 30).map(p => ({ depth: p.y, p }))
+    ].sort((a, b) => a.depth - b.depth || Number(!!b.f) - Number(!!a.f));
+    for (const item of scene) {
+      if (item.f) {
+        const f2 = item.f;
+        if (f2.type === 'wall') { drawWallPanel(f2); continue; }
+        const pad = furniturePad(f2.type);
+        ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
+        // 紧跟家具 sprite 之后画描边：深度更大的家具后画时会自然盖住描边，不穿透遮挡。
+        if (f2.container) drawOutline(f2.x, f2.y, f2.w, f2.h, interactTier('container', f2.id), '#7fe3ff');
+      } else {
+        sprite(item.p);
+        // NPC 描边对准命中框 x±21, y-53..y+8。
+        if (item.p.npc) drawOutline(item.p.x - 21, item.p.y - 53, 42, 61, interactTier('npc', item.p.entityId), '#ffd76a');
+      }
     }
+    // 需求2：当前层电梯厅（每层左右各一处，含上行/下行两扇门）。脉冲空框改为可辨认的电梯门，
+    // 当前可提交的那扇叠呼吸描边 + 「E ↑/↓ 至 nF」提示；端点画灰态。
+    const liftNow = elevatorTarget();
+    const liftId = liftNow && liftNow.access.allowed ? liftNow.portal.id : '';
+    for (const portal of portals) drawElevatorHall(portal, portal.id === liftId);
     makeLabels(list);
     ctx.textAlign = 'center';
     const meId = selfId();
     for (const l of labels.slice().sort((a, b) => Number(a.p.id === selectedId || a.p.id === meId) - Number(b.p.id === selectedId || b.p.id === meId))) {
       const active = l.ids.includes(selectedId);
-      const accent = active ? '#7cc4ff' : (l.p.alive ? '#78c39b' : '#7c8698');
+      const accent = l.p.npc ? '#e9c877' : active ? '#7cc4ff' : (l.p.alive ? '#78c39b' : '#7c8698');
       roundPx(l.x + 2, l.y + 3, l.w, l.h, '#080b12a0');
       roundPx(l.x - 1, l.y - 1, l.w + 2, l.h + 2, active ? '#4f88c4' : '#2f425c');
       roundPx(l.x, l.y, l.w, l.h, active ? '#14304f' : '#0f1826f2');
@@ -1130,12 +2558,13 @@
       rect(l.x + 1, l.y + 5, 2, l.h - 10, accent);
       ctx.font = '12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       ctx.fillStyle = active ? '#eaf4ff' : '#e2e8f0';
-      ctx.fillText(l.p.name + (!l.p.alive ? ' · 幽灵' : l.p.id === meId ? ' · 自己' : '') + (l.p.online === false ? ' · 离线' : ''), l.x + l.w / 2, l.y + 13);
+      ctx.fillText(l.p.name + (l.p.npc ? ' · NPC' : l.p.id === meId ? ' · 自己' : l.p.online === false ? ' · 离线' : ''), l.x + l.w / 2, l.y + 13);
       ctx.font = '10px ui-monospace,SFMono-Regular,monospace';
       ctx.fillStyle = active ? '#a8cbe8' : '#96adc8';
-      ctx.fillText(l.p.sid, l.x + l.w / 2, l.y + 26);
+      ctx.fillText(l.p.npc ? `${l.p.cost} 筹码 / 私密线索兑换` : l.p.sid, l.x + l.w / 2, l.y + 26);
     }
     ctx.restore();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   // ---------- 插值与镜头 ----------
@@ -1148,53 +2577,91 @@
       r.x += dx * k; r.y += dy * k;
       r.moving = Math.hypot(dx, dy) > 0.6;
       if (r.moving) r.walk += Math.hypot(dx * k, dy * k);
-      // 朝向只服务于挥锤表现，纯渲染层维护，不回传服务端。
-      if (Math.abs(dx) > 0.6) r.facing = dx > 0 ? 1 : -1;
     }
     const self = selfPlayer() ? renderMap.get(selfId()) : null;
-    if (self) cameraX = clamp(self.x - VW / 2, 0, W - VW);
-    const zoneIndex = Math.min(3, Math.floor((self ? self.x : 0) / 960));
-    $('zone-name').textContent = zones[zoneIndex];
+    const fl = WORLD.floorById(floorId);
+    // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
+    if (self) {
+      cameraX = viewW >= fl.width ? (fl.width - viewW) / 2 : clamp(self.x - viewW / 2, 0, fl.width - viewW);
+      cameraY = viewH >= fl.height ? (fl.height - viewH) / 2 : clamp(self.y - viewH / 2, 0, fl.height - viewH);
+    } else {
+      cameraX = clamp(cameraX, 0, Math.max(0, fl.width - viewW));
+      cameraY = clamp(cameraY, 0, Math.max(0, fl.height - viewH));
+    }
+    $('floor-indicator').textContent = `${floorId}F`;
+    $('zone-name').textContent = floorName;
+    $('coordinate').textContent = `${floorId}F / 7F`;
     const tick = Math.floor(serverTime / 1000);
-    if (tick !== lastSkillTick) { lastSkillTick = tick; if (holding()) updateSkillStatus(); if (mineOpen) renderMine(); }
+    if (tick !== lastSkillTick) {
+      lastSkillTick = tick;
+      if (holding()) updateSkillStatus();
+      if (mineOpen) renderMine();
+      syncTimeLeft();
+      if (!$('ranking').hidden) syncRanking();
+      if (wheelOpen) updateWheelControls();
+    }
+    // 自身眩晕/僵直期间不发送移动意图、清空按键（服务端也会强制停止，客户端保持一致）。
+    if (selfDisabled() && keys.size) { keys.clear(); sendIntent(true); }
+    updateCombatHUD();
+    if (!$('games').hidden) syncGames();
   }
   let lastNow = performance.now();
   function frame(now) {
     step(Math.max(0, Math.min(.05, (now - lastNow) / 1000)));
     lastNow = now;
-    draw();
+    draw(); updateExplorationHUD();
     requestAnimationFrame(frame);
   }
 
   // ---------- 交互 ----------
   function canvasPoint(e) {
-    const r = canvas.getBoundingClientRect(), scale = Math.min(r.width / VW, r.height / VH);
-    const ox = (r.width - VW * scale) / 2, oy = (r.height - VH * scale) / 2;
-    return { x: (e.clientX - r.left - ox) / scale + cameraX, y: (e.clientY - r.top - oy) / scale };
+    // 屏幕像素 → CSS 像素 → 世界坐标，使用与绘制同一帧的 drawCam；不再用 contain 留边。
+    const r = canvas.getBoundingClientRect();
+    const kx = cssW / (r.width || cssW || 1), ky = cssH / (r.height || cssH || 1);
+    const sx = (e.clientX - r.left) * kx, sy = (e.clientY - r.top) * ky;
+    return { x: sx / scale + drawCamX, y: sy / scale + drawCamY };
   }
   function showCandidates(ids) {
-    clearPrivate(true);
-    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id)).sort((a, b) => a - b);
+    closeExploration(); clearPrivate(true); closeWheel();
+    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id && p.alive && p.floorId === floorId)).sort((a, b) => a - b);
     $('candidates').hidden = false;
     $('candidates').innerHTML = `<div class="panel-heading"><div><small>OVERLAPPING PLAYERS</small><h2>请选择目标</h2></div><button id="candidate-close" class="icon-button" aria-label="关闭重叠候选">×</button></div><p>同一点击点有${list.length}位玩家，不会自动选人。</p>${list.map(id => row(players.find(p => p.id === id))).join('')}`;
     bindRows($('candidates'));
     $('candidate-close').onclick = () => { $('candidates').hidden = true; $('candidates').replaceChildren(); };
   }
   canvas.addEventListener('click', e => {
+    if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') { canvas.focus(); return; }
     const { x, y } = canvasPoint(e);
     const list = drawList();
     makeLabels(list);
-    const labelHits = labels.filter(l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h);
-    const bodyHits = list.filter(p => Math.abs(x - p.x) <= 21 && y >= p.y - 53 && y <= p.y + 8).map(p => p.id);
+    const atLabel = l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h && !WORLD.pointOccluded(x, y, l.p, occluders);
+    const atBody = p => Math.abs(x - p.x) <= 21 && y >= p.y - 53 && y <= p.y + 8 && !WORLD.pointOccluded(x, y, p, occluders);
+    const labelHits = labels.filter(l => !l.p.npc && atLabel(l));
+    const bodyHits = list.filter(p => !p.npc && atBody(p)).map(p => p.id);
     const hits = [...new Set([...labelHits.flatMap(l => l.ids), ...bodyHits])];
     if (hits.length > 1) showCandidates(hits);
     else if (hits.length === 1) {
-      const label = labelHits[0];
+      const label = labelHits.find(l => l.ids.includes(hits[0]));
       if (label && y >= label.y + 15) copySID(label.p.sid);
       else select(hits[0]);
-    } else { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); }
+    } else {
+      // 需求2：点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径。
+      const portalHit = portals.find(pt => x >= pt.x - pt.w / 2 && x <= pt.x + pt.w / 2 && y >= pt.y - pt.h / 2 && y <= pt.y + pt.h / 2);
+      if (portalHit) {
+        const self = selfPlayer(), access = self ? WORLD.portalAccess(self, portalHit) : null;
+        if (access && access.allowed) requestFloorChange(portalHit.id);
+        else showToast(access ? access.reason : '请靠近角色或电梯门后再操作');
+        canvas.focus(); return;
+      }
+      const npc = npcs.filter(p => atBody(p) || labels.some(l => l.p.id === p.id && atLabel(l))).sort((a, b) => b.y - a.y)[0];
+      // 只点击最前面的家具，不能隔着另一件家具搜寻容器。
+      const front = furniture.filter(f => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h).sort((a, b) => b.depth - a.depth)[0];
+      if (npc || front?.container) openExploration(npc ? 'npc' : 'container', npc ? npc.entityId : front.id);
+      else { closeExploration(); clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); }
+    }
     canvas.focus();
   });
+  $('floor-transition-close').onclick = () => dismissFloorNotice();
   function toggle(panel, button) {
     const visible = $(panel).hidden;
     $(panel).hidden = !visible;
@@ -1207,11 +2674,55 @@
   $('log-toggle').onclick = () => toggle('logs', 'log-toggle');
   $('log-close').onclick = () => toggle('logs', 'log-toggle');
   $('search').oninput = renderRoster;
+  // ---------- 匿名坏人线索池（dev 分支并入）：只消费服务端的匿名投影，不推断身份 ----------
+  function renderBadPool() {
+    const sig = JSON.stringify([badPoolAvailable, badSlots]);
+    if (sig === lastBadPoolSig) return;
+    lastBadPoolSig = sig;
+    const root = $('bad-slots'), fragment = document.createDocumentFragment();
+    const text = (tag, content, className) => {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      node.textContent = content; return node;
+    };
+    if (!badPoolAvailable) {
+      fragment.append(text('p', '当前服务尚未提供匿名线索池；请勿把暂未提供解读为没有坏人。', 'bad-empty'));
+    } else if (!badSlots.length) {
+      fragment.append(text('p', '暂无坏人', 'bad-empty'));
+    } else {
+      for (const slot of badSlots) {
+        const card = document.createElement('article');
+        card.className = slot.alive ? 'bad-slot' : 'bad-slot is-out';
+        const head = document.createElement('header');
+        head.append(text('strong', slot.label), text('span', slot.alive ? '存活' : '已淘汰', 'bad-status'));
+        card.append(head);
+        let known = 0;
+        for (const [key, label] of Object.entries(traitNames)) {
+          const value = slot.traits && typeof slot.traits[key] === 'string' ? slot.traits[key] : MASK;
+          if (value !== MASK) known++;
+          const row = document.createElement('p'); row.className = 'bad-clue';
+          row.append(text('span', label), text('strong', value)); card.append(row);
+        }
+        if (!known) card.append(text('p', '暂无线索', 'bad-empty'));
+        fragment.append(card);
+      }
+    }
+    root.replaceChildren(fragment);
+  }
+  $('bad-toggle').onclick = () => {
+    const expanded = $('bad-slots').hidden;
+    $('bad-slots').hidden = !expanded;
+    $('bad-toggle').setAttribute('aria-expanded', String(expanded));
+    $('bad-toggle-label').textContent = expanded ? '收起−' : '展开＋';
+    renderBadPool();
+  };
+  renderBadPool();
   $('join-form').addEventListener('submit', e => {
     e.preventDefault();
     if ($('join-submit').dataset.mode === 'relogin') { redirectLogin(); return; }
     join($('nickname').value);
   });
+  // CAS 退出：先撤销本进程会话，再回落到 CAS 注销地址。
   $('sso-logout').onclick = async () => {
     await api('/api/auth/logout', {}).catch(() => {});
     redirectLogout();
@@ -1225,31 +2736,61 @@
   const isTyping = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || (document.activeElement && document.activeElement.isContentEditable);
   // 跳跃 / 挥锤额外放行按钮与链接：空格要能正常激活焦点里的按钮，不被游戏劫持。
   const isActionTarget = () => /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(document.activeElement && document.activeElement.tagName) || !!(document.activeElement && document.activeElement.isContentEditable);
-  // 同一条中文原因 1 秒内不重复弹提示，避免按住键时刷屏。
-  const actionToast = { text: '', at: 0 };
+  // 同一条中文原因只弹一次，避免按住键时刷屏。
+  const actionToast = { text: '' };
   async function sendAction(kind) {
-    const r = await api('/api/action', { kind }).catch(() => ({ ok: false, error: '网络异常，动作未执行' }));
+    if (!me || finished) return;
+    const r = await api('/api/action', { kind }).catch(() => ({ ok: false, status: 0 }));
     if (r.ok || r.auth === false) { actionToast.text = ''; return; }
-    if (r.status !== 401 && r.status !== undefined) return; // cooldown/airborne/control/frozen: silent
+    if (r.status !== 401 && r.status !== 0) return; // 冷却 / 空中 / 硬控 / 已结束：静默
     const msg = r.status === 401 ? '连接身份已失效，请重新加入。' : '网络暂时不稳定。';
-    const at = Date.now();
-    if (msg === actionToast.text) return; // one gentle error per failing connection episode
-    actionToast.text = msg; actionToast.at = at;
+    if (msg === actionToast.text) return;
+    actionToast.text = msg;
     showToast(msg);
   }
   document.addEventListener('keydown', e => {
     if ($('rules-view').open || $('reset-confirm').open) return;
-    if (e.key === 'Escape') { clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return; }
+    if (e.key === 'Escape') {
+      // 电梯 10 秒静态提示可被 Esc 关闭（只隐藏提示，不改变换层状态）；其余保持原语义。
+      if (dismissFloorNotice()) { e.preventDefault(); return; }
+      if (!$('finish-overlay').hidden) { hideFinish(); return; }
+      if (wheelOpen) { closeWheel(); return; }
+      if (!$('games').hidden) { e.preventDefault(); exitRps(); return; }
+      clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return;
+    }
+    // 转盘 / 结算覆盖层打开时，忽略移动、E、J 等游戏内按键。
+    if (wheelOpen || !$('finish-overlay').hidden || !$('games').hidden) return;
+    // 电梯过渡进行中：忽略移动 / E / J，避免在换层中途驱动旧层或重复发起。
+    if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return;
     if (isTyping()) return;
+    if (e.code === 'KeyE') {
+      e.preventDefault(); if (e.repeat) return;
+      if (explorationPanel) { closeExploration(); return; }
+      // 需求2：站在电梯门前并面向门时，E 优先乘梯，不被旁边的玩家/NPC/容器抢走。
+      const lift = elevatorTarget();
+      if (lift) {
+        if (lift.access.allowed) requestFloorChange(lift.portal.id);
+        else showToast(lift.access.reason);
+        return;
+      }
+      const hit = nearestInteractable();
+      if (hit) {
+        if (hit.kind === 'player') select(hit.id);
+        else openExploration(hit.kind, hit.id);
+      } else showToast('请靠近角色、容器/NPC 或电梯门（64 像素以内）');
+      return;
+    }
+    // K 跳跃 / J 攻击（幽灵 J 吓人）：服务端权威，这里只提交意图。
     if (e.code === 'KeyK' || e.code === 'KeyJ') {
-      // 服务端权威：这里只提交意图，命中与击晕一律由服务端判定。
-      if (e.repeat || isActionTarget()) return;
-      e.preventDefault();
-      sendAction(e.code === 'KeyK' ? 'jump' : me && !me.alive ? 'scare' : 'hammer');
+      e.preventDefault(); if (e.repeat || isActionTarget()) return;
+      if (e.code === 'KeyK') sendAction('jump');
+      else if (me && !me.alive) sendAction('scare');
+      else attack();
       return;
     }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) {
-      e.preventDefault(); keys.add(e.code); sendIntent(false);
+      e.preventDefault(); if (interactionFlight || selfDisabled()) return;
+      keys.add(e.code); sendIntent(false);
     }
   });
   document.addEventListener('keyup', e => {
@@ -1258,6 +2799,11 @@
   window.addEventListener('blur', clearAllInput);
   document.addEventListener('visibilitychange', () => { if (document.hidden) clearAllInput(); });
   document.addEventListener('focusin', () => { if (isTyping()) { keys.clear(); sendIntent(true); } });
+  // 视口尺寸变化（含全屏切换、窗口缩放、旋转）重建 backing 与统一缩放，自适应而不裁剪或拉伸。
+  window.addEventListener('resize', () => resizeCanvas());
+  window.addEventListener('orientationchange', () => resizeCanvas());
+  if (window.ResizeObserver) { try { new ResizeObserver(() => resizeCanvas()).observe($('map-view')); } catch { } }
+  resizeCanvas();
 
   // Rules are a static reading view in this document, not a second game/SSE session.
   const rules = $('rules-view');

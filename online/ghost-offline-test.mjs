@@ -68,7 +68,8 @@ try {
   const state = p => request('/api/state', token(p));
   const testState = () => request('/api/test/state');
   const advance = ms => request('/api/test/advance', null, { ms });
-  const place = (p, x, y) => request('/api/test/place', null, { playerId: p.playerId ?? p.id, x, y });
+  // 合并适配：合并后的地图是七层，自测用可选 floorId 把角色放到指定楼层。
+  const place = (p, x, y, floorId) => request('/api/test/place', null, { playerId: p.playerId ?? p.id, x, y, ...(floorId === undefined ? {} : { floorId }) });
   const action = (p, kind) => request('/api/action', token(p), { kind });
   const input = (p, dir) => request('/api/input', token(p), dir);
   const skill = (p, kind, target, sid) => request('/api/skill', token(p), { skill: kind, targetId: target.playerId ?? target.id, sid, commandId: randomUUID() });
@@ -82,51 +83,55 @@ try {
   await place(g, 110, 200); await input(g, { right: true }); await wait(500); await input(g, {});
   snapshot = await state(g);
   check('幽灵可以穿过家具（接待台132..287）', own(snapshot, g).x > 132, `x=${own(snapshot,g).x}`);
-  await place(g, WORLD.MAX_X - 1, 300); await input(g, { right: true }); await wait(150); await input(g, {});
-  check('幽灵仍受世界边界约束', own(await state(g), g).x === WORLD.MAX_X);
+  const b1 = WORLD.floorBounds(1);
+  await place(g, b1.maxX - 1, 300); await input(g, { right: true }); await wait(150); await input(g, {});
+  check('幽灵仍受楼层边界约束', own(await state(g), g).x === b1.maxX);
   check('幽灵不可jump', (await action(g, 'jump')).status === 400);
   check('幽灵不可hammer', (await action(g, 'hammer')).status === 400);
   check('幽灵不可使用身份技能', (await skill(g, 'probe', b)).status === 400);
   check('存活者不可scare', (await action(a, 'scare')).status === 400);
-  await place(g, 1000, 300); await place(b, 1030, 300); await place(a, 1400, 300);
+  await place(g, 300, 300); await place(b, 330, 300); await place(a, 430, 300);
   const sb = await connect(token(b)); await sb.next();
   const scare = await action(g, 'scare'); snapshot = await state(b);
   check('幽灵scare命中最近存活者', scare.hit && scare.targetId === b.playerId);
   check('受惊时长750ms', own(snapshot,b).frightUntil - snapshot.serverTime > 650);
   check('scare立即重复冷却拒绝', (await action(g,'scare')).status === 400);
-  await place(c,2400,300);
+  await place(c, 300, 300, 2); // 2F：与 1F 的 g/b 跨层，锤戏/受惊字段应被裁剪
   const cView = await state(c);
   check('屏幕外受惊/吓人字段沿visible裁剪', own(cView,b).visible === false && own(cView,b).frightUntil === 0 && own(cView,b).frightAt === 0 && own(cView,g).scareAt === 0);
   check('scare不扣血、不公开SID、不改资格', snapshot.me.hp === 1 && snapshot.me.alive && own(snapshot,b).sid === '***-***-***');
   await input(b,{right:true}); await wait(180);
-  check('受惊期间位置锁定', own(await state(b),b).x === 1030);
+  check('受惊期间位置锁定', own(await state(b),b).x === 330);
   check('受惊期间禁止K跳/J锤', (await action(b,'jump')).status === 400 && (await action(b,'hammer')).status === 400);
   check('受惊期间仍能probe', (await skill(b,'probe',c)).ok);
-  await advance(800); await wait(100); await input(b,{});
-  check('750ms到期后恢复移动', own(await state(b),b).x > 1030);
-  await advance(1100); await place(b,1600,300);
+  // 合并适配：main 的输入协议在硬控期间会清空意图，到期必须重新输入（dev 旧版是保留意图）。
+  await advance(800); await wait(100); await input(b,{right:true}); await wait(150);
+  check('750ms到期后恢复移动', own(await state(b),b).x > 330);
+  await input(b,{});
+  await advance(1100); await place(b,900,300);
   check('远距离scare不命中', (await action(g,'scare')).hit === false);
-  await advance(1100); await place(b,1030,300);
+  await advance(1100); await place(b,330,300);
   check('CD1000ms后可以再次scare', (await action(g,'scare')).hit === true);
-  await place(a,1000,300); await place(g,1030,300); await place(b,1500,300); await advance(1100);
+  await place(a,300,300); await place(g,330,300); await place(b,900,300); await advance(1100);
   check('锤子忽略幽灵目标', (await action(a,'hammer')).hit === false);
-  await place(g,1000,300); await place(a,1030,300); await advance(1100);
+  await place(g,300,300); await place(a,330,300); await advance(1100);
   check('幽灵不能被其他幽灵scare（只选存活者）', (await action(g,'scare')).targetId === a.playerId);
   await advance(1100);
   // Overlapping control deadlines: hammer first, scare later extends the lock.
-  await place(a,1000,300); await place(b,1030,300); await place(g,1040,300);
+  await place(a,300,300); await place(b,330,300); await place(g,340,300);
   await action(a,'hammer'); await advance(350); await action(g,'scare'); await input(b,{right:true});
   await advance(450); await wait(100);
-  check('锤晕到期但受惊未到期仍锁定（max）', own(await state(b),b).x === 1030);
-  await advance(400); await wait(100); await input(b,{});
-  check('两个硬控都到期才恢复移动', own(await state(b),b).x > 1030);
+  check('锤晕到期但受惊未到期仍锁定（max）', own(await state(b),b).x === 330);
+  await advance(400); await wait(100); await input(b,{right:true}); await wait(150);
+  check('两个硬控都到期才恢复移动', own(await state(b),b).x > 330);
+  await input(b,{});
 
   // Real stream shutdown + offline attacks. Drain/close all older streams first.
   sb.close(); await wait(100);
   check('真实SSE断线将本人置offline', !own(await state(b),b).online);
   await input(b,{}); await action(b,'jump');
   check('input/action不抢先置online', !own(await state(b),b).online);
-  await advance(1100); await place(a,1000,300); await place(g,1040,300); await place(b,1030,300);
+  await advance(1100); await place(a,300,300); await place(g,340,300); await place(b,330,300);
   const beforeLogs = JSON.stringify((await state(a)).logs);
   await action(a,'hammer'); await action(g,'scare'); await advance(1100); await action(a,'hammer');
   const joinedAgain = await request('/api/join',token(b),{nickname:'ignored'});
@@ -160,13 +165,13 @@ try {
   await advance(13000);
   const eSid = (await testState()).players.find(v=>v.id===e.playerId).sid;
   await skill(a,'kill',e,eSid);
-  await place(g,1000,300); await place(e,1010,300); await place(a,1800,300); await place(b,1900,300); await advance(1100);
+  await place(g,300,300); await place(e,330,300); await place(a,900,300); await place(b,920,300); await advance(1100);
   check('两个幽灵相邻也不会互相受惊', (await action(g,'scare')).hit === false);
 
   // NPC excluded from offline ledger, even direct setOffline cannot change online.
   const cap = await request('/api/dev/capabilities',token(a));
   const npc = (await request('/api/dev/npc',token(a),{count:1,csrfToken:cap.csrfToken})).npcs[0];
-  await advance(1100); await place(a,2000,300); await place(npc,2030,300); await action(a,'hammer');
+  await advance(1100); await place(a,600,300); await place(npc,630,300); await action(a,'hammer');
   check('NPC保持在线且可以被打', own(await state(a),npc).online && own(await state(a),npc).bumps === 1);
 
   // Finish freezes ghosts, live movement, actions and skills without reviving.
@@ -240,13 +245,17 @@ try {
   check('HTTP重开清冻结标记', (await state(na)).me.skillsFrozenAt===null);
   await skill(na,'probe',nc);await advance(90001);
   check('HTTP重开后正常恢复', (await state(na)).me.skills.probe.chargesRemaining===2);
-  const endingCommand=randomUUID();const nbSid=(await testState()).players.find(p=>p.id===nb.playerId).sid;
-  const endingBody={skill:'kill',targetId:nb.playerId,sid:nbSid,commandId:endingCommand};
-  await request('/api/skill',token(na),endingBody);
-  const automatic=(await state(na));
-  check('HTTP触发结束的最后技能消耗先于冻结', automatic.finished && automatic.me.skills.kill.chargesRemaining===1 && automatic.me.skills.kill.nextChargeAt===automatic.me.skillsFrozenAt+90000 && automatic.me.skills.kill.cooldownUntil===automatic.me.skillsFrozenAt+12000);
-  const automaticJSON=resourceJSON(automatic.me);await request('/api/skill',token(na),endingBody);await advance(180001);
-  check('HTTP重发结束指令不再消耗且冻结不恢复', resourceJSON((await state(na)).me)===automaticJSON);
+  // 合并适配：main 的自动结束是「坏人全灭」而不是 dev 的「存活≤2」；
+  // 这里由好人 nb 两次指认（唯一坏人 na）触发 badWiped，最后一次指认即结束前的最后消耗。
+  await request('/api/skill',token(nb),{skill:'accuse',targetId:na.playerId,commandId:randomUUID()});
+  await advance(12001);
+  const endingCommand=randomUUID();
+  const endingBody={skill:'accuse',targetId:na.playerId,commandId:endingCommand};
+  await request('/api/skill',token(nb),endingBody);
+  const automatic=(await state(nb));
+  check('HTTP触发结束的最后技能消耗先于冻结', automatic.finished && automatic.me.skills.accuse.chargesRemaining===0 && automatic.me.skills.accuse.cooldownUntil===automatic.me.skillsFrozenAt+12000);
+  const automaticJSON=resourceJSON(automatic.me);await request('/api/skill',token(nb),endingBody);await advance(180001);
+  check('HTTP重发结束指令不再消耗且冻结不恢复', resourceJSON((await state(nb)).me)===automaticJSON);
 
   // Deterministic random selection, not flaky probability checks.
   const room = createRoom({ random: () => .99 });
@@ -279,7 +288,8 @@ try {
   Date.now=()=>fixedNow;
   try {
     const fixture = (n=5) => {
-      const r=createRoom({random:()=>0});const ps=[];
+      // 合并适配：main 的结束规则可配置（endRemainingPlayers），这里钉住 dev 的「存活≤2」阈值。
+      const r=createRoom({random:()=>0,rules:{endRemainingPlayers:2}});const ps=[];
       for(let i=0;i<n;i++)ps.push(r.join(`M${i}`,`M${i}`).player);
       const use=(actor,kind,target,commandId=randomUUID())=>r.useSkill(actor.sessionId,{skill:kind,targetId:target.id,sid:target.sid.segments.join('-'),commandId});
       return {r,ps,use};
@@ -300,6 +310,8 @@ try {
     due.use(dg,'probe',dt);fixedNow+=90000;due.use(da,'kill',dg);
     check('模块kill前恰好到期的目标恢复不丢', dg.skills.probe.chargesRemaining===2 && dg.skills.probe.nextChargeAt===0 && dg.skillsFrozenAt===fixedNow);
     const accuse=fixture();const [bad,good,targ]=accuse.ps;
+    // 合并适配：main 有「坏人全灭即结束」，这里再放一个活着的坏人，保证这不是结束局。
+    accuse.ps[3].faction='bad';accuse.ps[3].hp=2;
     accuse.use(bad,'probe',targ);accuse.use(good,'accuse',bad);fixedNow+=90000;
     accuse.use(good,'accuse',bad);
     check('模块accuse淘汰也先结算目标到期资源', !bad.alive && bad.skillsFrozenAt===fixedNow && bad.skills.probe.chargesRemaining===2);
@@ -341,7 +353,8 @@ try {
   check('静态键位契约：K跳且无Space游戏跳跃绑定', client.includes("e.code === 'KeyK'") && !client.includes("e.code === 'Space' ? 'jump'") && !html.includes('空格跳') && !html.includes('空格 跳'));
   check('静态规则：保留Survivor id用户拼写与4/3属性标题', html.includes('Survivor id（幸存者id）') && html.includes('4项外观属性，3项隐藏属性'));
   check('静态规则：正式3血/30分钟保护明确尚未生效', html.includes('试玩实现：坏人初始2血') && html.includes('尚未在当前试玩生效'));
-  check('静态规则：身份技能分组6卡、不高亮本人', (html.match(/输入：/g)||[]).length === 6 && html.includes('不高亮所属组'));
+  // 合并适配：main 的规则页把探查 / 指认合并为共用卡（共 4 张身份技能卡），措辞为「不代表你的身份」。
+  check('静态规则：身份技能分组4卡、不高亮本人', (html.match(/rule-badge/g)||[]).length === 4 && html.includes('不代表你的身份'));
   check('静态私密：ACK成功后才记确认并切出清摘要DOM', client.indexOf('if (!response.ok') < client.indexOf('confirmedDigests.add') && client.includes("$('offline-summary').replaceChildren()"));
 } catch(error) { check('脚本异常', false, error.stack); }
 finally { for (const s of streams) s.close(); child.kill('SIGTERM'); }

@@ -15,8 +15,9 @@ const freePort = () => new Promise((resolve, reject) => {
   server.listen(0, '127.0.0.1', () => { const p = server.address().port; server.close(() => resolve(p)); });
 });
 const root = dirname(fileURLToPath(import.meta.url));
-const NODE = '/Users/jiarunwu/.workbuddy/binaries/node/versions/22.22.2-6/bin/node';
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+// Windows 试玩构建：服务端用当前受管 Node 自身，Chrome 用本机安装路径。
+const NODE = process.execPath;
+const CHROME = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -49,7 +50,7 @@ async function test(name, fn) {
 class Client {
   constructor(name) { this.name = name; this.id = 0; this.inflight = new Map(); }
   async launch() {
-    this.profile = await mkdtemp(join(tmpdir(), 'sid-online-'));
+    this.profile = await mkdtemp(join(root, '../outputs/sid-online-'));
     await this.spawn();
     await this.connect();
   }
@@ -134,13 +135,13 @@ class Client {
   }
   async close() {
     await this.killProcess();
-    if (this.profile) await rm(this.profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }).catch(() => { });
+    // 保留 outputs 下的独立 Chrome profile，不递归删除。
   }
 }
 
 let server, A, B;
 try {
-  server = spawn(NODE, [join(root, 'server.js')], { env: { ...process.env, PORT: String(PORT), SID_TEST: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  server = spawn(NODE, [join(root, 'server.js')], { env: { ...process.env, PORT: String(PORT), SID_TEST: '1', SID_DEV: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
   const serverLog = [];
   server.stdout.on('data', d => serverLog.push(String(d)));
   server.stderr.on('data', d => serverLog.push(String(d)));
@@ -241,15 +242,15 @@ try {
     assert.equal(wrong.ok, true, JSON.stringify(wrong));
     assert.match(wrong.resultText, /不匹配/);
     assert.equal((await player(idB)).alive, true, '错误S-ID未淘汰目标');
-    assert.equal((await player(idA)).skills.action.chargesRemaining, 1, '错误提交仍消耗次数与冷却');
+    assert.equal((await player(idA)).skills.kill.chargesRemaining, 1, '错误提交仍消耗次数与冷却');
     await advance(91000);
     const bad = await skill(tokenA, { skill: 'action', targetId: idB, sid: 'bad-format' });
     assert.equal(bad.ok, false, '格式错误被拒绝');
-    assert.equal((await player(idA)).skills.action.chargesRemaining, 2, '格式错误不消耗');
+    assert.equal((await player(idA)).skills.kill.chargesRemaining, 2, '格式错误不消耗');
     const realSid = (await player(idB)).sid;
     const lower = await skill(tokenA, { skill: 'action', targetId: idB, sid: realSid.toLowerCase() });
     assert.equal(lower.ok, false, '小写S-ID按格式错误拒绝');
-    assert.equal((await player(idA)).skills.action.chargesRemaining, 2, '小写不消耗');
+    assert.equal((await player(idA)).skills.kill.chargesRemaining, 2, '小写不消耗');
     // Extra joiners arrive BEFORE the kill: otherwise killing would drop the room to a
     // single survivor and finish here, which would poison the finish test below.
     const c = await post('/api/join', { nickname: '丙' });
@@ -262,9 +263,10 @@ try {
     assert.equal((await player(idB)).alive, false, '精确匹配淘汰');
   });
 
-  await test('⑥ 存活降到2且有淘汰时自动结束，并拒绝新加入与一切结算', async () => {
-    // Kill every survivor but one: the room also holds the extra identity joined in ①,
-    // so a single elimination would not be enough to reach 存活<=2.
+  await test('⑥ 结束仅三种：淘汰好人至存活2不结束；时间到（timeUp）才结束并下发排名/rules，随后拒绝新加入与一切结算', async () => {
+    // Kill every survivor but one. Under the new rules a small room does NOT end just
+    // because 存活 <= 2: only aliveFloor(>100人房)/badWiped/timeUp can end it. The room
+    // also holds the extra identity joined in ①, so a single elimination is not enough.
     const ids = (await testState()).players.filter(p => p.alive && p.id !== idA).map(p => p.id);
     for (const id of ids.slice(0, Math.max(0, ids.length - 1))) {
       await advance(91000);
@@ -273,10 +275,24 @@ try {
       assert.equal(res.ok, true, JSON.stringify(res));
       assert.equal((await player(id)).alive, false, '目标淘汰失败: ' + id);
     }
+    const mid = await testState();
+    assert.equal(mid.finished, false, `小房间仅剩 ${mid.players.filter(p => p.alive).length} 人存活且坏人仍在场，三种条件均未命中 -> 不得结束`);
+    assert.ok(mid.eliminateEvents >= 1);
+    // 推进时钟越过 2 小时上限：only then does timeUp end the game.
+    await advance(2 * 60 * 60 * 1000 + 5000);
+    await waitFor('timeUp 结束', async () => (await testState()).finished);
     const s = await testState();
-    assert.equal(s.finished, true, `存活<=2 且有淘汰 -> 自动结束（存活=${s.players.filter(p => p.alive).length}，淘汰事件=${s.eliminateEvents}）`);
-    assert.ok(s.eliminateEvents >= 1);
-    assert.equal((await state(tokenA)).finished, true, '快照下发 finished');
+    assert.equal(s.finished, true, `时间到 -> timeUp（存活=${s.players.filter(p => p.alive).length}，淘汰事件=${s.eliminateEvents}）`);
+    assert.equal(s.finishReason, 'timeUp', '结束原因: ' + s.finishReason);
+    assert.ok(Array.isArray(s.ranking) && s.ranking.length === s.players.length, 'timeUp 应下发完整排名');
+    for (const row of s.ranking) {
+      assert.ok(typeof row.rank === 'number' && typeof row.id === 'number' && typeof row.name === 'string' && typeof row.score === 'number' && 'alive' in row && 'faction' in row, '排名行字段: ' + JSON.stringify(row));
+    }
+    const snap = await state(tokenA);
+    assert.equal(snap.finished, true, '快照下发 finished');
+    assert.equal(snap.finishReason, 'timeUp', '快照下发 finishReason');
+    assert.equal(snap.rules.timeLimitMs, 2 * 60 * 60 * 1000, '快照下发时长上限');
+    assert.ok(snap.players.every(p => typeof p.score === 'number'), '公开投影含 score');
     const join = await post('/api/join', { nickname: '新同事' });
     assert.equal(join.body.ok, undefined, '结束后拒绝新加入');
     const survivor = (await testState()).players.find(p => p.alive && p.id !== idA);
@@ -289,9 +305,16 @@ try {
     assert.equal((await player(survivor.id)).x, before, '结束后移动冻结');
   });
 
-  await test('⑦ 只加入2人且无淘汰时不会误判结束（防开局即结束）', async () => {
-    assert.equal((await post('/api/host/reset', {})).body.ok, undefined, '重开需要二次确认');
-    assert.equal((await post('/api/host/reset', { confirm: true })).body.ok, true);
+  await test('⑦ 只加入2人且无淘汰时不会误判结束（防开局即结束）；重开需二次确认', async () => {
+    // 重开走真实主持人授权链：身份 + 同源 Origin + CSRF。此时房间可能已结束，但旧会话仍有效。
+    const list = await sessions();
+    assert.ok(list.length >= 1, '重开前应存在会话');
+    const ownerToken = list[0].sessionId;
+    const cap = await get('/api/dev/capabilities', null, auth(ownerToken));
+    assert.equal(cap.status, 200, '本机开发能力可读: ' + cap.status);
+    assert.equal((await post('/api/host/reset', { csrfToken: cap.body.csrfToken }, null, { ...auth(ownerToken), Origin: BASE })).body.ok, undefined, '重开需要二次确认');
+    const reset = await post('/api/host/reset', { confirm: true, csrfToken: cap.body.csrfToken }, null, { ...auth(ownerToken), Origin: BASE });
+    assert.equal(reset.body.ok, true);
     const s1 = await post('/api/join', { nickname: '子' });
     const s2 = await post('/api/join', { nickname: '丑' });
     const c1 = cookieOf(s1);
@@ -301,14 +324,22 @@ try {
     assert.equal((await testState()).finished, false);
   });
 
-  await test('⑧ 主持人接口：非 loopback 403，本机可结束与重开且需二次确认', async () => {
-    const remote = await post('/api/host/finish', {}, null, { 'X-Sid-Test-Source-Address': '10.0.0.9' });
-    assert.equal(remote.status, 403, '非本机被拒绝: ' + remote.status);
-    assert.match(remote.body.error, /本机/);
-    const fakeLoopback = await post('/api/host/finish', {}, null, { 'X-Sid-Test-Source-Address': '127.0.0.1' });
-    assert.equal(fakeLoopback.status, 200, '伪装本机但仍走真实 loopback 判定');
+  await test('⑧ 主持人接口：需身份+同源Origin+CSRF+confirm；伪造来源头不能绕过', async () => {
+    const owner = await post('/api/join', { nickname: '主持人' });
+    const ownerToken = cookieOf(owner);
+    const cap = await get('/api/dev/capabilities', null, auth(ownerToken));
+    assert.equal(cap.status, 200, '本机可读能力: ' + cap.status);
+    assert.equal(cap.body.canReset, true);
+    const csrf = cap.body.csrfToken;
+    // 「测试来源头」不参与真实 socket 判定：伪造非本机/本机都不能替代身份/Origin/CSRF/confirm。
+    const forged = await post('/api/host/finish', { confirm: true }, null, { ...auth(ownerToken), Origin: BASE, 'X-Sid-Test-Source-Address': '10.0.0.9' });
+    assert.equal(forged.status, 403, '伪造来源头 + 缺 CSRF 仍被拒: ' + forged.status);
+    assert.equal((await post('/api/host/finish', { confirm: true, csrfToken: csrf }, null, auth(ownerToken))).status, 403, '缺同源 Origin 被拒');
+    assert.equal((await post('/api/host/finish', { csrfToken: csrf }, null, { ...auth(ownerToken), Origin: BASE })).status, 400, '缺 confirm 被拒');
+    const finish = await post('/api/host/finish', { confirm: true, csrfToken: csrf }, null, { ...auth(ownerToken), Origin: BASE });
+    assert.equal(finish.status, 200, '合法本机可结束: ' + finish.status);
     assert.equal((await testState()).finished, true);
-    const reset = await post('/api/host/reset', { confirm: true });
+    const reset = await post('/api/host/reset', { confirm: true, csrfToken: csrf }, null, { ...auth(ownerToken), Origin: BASE });
     assert.equal(reset.body.ok, true);
     assert.equal((await testState()).finished, false);
     assert.equal((await testState()).players.length, 0, '重开清空角色与身份');
@@ -322,6 +353,11 @@ try {
     const secrets = (await testState()).players.map(p => ({ id: p.id, sid: p.sid, faction: p.faction, hp: p.hp }));
     const pub = await state(ce);
     const publicJson = JSON.stringify(pub.players);
+    // 新增公开字段：score 每人下发；rules/finishReason/ranking 为规则变更后的公开语义。
+    assert.ok(pub.players.every(p => typeof p.score === 'number'), '公开投影含 score');
+    assert.deepEqual(Object.keys(pub.rules).sort(), ['endRemainingPlayers', 'endsAt', 'timeLimitMs'], '公开 rules 字段');
+    assert.equal(pub.finishReason, null, '未结束 finishReason 为空');
+    assert.equal(pub.ranking, null, '未结束 ranking 为空');
     for (const s of secrets) {
       assert.ok(!publicJson.includes(s.sid), 'public 泄露完整SID: ' + s.sid);
       assert.ok(!publicJson.includes('"faction"'), 'public 泄露阵营');
@@ -337,7 +373,7 @@ try {
     }
     assert.ok(priv.me.sid === secrets.find(s => s.id === idf).sid, '本人完整SID仅自己可见');
     assert.equal(priv.me.skills.probe.chargesRemaining, 2);
-    assert.equal(typeof priv.me.skills.action.nextChargeAt, 'number', '冷却/恢复时间戳下发');
+    assert.equal(typeof priv.me.skills.accuse.nextChargeAt, 'number', '冷却/恢复时间戳下发');
     const probe = await skill(ce, { skill: 'probe', targetId: idf });
     assert.equal(probe.ok, true, JSON.stringify(probe));
     const after = await state(cf);
@@ -346,7 +382,9 @@ try {
   });
 
   await test('⑩ 客户端呈现：游戏页、局域网地址、日志无上下线字样、公开档案四项颜色', async () => {
-    await waitFor('A 已进入游戏页', async () => await A.eval(`!!document.getElementById('join-page') && document.getElementById('join-page').hidden`), 8000);
+    // ⑦/⑧ 的主持人重开会把在线客户端送回加入页（并清空本地凭证），这里主动重新加入。
+    await A.eval(`(()=>{const j=document.getElementById('join-page');if(j&&!j.hidden){const i=document.getElementById('nickname');i.value='观甲';document.querySelector('#join-form button[type=submit]').click();}})()`);
+    await waitFor('A 已进入游戏页', async () => await A.eval(`!!document.getElementById('join-page') && document.getElementById('join-page').hidden`), 12000);
     await A.eval(`document.getElementById('log-toggle').click()`);
     const logs = await A.eval(`document.getElementById('log-items').textContent`);
     assert.ok(!/上线|下线|离线|在线状态|操作者/.test(logs), '日志出现禁止字样: ' + logs);
@@ -379,7 +417,7 @@ try {
       '同事真实设备、跨网段与路由器隔离未实测，局域网可达性仅由服务端打印的 IPv4 推导',
       '离线通过强杀整个 Chrome 进程使 SSE 断流来模拟（页面导航与 CDP 网络模拟在 headless 下都不会断流）；物理断网、断电与休眠未覆盖',
       'headless 强杀重启场景下 HttpOnly cookie 未随 profile 落盘，重连实际由 localStorage 中同一个随机凭证经请求头回放完成；真实浏览器以 cookie 为主通道，两者都不从姓名推导身份',
-      '主持人 403 用测试构建专用请求头模拟非 loopback 来源，未使用第二台物理机器',
+      '主持人管理走真实门禁（SID_DEV=1 + 真实 loopback socket + 同源 Origin + CSRF + confirm）；测试来源头被服务端忽略，无法模拟非 loopback 来源，未使用第二台物理机器',
       '性能仅采样客户端 rAF 帧间隔，不含服务端 tick、SSE 传输与 GPU 呈现，不能宣称整机稳定帧率'
     ]
   }, null, 2));

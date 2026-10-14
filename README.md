@@ -1,260 +1,266 @@
-# SID-Hunter
+# S-ID：年终生存战
 
-《S-ID：年终生存战》浏览器游戏。当前使用原生 Node.js HTTP/SSE 服务端、Canvas 场景和 DOM 界面，没有第三方 npm 依赖或打包构建链。
+像素办公室社交推理游戏，含两个可运行版本：
 
-- 游戏规则、正式规则与试玩差异：[游戏规则.md](游戏规则.md)。规则文档有独立审核未完成的条目，且其中旧源码版本记录不代表当前代码；本 README 的启动说明已按 CAS 合入后的代码核对。
-- 开发分支：`dev_wjr`；完成开发并验收后合并到 `dev`。
-- 以下命令适用于 **macOS / zsh**，在仓库根目录执行；Windows 不能直接照搬 `lsof` 和 Shell 语法。
-- **停止、重启或重置会丢失本进程的游戏局及登录会话。** 当前没有跨重启存档；重连只能恢复仍存在于原进程中的角色。
-- 固定试玩构建与开发源码独立，修改开发代码不会自动升级固定版。`releases/`、`release/` 已加入 Git 忽略，不提交构建产物、日志、PID、`.env` 或真实凭证。
+- `demo/` —— 离线试玩版（单人对 19 名本地模拟玩家，无网络、不存档）
+- `online/` —— 局域网联机版（服务端权威：位置、技能、探索、转盘、猜拳、互动、计分与结束判定全部在服务端计算）
 
-## 1. 环境准备
+两版共用同一份地图与规则文件 `online/shared/world.js`（服务端与浏览器都能加载）。
 
-建议使用项目开发环境已验证的 Node.js 22。服务端使用了内置 `fetch`，不要用旧 Node 运行。
+## 运行
 
-```bash
-# 进入你自己的仓库路径；以下为当前开发机路径。
-cd /Users/jiarunwu/WorkBuddy/SID-Hunter
+离线试玩：直接打开 `demo/index.html` 即可（需要 `online/shared/world.js` 在场，目录结构不要拆散）。
 
-# 后面的命令共用此变量；每次新开终端需要重新设置。
-export NODE=/Users/jiarunwu/.workbuddy/binaries/node/versions/22.22.2-6/bin/node
-"$NODE" --version
-
-# 其他电脑安装 Node 22 后可改为：
-# export NODE="$(command -v node)"
-```
-
-本项目目前没有 `package.json`，**不需要 `npm install`，也没有 `npm run dev/build/start/stop`**。不要照着不存在的 npm 命令执行。
-
-### CAS 配置
+联机版：
 
 ```bash
-# 仅首次复制；不覆盖已经配置好的 .env。
-if [ ! -f .env ]; then cp .env.example .env; fi
+PORT=8787 node online/server.js
+# 浏览器访问 http://127.0.0.1:8787/
 ```
 
-编辑根目录 `.env`，按公司环境配置：
+要求 Node.js 22+。第一位加入者是坏人，其后全部是好人；主持人/开发重置仅在本机开发开关下可用。
 
-| 配置 | 含义 |
-|---|---|
-| `SSO_LOGIN_URL` | CAS 登录地址，保留 `{service}` 占位符 |
-| `SSO_VALIDATE_URL` | CAS 验票地址，保留 `{service}` 和 `{ticket}` 占位符 |
-| `TOKEN_EXPIRE` | 登录会话有效秒数，示例默认 604800 |
+## 目录
 
-`.env` 由 `online/sso.js` 从当前运行副本根目录加载，已存在的进程环境变量优先。示例中的公司内网地址需要网络可达；不要把配置或真实票据贴进日志、截图或 Git。
+| 路径 | 说明 |
+| --- | --- |
+| `online/shared/world.js` | 共享地图、家具足迹与深度、遮挡、NPC、容器，以及全部可调参数（`PLAY_CONFIG` / `WHEEL` / `SCORE` / `RULES`） |
+| `online/room.js` | 权威房间：移动、技能、探索、转盘、猜拳、J 互动、计分、结束判定与投影，并存上一局结算快照 `lastResult` |
+| `online/manager.js` | 公网管理控制台：授权码登录、会话/CSRF、登录限流、上局排名读取、一键开新局 |
+| `online/server.js` | HTTP/SSE 服务、鉴权、开发管理接口、管理控制台路由、20Hz 快照调度 |
+| `online/public/` | 联机客户端（渲染、名单/日志、私密面板、转盘弹窗、排行榜与结算） |
+| `online/public/manager.*` | 管理控制台页面 `/manager`（授权码登录、上局排名、开始下一局） |
+| `demo/` | 离线试玩客户端（同一套玩法在本地模拟） |
+| `outputs/` | 本地验收产物（截图、验收记录、试玩副本与源码包），已由 `.gitignore` 排除，不入库 |
 
-**正常模式启用 CAS 登录**，验证后以公司姓名进入游戏。回调地址必须与访问游戏的主机和端口一致；更换域名、IP 或端口后需要重新检查 CAS 配置及允许的回调地址。服务重启后需重新登录。
+## 玩法与操作
 
-## 2. 启动开发版（8787）
+`WASD` / 方向键移动，`E` 就近打开玩家交互菜单、容器或 NPC 互动，`J` 攻击（无伤害）。点击角色或名单查看公开档案，靠近玩家后可在菜单选择「邀请猜拳」；「线索背包」查看自己的筹码与线索，「排行榜」查看分数与结束条件，「我的信息」点击后显示。
 
-先检查端口，已有服务时不要重复启动或直接杀掉：
+## 游戏设计：单局连续对局
+
+**已取消“局数”概念**：整个活动是一局，直到满足结束条件为止。转盘等行为不再有“每局一次”的限制。
+
+### 结束方式（仅三种）
+1. **存活人数淘汰至剩余 100 人**（`RULES.endRemainingPlayers`；仅当房间总人数大于该值时判定，小房间不会因此提前结束）。
+2. **坏人全灭**（曾有坏人且当前存活坏人为 0）。
+3. **时间到**（`RULES.timeLimitMs` 默认 2 小时）。
+
+其中②③会按分数产出结算排名；①不排名（只展示存活到最后的人）。
+
+### 计分（`WORLD.SCORE`）
+| 行为 | 分值 |
+| --- | --- |
+| 搜索容器 | 2 |
+| 兑换线索 | 1 |
+| 获得线索（搜索或线索券） | 2 |
+| 猜拳 胜 / 平 / 负 | 2 / 1 / 0 |
+| J 互动命中 | 1 |
+| 探查 | 3 |
+| 刺探 | 2 |
+| 指认命中 | 8 |
+| 击杀 | 10 |
+
+分数公开（用于排名），只增不减。
+
+### NPC 大转盘（可重复）
+- 点击 NPC 互动面板的「打开大转盘」弹出**真实转盘界面**，每次放置 **10 个物品**，等概率落格。
+- **首次免费**，之后每次消耗筹码且**次数越多越贵**：`WORLD.WHEEL.spinCosts = [0,1,2,4,6,9,12,16,20,25,30,36,42,49,56,64]`，超出后按末级增量线性外推。计数按“每个玩家 × 每个 NPC”独立。
+- 物品构成（`WORLD.WHEEL` / `WORLD.WHEEL_ITEMS`）：
+  - **不同数量的筹码**：`chipAmounts = [0,1,2,3,5,8]`。
+  - **线索券**（蓝，仅好人转盘）：获取一名坏人的一条线索。
+  - **洗心革面券**（绿，仅坏人转盘）：将自己由坏人转换为好人。
+  - **轮回券**（红，仅坏人转盘）：重新随机自己的身份特征（颜色/隐藏属性/S-ID，并重置公开状态）。
+
+### 联机猜拳：邀请确认与十秒选择
+
+- 靠近玩家（64 像素内、家具不挡视线）后按 `E` 或点击角色，在交互菜单选择「邀请猜拳」。已移除工具栏「互动小游戏」入口，不保留旧邀请路径；NPC 转盘仍从原 NPC 互动面板打开。
+- 被邀请者自动收到确认界面，可同意或拒绝；邀请 30 秒未回应自动取消。双方需在线、存活且各有至少 1 筹码。
+- 同意后由服务端设置共同的 **10 秒**选择截止时间；上方左侧显示自己的像素手势，右侧隐藏对手选择，下方选择石头、剪刀、布。截止前可反复修改，本方立即反馈。
+- 即使双方提前选完也不会提前揭示；截止后服务端锁定最后有效选择、同步揭示并判胜负。胜者筹码 +1、败者 −1、平局不变，沿用原积分与 5 秒冷却。
+- 任一方未出拳、拒绝、取消、离线、淘汰或整局结束，本次取消、不扣筹码、不计胜负。重复邀请、越权操作和过期选择会被拒绝；乱序选择用递增版本号保护。
+- 选择阶段对手手势不下发给客户端；结算后只向两位参与者下发各自的回合结果，第三方公开快照始终不含猜拳私密状态。
+
+### 其它既有机制
+- **躲藏**：家具视觉与底部碰撞足迹分离，角色身体可被家具遮挡；遮挡时人物与下方名牌同帧隐藏（含自己与 NPC），解除同帧恢复。
+- **交互描边**：仅 9 个容器与 2 名 NPC 有描边，亮色=可操作 / 灰色=范围内不可用 / 暗色=太远。
+- **筹码来源**：搜索容器、NPC 转盘、玩家猜拳（胜 +1 / 负 −1 / 平不变，余额不为负）。
+- **J 互动（无伤害）**：所有阵营可用，命中只造成对手 0.8 秒眩晕 + 1 秒僵直，不扣血、不淘汰。
+
+## 可调参数
+
+`online/shared/world.js` 中集中配置，两端读取同一份：
+
+| 位置 | 键 | 值 |
+| --- | --- | --- |
+| `RULES` | `endRemainingPlayers` / `timeLimitMs` | `100` / `7200000`（2 小时） |
+| `WHEEL` | `slotCount` / `spinCosts` / `chipAmounts` / `specialCount` / `specials` | `10` / 见上 / 见上 / `{good:2,bad:2}` / `{good:['clue'],bad:['reform','rebirth']}` |
+| `PLAY_CONFIG` | `rpsStake` `rpsTimeoutMs` `rpsRoundMs` `rpsCooldownMs` `attackRange` `attackCooldownMs` `attackConeCos` `stunMs` `freezeMs` | `1` `30000` `10000` `5000` `48` `1200` `0.5` `800` `1000` |
+| — | `INTERACT_RANGE` | `64`（容器/NPC 互动与猜拳的距离门槛） |
+
+## 权威性与隐私边界
+
+- 位置、移动、技能、探索奖励、转盘落格与费用、猜拳结算、J 互动、计分与结束判定全部由服务端计算，客户端只提交意图并渲染快照。
+- 公开投影只含位置、公开颜色、已公开属性、已公开 S-ID 段、`score` 以及动画用 `facing`/`lastAttackAt`/`stunUntil`/`freezeUntil`；筹码、线索、技能次数、身份、生命仅本人可见。
+- 私密线索不进入公开档案、名单搜索与公共日志；猜拳选择阶段仅下发本人出拳，对手出拳只在服务端截止结算后向两位参与者揭示。
+- 服务端 20Hz 快照采用截止时间补偿调度（单次长卡顿只补一次，不突发追赶）。
+
+## 测试与验收
 
 ```bash
-lsof -nP -iTCP:8787 -sTCP:LISTEN
+# 服务端（零依赖，直接 node 运行）
+node online/rps-flow-test.mjs              # 新猜拳状态机、隐私与截止边界
+node online/mechanics-test.mjs             # 机制：29 项
+node online/exploration-test.mjs           # 探索/兑换/重置：25 项
+node online/progression-test.mjs           # 转盘/特殊券/计分/三种结束：15 项
+node online/self-test.mjs                  # 11 项
+node online/rules-skill-test.mjs           # 14 项
+node online/rules-qa.mjs                   # 30 项
+node online/qa-verify.mjs                  # 35 项
+node online/privacy-reset-test.mjs         # 23 项
+node online/privacy-reset-qa.mjs           # 23 项
+node online/manager-test.mjs               # 管理控制台：授权码/上局排名/开新局/限流：60 项
+
+# 真实 Chrome（原生 CDP，需系统 Chrome）
+SID_CHROME=/usr/bin/google-chrome node online/rps-browser-test.mjs # 双玩家猜拳与窄屏验收
+node online/progression-browser-test.mjs   # 转盘/特殊券/计分/结算：19 项
+node online/mechanics-browser-test.mjs     # 17 项
+node online/exploration-browser-test.mjs   # 17 项
+node online/manager-browser-test.mjs       # 管理控制台真实浏览器：13 项
+SID_CHROME=/usr/bin/google-chrome node online/manager-live-browser-test.mjs https://game.afann.xyz 091256  # 公网只读验收：7 项
+
+# 公网部署冒烟（打完线上地址，32 项）
+node online/deploy-smoke.mjs https://game.afann.xyz
 ```
 
-正常开发启动，启用本机开发按钮，关闭测试接口，**仍需要 CAS 登录**：
+> Chrome 路径默认取 Windows 的 `C:/Program Files/Google/Chrome/Application/chrome.exe`；在 Linux 上跑浏览器脚本时用 `SID_CHROME=/usr/bin/google-chrome` 覆盖（管理页两个浏览器脚本已支持该环境变量）。
+
+最近一次结果：服务端 **29/25/15/11/14/30/35/23/23** 与浏览器 **19/17/17** 全部通过，页面全程无 JavaScript 异常；新增的管理控制台自测 **60/60**、本地真实浏览器验收 **13/13**、公网只读浏览器验收 **7/7**、线上冒烟 **32/32**，VPS 隔离端口端到端（结束局→读排名→开新局）**12/12**。浏览器脚本零依赖，结束时关闭自身启动的 Chrome 与 HTTP 子进程，日志与截图写入 `outputs/`。
+
+## 管理控制台（/manager）
+
+公网地址 `https://game.afann.xyz/manager`，用一个**授权码**（不是玩家昵称）进入，用来处理“一局打完之后怎么开下一局”。
+
+| 能力 | 说明 |
+| --- | --- |
+| 查看上局结算 | 结束方式、结束时间、结算人数，以及按分数降序的完整排名（名次 / 玩家 / 分数 / 存活 / 阵营，阵营在结束后才公开） |
+| 查看当前对局 | 进行中或已结束、存活人数、当前名册（每 5 秒自动刷新） |
+| 开始下一局 | 二次确认后清空本局全部玩家与身份凭证、重置 2 小时倒计时；**上局排名继续保留展示**，用于复盘 |
+
+为什么必须有这个入口：结束条件（坏人全灭 / 时间到）会把房间置为 `finished`，而 `finished` 的房间按设计永久拒绝新玩家加入，客户端只会停在“游戏已结束，无法加入”。以前只能靠本机隧道 + `SID_DEV=1` 或重启进程清房间，公网无法自救；管理控制台把这件事变成一个按钮。
+
+鉴权与安全边界：
+
+- 授权码来自环境变量 `SID_MANAGER_CODE`（缺省 `091256`），服务端用定长比较校验，页面源码与响应体里都不含授权码。
+- 登录成功下发 `sid_manager` HttpOnly + SameSite=Lax Cookie（12 小时），不提供 header/query 回退；开新局额外要求绑定会话的 CSRF token 与 `confirm: true`。
+- 连续输错授权码会按来源 IP 递增退避并返回 429（登录成功即清零）。
+- 该接口**不依赖** `SID_DEV` 与回环地址，因此反向代理不需要为它开口子；`/api/dev/`、`/api/host/` 仍保持公网 404。
+- 授权码是唯一屏障，`091256` 只是试玩默认值，正式使用前应在 systemd 里改成强随机值并重启：`Environment=SID_MANAGER_CODE=<强随机值>`（改完 `daemon-reload` + `restart`）。房间状态在内存里，服务端重启会清空当前对局。
+
+## 公网部署（game.afann.xyz）
+
+线上实例与仓库同一份代码，服务器侧结构如下：
+
+| 项 | 值 |
+| --- | --- |
+| 代码目录 | `/opt/sid-hunter`（`git clone https://github.com/l541402398/sid-hunter.git`） |
+| 监听 | `127.0.0.1:8898`（**不直接对公网开放**，只由反向代理回源） |
+| 进程 | systemd 单元 `sid-hunter.service`（`User=lijuefan`、`Restart=always`、日志 `Append` 到 `/var/log/sid-hunter.log`） |
+| 反向代理 | 1Panel 内置 OpenResty 容器：`/opt/1panel/www/conf.d/game.afann.xyz.conf` + `/opt/1panel/www/sites/game.afann.xyz/proxy/root.conf` |
+| 证书 | 复用 1Panel 的 `*.afann.xyz` 泛域名证书（复制到 `/opt/1panel/www/sites/game.afann.xyz/ssl/`） |
+| 入口 | `https://game.afann.xyz`（80 端口 301 跳 443） |
+
+systemd 单元：
+
+```ini
+[Unit]
+Description=SID-Hunter 联机试玩服务（办公室社交推理）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lijuefan
+Group=lijuefan
+WorkingDirectory=/opt/sid-hunter/online
+Environment=NODE_ENV=production
+Environment=PORT=8898
+Environment=HOST=127.0.0.1
+Environment=SID_DEV=0
+Environment=SID_TEST=0
+Environment=SID_MANAGER_CODE=091256
+ExecStart=/usr/local/bin/node /opt/sid-hunter/online/server.js
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/sid-hunter.log
+StandardError=append:/var/log/sid-hunter.log
+
+[Install]
+WantedBy=multi-user.target
+```
+
+反向代理要点（完整文件见服务器上的 `proxy/root.conf`）：
+
+- `/api/stream` 单独成一个 `location`，`proxy_buffering off` + `proxy_read_timeout 7200s` + `gzip off`，否则 20Hz SSE 会被缓冲或掐断。
+- `/api/dev/`、`/api/host/`、`/api/test/` 返回 404：开发重置、结束游戏与测试注入接口只在回环地址可用，公网不开源。
+- 其余路径统一 `proxy_pass http://127.0.0.1:8898` 并透传 `Host` / `X-Real-IP` / `X-Forwarded-For` / `X-Forwarded-Proto`。
+
+更新线上版本：
 
 ```bash
-HOST=127.0.0.1 PORT=8787 SID_DEV=1 SID_TEST=0 \
-  "$NODE" "$PWD/online/server.js"
+cd /opt/sid-hunter && git pull --ff-only
+sudo systemctl restart sid-hunter
+systemctl is-active sid-hunter && curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8898/
 ```
 
-打开：**http://127.0.0.1:8787/**。
-
-这是前台运行，终端会持续显示服务日志。代码没有热重载：修改后端需要手动重启；修改前端通常刷新页面即可，但新前端若依赖新增后端字段，必须配套升级后端。
-
-- `SID_DEV=1` 仅允许符合本机来源、同源、有效会话、CSRF 等检查的开发管理操作，并非绕过鉴权。
-- 重置和结束需要确认；添加 NPC 用于开发自测。
-- `HOST=127.0.0.1` 只允许本机访问，不是给同事的局域网地址。
-
-### 临时离线自测模式（可选）
-
-仅在不能访问 CAS、需要本机模拟时使用，建议另开 **8788**，与正常开发版分开：
+对线上实例做端到端自检（静态资源、身份下发、SSE 快照、管理接口封锁、管理控制台登录与排名共 32 项）：
 
 ```bash
-HOST=127.0.0.1 PORT=8788 SID_DEV=1 SID_TEST=1 \
-  "$NODE" "$PWD/online/server.js"
+node online/deploy-smoke.mjs https://game.afann.xyz
 ```
 
-打开 http://127.0.0.1:8788/，使用测试昵称加入。
+> 冒烟里的“重开”只验证接口已开通且要求二次确认（期望 400），**不会真的清空线上房间**。房间状态在内存里，`restart` 会清空当前对局。
 
-**`SID_TEST=1` 不只是免登录：它会开放真实状态和测试控制接口。只可绑定本机回环地址，禁止给同事或正式环境开放。** 不要设置 `SID_SSO_SEED` 来运行共享试玩；该变量仅供测试驱动使用。
+## 已知限制
 
-## 3. 发布固定局域网试玩版（8790）
+- 「定期公布坏人线索」与「积分兑换/名次奖励」等细化规则仍未实现，界面中明确标注为待补充。
+- “存活淘汰至剩余 100 人”按 600 人活动尺度设计；局域网试玩房间人数少，因此主要靠“坏人全灭 / 时间到”结束。
+- 房间仍是内存存储，服务端重启会清空当前游戏；**上局结算快照 `room.lastResult` 也在内存里**，重启后管理页只会显示“本局尚未结束，暂无排名”，未新增数据库持久化。
+- 源码修改不会自动替换正在运行的旧服务进程，需要重启服务才生效；未做高并发压测。
+- 浏览器验收只在 Windows Chrome 与 Linux Chrome（`SID_CHROME` 覆盖路径）实测，其他浏览器未覆盖。
+- 管理控制台只用一个授权码做鉴权（无账号体系、无操作审计日志），且限流按来源 IP 计数，因此**只适合小范围试玩**；正式活动前请改掉默认授权码。
+- 公网实例（`game.afann.xyz`）的 `/api/dev/`、`/api/host/`、`/api/test/` 在反向代理层就被 404 掉；日常“结束游戏 / 开下一局”请走 `/manager`，不再需要本机隧道与 `SID_DEV=1`。
+- 线上 vhost 是手工写入 1Panel 的配置目录（`www/conf.d` + `www/sites`），未走 1Panel 站点管理界面，所以面板网站列表里不会出现该域名；证书复用泛域名证书，随 1Panel 续签更新时需要重新复制到站点 `ssl/` 目录。管理控制台的 `/manager` 与 `/api/manager/*` 由现有 `location ^~ /` 兜住，**不需要改反代配置**。
 
-这里的“发布”是**在本机创建固定提交副本并提供局域网服务**，不是公网部署或正式活动上线。当前没有统一发布脚本或 `npm run build`。
 
-### 3.1 从已提交版本生成固定副本
+## 分支合并说明：main → feature_dev_afan → dev
 
-未提交改动不会进入构建。发布前先完成目标版本的测试和提交，下面命令默认固定本地 `dev` 当前提交：
+本轮把本地 `main`（`92200df`，七层自适应场景与新玩法）与 `dev`（`7e7fa5d`，CAS 单点登录、肢体互动、匿名坏人线索池、资源冻结）合并为一套实现。`feature_dev_afan` 先并入 main，再合入 dev；两处合并都以「保留双方功能」为前提逐块人工整合，冲突集中在 `online/{server,room}.js` 与 `public/{game.js,index.html,styles.css}` 六个文件。
 
-```bash
-git status --short --branch
-git log -1 --oneline dev
+### dev 分支保留并接入的能力
 
-export VERSION="$(git rev-parse dev)"
-export RELEASE_DIR="$PWD/releases/sid-playtest-$(git rev-parse --short "$VERSION")"
+- **CAS 单点登录**：`online/sso.js`、`/api/auth/{config,login,logout,me}`、`User-Token` 头与 `user_token` 查询参数、按工号回座不新开角色。正式模式默认要求登录；`SID_TEST=1`（既有自测）或 `SID_SSO=0`（局域网试玩/回归）沿用昵称加入。
+- **肢体互动**：活人 `J` 使用 main 的无伤害木锤攻击（48px / 1.2s 冷却 / 0.8s 眩晕 + 1s 僵直），`K` 跳跃（520ms，腾空窗口可躲锤），淘汰后成为幽灵（穿家具/墙体、不能被锤、`J` 吓最近的存活者 0.75s），命中留下最多 3 个肿包（各 15s）。全部不扣血、不公开 S-ID、不消耗技能次数、不计分、不写公共日志。
+- **离线受击摘要**：被敲 / 被鬼吓的次数按 epoch + 水位确认，只在本人重连后的私密摘要显示，旧 ACK 不会吞掉新计数。
+- **匿名坏人线索池**：`badSlots` 匿名投影（随机标签、与 id/顺序/视角无关、深冻结），只展示已公开的隐藏属性。
+- **资源冻结**：淘汰或本局结束时结算已赚到的恢复并固定 `skillsFrozenAt`，之后重复读取不再恢复。
+- **开发用好人 NPC**：`/api/dev/npc`（门禁与 `/api/host/*` 一致）+ 页面「添加好人NPC」按钮。
 
-# 拒绝覆盖已有发布目录，特别是已经运行或有配置的副本。
-if [ -e "$RELEASE_DIR" ]; then
-  printf '目录已存在，请复用原版本或使用新的独立目录：%s\n' "$RELEASE_DIR"
-else
-  mkdir -p "$PWD/releases"
-  mkdir "$RELEASE_DIR"
-  # pipefail 确保 git archive 失败不会被 tar 的退出码掩盖。
-  (set -o pipefail; git archive "$VERSION" online | tar -x -C "$RELEASE_DIR") &&
-    printf '%s\n' "$VERSION" > "$RELEASE_DIR/BUILD_COMMIT"
-fi
-```
+### 以 main 为准的既有实现（dev 旧行为被取代）
 
-如果导出失败，**不要启动不完整目录**；检查错误后另外选择新目录，不能直接覆盖正在运行的构建。
+- 结束方式仍是 main 的三种：存活淘汰至剩余 100 人 / 坏人全灭 / 时间到（2 小时）；dev 的「存活 ≤ 2 结束」不再存在。
+- `J` 的近战手感按 main 的参数与朝向判定；dev 的锤子调参（58px / 1s / 750ms）不再用于活人攻击。
+- 探查默认仍按 main 的确定性顺序公开第一个未公开属性；仅当房间注入 `random` 时按注入源随机选择（dev 的可测语义）。
+- 公共投影里的 `stunUntil` / `freezeUntil` / `lastAttack*` 仍按 main 的公开战斗状态下发，不做镜头裁剪；dev 的肢体互动表现字段（`z` / `bumps` / `swingAt` / `hitAt` / `fright*`）按可见性裁剪，而合并后的地图每层正好一屏，「可见」等价于「同层」。
+- 已淘汰者以幽灵形态可见，但沿用 main 的隐私取向：不生成地图名牌与选中框，档案/名单仍可查看。
 
-副本应包含 `online/server.js`、`room.js`、`sso.js`、`shared/` 和 `public/`，全部来自同一提交；不使用符号链接，也不回指开发目录。
+### 需要留意的接入点
 
-```bash
-# 校验入口并保存构建指纹；这些命令只检查构建，不启动游戏。
-test -s "$RELEASE_DIR/BUILD_COMMIT" && \
-  "$NODE" --check "$RELEASE_DIR/online/server.js" && \
-  "$NODE" --check "$RELEASE_DIR/online/room.js" && \
-  "$NODE" --check "$RELEASE_DIR/online/sso.js"
+- `SID_SSO=0`：仅用于关闭 CAS 门禁（局域网试玩、回归测试）；正式部署不要设置它。
+- `/api/test/place` 新增可选 `floorId`（仅 `SID_TEST=1` 暴露），供自测把角色放到指定楼层。
+- 合并后按「保留双方功能」调整了 dev 自测的判定：结束条件改用 main 的三种方式、跨层代替跨屏裁剪、硬控期间按 main 的协议需重新输入方向、规则页技能卡以 main 的 4 卡布局为准。相关改动均带 `合并适配` 注释。
 
-# 源码指纹文件位于构建根；路径可直接交给 shasum -c 校验。
-(cd "$RELEASE_DIR" && \
-  shasum -a 256 online/*.js online/public/*.js online/public/*.html \
-    online/public/*.css online/shared/*.js > SHA256SUMS)
-(cd "$RELEASE_DIR" && shasum -a 256 -c SHA256SUMS)
-```
+### 验证结果
 
-配置此副本自己的 `.env`：
-
-```bash
-# 不覆盖已经配置好的发布环境。
-if [ ! -f "$RELEASE_DIR/.env" ]; then cp .env.example "$RELEASE_DIR/.env"; fi
-# 随后编辑 "$RELEASE_DIR/.env" 中的 CAS 地址和有效期。
-```
-
-`.env.example` 是模板，并非已经可用的 CAS 配置；若生产配置与开发配置不同，不要直接复制开发 `.env`。构建的 `.env` 放在 **副本根目录**，不是 `online/` 内。
-
-### 3.2 启动固定版
-
-先确认本机实际局域网 IP 和 8790 是否空闲：
-
-```bash
-"$NODE" -e 'for (const xs of Object.values(require("os").networkInterfaces())) for (const x of xs || []) if (x.family === "IPv4" && !x.internal) console.log(x.address)'
-lsof -nP -iTCP:8790 -sTCP:LISTEN
-```
-
-将下面 IP 改为上一步核实的地址（历史地址 `172.26.3.19` **不保证现在仍有效**）：
-
-```bash
-export LAN_IP=172.26.3.19
-HOST="$LAN_IP" PORT=8790 SID_DEV=0 SID_TEST=0 \
-  "$NODE" "$RELEASE_DIR/online/server.js"
-```
-
-同事在同一局域网访问 `http://<实际LAN_IP>:8790/` 并完成 CAS 登录。启动前确保 CAS 可以接受这个访问地址；本机可访问不等于其他电脑已通过防火墙、路由和回调验证。
-
-**开发版建议固定用 `127.0.0.1:8787`，共享版固定用局域网 IP:8790，不混用。**
-
-浏览器 cookie 按主机而非端口隔离：当前代码的游戏 cookie `sid_session`、CAS cookie `sid_user` 在“同主机不同端口”下可能互相覆盖。不要仅换端口就宣称会话隔离。若两版必须使用相同主机，应先实现并验证独立 cookie 命名，或采用独立域名/浏览器配置文件；旧版仅修改游戏 cookie 的补丁不能自动覆盖后来加入的 CAS cookie。
-
-### 3.3 旧固定版本启动器（仅限本地已有副本）
-
-本机曾生成的 `releases/sid-playtest-5bfadc4/` 带有校验器和前台监督启动器，可运行：
-
-```bash
-"$NODE" "$PWD/releases/sid-playtest-5bfadc4/verify-build.mjs"
-"$NODE" "$PWD/releases/sid-playtest-5bfadc4/start-stable.mjs"
-```
-
-这两个脚本在被忽略的本地产物里，**新克隆仓库不会自动拥有它们，也不是最新版通用发布命令**。启动器要求其 manifest 指定的受管 Node 和局域网 IP，IP 变化会拒绝启动。
-
-该旧版不含新 CAS、匿名坏人池、幽灵及最新资源冻结修复；不要因为名字叫 stable 就认为符合当前全部规则。不要直接编辑旧副本来升级；发布新提交应另建目录、重新验证，保留旧副本用于回退。
-
-## 4. 停止与重启
-
-### 前台服务
-
-在启动服务的终端按 **Ctrl+C**。对于旧固定版监督启动器，Ctrl+C 会转发给其子服务。
-
-### 找到其他终端启动的进程
-
-```bash
-# 先查出监听进程，人工确认COMMAND和PID。
-lsof -nP -iTCP:8787 -sTCP:LISTEN
-lsof -nP -iTCP:8790 -sTCP:LISTEN
-
-# 将12345替换为已确认的目标PID；没有进程时不要执行。
-kill -TERM 12345
-
-# 再次检查目标端口，确认监听已消失。
-lsof -nP -iTCP:8787 -sTCP:LISTEN
-```
-
-- 不使用 `killall node`、`pkill node` 或不加确认的批量杀进程命令，避免停止其他项目/试玩服务。
-- 通过 `start-stable.mjs` 启动时优先停止其打印的 **Supervisor PID**，让它负责关闭子进程。
-- 如果服务由 WorkBuddy 的后台任务托管，可以在对应任务里停止；不要重复启动同一端口，也不要依赖临时对话中的旧任务号或PID。
-- 本 README 使用前台命令。需要长期运行应另行配置受管服务；不把 `nohup ... &` 当成自动可靠的常驻方案。
-
-**重启 = 先停止目标服务，确认端口空闲，再重新执行该版本启动命令。** 这会新建内存局并清空登录会话，需要提前告知参与者。不要为了让前端改动生效就擅自重启同事正在玩的固定版。
-
-## 5. 验证服务与查看日志
-
-在另一个终端检查：
-
-```bash
-curl --noproxy '*' --connect-timeout 3 -sS -o /dev/null \
-  -w '主页 HTTP %{http_code}\n' http://127.0.0.1:8787/
-
-curl --noproxy '*' --connect-timeout 3 -sS -o /dev/null \
-  -w '脚本 HTTP %{http_code}\n' http://127.0.0.1:8787/game.js
-
-curl --noproxy '*' --connect-timeout 3 -sS \
-  http://127.0.0.1:8787/api/auth/config
-```
-
-主页和脚本应返回200；正常模式的登录配置应显示需要登录。未登录访问游戏状态接口返回401是预期，不表示服务没启动。CAS 登录、SSE、跨机访问仍需另行验证，主页200不等于全功能通过。
-
-日志默认输出到启动终端。若需要日志文件，可在启动命令后追加 `> /自行确认的日志路径/server.log 2>&1`，提前创建并检查日志父目录；这仍是前台运行，不会自动后台化。当前日志可能包含员工信息，不公开上传；日志已被Git忽略。
-
-## 6. 测试命令（独立测试进程）
-
-在仓库根目录、设置好 `NODE` 后执行：
-
-```bash
-"$NODE" online/sso-test.mjs
-"$NODE" online/hammer-test.mjs
-"$NODE" online/npc-test.mjs
-"$NODE" online/ghost-offline-test.mjs
-
-# 匿名池模块/HTTP/SSE：
-"$NODE" online/bad-pool-test.mjs
-
-# 再包含真实Chrome/CDP交互检查：
-BAD_POOL_BROWSER=1 "$NODE" online/bad-pool-test.mjs
-```
-
-部分脚本使用8899/8900/8912等固定测试端口，先核对它们空闲并**顺序运行**，不要与别人的测试并发争用；脚本会启动自己的测试服务，不能指向正在玩的8787/8790。浏览器测试需要现有的Google Chrome，当前脚本有macOS安装路径假设。
-
-测试模式必须只绑定回环地址。脚本失败时先查实际报错及预置条件，不删除断言“凑绿”；SKIP不是PASS。旧测试报告不证明后来CAS或其他改动已经通过回归。
-
-## 7. Git操作约定
-
-```bash
-# 日常开发留在dev_wjr。
-git switch dev_wjr
-git status --short --branch
-
-# 验收后合并本地dev，不默认推送或发布。
-# 合并前先提交并检查dev_wjr修改；下面仅允许快进。
-git switch dev
-git merge --ff-only dev_wjr
-git switch dev_wjr
-
-# 经确认后才推送相应分支。
-# git push origin dev_wjr
-# git push origin dev
-```
-
-分支分叉时 `--ff-only` 会拒绝，请先核对历史，不自动强推或覆盖。**Git提交/合并/推送与运行服务升级是不同操作**：推送不会自动更新本地固定试玩副本，也不会自动重启游戏。
+- dev 分支自测全绿：`sso-test`、`bad-pool-test` 15/15、`hammer-test` 49/49、`npc-test` 38/38、`ghost-offline-test` 101/101。
+- main 分支自测与合并前基线逐项对齐（`mechanics-test` / `movement-attack-test` / `exploration-test` / `progression-test` / `qa-verify` / `manager-test` / `privacy-reset-test` / 浏览器验收），未引入新的失败项；`main` 自带的若干陈旧用例（`rps-flow-test`、`privacy-reset-qa` 的冻结哈希、`qa-verify` 部分 HTTP 断言）在合并前即为红色，本次未改动其判定口径。
