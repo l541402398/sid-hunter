@@ -79,11 +79,15 @@ function createRoom(options = {}) {
     // 换层幂等凭据：键为 roundId+sessionId+commandId，成功 key 与 payload 绑定。
     // 独立于 processed（技能/J 的成功 nonce 表），reset 清空。
     floorReceipts: new Map(),
+    glassDoors: {},
     roundId: randomUUID()
   };
   // 楼层查询：家具/墙体碰撞一律按玩家当前层取，服务端与两端共享同一份世界数据。
   const floorFurniture = floorId => WORLD.floorById(floorId).furniture;
-  const floorBlockers = floorId => WORLD.floorBlockers(floorId);
+  const floorBlockers = floorId => WORLD.floorBlockers(floorId, room.glassDoors[floorId] || {});
+  function updateGlassDoors(t) {
+    for (const f of Object.values(WORLD.FLOORS)) room.glassDoors[f.id] = WORLD.advanceGlassDoors(f.id, room.glassDoors[f.id] || {}, room.players, t);
+  }
   const now = () => Date.now() + room.clockOffset;
   const streams = new Map();
 
@@ -172,8 +176,7 @@ function createRoom(options = {}) {
   // 不传 viewerId 时一律可见（服务端内部拼日志文案用，只读 sid，不涉及锤戏字段）。
   const VIEW_MARGIN = 140;
   function cameraXOf(viewer) {
-    const width = (WORLD.floorById(viewer.floorId) || {}).width || WORLD.FLOOR_W;
-    return Math.max(0, Math.min(Math.max(0, width - WORLD.VIEW_W), viewer.x - WORLD.VIEW_W / 2));
+    return WORLD.cameraBounds(viewer.floorId, WORLD.VIEW_W, WORLD.VIEW_H, viewer.x, viewer.y).x;
   }
   function visibleTo(viewer, camX, target) {
     if (!viewer || viewer.id === target.id) return true;
@@ -472,6 +475,7 @@ function createRoom(options = {}) {
     syncRoom(t);
     if (room.finished) return;
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(0.05, dt)) : 0;
+    updateGlassDoors(t);
     for (const p of room.players) {
       expireBumps(p, t);
       if (p.npc) continue; // NPC 纯站立：不移动，但肿包照常过期
@@ -607,6 +611,7 @@ function createRoom(options = {}) {
     }
     const viewer = viewerId === undefined || viewerId === null ? null : find(viewerId);
     const camX = viewer ? cameraXOf(viewer) : 0;
+    updateGlassDoors(t);
     return {
       type: 'snapshot',
       serverTime: now(),
@@ -615,7 +620,8 @@ function createRoom(options = {}) {
       finishReason: room.finishReason || null,
       ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
       rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs },
-      floorList: [1, 2, 3, 4, 5, 6, 7].map(id => ({ id, name: WORLD.floorById(id).name })),
+      floorList: WORLD.floorOptions(),
+      glassDoors: viewer ? WORLD.floorById(viewer.floorId).glassDoors.map(d => ({ id: d.id, open: !!room.glassDoors[viewer.floorId][d.id].open })) : [],
       aliveCount: room.players.filter(p => p.alive).length,
       players: room.players.map(p => publicProjection(p, viewer, camX)),
       badSlots: anonymousBadSlots(),
@@ -1318,9 +1324,8 @@ function createRoom(options = {}) {
     const targetFloorId = Number(body.targetFloorId);
     if (!Number.isSafeInteger(targetFloorId) || targetFloorId < 1 || targetFloorId > WORLD.FLOOR_COUNT) return reject('目标楼层无效（1–7）');
     if (targetFloorId === actor.floorId) return reject('已在本层，请选择其它楼层');
-    if (WORLD.distanceToEntity(actor, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) {
-      return reject('距离入口太远，请靠近后再试');
-    }
+    const access = WORLD.portalAccess(actor, portal);
+    if (!access.allowed) return reject(access.reason);
     const landing = WORLD.elevatorLanding(targetFloorId, portal.side);
     // 注意：落点就在目标层电梯门口（与 portal 距离 ≤64 是设计意图），不能用 pointSafe
     // （pointSafe 要求远离任何 portal，适用于出生点校验）；此处直接查楼面内/不碰撞/不遮挡。
@@ -1371,6 +1376,7 @@ function createRoom(options = {}) {
     room.challenges.clear();
     room.pending.clear();
     room.floorReceipts.clear();
+    room.glassDoors = {};
     badSlotMap.clear(); badSlotOrder.length = 0; badSlotLabels.clear();
     badSlotsCache = Object.freeze([]); badSlotsDirty = true;
     offlineHits.clear(); interactionEpoch = randomUUID(); finishedExpiryAt = -Infinity;

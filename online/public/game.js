@@ -16,7 +16,8 @@
   let cssW = 960, cssH = 640, scale = 1, viewW = 960, viewH = BASE_H, dpr = 1;
   let cameraX = 0, cameraY = 0, drawCamX = 0, drawCamY = 0;
   // ---------- 楼层渲染状态：只对应当前层，换层时整层原子替换 ----------
-  let floorId = 1, floorName = '';
+  let floorId = 1, floorName = '', glassDoorStates = {};
+  const SCENE = window.SID_SCENE;
   let furniture = [], walls = [], containers = [], occluders = [], npcs = [], portals = [];
   const furnitureSprites = new Map();
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -27,8 +28,8 @@
   // 换层时整层原子替换：floorId、家具/墙/NPC/容器/入口/碰撞集合、点击标签、HUD 全部对应同一新层。
   function loadFloorLocal(id) {
     floorId = id; floorName = WORLD.floorById(id).name;
-    furniture = WORLD.floorFurniture(id); walls = WORLD.floorWalls(id);
-    occluders = furniture.concat(walls); containers = furniture.filter(f => f.container);
+    furniture = WORLD.floorFurniture(id).filter(f => !f.architecturalPlaceholder); walls = WORLD.floorWalls(id);
+    occluders = WORLD.floorBlockers(id, glassDoorStates); containers = furniture.filter(f => f.container);
     npcs = buildNpcs(id); portals = WORLD.floorPortals(id);
   }
   loadFloorLocal(1);
@@ -83,7 +84,7 @@
     }
   }
   function chunkFor(cx, cy) {
-    const key = cx + ':' + cy;
+    const key = floorId + ':' + cx + ':' + cy;
     const hit = chunkCache.get(key); if (hit) return hit;
     const c = document.createElement('canvas'); c.width = CHUNK; c.height = CHUNK;
     const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
@@ -103,13 +104,14 @@
       g.fillStyle = '#5e4936'; g.fillRect(0, y, CHUNK, 1);
       g.fillStyle = '#33251b'; g.fillRect(0, y + 7, CHUNK, 1);
     }
+    if (SCENE) SCENE.floor(g, floorId, cx * CHUNK, cy * CHUNK, CHUNK, CHUNK);
     chunkCache.set(key, c); chunkTotal++; return c;
   }
   // 每帧先把相机矩形相交的块全部就绪并做 LRU 触及，再淘汰离屏块：保证本帧绘制零重烘焙、可见块不被淘汰。
   function ensureChunks(c0x, c0y, c1x, c1y) {
     const keep = new Set();
     for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) {
-      const key = cx + ':' + cy; keep.add(key);
+      const key = floorId + ':' + cx + ':' + cy; keep.add(key);
       if (chunkCache.has(key)) { const v = chunkCache.get(key); chunkCache.delete(key); chunkCache.set(key, v); } // LRU 触及
       else chunkFor(cx, cy);
     }
@@ -409,6 +411,7 @@
       rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
       rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
     }
+    glassDoorStates = Object.fromEntries((s.glassDoors || []).map(d => [d.id, { open: d.open }]));
     serverTime = s.serverTime || Date.now();
     if (s.roundId) roundId = s.roundId;
     serverPerfBase = performance.now();
@@ -448,6 +451,7 @@
         adoptFloor(me.floorId);
       }
     }
+    occluders = WORLD.floorBlockers(floorId, glassDoorStates);
     for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false });
     if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
     renderPublic();
@@ -1619,8 +1623,8 @@
     sendIntent(true);
     const self = selfPlayer(); const fl = WORLD.floorById(id);
     if (self) {
-      cameraX = viewW >= fl.width ? (fl.width - viewW) / 2 : clamp(self.x - viewW / 2, 0, fl.width - viewW);
-      cameraY = viewH >= fl.height ? (fl.height - viewH) / 2 : clamp(self.y - viewH / 2, 0, fl.height - viewH);
+      cameraX = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).x;
+      cameraY = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).y;
       drawCamX = cameraX; drawCamY = cameraY;
     }
     labels = []; updateScoreDisplay(); updateExplorationHUD();
@@ -1649,10 +1653,10 @@
     closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
     elevatorPicker = { portalId };
     const box = $('elevator-floors'); box.replaceChildren();
-    for (let f = 1; f <= WORLD.FLOOR_COUNT; f++) {
-      const btn = document.createElement('button');
-      btn.type = 'button'; btn.className = 'elevator-floor-btn';
-      const fl = WORLD.floorById(f);
+    for (const fl of WORLD.floorOptions()) {
+      const f = fl.id, btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'elevator-floor-btn'; btn.dataset.floorId = String(f);
+      btn.setAttribute('aria-label', `${fl.label} ${fl.name} ${f === floorId ? '当前楼层' : '目标楼层'}`);
       btn.innerHTML = `<span>${f}F</span><small>${fl ? (fl.name || '').replace(/^\d+F\s*·?\s*/, '') : ''}</small>`;
       if (f === floorId) { btn.disabled = true; btn.title = '当前楼层'; btn.innerHTML = `<span>${f}F</span><small>当前楼层</small>`; }
       else btn.onclick = () => { const pid = elevatorPicker ? elevatorPicker.portalId : portalId; closeElevatorPicker(); requestFloorChange(pid, f); };
@@ -1675,6 +1679,8 @@
     if (target === floorId) { showToast('已在本层，请选择其它楼层'); return; }
     const self = selfPlayer();
     if (self && WORLD.distanceToEntity(self, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) { showToast('距离电梯太远，请靠近后再试（64 像素以内）'); return; }
+    const access = WORLD.portalAccess(self, portal);
+    if (!access.allowed) { showToast(access.reason); return; }
     // PREPARING：保留源画面 + 收拢输入 + 准备目标资源（各层 sprite 均已预烘焙）。
     keys.clear(); lastIntent = '';
     clearPrivate(true); closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
@@ -2266,6 +2272,7 @@
   }
   function drawFurniture(f, g = ctx) {
     const { x, y, w, h, type } = f;
+    if (SCENE && SCENE.furniture(g, f)) return;
     if (type === 'table' && /^食堂餐桌/.test(f.label || '')) { drawDiningTable(f, g); return; }
     if (WORLD.deskBranch(f)) { drawWorkstation(f, g); return; }   // 工位岛 / 工位单桌 / 房号竖放单桌
     // §4 C-1 附属：后厨操作台是 0.9m 高操作台（浅石面），不是 1.8m 更衣柜造型 —— 按 label 借 counter 画法。
@@ -2335,7 +2342,8 @@
     glow(g, cx, 21, 46, .5);
   }
   // 家具/墙体 sprite 只为所有楼层的非墙家具烘焙一次；墙体在场景中按程序化面板绘制。
-  (function bakeSprites() {
+  function bakeSprites() {
+    furnitureSprites.clear();
     for (const key of Object.keys(WORLD.FLOORS)) {
       for (const f of WORLD.FLOORS[key].furniture) {
         // 阶段2-2a（§3 C0-2）：per-type 烘焙 padding；画布 (w+2padX)×(h+padUp+padDown)，绘制偏移 (-padX,-padUp)。
@@ -2351,7 +2359,9 @@
         drawFurniture(local, g); furnitureSprites.set(f.id, c);
       }
     }
-  })();
+  }
+  bakeSprites();
+  if (SCENE) SCENE.ready.then(() => { chunkCache.clear(); chunkTotal = 0; bakeSprites(); draw(); });
   function drawWallPanel(f) {
     rect(f.x, f.y, f.w, f.h, '#5b4a3c');
     rect(f.x, f.y, f.w, 3, '#8d745e');
@@ -2619,7 +2629,7 @@
     const c0x = Math.floor(camX / CHUNK), c1x = Math.floor((camX + viewW) / CHUNK);
     const c0y = Math.floor(camY / CHUNK), c1y = Math.floor((camY + viewH) / CHUNK);
     ensureChunks(c0x, c0y, c1x, c1y);
-    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkCache.get(cx + ':' + cy), cx * CHUNK, cy * CHUNK);
+    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkCache.get(floorId + ':' + cx + ':' + cy), cx * CHUNK, cy * CHUNK);
     ctx.restore();
     // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
     drawBackWall(f);
@@ -2627,6 +2637,7 @@
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
     if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
+    if (SCENE) SCENE.halls(ctx, f, glassDoorStates);
     const list = drawList();
     const near = (x, y, w, h, padx, pady) => x + w + padx > camX && x - padx < camX + viewW && y + h + pady > camY && y - (pady + 20) < camY + viewH;
     const scene = [
@@ -2690,10 +2701,10 @@
     const fl = WORLD.floorById(floorId);
     // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
     if (self) {
-      cameraX = viewW >= fl.width ? (fl.width - viewW) / 2 : clamp(self.x - viewW / 2, 0, fl.width - viewW);
-      cameraY = viewH >= fl.height ? (fl.height - viewH) / 2 : clamp(self.y - viewH / 2, 0, fl.height - viewH);
+      cameraX = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).x;
+      cameraY = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).y;
     } else {
-      cameraX = clamp(cameraX, 0, Math.max(0, fl.width - viewW));
+      cameraX = WORLD.cameraBounds(floorId, viewW, viewH, cameraX + viewW / 2, cameraY + viewH / 2).x;
       cameraY = clamp(cameraY, 0, Math.max(0, fl.height - viewH));
     }
     $('floor-indicator').textContent = `${floorId}F`;

@@ -5,17 +5,21 @@
 - `demo/` —— 离线试玩版（单人对 19 名本地模拟玩家，无网络、不存档）
 - `online/` —— 局域网联机版（服务端权威：位置、技能、探索、转盘、猜拳、互动、计分与结束判定全部在服务端计算）
 
-两版共用同一份地图与规则文件 `online/shared/world.js`（服务端与浏览器都能加载）。
+两版共用同一份地图与规则文件 `online/shared/world.js`（服务端与浏览器都能加载），并共用浏览器场景绘制文件 `online/shared/scene.js`。
+
+> **本轮状态（2026-10-14）：三份真实素材包（Kenney CC0 ×2 + Antea CC-BY ×1）与独立电梯厅已集成，独立最终验收中。** 本文件下方旧测试与部署记录是历史记录，不代表本轮全部通过或已上线；本轮准确边界与证据见 `design/CHANGELOG-真实素材与独立电梯厅.md`，第三方署名见本文末“第三方素材署名”。未 commit、push、deploy，未重启既有 8787 实例。
 
 ## 运行
 
-离线试玩：直接打开 `demo/index.html` 即可（需要 `online/shared/world.js` 在场，目录结构不要拆散）。
+离线试玩：直接打开 `demo/index.html` 即可（需要 `online/shared/world.js`、`online/shared/scene.js` 与 `online/public/assets/vendor/` 在场，目录结构不要拆散；图片从本地相对路径加载）。
 
 联机版：
 
 ```bash
-PORT=8787 node online/server.js
-# 浏览器访问 http://127.0.0.1:8787/
+# 本轮验收必须另选空闲回环端口，勿占用或重启现有 8787
+HOST=127.0.0.1 PORT=8788 SID_SSO=0 node online/server.js
+# 浏览器访问 http://127.0.0.1:8788/
+# SID_SSO=0 仅用于本地昵称试玩，正式环境不要沿用
 ```
 
 要求 Node.js 22+。第一位加入者是坏人，其后全部是好人；主持人/开发重置仅在本机开发开关下可用。
@@ -24,7 +28,9 @@ PORT=8787 node online/server.js
 
 | 路径 | 说明 |
 | --- | --- |
-| `online/shared/world.js` | 共享地图、家具足迹与深度、遮挡、NPC、容器，以及全部可调参数（`PLAY_CONFIG` / `WHEEL` / `SCORE` / `RULES`） |
+| `online/shared/world.js` | 共享地图、家具足迹与深度、遮挡、NPC、容器、电梯厅/玻璃门/楼层选项，以及全部可调参数（`PLAY_CONFIG` / `WHEEL` / `SCORE` / `RULES`） |
+| `online/shared/scene.js` | 两版共用的图片加载、地板瓦片/家具绘制、电梯厅与玻璃门动画；不替代服务端碰撞与规则 |
+| `online/public/assets/vendor/` | 已下载的真实素材：Kenney 两包（CC0）、Antea 一包（CC-BY，需署名），各自带来源/许可文件（Kenney `source.json`+`License.txt`；Antea `LICENSE.txt`），运行版本须一起保留 |
 | `online/room.js` | 权威房间：移动、技能、探索、转盘、猜拳、J 互动、计分、结束判定与投影，并存上一局结算快照 `lastResult` |
 | `online/manager.js` | 公网管理控制台：授权码登录、会话/CSRF、登录限流、上局排名读取、一键开新局 |
 | `online/server.js` | HTTP/SSE 服务、鉴权、开发管理接口、管理控制台路由、20Hz 快照调度 |
@@ -135,7 +141,7 @@ node online/deploy-smoke.mjs https://game.afann.xyz
 
 > Chrome 路径默认取 Windows 的 `C:/Program Files/Google/Chrome/Application/chrome.exe`；在 Linux 上跑浏览器脚本时用 `SID_CHROME=/usr/bin/google-chrome` 覆盖（管理页两个浏览器脚本已支持该环境变量）。
 
-最近一次结果：服务端 **29/25/15/11/14/30/35/23/23** 与浏览器 **19/17/17** 全部通过，页面全程无 JavaScript 异常；新增的管理控制台自测 **60/60**、本地真实浏览器验收 **13/13**、公网只读浏览器验收 **7/7**、线上冒烟 **32/32**，VPS 隔离端口端到端（结束局→读排名→开新局）**12/12**。浏览器脚本零依赖，结束时关闭自身启动的 Chrome 与 HTTP 子进程，日志与截图写入 `outputs/`。
+历史记录（不代表本轮当前树）：服务端 **29/25/15/11/14/30/35/23/23** 与浏览器 **19/17/17** 全部通过，页面全程无 JavaScript 异常；新增的管理控制台自测 **60/60**、本地真实浏览器验收 **13/13**、公网只读浏览器验收 **7/7**、线上冒烟 **32/32**，VPS 隔离端口端到端（结束局→读排名→开新局）**12/12**。浏览器脚本零依赖，结束时关闭自身启动的 Chrome 与 HTTP 子进程，日志与截图写入 `outputs/`。
 
 ## 管理控制台（/manager）
 
@@ -159,7 +165,7 @@ node online/deploy-smoke.mjs https://game.afann.xyz
 
 ## 公网部署（game.afann.xyz）
 
-线上实例与仓库同一份代码，服务器侧结构如下：
+以下为既有部署记录；本轮未部署，不能据此认定线上实例已与当前工作树一致。服务器侧既有结构如下：
 
 | 项 | 值 |
 | --- | --- |
@@ -301,3 +307,32 @@ node online/deploy-smoke.mjs https://game.afann.xyz
 验证：结构自检（7 层出生点 / 14 个门洞 / 17 容器 / blocks 互不重叠 / 两侧电梯落点全通）；电梯协议单元验证（非法层/当前层/距离守卫/门口落地 d≤14/幂等重放/commandId 冲突/1F↔7F 直达）；测试套件绿项全过（self 11/11、hammer 50/50、npc 38/38、ghost-offline 101/101、bad-pool 15/15、privacy-reset 23/23、manager 60/60），既有红项 **mechanics 4→5、exploration 6→7 通过数增加**，movement-attack 13/16、progression 7/8 持平——无新增失败。目视验证见 `outputs/verify-1f.png`、`outputs/verify-2f.png`、`outputs/verify-7f.png`。
 
 详见 `design/CHANGELOG-五项场景修改.md`。**本轮改动未提交。**
+
+## 本轮变更：真实素材与独立电梯厅（2026-10-14，验收中）
+
+- **真实素材接入**：`online/` 与 `demo/` 共用 `online/shared/scene.js`，实际加载三个已真实取得的素材包：Kenney Roguelike Indoors / Roguelike Modern City（CC0 图集，按原图 16×16、1px 间隔逐块 `drawImage`）与 Antea 办公家具包（CC-BY，43 个独立 PNG，16/32px）。图片就绪后重建家具缓存，地板块缓存区分楼层。来源与许可位于 `online/public/assets/vendor/{kenney-indoors,kenney-modern-city,antea-office}/`；原始 ZIP、SHA-256 与选片证据见 `outputs/asset-acquisition/`。
+- **家具已是真实精灵**：`desk`→Antea `Desk`/`Desk-2`（含显示器）、`seat`→`Chair`、`sofa`→`Big-Sofa`/`Small-Sofa`、`plant`→`Big/Small-Plant`、`cabinet`→`Filing-Cabinet` 系列、`table`→1F 用 Kenney 木桌、其余层用 Antea 圆桌、`counter`/`reception`→Antea `Small-Table`（1F 取餐台用 Kenney 厨房台）。仍无素材的类型（跑步机/哑铃架等）保持程序化 fallback，未写为已替换。
+- **逐层地材（已修复误用草地）**：1F indoors 木纹 `24,0–24,3`、2F city 浅灰 `18–20,1`、3F city 灰石 `10–12,1`、4F city 红褐砖 `1–3,1`、5F city 米色 `25–28,1`、6F city 蓝灰格 `0–2,19`、7F indoors 绿色 `24,4–24,7`，电梯厅地坪统一 city `0/1,19`。此前“1F/2F/4F/5F 误用 city 第 26 行草地”已修复；6F 亦由 `(2,3,4,19)` 更正为 `(0,1,2,19)`（实测 `(3,19)(4,19)` 为米色，会与 5F 撞色）。
+- **覆盖边界**：沙发/显示器/打印机/白板/售货机/饮水机等已由 Antea 补齐但**仍待美术按层复核**；跑步机/哑铃架与俯视角色动画仍缺，角色与部分后墙/玻璃门/电梯继续程序绘制。Pixel Office 下载请求 502，未取得 ZIP，不列为已使用素材。
+- **双侧独立电梯厅**：7 层 × 左右 2 厅 = 14 厅，各 `144×96`；主楼保持 `1440×400`、归一化比例 `0.96/0.4`，横向世界边界增为 `[-144,1584]`，不是缩放原楼。两版及服务端相机边界同步读取共享数据。
+- **自动玻璃滑门**：48px 厅口开口，活着且在线的同层玩家靠近触发，离开后 650ms 延迟关闭；联机门状态服务端权威，快照仅下发门 ID/open，离线版使用同一状态函数。
+- **真实 ID 选层**：两版据 `WORLD.floorOptions()` 生成 1–7F 按钮，附 `data-floor-id` / `aria-label`；须进入同侧厅、64px 内并面向电梯才能乘梯，落在目标层同侧厅内。无合法落点则拒绝，不强行穿墙或换侧。窄屏面板已加 border-box、零最小宽度、文本换行与内部滚动，独立命中测试仍待 QA。
+
+### 本轮运行与证据
+
+- 离线：直接打开 `demo/index.html`，保留与 `online/shared/`、`online/public/assets/vendor/` 的相对目录结构。
+- 新树联机本地试玩：从仓库根目录在**另一个空闲回环端口**启动，例如 PowerShell `$env:HOST='127.0.0.1'; $env:PORT='8788'; $env:SID_SSO='0'; node online/server.js`，再访问 `http://127.0.0.1:8788/`。该关闭 SSO 设置仅供本地昵称试玩，不用于正式环境。本轮不重启既有 8787/PID 9332；其服务端逻辑未重新加载，不能作为新树验收实例。
+- 工程自检入口：`node online/elevator-world-test.mjs`、`node online/elevator-room-test.mjs`、`node online/elevator-browser-test.mjs`（由工程/QA 执行，需已有系统 Chrome）。
+- 工程自检证据：`outputs/engine-elevator-results.json`、`outputs/engine-picker-{1440,768,390}.png`、`outputs/engine-online-4f-west.png`、`outputs/engine-demo-{1..7}f.png`。工程在每处修改后均重跑 `online/elevator-browser-test.mjs` 并 PASS，截图为修正后版本；但这仍属工程自测，不等于独立终验，绘制次数不代替美术审核，独立复核由 quality-lead 进行。
+- 独立 QA 入口：`outputs/qa-floor-final/`；当前仍在验收和旧回归归因中。281/363 逻辑套件、5/17 旧探索浏览器是已观测结果，不是本轮完整 PASS，也不能仅凭目录名宣称改动前基线或无新增失败。
+
+### 第三方素材署名（必须保留）
+
+运行素材来自以下第三方包，按其授权要求署名；不要移除署名。
+
+- **Antea 办公家具包 —— CC-BY，允许商用但必须署名**：作者 `Antea ✮⋆˙ (stcrbcn)`，来源 https://stcrbcn.itch.io/furniture-office-set （包名 Free Furniture Office Equipment Set）。用于 2F–6F 办公桌/椅/沙发/文件柜/打印机/白板/售货机/饮水机等。**CC-BY 署名是硬性义务**，随包发布、改版、转商用均须保留。
+- **Kenney Roguelike Indoors / Roguelike Modern City —— CC0，无需署名**：作者 Kenney / Kenney Vleugels，来源 https://kenney.nl/assets/roguelike-indoors 、https://kenney.nl/assets/roguelike-modern-city 。CC0 无署名义务，仍保留来源与许可以便审计。
+
+> 建议署名位置：本 README 小节 + 游戏内“关于/致谢”页。授权凭据：`online/public/assets/vendor/antea-office/LICENSE.txt`（作者/来源/CC-BY 强制署名文本/原包 SHA256/43 精灵清单/缺项）与 `outputs/asset-acquisition/antea-office.json`；原 Antea 包未附独立许可文件，该 `LICENSE.txt` 为依据包页 CC-BY 声明的自撰凭据。建议署名文本：`Office furniture sprites by Antea (stcrbcn) — https://stcrbcn.itch.io/furniture-office-set — Licensed under CC-BY`。
+
+**当前发布门控：待审，不批准上线；无 commit/push/deploy。** 详见 `design/CHANGELOG-真实素材与独立电梯厅.md`，待独立 QA 与美术结论后再更新准确统计和残余风险。

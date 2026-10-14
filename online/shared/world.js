@@ -96,7 +96,7 @@
     const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) * 2));
     for (let i = 0; i <= steps; i++) {
       const x = a.x + (b.x - a.x) * i / steps, y = a.y + (b.y - a.y) * i / steps;
-      if (furniture.some(({ footprint: f }) => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h)) return false;
+      if (furniture.some(({ footprint: f }) => f && x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h)) return false;
     }
     return true;
   }
@@ -113,6 +113,7 @@
   // 「东侧走廊 + 东侧服务翼（电梯厅/楼梯间/卫生间）」。y 轴保持 0–1000（1 单位 = 0.4px）。
   const FLOOR_W = 1440, FLOOR_H = 400; // 每层世界像素尺寸（二维相机需要纵向空间）
   const X_SPAN = 1500, Y_SPAN = 1000;
+  const LIFT_CONFIG = Object.freeze({ hallW: 144, hallH: 96, opening: 48, trigger: 38, closeDelayMs: 650 });
   // 归一化坐标 → 世界像素（x/y 各按自身设计跨度换算，保持 2.4:1 斜俯视与既有像素尺度）。
   const nX = v => Math.round(v / X_SPAN * FLOOR_W);
   const nY = v => Math.round(v / Y_SPAN * FLOOR_H);
@@ -515,6 +516,8 @@
           footprint: { x: r.x, y: r.y + r.h - footHeight, w: r.w, h: footHeight }, depth: r.y + r.h };
         // 行走碰撞 = 单体底部足迹并集（R-DECOMP）；f.footprint 语义不变。
         f.blocks = blocksFor(f);
+        // Preserve the row and decorative ID, but an elevator hall is not a cabinet.
+        if (label === '东侧电梯厅') { f.architecturalPlaceholder = true; f.blocks = []; f.footprint = null; f.w = 0; f.h = 0; }
         if (container) f.container = container;
         floor.furniture.push(f);
       });
@@ -562,23 +565,40 @@
         right: floor.spawnPoints.filter(p => p.x > floor.width / 2).map(p => ({ ...p }))
       };
       FLOORS[spec.id] = floor;
-      // 电梯：每层西/东各一部，**不分上下方向**。玩家进门后自选目标层（1–7），落在目标层同侧电梯门口。
-      // 稳定 ID 为 `f{层}:portal:{side}`；避障搜索把入口脚点挪到最近可通行位置。
-      const mkPortal = (side) => {
-        const pt = side === 'left' ? spec.stairLeft : spec.stairRight;
-        let x = nX(pt[0]), y = nY(pt[1]);
-        if (floorCollides(spec.id, x, y, floor.furniture.concat(floor.walls))) {
-          const blockers = floor.furniture.concat(floor.walls);
-          outer: for (let r = 4; r <= 24; r += 4) {
-            for (const [dx, dy] of [[0,-r],[0,r],[-r,0],[r,0]]) {
-              if (inFloor(spec.id, x + dx, y + dy) && !collidesAt(x + dx, y + dy, blockers)) { x += dx; y += dy; break outer; }
+      // Annex geometry is in world pixels; the original normalized floor never moves or scales.
+      floor.halls = []; floor.glassDoors = [];
+      floor.worldBounds = { minX: -LIFT_CONFIG.hallW, maxX: FLOOR_W + LIFT_CONFIG.hallW, minY: 0, maxY: FLOOR_H };
+      const staticBlockers = floor.furniture.concat(floor.walls);
+      for (const side of ['left', 'right']) {
+        const edgeX = side === 'left' ? 0 : FLOOR_W;
+        const approachX = edgeX + (side === 'left' ? 28 : -28);
+        // The west entrance must avoid conference walls/core cabinets. Pick a genuine free corridor.
+        let entryY = null;
+        for (const cy of [100, 96, 108, 92, 80, 120, 140, 156, 176, 200]) {
+          let safe = true;
+          for (let x = side === 'left' ? 0 : FLOOR_W - 48; x <= (side === 'left' ? 48 : FLOOR_W); x += 4) {
+            for (let y = cy - 12; y <= cy + 12; y += 4) {
+              if (!inMainFloor(floor, x === FLOOR_W ? x - .01 : x + .01, y) || collidesAt(x, y, staticBlockers)) safe = false;
             }
           }
+          if (safe) { entryY = cy; break; }
         }
-        floor.portals.push({ id: `f${spec.id}:portal:${side}`, floorId: spec.id, side, x, y, w: 25, h: 18 });
-      };
-      mkPortal('left');
-      mkPortal('right');
+        if (entryY === null) throw new Error(`No safe annex entrance for ${spec.id}F ${side}`);
+        const hall = { id: `f${spec.id}:hall:${side}`, side, x: side === 'left' ? -144 : FLOOR_W,
+          y: entryY - 48, w: 144, h: 96, entryY, approach: { x: approachX, y: entryY } };
+        floor.halls.push(hall);
+        const addWall = (name, x, y, w, h) => floor.walls.push({ id: `${hall.id}:wall:${name}`, x, y, w, h,
+          type: 'wall', footprint: { x, y, w, h }, depth: y + h });
+        addWall('north', hall.x, hall.y, hall.w, 4);
+        addWall('south', hall.x, hall.y + hall.h - 4, hall.w, 4);
+        addWall('outer', side === 'left' ? hall.x : hall.x + hall.w - 4, hall.y, 4, hall.h);
+        addWall('entry-north', edgeX - 2, hall.y, 4, 24);
+        addWall('entry-south', edgeX - 2, entryY + 24, 4, 24);
+        floor.glassDoors.push({ id: `${hall.id}:glass`, hallId: hall.id, side, x: edgeX, y: entryY,
+          opening: 48, footprint: { x: edgeX - 2, y: entryY - 24, w: 4, h: 48 }, depth: entryY + 24 });
+        floor.portals.push({ id: `f${spec.id}:portal:${side}`, floorId: spec.id, side,
+          x: hall.x + 72, y: entryY - 12, w: 64, h: 30 });
+      }
       // 阶段3：西侧 portal 统一落在「西侧核心筒」中心（stairLeft x=70，与参考图 5F/6F 一致），
       // 3F/4F 原有的局部重排（把左门挪到桌南空带）随之取消：锚点不再落在桌面遮挡足迹内。
       // NPC：唯一迁移且保留原 ID，floorId 独立决定归属。
@@ -592,9 +612,29 @@
     }
   })();
 
-  function floorById(id) { return FLOORS[Number(id)] || FLOORS[1]; }
-  // 该层全部碰撞体（家具足迹 + 墙体），服务端与客户端共用同一份。
-  function floorBlockers(floorId) { const f = floorById(floorId); return f.furniture.concat(f.walls); }
+  function floorById(id = 1) { const n = Number(id); return Number.isSafeInteger(n) ? FLOORS[n] || null : null; }
+  function floorOptions() { return FLOOR_SPECS.map(f => ({ id: f.id, label: `${f.id}F`, name: f.name })); }
+  function inHall(floorId, side, x, y) {
+    const f = floorById(floorId), hall = f && f.halls.find(h => h.side === side);
+    return !!hall && x > hall.x && x < hall.x + hall.w && y > hall.y && y < hall.y + hall.h;
+  }
+  // Only public door states are replicated; no actor identity or faction enters this state machine.
+  function advanceGlassDoors(floorId, previous, actors, now) {
+    const f = floorById(floorId), next = {};
+    for (const d of f.glassDoors) {
+      const near = actors.some(p => p.floorId === floorId && p.online !== false && p.alive !== false &&
+        Math.abs(p.x - d.x) <= LIFT_CONFIG.trigger && Math.abs(p.y - d.y) <= d.opening / 2 + 12);
+      const old = previous[d.id] || { open: false, holdUntil: 0 };
+      next[d.id] = { open: near || now < old.holdUntil, holdUntil: near ? now + LIFT_CONFIG.closeDelayMs : old.holdUntil };
+    }
+    return next;
+  }
+  function floorBlockers(floorId, doorStates) {
+    const f = floorById(floorId);
+    if (!f) return [];
+    return f.furniture.filter(q => !q.architecturalPlaceholder).concat(f.walls,
+      doorStates ? f.glassDoors.filter(d => !(doorStates[d.id] && doorStates[d.id].open)) : []);
+  }
   function floorFurniture(floorId) { return floorById(floorId).furniture.slice(); }
   function floorWalls(floorId) { return floorById(floorId).walls.slice(); }
   function floorPortals(floorId) { return floorById(floorId).portals.map(p => ({ ...p })); }
@@ -635,13 +675,17 @@
     for (const [x, y] of candidates) {
       if (inFloor(floorId, x, y) && !collidesAt(x, y, blockers) && !coverFor({ x, y }, blockers)) return { x, y };
     }
-    return { x: portal.x, y: portal.y };
+    return null;
   }
   function floorNpcs(floorId) { return floorById(floorId).npcs.map(n => ({ ...n })); }
   function floorContainers(floorId) { return floorById(floorId).furniture.filter(f => f.container).map(f => ({ ...f, footprint: { ...f.footprint } })); }
   // 点是否在该层楼面内（多边形内），用于「轮廓外禁止行走」。
   function inFloor(floorId, x, y) {
-    const poly = floorById(floorId).polygon;
+    const f = floorById(floorId);
+    return !!f && (inMainFloor(f, x, y) || f.halls.some(h => x >= h.x && x <= h.x + h.w && y > h.y && y < h.y + h.h));
+  }
+  function inMainFloor(floor, x, y) {
+    const poly = floor.polygon;
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
       const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
@@ -654,7 +698,12 @@
     if (!inFloor(floorId, x, y)) return true;
     return collidesAt(x, y, blockers || floorBlockers(floorId));
   }
-  function floorBounds(floorId) { const f = floorById(floorId); return { minX: 24, maxX: f.width - 24, minY: 40, maxY: f.height - 24 }; }
+  function floorBounds(floorId) { const f = floorById(floorId); return { minX: f.worldBounds.minX + 12, maxX: f.worldBounds.maxX - 12, minY: 40, maxY: f.height - 24 }; }
+  function cameraBounds(floorId, viewW, viewH, x, y) {
+    const b = floorById(floorId).worldBounds, w = b.maxX - b.minX, h = b.maxY - b.minY;
+    return { x: viewW >= w ? b.minX + (w - viewW) / 2 : Math.max(b.minX, Math.min(b.maxX - viewW, x - viewW / 2)),
+      y: viewH >= h ? b.minY + (h - viewH) / 2 : Math.max(b.minY, Math.min(b.maxY - viewH, y - viewH / 2)) };
+  }
   // 兼容旧接口：返回指定层（默认 1F）的家具，供仍按单层语义调用的代码使用。
   function makeFurniture(floorId = 1) { return floorFurniture(floorId); }
   function collidesAt(x, y, items) {
@@ -711,6 +760,8 @@
   // 资格：inReach（进入交互半径）/ facingOk（面向门，cos≥0.5）/ allowed（可提交）。
   function portalAccess(actor, portal, range = INTERACT_RANGE) {
     if (!actor || !portal) return { inReach: false, facingOk: false, allowed: false, reason: '无可用电梯门' };
+    if (actor.floorId !== portal.floorId || !inHall(portal.floorId, portal.side, actor.x, actor.y))
+      return { inReach: false, facingOk: false, allowed: false, reason: '请穿过玻璃门进入电梯厅后乘梯' };
     const dx = portal.x - actor.x, dy = portal.y - actor.y, d = Math.hypot(dx, dy);
     if (d > range) return { inReach: false, facingOk: false, allowed: false, reason: '距离电梯太远，请靠近后再按 E（64 像素以内）' };
     if (d === 0) return { inReach: true, facingOk: true, allowed: true, reason: '' };
@@ -896,7 +947,8 @@
     PLAY_CONFIG, rpsOutcome, lineClear, spriteDirection, drawCharacterBody, ATTACK_ANIMATION_MS,
     RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool,
     // 七层楼层数据与查询接口（服务端权威、两端同源）。
-    FLOOR_BASE_HEIGHT, FLOOR_W, FLOOR_H, FLOORS, CONTAINER_NAMES, floorById, floorBlockers,
+    FLOOR_BASE_HEIGHT, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOORS, CONTAINER_NAMES, floorById, floorBlockers,
+    floorOptions, inHall, advanceGlassDoors, cameraBounds,
     floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorNpcs, floorContainers,
     FLOOR_COUNT: FLOOR_SPECS.length,
     inFloor, floorCollides, floorBounds,
