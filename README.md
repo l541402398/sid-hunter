@@ -199,6 +199,14 @@ StandardError=append:/var/log/sid-hunter.log
 WantedBy=multi-user.target
 ```
 
+单点登录（CAS）配置：
+
+- 合并后正式模式**默认要求 CAS 登录**（`SID_SSO=0` 或 `SID_TEST=1` 可关闭，回到昵称加入）；systemd 至少要有 `SSO_LOGIN_URL` 与 `SSO_VALIDATE_URL`，否则用 `online/sso.js` 的默认值。
+- `SSO_VALIDATE_URL` 的默认值 `http://cas.x/p3/serviceValidate` **只是占位符**，部署时必须覆盖；实际端点是 `http://172.26.1.10/p3/serviceValidate?service={service}&ticket={ticket}`。
+- 校验端点必须用 **http**：公司 CAS 的证书链在多数机器上不受信，Node 的 `fetch` 走 https 会报 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`，现象是浏览器里 CAS 明明登录成功、回到页面却提示「单点登录失败，请重试」；而 `curl -k` 能通过，很容易误判。浏览器登录入口 `SSO_LOGIN_URL` 仍用 https。
+- 想走 https 校验就得给内网 CA：`NODE_EXTRA_CA_CERTS=/path/to/ca.pem`，或在 systemd 里放宽证书链。
+- 配置可写在仓库根目录 `.env`（已被 `.gitignore` 忽略，见 `.env.example`）或 systemd 的 `Environment=`；两者同时存在时进程环境优先（`sso.js` 只补空缺）。
+
 反向代理要点（完整文件见服务器上的 `proxy/root.conf`）：
 
 - `/api/stream` 单独成一个 `location`，`proxy_buffering off` + `proxy_read_timeout 7200s` + `gzip off`，否则 20Hz SSE 会被缓冲或掐断。
