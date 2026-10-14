@@ -213,7 +213,7 @@ try {
     assert.equal(await ev(`document.querySelector('#exploration h2').textContent`), '接待员小禾'); await click('#exploration-action');
     let s = await demoSnapshot(); assert.equal(s.exploration.chips, 0); assert.equal(s.exploration.clues.length, 1); await click('#exploration-close');
     await setPosition(832, 205); await canvasClick(825 - (await demoSnapshot()).cameraX, 185);
-    assert.equal(await ev(`document.querySelector('#exploration h2').textContent`), '储物柜'); await click('#exploration-action'); assert.equal((await demoSnapshot()).exploration.clues.length, 2); await click('#exploration-close');
+    assert.equal(await ev(`document.querySelector('#exploration h2').textContent`), '核心筒'); await click('#exploration-action'); assert.equal((await demoSnapshot()).exploration.clues.length, 2); await click('#exploration-close');
     s = await demoSnapshot(); const publicBefore = JSON.stringify(s.projections), logsBefore = JSON.stringify(s.logs);
     for (const mode of ['关闭', 'Esc', 'blur']) { await click('#clue-bag'); assert.equal(await ev(`document.querySelectorAll('.clue-card').length`), 2); if (mode === '关闭') await click('#exploration-close'); else if (mode === 'Esc') await key('Escape', 'Escape', 27); else await ev(`window.dispatchEvent(new Event('blur'))`); await assertDestroyed(); }
     assert.equal(JSON.stringify((await demoSnapshot()).projections), publicBefore); assert.equal(JSON.stringify((await demoSnapshot()).logs), logsBefore);

@@ -169,6 +169,8 @@
   // 电梯过渡状态机：IDLE_SOURCE → PREPARING → SUBMITTING → TARGET_READY → OPENING → IDLE_TARGET
   // 失败分 FAILED_SOURCE（已证实未换层，恢复源层）与 UNCONFIRMED（结果不明，只读对账）。
   let floorState = 'IDLE_SOURCE', floorFlight = null, floorPending = null;
+  // 电梯选层面板：不分方向的电梯，进门（E / 点击）先弹选层（1–7，禁当前层），选定后才发起换层。
+  let elevatorPicker = null; // { portalId }
   let floorStartedAt = 0, floorNoticeTimer = null, floorStageTimer = null, roundId = null;
   let privateOpen = false, mineOpen = false, pending = null, privateResult = '';
   let sessionGeneration = 0, privateGeneration = 0, explorationGeneration = 0;
@@ -1547,7 +1549,7 @@
   // 顺序：准备目标资源 + 保留源画面 → 单次原子提交 → 权威确认 + 目标层首帧就绪 → 开门 → 恢复输入。
   // 失败分 FAILED_SOURCE（已证实未换层，回源层）与 UNCONFIRMED（结果不明，只读对账，不重发）。
   const reduceMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  function floorArrowText(from, to, dir) { return `${from}F ${dir === 'down' ? '↓' : dir === 'up' ? '↑' : '→'} ${to}F`; }
+  function floorArrowText(from, to) { return `${from}F → ${to}F`; }
   function showFloorOverlay(arrow, phase, detail) {
     const overlay = $('floor-transition'); if (!overlay) return;
     overlay.hidden = false;
@@ -1609,7 +1611,7 @@
       renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false });
     }
     // 属于源层的即时面板与选择一次性清空，避免残留指向旧层。
-    closeExploration(); closeGames(); closeWheel();
+    closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
     $('candidates').hidden = true; $('candidates').replaceChildren();
     selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); clearPrivate(true);
     nearbySig = ''; // 强制重建就近列表与描边
@@ -1624,29 +1626,65 @@
     labels = []; updateScoreDisplay(); updateExplorationHUD();
     draw();
   }
-  function requestFloorChange(portalId) {
+  // 电梯选层面板：进门（E / 点击门）→ 弹出 1–7 楼层按钮（当前层禁选）→ 选定后发起换层。
+  // 面板期间可随时 Esc / 点 × / 移动取消；提交时再按「距离 + 面向」守卫复查（服务端仍会再判一次）。
+  function closeElevatorPicker() {
+    if (!elevatorPicker) return false;
+    elevatorPicker = null;
+    const overlay = $('elevator-picker'); if (overlay) overlay.hidden = true;
+    return true;
+  }
+  function openElevatorPicker(portalId) {
     if (!me || !me.alive || finished) return;
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return; // 过渡期间不重复发起
     if (selfDisabled()) { showToast('眩晕/僵直中，暂时无法乘梯'); return; }
     if (interactionFlight || combatFlight || gamesFlight || wheelSpinFlight) return;
     const portal = portals.find(p => p.id === portalId);
     if (!portal) return;
-    // 客户端预判边界（服务端仍会再判一次，双端一致文案）。
-    if (portal.dir === 'up' && floorId >= 7) { showToast('7F 已是最上层，无法上行'); return; }
-    if (portal.dir === 'down' && floorId <= 1) { showToast('1F 已是最下层，无法下行'); return; }
-    if (!portal.targetFloorId) { showToast('该入口当前不可用'); return; }
     const self = selfPlayer();
-    if (self && WORLD.distanceToEntity(self, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) { showToast('距离入口太远，请靠近后再试（64 像素以内）'); return; }
+    if (!self) return;
+    const access = WORLD.portalAccess(self, portal);
+    if (!access.inReach) { showToast(access.reason || '距离电梯太远，请靠近后再按 E'); return; }
+    if (!access.facingOk) { showToast(access.reason || '请面向电梯门后再按 E'); return; }
+    closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
+    elevatorPicker = { portalId };
+    const box = $('elevator-floors'); box.replaceChildren();
+    for (let f = 1; f <= WORLD.FLOOR_COUNT; f++) {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'elevator-floor-btn';
+      const fl = WORLD.floorById(f);
+      btn.innerHTML = `<span>${f}F</span><small>${fl ? (fl.name || '').replace(/^\d+F\s*·?\s*/, '') : ''}</small>`;
+      if (f === floorId) { btn.disabled = true; btn.title = '当前楼层'; btn.innerHTML = `<span>${f}F</span><small>当前楼层</small>`; }
+      else btn.onclick = () => { const pid = elevatorPicker ? elevatorPicker.portalId : portalId; closeElevatorPicker(); requestFloorChange(pid, f); };
+      box.append(btn);
+    }
+    const title = $('elevator-picker-title');
+    if (title) title.textContent = `请选择楼层（当前 ${floorId}F）`;
+    $('elevator-picker').hidden = false;
+  }
+  function requestFloorChange(portalId, targetFloorId) {
+    if (!me || !me.alive || finished) return;
+    if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return; // 过渡期间不重复发起
+    if (selfDisabled()) { showToast('眩晕/僵直中，暂时无法乘梯'); return; }
+    if (interactionFlight || combatFlight || gamesFlight || wheelSpinFlight) return;
+    const portal = portals.find(p => p.id === portalId);
+    if (!portal) return;
+    // 电梯无方向：目标层 1–7 任选（除当前层）；客户端先判一次，服务端仍会再判。
+    const target = Number(targetFloorId);
+    if (!Number.isSafeInteger(target) || target < 1 || target > WORLD.FLOOR_COUNT) { showToast('目标楼层无效（1–7）'); return; }
+    if (target === floorId) { showToast('已在本层，请选择其它楼层'); return; }
+    const self = selfPlayer();
+    if (self && WORLD.distanceToEntity(self, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) { showToast('距离电梯太远，请靠近后再试（64 像素以内）'); return; }
     // PREPARING：保留源画面 + 收拢输入 + 准备目标资源（各层 sprite 均已预烘焙）。
     keys.clear(); lastIntent = '';
-    clearPrivate(true); closeExploration(); closeGames(); closeWheel();
+    clearPrivate(true); closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
     $('candidates').hidden = true; $('candidates').replaceChildren(); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster();
     floorFlight = {
-      commandId: commandId(), portalId, fromFloorId: floorId, targetFloorId: portal.targetFloorId,
-      dir: portal.dir, roundId, expectedFloorRevision: me.floorRevision, submitted: false
+      commandId: commandId(), portalId, fromFloorId: floorId, targetFloorId: target,
+      roundId, expectedFloorRevision: me.floorRevision, submitted: false
     };
     floorState = 'PREPARING';
-    showFloorOverlay(floorArrowText(floorId, portal.targetFloorId, portal.dir), '正在准备目标楼层…', '保留当前画面 · 准备目标楼层资源');
+    showFloorOverlay(floorArrowText(floorId, target), '正在准备目标楼层…', '保留当前画面 · 准备目标楼层资源');
     floorDoorsClosed(true);
     floorStartedAt = performance.now();
     floorStageTimer = setTimeout(floorSlowStage, 2000);
@@ -1665,7 +1703,8 @@
     try {
       res = await api('/api/floor-change', {
         commandId: flight.commandId, roundId: flight.roundId, portalId: flight.portalId,
-        expectedFloorId: flight.fromFloorId, expectedFloorRevision: flight.expectedFloorRevision
+        expectedFloorId: flight.fromFloorId, expectedFloorRevision: flight.expectedFloorRevision,
+        targetFloorId: flight.targetFloorId
       });
     } catch { res = null; }
     if (floorFlight !== flight) return; // 已被新的过渡替换 / 已收敛
@@ -1680,7 +1719,7 @@
     const pos = res.position || (selfPlayer() ? { x: selfPlayer().x, y: selfPlayer().y } : null);
     floorState = 'TARGET_READY';
     adoptFloor(res.floor.id, pos);
-    showFloorOverlay(floorArrowText(flight.fromFloorId, res.floor.id, flight.dir), `已到达 ${res.floor.name}`, '正在开门 · 即将恢复操作');
+    showFloorOverlay(floorArrowText(flight.fromFloorId, res.floor.id), `已到达 ${res.floor.name}`, '正在开门 · 即将恢复操作');
     floorState = 'OPENING';
     floorDoorsClosed(false);
     const delay = reduceMotion() ? 0 : 320;
@@ -2320,56 +2359,53 @@
     if (f.w >= f.h) { for (let x = f.x + 18; x < f.x + f.w - 8; x += 36) rect(x, f.y + 6, 2, Math.max(0, f.h - 12), '#4b3a2d'); }
     else { for (let y = f.y + 18; y < f.y + f.h - 8; y += 36) rect(f.x + 5, y, Math.max(0, f.w - 10), 2, '#4b3a2d'); }
   }
-  // 需求2：电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 方向箭头 + 呼梯按钮。
-  // 端点（1F 下行 / 7F 上行）整体灰化；玩家站在门前并面向门时叠呼吸描边与「E」提示。
+  // 电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 单个呼梯按钮。
+  // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
+  // 玩家站在门前并面向门时叠呼吸描边与「E 选择楼层」提示。
   function drawElevatorHall(p, active) {
     const cx = Math.round(p.x), cy = Math.round(p.y);
-    const disabled = !p.targetFloorId;
-    const accent = p.dir === 'up' ? '#7fe3ff' : '#ffd76a';
-    const hw = 21, hh = 9, x0 = cx - hw, y0 = cy - hh;
-    const metal = disabled ? '#5f646b' : '#8d929a', metalHi = disabled ? '#6f747b' : '#a9aeb6';
+    const accent = '#7fe3ff';
+    const hw = 32, hh = 15, x0 = cx - hw, y0 = cy - hh;
+    const metal = '#8d929a', metalHi = '#a9aeb6';
     ctx.save();
     // 厅地坪（把门从地板纹理里抬出来）
-    rect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 12, '#3a3f4a');
-    rect(x0 - 4, y0 - 4, hw * 2 + 8, 1, '#6b7480');
-    rect(x0 - 4, y0 + hh * 2 + 7, hw * 2 + 8, 1, '#242a33');
+    rect(x0 - 7, y0 - 7, hw * 2 + 14, hh * 2 + 18, '#3a3f4a');
+    rect(x0 - 7, y0 - 7, hw * 2 + 14, 1, '#6b7480');
+    rect(x0 - 7, y0 + hh * 2 + 10, hw * 2 + 14, 1, '#242a33');
     // 门框 + 两扇门 + 中缝 + 顶部高光
-    rect(x0 - 1, y0 - 1, hw * 2 + 2, hh * 2 + 2, '#39414a');
-    rect(x0 + 1, y0 + 1, hw - 2, hh * 2 - 2, metal);
-    rect(x0 + hw + 1, y0 + 1, hw - 2, hh * 2 - 2, metal);
-    rect(cx - 1, y0 + 1, 2, hh * 2 - 2, '#2b323a');
-    rect(x0 + 1, y0 + 1, hw - 2, 2, metalHi);
-    rect(x0 + hw + 1, y0 + 1, hw - 2, 2, metalHi);
-    // 楼层指示
-    rect(cx - 10, y0 - 9, 20, 7, '#1a1f26');
-    rect(cx - 10, y0 - 9, 20, 1, '#2f3640');
-    ctx.font = '6px ui-monospace,SFMono-Regular,monospace';
+    rect(x0 - 2, y0 - 2, hw * 2 + 4, hh * 2 + 4, '#39414a');
+    rect(x0, y0, hw - 1, hh * 2, metal);
+    rect(x0 + hw + 1, y0, hw - 1, hh * 2, metal);
+    rect(cx - 1, y0, 2, hh * 2, '#2b323a');
+    rect(x0, y0, hw - 1, 3, metalHi);
+    rect(x0 + hw + 1, y0, hw - 1, 3, metalHi);
+    // 门上金属压线（比例放大后的细节）
+    for (let i = 0; i < 2; i++) {
+      rect(x0 + 6 + i * 10, y0 + 8, 6, 2, '#767c85');
+      rect(x0 + hw + 7 + i * 10, y0 + 8, 6, 2, '#767c85');
+    }
+    // 楼层指示（无方向：只显示本层号）
+    rect(cx - 13, y0 - 13, 26, 9, '#1a1f26');
+    rect(cx - 13, y0 - 13, 26, 1, '#2f3640');
+    ctx.font = '7px ui-monospace,SFMono-Regular,monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = disabled ? '#8a9099' : accent;
-    ctx.fillText(`${p.floorId}F`, cx, y0 - 5.5);
-    // 方向箭头（门下沿）
-    const ay = y0 + hh * 2 + 3, up = p.dir === 'up';
-    const arrow = disabled ? '#6f747b' : accent;
-    for (let i = 0; i < 3; i++) { const w = 1 + i * 2; rect(cx - (w - 1) / 2, up ? ay + i : ay + 2 - i, w, 1, arrow); }
-    rect(cx - .5, up ? ay + 3 : ay - 3, 1, 3, arrow);
-    // 呼梯按钮
-    rect(x0 + hw * 2 + 4, cy - 5, 5, 10, '#39414a');
-    rect(x0 + hw * 2 + 5, cy - 4, 3, 3, disabled ? '#6f747b' : '#7fe3ff');
-    rect(x0 + hw * 2 + 5, cy + 1, 3, 3, disabled ? '#6f747b' : '#ffd76a');
+    ctx.fillStyle = accent;
+    ctx.fillText(`${p.floorId}F`, cx, y0 - 8.5);
+    // 单个呼梯按钮（不分上下方向，只有一个呼叫键）
+    rect(x0 + hw * 2 + 5, cy - 4, 6, 8, '#39414a');
+    rect(x0 + hw * 2 + 6, cy - 3, 4, 6, '#7fe3ff');
     if (active) {
       ctx.globalAlpha = .5 + .35 * Math.sin(clock * 4);
       ctx.strokeStyle = accent; ctx.lineWidth = 2;
-      ctx.strokeRect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 10);
+      ctx.strokeRect(x0 - 6, y0 - 6, hw * 2 + 12, hh * 2 + 14);
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
-      const label = p.targetFloorId
-        ? `E ${p.dir === 'up' ? '↑ 上行' : '↓ 下行'}至 ${p.targetFloorId}F`
-        : (p.dir === 'up' ? '已是最上层（7F）' : '已是最下层（1F）');
+      const label = 'E 选择楼层';
       ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-      const tw = Math.round(ctx.measureText(label).width) + 12, lx = cx - tw / 2, ly = y0 - 26;
+      const tw = Math.round(ctx.measureText(label).width) + 12, lx = cx - tw / 2, ly = y0 - 32;
       ctx.fillStyle = 'rgba(8,11,18,.88)'; ctx.fillRect(lx, ly, tw, 16);
-      ctx.strokeStyle = disabled ? '#6f747b' : accent; ctx.lineWidth = 1;
+      ctx.strokeStyle = accent; ctx.lineWidth = 1;
       ctx.strokeRect(lx + .5, ly + .5, tw - 1, 15);
-      ctx.fillStyle = disabled ? '#9aa1ab' : '#eaf4ff';
+      ctx.fillStyle = '#eaf4ff';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(label, cx, ly + 8.5);
     }
@@ -2495,6 +2531,76 @@
       !WORLD.coverFor(p, occluders))
       .map(p => ({ x: p.x - 72, y: p.y + 12, w: 144, h: 31, ids: p.npc ? [] : [p.id], p }));
   }
+  // ---------- 任务7：上半部分后墙（墙带 + 窗户 + 标语展示区，星露谷风） ----------
+  // 沿楼层轮廓上边缘画一面后墙：上半部分不再突兀消失。墙带只作背景（先于家具/角色绘制），
+  // 家具与角色按深度自然叠在其前方；行走不受影响（MIN_Y 已把角色挡在墙根以南）。
+  // 布局：10 个 144px 模块，第 3/6/9 模块为标语展示板（中央板显示本层名，两侧预留），其余为窗户。
+  const BACK_WALL_H = 58, WALL_MODULE = 144;
+  function drawBackWall(f) {
+    const w = f.width, y1 = BACK_WALL_H, y0 = -56; // 向上延伸：相机纵向居中（camY<0）时墙面不露底
+    // 墙面主体 + 上压线 + 踢脚线 + 墙根阴影
+    rect(0, y0, w, y1 - y0, '#4d4460');
+    rect(0, y0, w, 2, '#6a5f80');
+    rect(0, y0 + 2, w, 1, '#585070');
+    rect(0, y1 - 7, w, 7, '#3a3248');
+    rect(0, y1, w, 2, '#241f30');
+    // 竖向壁板缝（壁炉砖式的星露谷节奏感）
+    for (let x = 36; x < w; x += 48) rect(x, y0 + 3, 1, y1 - y0 - 10, '#443c56');
+    const modules = Math.floor(w / WALL_MODULE);
+    for (let i = 0; i < modules; i++) {
+      const cx = Math.round(WALL_MODULE * (i + 0.5));
+      if (i === 2 || i === 5 || i === 8) { drawSloganBoard(cx, i === 5 ? (f.name || '').replace(/^\d+F\s*·?\s*/, '') : null); continue; }
+      drawBackWindow(cx);
+    }
+  }
+  // 窗户：木框 + 玻璃（天空渐变 + 窗棂）+ 窗台 + 玻璃反光。
+  function drawBackWindow(cx) {
+    const ww = 64, wh = 34, x0 = cx - ww / 2, y0 = 12;
+    // 窗台
+    rect(x0 - 4, y0 + wh, ww + 8, 4, '#8d745e');
+    rect(x0 - 4, y0 + wh + 4, ww + 8, 1, '#5b4a3c');
+    // 木框
+    rect(x0 - 2, y0 - 2, ww + 4, wh + 4, '#6b5545');
+    rect(x0, y0, ww, wh, '#2f2a3a');
+    // 玻璃：白天天空渐变
+    const g = ctx.createLinearGradient(0, y0, 0, y0 + wh);
+    g.addColorStop(0, '#aee0ff'); g.addColorStop(.6, '#8fc4ee'); g.addColorStop(1, '#cfe6f7');
+    ctx.fillStyle = g; ctx.fillRect(x0, y0, ww, wh);
+    // 远处天际线剪影（像素楼群，星露谷窗外感）
+    rect(x0 + 6, y0 + wh - 9, 10, 9, '#7da4c8');
+    rect(x0 + 8, y0 + wh - 14, 6, 5, '#7da4c8');
+    rect(x0 + 22, y0 + wh - 12, 12, 12, '#8fb4d6');
+    rect(x0 + 40, y0 + wh - 8, 8, 8, '#7da4c8');
+    rect(x0 + 50, y0 + wh - 13, 9, 13, '#8fb4d6');
+    // 云（简单两坨）
+    rect(x0 + 14, y0 + 6, 12, 3, '#f2f8ff'); rect(x0 + 17, y0 + 4, 7, 3, '#f2f8ff');
+    rect(x0 + 38, y0 + 9, 10, 2, '#f2f8ff');
+    // 窗棂：中竖 + 中横
+    rect(cx - 1, y0, 2, wh, '#6b5545');
+    rect(x0, y0 + Math.floor(wh / 2) - 1, ww, 2, '#6b5545');
+    // 玻璃斜反光
+    ctx.globalAlpha = .22;
+    for (let k = 0; k < 5; k++) rect(x0 + 6 + k * 7, y0 + 2 + k * 5, 3, 8, '#ffffff');
+    ctx.globalAlpha = 1;
+  }
+  // 标语展示板：木框深色板面。中央板显示本层名，两侧为预留标语位（后续挂内容，不臆造文案）。
+  function drawSloganBoard(cx, text) {
+    const bw = 104, bh = 30, x0 = cx - bw / 2, y0 = 14;
+    // 吊绳与挂钉
+    rect(cx - 2, 4, 1, 10, '#5b4a3c');
+    rect(cx + 1, 4, 1, 10, '#5b4a3c');
+    rect(cx - 3, 3, 7, 2, '#8d745e');
+    // 木框
+    rect(x0 - 3, y0 - 3, bw + 6, bh + 6, '#8d745e');
+    rect(x0 - 3, y0 + bh + 1, bw + 6, 2, '#5b4a3c');
+    // 板面
+    rect(x0, y0, bw, bh, '#1d2438');
+    rect(x0 + 2, y0 + 2, bw - 4, bh - 4, '#232c44');
+    ctx.font = text ? '9px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif' : '8px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = text ? '#f0c47d' : '#4d5a7a';
+    ctx.fillText(text ? text : '标 语 预 留', cx, y0 + bh / 2 + 1);
+  }
   function draw() {
     if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
     const camX = Math.round(cameraX), camY = Math.round(cameraY);
@@ -2515,6 +2621,8 @@
     ensureChunks(c0x, c0y, c1x, c1y);
     for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkCache.get(cx + ':' + cy), cx * CHUNK, cy * CHUNK);
     ctx.restore();
+    // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
+    drawBackWall(f);
     ctx.restore();
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
     if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
@@ -2645,11 +2753,11 @@
       if (label && y >= label.y + 15) copySID(label.p.sid);
       else select(hits[0]);
     } else {
-      // 需求2：点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径。
+      // 点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径；进门先弹选层面板。
       const portalHit = portals.find(pt => x >= pt.x - pt.w / 2 && x <= pt.x + pt.w / 2 && y >= pt.y - pt.h / 2 && y <= pt.y + pt.h / 2);
       if (portalHit) {
         const self = selfPlayer(), access = self ? WORLD.portalAccess(self, portalHit) : null;
-        if (access && access.allowed) requestFloorChange(portalHit.id);
+        if (access && access.allowed) openElevatorPicker(portalHit.id);
         else showToast(access ? access.reason : '请靠近角色或电梯门后再操作');
         canvas.focus(); return;
       }
@@ -2662,6 +2770,7 @@
     canvas.focus();
   });
   $('floor-transition-close').onclick = () => dismissFloorNotice();
+  $('elevator-close').onclick = () => closeElevatorPicker();
   function toggle(panel, button) {
     const visible = $(panel).hidden;
     $(panel).hidden = !visible;
@@ -2751,6 +2860,8 @@
   document.addEventListener('keydown', e => {
     if ($('rules-view').open || $('reset-confirm').open) return;
     if (e.key === 'Escape') {
+      // 电梯选层面板可被 Esc 取消（未提交任何请求）。
+      if (closeElevatorPicker()) { e.preventDefault(); return; }
       // 电梯 10 秒静态提示可被 Esc 关闭（只隐藏提示，不改变换层状态）；其余保持原语义。
       if (dismissFloorNotice()) { e.preventDefault(); return; }
       if (!$('finish-overlay').hidden) { hideFinish(); return; }
@@ -2760,16 +2871,25 @@
     }
     // 转盘 / 结算覆盖层打开时，忽略移动、E、J 等游戏内按键。
     if (wheelOpen || !$('finish-overlay').hidden || !$('games').hidden) return;
+    // 电梯选层面板打开时：忽略移动 / E / J（先选楼层或 Esc 取消），数字键直达对应楼层。
+    if (elevatorPicker) {
+      if (/^[1-7]$/.test(e.key)) {
+        e.preventDefault();
+        const f = Number(e.key);
+        if (f !== floorId) { const pid = elevatorPicker.portalId; closeElevatorPicker(); requestFloorChange(pid, f); }
+      } else e.preventDefault();
+      return;
+    }
     // 电梯过渡进行中：忽略移动 / E / J，避免在换层中途驱动旧层或重复发起。
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return;
     if (isTyping()) return;
     if (e.code === 'KeyE') {
       e.preventDefault(); if (e.repeat) return;
       if (explorationPanel) { closeExploration(); return; }
-      // 需求2：站在电梯门前并面向门时，E 优先乘梯，不被旁边的玩家/NPC/容器抢走。
+      // 需求2：站在电梯门前并面向门时，E 优先乘梯（弹选层面板），不被旁边的玩家/NPC/容器抢走。
       const lift = elevatorTarget();
       if (lift) {
-        if (lift.access.allowed) requestFloorChange(lift.portal.id);
+        if (lift.access.allowed) openElevatorPicker(lift.portal.id);
         else showToast(lift.access.reason);
         return;
       }

@@ -272,3 +272,32 @@ node online/deploy-smoke.mjs https://game.afann.xyz
 
 - dev 分支自测全绿：`sso-test`、`bad-pool-test` 15/15、`hammer-test` 49/49、`npc-test` 38/38、`ghost-offline-test` 101/101。
 - main 分支自测与合并前基线逐项对齐（`mechanics-test` / `movement-attack-test` / `exploration-test` / `progression-test` / `qa-verify` / `manager-test` / `privacy-reset-test` / 浏览器验收），未引入新的失败项；`main` 自带的若干陈旧用例（`rps-flow-test`、`privacy-reset-qa` 的冻结哈希、`qa-verify` 部分 HTTP 断言）在合并前即为红色，本次未改动其判定口径。
+
+## 本轮变更：七层楼板加宽与东侧服务翼（2026-10-14，分支 `feature_dev_floor`）
+
+按用户拍板（采纳七层布局设计、每层不能太小、共 7 层、1F/7F 自由发挥）落地：
+
+- **楼板加宽**：每层由 `960×400` 加宽到 **`1440×400`（45m×30m，1.5×）**。做法是把 x 轴归一化空间由 `0–1000` 扩到 `0–1500`（新增 `X_SPAN/Y_SPAN`），`nX = v/1500*1440 = 0.96v` 与原值完全一致 ⇒ **既有家具/角色/门洞的像素尺寸一字未变**，右侧多出的 `1000–1500` 即新增的东侧走廊与服务翼。想继续加宽只需改 `FLOOR_W` 与 `X_SPAN`（保持比值 0.96）。
+- **东侧服务翼（7 层全部新增）**：东侧电梯厅 + 楼梯间 + 卫生间台面 + 等候沙发 + 绿植 + 分隔墙（参考图里 2–6F 有、原代码全缺的部分）。
+- **竖向交通对齐**：西侧 `stairLeft` 统一到 `x=70`（落进西侧核心筒，修掉原先落在卫生间横带的 x=185）；东侧 `stairRight` 移到 `x=1220`（新电梯厅旁）；取消 3F/4F 的临时门位补丁。portal 稳定 ID 未变。
+- **1F/7F**：补上原缺失的西侧核心筒；7F「更衣柜」升为可搜容器（7F 原为 0 容器）。
+- **命名/常量**：`亲水间`→`茶水间`；2F `储物柜`→`核心筒`；`ZONES` 重构为 7 层区域名。
+- **可见性裁剪**：`room.js` 的相机裁剪改用该层实际宽度（楼板已宽于一屏，"同层即可见"不再成立）。
+
+验证：`self-test 11/11`、`hammer-test 50/50`、`npc-test 38/38`、`ghost-offline 101/101`、`bad-pool 15/15`、`privacy-reset 23/23`、`manager 60/60` 全绿；`mechanics/movement-attack/exploration/progression/exploration-browser` 与改动前基线**逐项一致**（该分支既有红项，未新增失败）。目视验证见 `outputs/demo-1f.png`、`outputs/demo-1f-east.png`、`outputs/floor-preview.png`。
+
+详见 `design/CHANGELOG-楼层加宽与东侧服务翼.md`；设计依据见 `design/floors/floor-layout-design.md`、`design/art/pixel-art-and-asset-guide.md`。**本轮改动未提交。**
+
+## 本轮变更：五项场景修改（2026-10-14，分支 `feature_dev_floor`）
+
+按用户基于实际游玩的五项反馈落地（保持星露谷像素风与整体布局一致）：
+
+1. **上半部分后墙 + 窗户 + 标语展示区**：每层沿轮廓上边缘绘制后墙墙带（`drawBackWall`，先于家具/角色，纯背景）：10 个 144px 模块中 7 个为木框窗户（天空渐变 + 窗棂 + 像素楼群剪影 + 云 + 斜反光），第 3/6/9 模块为木框标语展示板——中央板显示本层名，两侧为「标语预留」空板（后续挂内容，不臆造文案）。墙带向上延伸 56px，相机纵向居中时也不露底。`online` 与 `demo` 两端同源实现。
+2. **减少工位 + 每层新增可搜容器与装饰**：2–6F 中央工位岛全部缩为 3 列示意（如 2F 中央工位一 `258–720` → `409–569`）；每层新增 **1 个可搜容器**（1F 大厅储物柜 / 2F 打印间文件柜 / 3F 产品资料柜 / 4F 票证储藏柜 / 5F 值班储物柜 / 6F 财务保险柜 / 7F 能量补给台，奖励在 `room.js` 的 `EXPLORATION_REWARDS` 同步登记，共 17 个容器）+ 2–3 件星露谷风装饰（沙发/绿植/记录台），摆放在工位缩减腾出的空地上，不碰门洞/出生点/电梯落点。
+3. **电梯改造（不分方向 + 选层 + 门口落地 + 比例放大）**：portal 数据模型改为 `f{层}:portal:{side}`（删 `dir`/`targetFloorId`）；玩家进门（E/点击）弹**选层面板**（1–7 按钮网格，禁当前层，支持数字键 1–7 直达与 Esc 取消），服务端 `/api/floor-change` 改为接收 `targetFloorId` 并校验（1–7 且 ≠ 当前层、幂等键含目标层），落点由 `WORLD.elevatorLanding` 给在**目标层同侧电梯门口正前方**；电梯视觉放大 64×30（原 42×18），去掉方向箭头与双按钮，改为单个呼梯键 + 「E 选择楼层」提示。
+4. **移动速度提升**：`WORLD.SPEED` 64 → **112**（约 2.0 → 3.5 m/s），服务端权威与离线版同源，两端一致。
+5. **碰撞体积消失 / 摆放错位修复**：`blocksFor` 中 counter/cabinet/reception/sofa/plant 原碰撞贴 rect **北沿**细条（6.7–10.7px），但绘制的立面在 rect **南沿**——玩家能穿进可见家具大半才被挡。改为贴**南沿立面**（bottomStrip，与原始 footprint 语义一致）；另修复两处既有堵门：5F/6F 附翼工位岛东移让出 `v151` 墙的两扇门（y710/y855）。
+
+验证：结构自检（7 层出生点 / 14 个门洞 / 17 容器 / blocks 互不重叠 / 两侧电梯落点全通）；电梯协议单元验证（非法层/当前层/距离守卫/门口落地 d≤14/幂等重放/commandId 冲突/1F↔7F 直达）；测试套件绿项全过（self 11/11、hammer 50/50、npc 38/38、ghost-offline 101/101、bad-pool 15/15、privacy-reset 23/23、manager 60/60），既有红项 **mechanics 4→5、exploration 6→7 通过数增加**，movement-attack 13/16、progression 7/8 持平——无新增失败。目视验证见 `outputs/verify-1f.png`、`outputs/verify-2f.png`、`outputs/verify-7f.png`。
+
+详见 `design/CHANGELOG-五项场景修改.md`。**本轮改动未提交。**

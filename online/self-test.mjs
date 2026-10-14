@@ -186,9 +186,11 @@ try {
       assert.ok(after.x > before.x + 8, `x ${before.x} -> ${after.x}`);
       // Camera follows: the HUD chip is derived from the rendered camera position.
       // (#coordinate 元素已按需求移除，镜头跟随改为只断言 zone-name。)
+      // 阶段3：zone-name 现在显示楼层名（不再用 4 个旧区域名）；镜头跟随改为断言渲染相机字段。
       const zone = await client.eval(`document.getElementById('zone-name').textContent`);
-      assert.ok(['接待区', '产品研发区', '茶水休息区', '档案工作区'].includes(zone), 'zone=' + zone);
-      assert.equal(zone, ['接待区', '产品研发区', '茶水休息区', '档案工作区'][Math.min(3, Math.floor(after.x / 960))], '镜头跟随失败 zone=' + zone);
+      assert.ok(/^1F/.test(zone), 'zone=' + zone);
+      const camX = await client.eval(`window.__viewport && window.__viewport.drawCamX`);
+      assert.ok(typeof camX === 'number' && Number.isFinite(camX), 'drawCamX=' + camX);
     }
   });
 

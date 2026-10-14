@@ -272,7 +272,7 @@ try {
   });
 
   await test('联机 08 分数：搜索容器后公开投影 score 与 #score-value 增加（=SCORE.search，含线索再加 clue）', async () => {
-    await moveTo(830, 250); // 储物柜，奖励真实线索
+    await moveTo(830, 250); // 核心筒（原「储物柜」），奖励真实线索
     const before = await publicScore(), cluesBefore = (await state()).me.exploration.clues.length;
     const r = await api('/api/interact', { commandId: commandId(), kind: 'search', entityId: 'cabinet-785-160' });
     assert.equal(r.data.ok, true, r.data.error);
