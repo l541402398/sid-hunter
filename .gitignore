@@ -23,6 +23,10 @@ id_ed25519*
 *profile*/
 Singleton*
 
+# Local playtest/build artifacts (keep source and release tooling versioned separately).
+/releases/
+/release/
+
 # Derived test reports/screenshots; source scripts remain versioned.
 /demo/*.png
 /demo/*.jpg
