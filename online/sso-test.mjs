@@ -69,7 +69,8 @@ const priv = JSON.stringify(room.privateSnapshot(first.player.id));
 assert.equal(pub.includes('E1'), false);
 assert.equal(priv.includes('E1'), false);
 room.finish();
-assert.equal(room.join('s5', null, { empNo: 'E9', name: '李四' }).error, '本局已结束，无法加入');
+// 合并适配：main 分支的文案为「游戏已结束，无法加入」，语义与 dev 一致，这里只校验语义。
+assert.match(room.join('s5', null, { empNo: 'E9', name: '李四' }).error, /结束，无法加入$/);
 assert.equal(room.join('s6', null, { empNo: 'E1', name: '张三' }).revived, true);
 
 const previousExpire = process.env.TOKEN_EXPIRE;

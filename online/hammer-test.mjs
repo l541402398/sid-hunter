@@ -29,7 +29,8 @@ async function call(pathname, { method, token, body } = {}) {
   return { status: res.status, data };
 }
 const join = () => call('/api/join', { body: { nickname: '' } });
-const place = (playerId, x, y) => call('/api/test/place', { body: { playerId, x, y } });
+// 合并适配：合并后的地图是七层，自测用可选的 floorId 把角色放到指定楼层。
+const place = (playerId, x, y, floorId) => call('/api/test/place', { body: { playerId, x, y, ...(floorId === undefined ? {} : { floorId }) } });
 const advance = ms => call('/api/test/advance', { body: { ms } });
 const action = (token, kind) => call('/api/action', { token, body: { kind } });
 const input = (token, dir) => call('/api/input', { token, body: dir });
@@ -82,8 +83,8 @@ try {
   const idA = ja.data.playerId, idB = jb.data.playerId;
 
   // ---------- 1. 相邻摆位 + A 挥锤命中 ----------
-  await place(idA, 1000, 300);
-  await place(idB, 1030, 300);
+  await place(idA, 300, 300);
+  await place(idB, 330, 300);
   const before = await pub(ta);
   const bBefore = of(before.players, idB);
   const logCountBefore = before.logs.length;
@@ -126,8 +127,8 @@ try {
 
   // ---------- 6. 远距离挥锤不命中 ----------
   await advance(1400); // 清掉 A 的锤子冷却
-  await place(idA, 1000, 300);
-  await place(idB, 1500, 300);
+  await place(idA, 300, 300);
+  await place(idB, 900, 300);
   const farBefore = await pub(ta);
   const far = await action(ta, 'hammer');
   const farAfter = await pub(ta);
@@ -137,8 +138,8 @@ try {
 
   // ---------- 7. 腾空闪避 ----------
   await advance(1400); // 再清一次 A 的冷却
-  await place(idA, 1000, 300);
-  await place(idB, 1030, 300);
+  await place(idA, 300, 300);
+  await place(idB, 330, 300);
   const jr = await action(tb, 'jump');
   check('B 起跳成功', jr.status === 200 && jr.data.ok, JSON.stringify(jr.data));
   const dbl = await action(tb, 'jump');
@@ -162,8 +163,8 @@ try {
 
   // ---------- 9. 落地后能被正常敲中（躲窗口之外）----------
   await advance(1400);
-  await place(idA, 1000, 300);
-  await place(idB, 1030, 300);
+  await place(idA, 300, 300);
+  await place(idB, 330, 300);
   const ground = await action(ta, 'hammer');
   const groundAfter = await pub(ta);
   check('落地后 A 挥锤正常命中', ground.status === 200 && ground.data.hit === true, JSON.stringify(ground.data));
@@ -185,7 +186,10 @@ try {
     `A=${of(sa.data.players, idA).sid} B=${of(sa.data.players, idB).sid}`);
   const leaked = sa.data.players.flatMap(p => Object.keys(p).filter(k => ['faction', 'hp', 'skills', 'traits_raw', 'bumps_detail'].includes(k)));
   check('公共快照不含 faction / hp / skills 字段', leaked.length === 0, leaked.length ? `泄漏字段: ${[...new Set(leaked)].join(',')}` : '无');
-  const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt', 'frightUntil', 'scareAt', 'frightAt']);
+  // 合并适配：main 分支的公共投影另带战斗/楼层字段（score、floorId、spriteFacing、facing、
+  // lastAttack*、freezeUntil）；这些是 main 的公开战斗状态，不属于锤戏裁剪字段。
+  const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt', 'frightUntil', 'scareAt', 'frightAt',
+    'score', 'floorId', 'spriteFacing', 'facing', 'lastAttackAt', 'lastAttackFacing', 'lastAttackDirection', 'freezeUntil']);
   const extra = sa.data.players.flatMap(p => Object.keys(p).filter(k => !allowed.has(k)));
   check('公共快照未新增隐藏字段（仅visible与锤戏/受惊必要字段）', extra.length === 0, extra.length ? `多余字段: ${[...new Set(extra)].join(',')}` : '无');
   const logCountNow = sa.data.logs.length;
@@ -195,10 +199,10 @@ try {
   const jc = await join();
   const tc = jc.data.sessionToken, idC = jc.data.playerId;
   check('第三名玩家加入成功', jc.data.ok, `C=${idC}`);
-  // C 摆在 x=2400（另一屏），A/B 摆在 x≈1000 —— 双方互相在镜头外。
-  await place(idA, 1000, 300);
-  await place(idB, 1030, 300);
-  await place(idC, 2400, 300);
+  // 合并适配：合并后的地图是七层、每层正好一屏；C 放到 2F，跨层的锤戏字段不可见。
+  await place(idA, 300, 300);
+  await place(idB, 330, 300);
+  await place(idC, 300, 300, 2);
   await advance(1400); // 清掉 A 的锤子冷却，同时让 B 此前的晕眩与肿包过期无关化
   const swing = await action(ta, 'hammer');
   const viewA = await pub(ta), viewB = await pub(tb), viewC = await pub(tc);
@@ -207,15 +211,16 @@ try {
   const aByC = of(viewC.players, idA), bByC = of(viewC.players, idB), cByC = of(viewC.players, idC);
   check('同屏观察者能看到挥锤与命中（A 视角）', swing.data.hit === true && aByA.swingAt > 0 && bByA.hitAt > 0 && bByA.bumps > 0 && bByA.stunUntil > viewA.serverTime,
     `swingAt=${aByA.swingAt} hitAt=${bByA.hitAt} bumps=${bByA.bumps}`);
+  // 合并适配：stunUntil 在 main 分支是公开战斗状态（不随镜头裁剪），故这里只校验 dev 的锤戏字段归零。
   check('屏幕外第三人 C 看到的锤戏字段全为 0',
-    aByC.swingAt === 0 && bByC.hitAt === 0 && bByC.bumps === 0 && bByC.bumpUntil === 0 && bByC.stunUntil === 0 && bByC.z === 0,
-    `A.swingAt=${aByC.swingAt} B.hitAt=${bByC.hitAt} B.bumps=${bByC.bumps} B.bumpUntil=${bByC.bumpUntil} B.stunUntil=${bByC.stunUntil} B.z=${bByC.z}`);
+    aByC.swingAt === 0 && bByC.hitAt === 0 && bByC.bumps === 0 && bByC.bumpUntil === 0 && bByC.z === 0 && bByC.visible === false,
+    `A.swingAt=${aByC.swingAt} B.hitAt=${bByC.hitAt} B.bumps=${bByC.bumps} B.bumpUntil=${bByC.bumpUntil} B.visible=${bByC.visible} B.z=${bByC.z}`);
   check('裁剪后字段仍然存在（只是归零，不是消失）',
     ['z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt'].every(k => k in bByC),
     Object.keys(bByC).join(','));
   check('屏幕外第三人看不到 C 之外的被击晕者（A 视角下 C 无锤戏信息）',
-    cByA.bumps === 0 && cByA.stunUntil === 0 && cByA.swingAt === 0 && cByA.hitAt === 0,
-    `C.bumps=${cByA.bumps} C.stunUntil=${cByA.stunUntil}`);
+    cByA.bumps === 0 && cByA.swingAt === 0 && cByA.hitAt === 0,
+    `C.bumps=${cByA.bumps} C.swingAt=${cByA.swingAt}`);
   check('当事人始终看得见自己的状态（B 视角下 B 自己）', bByB.stunUntil > 0 && bByB.bumps > 0 && bByB.hitAt > 0,
     `stunUntil=${bByB.stunUntil} bumps=${bByB.bumps} hitAt=${bByB.hitAt}`);
 
@@ -229,13 +234,13 @@ try {
   check('屏幕外的人 z 恒为 0（A 视角看 C）', zByA === 0, `z=${zByA}`);
 
   // 走近后立刻拿到真实值
-  await place(idC, 1030, 320);
+  await place(idC, 360, 320, 1); // 回到 1F，与 A/B 同层：立刻拿到真实值
   const nearC = await pub(tc), nearA = await pub(ta);
   check('C 走近后立刻看到真实的锤戏字段', of(nearC.players, idB).bumps > 0 && of(nearC.players, idA).swingAt > 0,
     `B.bumps=${of(nearC.players, idB).bumps} A.swingAt=${of(nearC.players, idA).swingAt}`);
   check('走近后 A 也能看到 C 的真实高度', of(nearA.players, idC).z > 0, `C.z=${of(nearA.players, idC).z}`);
   // 走远后重新归零
-  await place(idC, 2400, 300);
+  await place(idC, 300, 300, 2);
   const farC = await pub(tc);
   check('走远后再次归零（可往返）', of(farC.players, idB).bumps === 0 && of(farC.players, idA).swingAt === 0,
     `B.bumps=${of(farC.players, idB).bumps} A.swingAt=${of(farC.players, idA).swingAt}`);
@@ -248,31 +253,33 @@ try {
     const sB = (snap.players || []).find(p => p.id === idB);
     const sC = (snap.players || []).find(p => p.id === idC);
     check('SSE 流里同屏目标带真实锤戏字段', !!sB && sB.bumps > 0 && sB.hitAt > 0, sB && `B.bumps=${sB.bumps} B.hitAt=${sB.hitAt}`);
-    check('SSE 流里屏幕外目标字段全为 0', !!sC && sC.bumps === 0 && sC.stunUntil === 0 && sC.swingAt === 0 && sC.hitAt === 0,
-      sC && `C.bumps=${sC.bumps} C.stunUntil=${sC.stunUntil}`);
+    // 合并适配：stunUntil 是 main 的公开战斗字段，不做跨层裁剪，这里只校验 dev 的锤戏字段。
+    check('SSE 流里屏幕外目标字段全为 0', !!sC && sC.bumps === 0 && sC.swingAt === 0 && sC.hitAt === 0 && sC.visible === false,
+      sC && `C.bumps=${sC.bumps} C.visible=${sC.visible}`);
   }
 
-  // ---------- 13. visible 布尔 + 客户端绘制边界（把推算变成断言）----------
-  // camX(A@1000) = 520。客户端绘制区间 (480, 1520)；服务端可见区间 [440, 1560]，严格更宽。
+  // ---------- 13. visible 布尔 + 楼层边界（把推算变成断言）----------
+  // 合并适配：七层地图每层 960×400，与 VIEW_W 同宽，一层即一屏；可见性等价于「同层」。
   await advance(1400);
-  await place(idA, 1000, 300);
-  await place(idB, 1030, 300);
+  await place(idA, 300, 300);
+  await place(idB, 330, 300);
   const hs = await action(ta, 'hammer');
   const expectBumps = of((await pub(ta)).players, idB).bumps;
   check('基线：A 敲中 B 拿到真实肿包数', hs.data.hit === true && expectBumps > 0, `bumps=${expectBumps}`);
-  // 贴着客户端绘制边缘内侧 1px 的位置：客户端会画出来，就必须拿到真实值而不是 0。
-  for (const [label, bx] of [['左缘内侧1px', 481], ['右缘内侧1px', 1519]]) {
+  // 贴着本层可行走边界内侧的位置：同层就一定看得到，必须拿到真实值而不是 0。
+  const bounds1 = (await import('./shared/world.js')).default.floorBounds(1);
+  for (const [label, bx] of [['左边界内侧', bounds1.minX], ['右边界内侧', bounds1.maxX]]) {
     await place(idB, bx, 300);
     const b = of((await pub(ta)).players, idB);
-    check(`客户端会画出来的位置（${label}）拿到真实值而非 0`, b.visible === true && b.bumps === expectBumps,
+    check(`同层可达位置（${label}）拿到真实值而非 0`, b.visible === true && b.bumps === expectBumps,
       `visible=${b.visible} bumps=${b.bumps} 期望=${expectBumps}`);
   }
-  await place(idC, 2400, 300);
-  await place(idB, 1030, 300);
+  await place(idC, 300, 300, 2);
+  await place(idB, 330, 300);
   const vA = await pub(ta), vC = await pub(tc);
   check('自己对自己 visible=true', of(vA.players, idA).visible === true && of(vC.players, idC).visible === true, 'A/C 自视角');
   check('屏幕外目标 visible=false 且锤戏字段为 0',
-    of(vC.players, idB).visible === false && of(vC.players, idB).bumps === 0 && of(vC.players, idB).stunUntil === 0,
+    of(vC.players, idB).visible === false && of(vC.players, idB).bumps === 0,
     `visible=${of(vC.players, idB).visible} bumps=${of(vC.players, idB).bumps}`);
   check('同人同状态在不同视角下一致（A 看 B 真实，C 看 B 归零）',
     of(vA.players, idB).bumps === expectBumps && of(vC.players, idB).bumps === 0,

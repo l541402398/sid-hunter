@@ -177,9 +177,12 @@ try {
   const kill2 = await skill(PORT, me, { skill: 'kill', targetId: npc1.id, sid: npc1.sid, commandId: uid() });
   check('击杀第二名 NPC 成功', kill2.status === 200 && kill2.data.ok && /淘汰/.test(kill2.data.resultText || ''),
     `${kill2.status} ${kill2.data.resultText || kill2.data.error}`);
+  // 合并适配：main 的结束条件是「存活淘汰至剩余 100 人 / 坏人全灭 / 时间到（2 小时）」，
+  // 没有 dev 的「存活 ≤ 2」规则；这里用测试时钟推到 2 小时上限收局，再断言结束后的冻结语义。
+  await advance(PORT, 7200001); await wait(200);
   const afterKill = await tst(PORT);
-  check(`存活降到 2 触发结束（既有规则：${aliveBefore} → ${afterKill.data.players.filter(p => p.alive).length}，eliminateEvents=${afterKill.data.eliminateEvents}）`,
-    afterKill.data.finished === true && afterKill.data.players.filter(p => p.alive).length <= 2 && afterKill.data.eliminateEvents > 0,
+  check(`时间到（2 小时）触发结束（存活 ${aliveBefore} → ${afterKill.data.players.filter(p => p.alive).length}，eliminateEvents=${afterKill.data.eliminateEvents}）`,
+    afterKill.data.finished === true && afterKill.data.eliminateEvents > 0,
     `finished=${afterKill.data.finished} 存活=${afterKill.data.players.filter(p => p.alive).length}`);
   const afterEnd = await act(PORT, me, 'hammer');
   check('结束后动作被冻结', afterEnd.status === 400 && /结束/.test(afterEnd.data.error || ''), `${afterEnd.status} ${afterEnd.data.error}`);

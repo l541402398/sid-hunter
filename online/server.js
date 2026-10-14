@@ -6,7 +6,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { randomBytes } = require('crypto');
-const { createRoom, SKILL_CONFIG } = require('./room.js');
+const { performance } = require('node:perf_hooks');
+const { createRoom, SKILL_CONFIG, WORLD } = require('./room.js');
+const { createManager } = require('./manager.js');
+// CAS 单点登录（dev 分支）：票据校验与内存会话都在 sso.js。
 const sso = require('./sso.js');
 
 const PORT = Number(process.env.PORT || 8787);
@@ -17,6 +20,34 @@ const ROOM = createRoom();
 const ALLOWED_EXT = new Set(['.html', '.css', '.js', '.ico']);
 const DEV_ENABLED = process.env.SID_DEV === '1';
 const resetTokens = new Map(); // Scoped to an existing session, revoked together with the room.
+// dev 分支并入的 CAS 单点登录开关：默认正式模式要求登录；SID_TEST=1 保持自测的昵称加入；
+// SID_SSO=0 供局域网试玩/回归显式关闭门禁（不改变任何玩法与权限判定以外的行为）。
+const SSO_REQUIRED = process.env.SID_TEST !== '1' && process.env.SID_SSO !== '0';
+// 公网管理控制台：独立于 SID_DEV 的授权码入口。授权码默认 091256，线上可通过
+// systemd 的 Environment=SID_MANAGER_CODE=... 覆盖，改完 systemctl restart sid-hunter 生效。
+const MANAGER_CODE = process.env.SID_MANAGER_CODE || '091256';
+const MANAGER = createManager({ room: ROOM, passcode: MANAGER_CODE });
+function everyMs(callback, interval) {
+  let target = performance.now() + interval;
+  let timer;
+  let cancelled = false;
+  function schedule() {
+    timer = setTimeout(tick, Math.max(0, target - performance.now()));
+  }
+  function tick() {
+    if (cancelled) return;
+    if (performance.now() < target) { schedule(); return; }
+    callback();
+    if (cancelled) return;
+    target += interval;
+    const now = performance.now();
+    // 保持截止时间网格；停顿后跳过过期 tick，不突发补发。
+    if (target <= now) target += (Math.floor((now - target) / interval) + 1) * interval;
+    schedule();
+  }
+  schedule();
+  return () => { cancelled = true; clearTimeout(timer); };
+}
 function trustedDevRequest(req, requireOrigin = false) {
   if (!DEV_ENABLED || !isLoopback(req)) return false;
   let host;
@@ -81,10 +112,18 @@ function userTokenOf(req, url) {
 function currentPlayer(req, url) {
   const player = ROOM.playerBySession(sessionOf(req, url));
   if (!player) return null;
-  if (process.env.SID_TEST === '1') return player;
+  if (!SSO_REQUIRED) return player;
   const user = req.ssoUser;
   if (!user || player.empNo !== user.emp_no) return null;
   return player;
+}
+// 技能/互动/攻击/换层沿用 room.js 自身的授权文案：拿不到 CAS 绑定的身份时，
+// 关闭 CAS 的模式把原始会话凭证交给 room 判定（得到 400「身份无效」），CAS 模式下门禁已先行 401。
+function actingSession(req, url) {
+  const player = currentPlayer(req, url);
+  if (player) return player.sessionId;
+  if (SSO_REQUIRED) return null;
+  return sessionOf(req, url);
 }
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -140,33 +179,53 @@ function openStream(req, res, player) {
   // the sweep below is the deterministic fallback that marks the player offline.
   const write = payload => { res.write(`data: ${JSON.stringify(payload)}\n\n`); };
   try { write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me }); } catch { }
-  const entry = { res, lastAck: Date.now() };
+  const previousEntry = ROOM.streams.get(player.id);
+  const entry = { res, lastAck: Date.now(), close };
   ROOM.streams.set(player.id, entry);
-  const timer = setInterval(() => {
+  let closed = false;
+  const cancelTick = everyMs(() => {
     try {
       if (res.writableEnded || res.destroyed) throw new Error('closed');
       write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
       entry.lastAck = Date.now();
       res.write(': ping\n\n');
     } catch { close(); }
-  }, 1000 / 20);
+  }, TICK_MS);
   function close() {
-    clearInterval(timer);
-    // A stale stream must not mark the newer connection offline.
+    if (closed) return;
+    closed = true;
+    cancelTick();
+    // 仅当本 entry 仍是该玩家当前流时才下线：刷新时新流已写入 ROOM.streams，旧流关闭
+    // 不应误触发 setOffline；真实断线（无新流）则当前流即最新，照常下线并取消猜拳。
     if (ROOM.streams.get(player.id) === entry) {
       ROOM.streams.delete(player.id);
       if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
     }
     try { res.end(); } catch { /* already closed */ }
   }
+  if (previousEntry && previousEntry !== entry) previousEntry.close();
   req.on('close', close);
   req.on('error', close);
   res.on('close', close);
+  res.on('finish', close);
+  res.on('error', close);
+}
+// 管理控制台会话：只认 HttpOnly 的 sid_manager Cookie（不提供 header/query 回退，
+// 缩小凭证暴露面）。授权码校验与限流在 manager.js 内完成。
+function managerSessionOf(req) {
+  return parseCookies(req.headers.cookie).sid_manager || null;
+}
+function managerReply(res, result) {
+  if (result.cookie) res.setHeader('Set-Cookie', result.cookie);
+  return send(res, result.status, result.body);
+}
+function isJsonRequest(req) {
+  return (req.headers['content-type'] || '').split(';')[0].trim() === 'application/json';
 }
 async function route(req, res, url) {
   const pathname = url.pathname;
   if (pathname === '/api/auth/config' && req.method === 'GET') {
-    const required = process.env.SID_TEST !== '1';
+    const required = SSO_REQUIRED;
     return send(res, 200, { required, loginUrl: required ? sso.loginUrl() : '', logoutUrl: required ? sso.logoutUrl() : '' });
   }
   if (pathname === '/api/auth/login' && req.method === 'POST') {
@@ -183,7 +242,10 @@ async function route(req, res, url) {
     return send(res, 200, { ok: true });
   }
   // 正式服务的游戏接口必须带 CAS 会话。SID_TEST=1 保持原昵称加入，供既有自测使用。
-  if (pathname.startsWith('/api/') && process.env.SID_TEST !== '1') {
+  // 例外：auth（登录链自身）、manager（授权码入口）、dev/host（本机开发门禁，未启用时应答 403）、
+  // test（仅 SID_TEST=1 存在，正式模式应回落到 404/405，而不是被 SSO 门禁改写成 401）。
+  const SSO_EXEMPT = /^\/api\/(auth|manager|dev|host|test)(\/|$)/;
+  if (pathname.startsWith('/api/') && !SSO_EXEMPT.test(pathname) && SSO_REQUIRED) {
     const user = await sso.getProfile(userTokenOf(req, url));
     if (!user) return send(res, 401, { error: '未登录或会话已过期', auth: false });
     req.ssoUser = user;
@@ -191,6 +253,40 @@ async function route(req, res, url) {
   if (pathname === '/api/auth/me' && req.method === 'GET') {
     if (!req.ssoUser) return send(res, 401, { error: '未登录或会话已过期', auth: false });
     return send(res, 200, req.ssoUser);
+  }
+  if (pathname === '/manager') {
+    // 管理控制台入口：静态文件，但路径没有扩展名，静态服务只放行白名单后缀，所以单独路由。
+    return staticServe(req, res, '/manager.html');
+  }
+  if (pathname.startsWith('/api/manager/')) {
+    const action = pathname.slice('/api/manager/'.length);
+    const token = managerSessionOf(req);
+    if (action === 'login') {
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });
+      return managerReply(res, MANAGER.login(req, await readBody(req)));
+    }
+    if (action === 'session') {
+      if (req.method !== 'GET') return send(res, 405, { ok: false, error: '管理操作仅允许GET' });
+      // 固定 200：前端据此区分「未登录」与「接口不存在」。
+      return managerReply(res, MANAGER.sessionProbe(req, token));
+    }
+    if (action === 'state') {
+      if (req.method !== 'GET') return send(res, 405, { ok: false, error: '管理操作仅允许GET' });
+      const gate = MANAGER.sessionFor(req, token);
+      if (gate.status !== 200) return managerReply(res, gate);
+      return managerReply(res, MANAGER.state());
+    }
+    if (action === 'reset') {
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });
+      return managerReply(res, MANAGER.reset(req, token, await readBody(req)));
+    }
+    if (action === 'logout') {
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      return managerReply(res, MANAGER.logout(token));
+    }
+    return send(res, 404, { ok: false, error: 'unknown manager action' });
   }
   if (pathname === '/api/stream') {
     const player = currentPlayer(req, url);
@@ -204,7 +300,7 @@ async function route(req, res, url) {
   if (pathname === '/api/join' && req.method === 'POST') {
     const body = await readBody(req);
     const oldSid = sessionOf(req);
-    if (process.env.SID_TEST === '1') {
+    if (!SSO_REQUIRED) {
       const sid = ROOM.playerBySession(oldSid) ? oldSid : newSid();
       const result = ROOM.join(sid, body.nickname);
       if (result.error) return send(res, 409, { error: result.error });
@@ -217,13 +313,13 @@ async function route(req, res, url) {
     const result = ROOM.join(sid, null, { empNo: user.emp_no, name: user.name || user.emp_no });
     if (result.error) return send(res, 409, { error: result.error });
     setSessionCookie(res, sid);
-    return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, lan: lanAddresses(), port: PORT });
+    return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, roundId: ROOM.room.roundId, lan: lanAddresses(), port: PORT });
   }
   if (pathname === '/api/input' && req.method === 'POST') {
     const body = await readBody(req);
     const player = currentPlayer(req, url);
     if (!player) return send(res, 401, { error: 'no identity' });
-    ROOM.setIntent(player.id, body);
+    if (ROOM.setIntent(player.id, body) === false) return send(res, 400, { ok: false, error: '对局或楼层版本不一致，请重新同步' });
     return send(res, 200, { ok: true });
   }
   // 肢体互动（跳跃 / 挥锤）：只提交 kind，命中、击晕、冷却全部由服务端判定。
@@ -238,9 +334,27 @@ async function route(req, res, url) {
   }
   if (pathname === '/api/skill' && req.method === 'POST') {
     const body = await readBody(req);
-    const actor = currentPlayer(req, url);
-    if (!actor) return send(res, 401, { error: 'no identity' });
-    const result = ROOM.useSkill(actor.sessionId, body);
+    const result = ROOM.useSkill(actingSession(req, url), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/interact' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.interact(actingSession(req, url), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/play' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.play(actingSession(req, url), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/attack' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.attack(actingSession(req, url), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
+  if (pathname === '/api/floor-change' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.floorChange(actingSession(req, url), body);
     return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/ack' && req.method === 'POST') {
@@ -309,6 +423,15 @@ async function route(req, res, url) {
     const action = pathname.replace('/api/test/', '');
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (action === 'advance') { ROOM.room.clockOffset += Number(body.ms) || 0; return send(res, 200, { ok: true, offset: ROOM.room.clockOffset }); }
+    // 测试专用资源注入：猜拳要求双方各至少 1 筹码，但真实玩家从 0 筹码起步且获取途径是
+    // 随机转盘/搜寻，端到端用例需要确定性前置条件。仅在 SID_TEST=1 下存在。
+    if (action === 'resources') {
+      const target = ROOM.find(Number(body.playerId));
+      if (!target) return send(res, 404, { ok: false, error: 'player not found' });
+      if (Number.isFinite(Number(body.chips))) target.exploration.chips = Math.max(0, Number(body.chips));
+      if (Number.isFinite(Number(body.score))) target.score = Math.max(0, Number(body.score));
+      return send(res, 200, { ok: true, playerId: target.id, chips: target.exploration.chips, score: target.score });
+    }
     if (action === 'sessions') {
       return send(res, 200, { ok: true, sessions: [...ROOM.room.sessions].map(([sessionId, playerId]) => ({ sessionId, playerId })) });
     }
@@ -320,16 +443,24 @@ async function route(req, res, url) {
         ? currentPlayer(req, url)
         : ROOM.find(Number(body.playerId));
       if (!owner) return send(res, 404, { error: 'player not found' });
+      // floorId 可选：合并后的地图是七层，自测需要把角色放到指定楼层（仅 SID_TEST=1 暴露）。
+      if (body.floorId !== undefined && WORLD.floorById(Number(body.floorId))) {
+        owner.floorId = Number(body.floorId);
+        owner.floorRevision += 1;
+      }
       if (Number.isFinite(Number(body.x))) owner.x = Number(body.x);
       if (Number.isFinite(Number(body.y))) owner.y = Number(body.y);
-      return send(res, 200, { ok: true, playerId: owner.id, x: owner.x, y: owner.y });
+      return send(res, 200, { ok: true, playerId: owner.id, x: owner.x, y: owner.y, floorId: owner.floorId });
     }
     if (action === 'state') {
       return send(res, 200, {
         ok: true,
         // npc / hasSession 供自测断言 NPC 不可被会话认领；真实会话令牌不下发。
-        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills, npc: !!p.npc, hasSession: !!p.sessionId })),
+        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills, npc: !!p.npc, hasSession: !!p.sessionId, score: p.score })),
         finished: ROOM.room.finished,
+        finishReason: ROOM.room.finishReason || null,
+        ranking: ROOM.room.ranking,
+        rules: { endRemainingPlayers: WORLD.RULES.endRemainingPlayers, timeLimitMs: WORLD.RULES.timeLimitMs, endsAt: ROOM.room.startedAt + WORLD.RULES.timeLimitMs },
         eliminateEvents: ROOM.room.eliminateEvents
       });
     }
@@ -340,14 +471,10 @@ async function route(req, res, url) {
 }
 // Deterministic offline detection: a stream whose last successful write is older than
 // the threshold is considered dead even if the socket never reported an error.
-setInterval(() => {
+const offlineTimer = setInterval(() => {
   const now = Date.now();
-  for (const [playerId, entry] of ROOM.streams) {
-    if (now - entry.lastAck > 3000) {
-      try { entry.res.end(); } catch { /* already closed */ }
-      ROOM.streams.delete(playerId);
-      ROOM.setOffline(playerId);
-    }
+  for (const entry of ROOM.streams.values()) {
+    if (now - entry.lastAck > 3000) entry.close();
   }
 }, 1000);
 const server = http.createServer((req, res) => {
@@ -358,13 +485,18 @@ const server = http.createServer((req, res) => {
     else { try { res.end(); } catch { /* closed */ } }
   });
 });
-setInterval(() => ROOM.step(TICK_MS / 1000), TICK_MS);
+const cancelRoomTick = everyMs(() => ROOM.step(TICK_MS / 1000), TICK_MS);
+server.on('close', () => {
+  cancelRoomTick();
+  clearInterval(offlineTimer);
+  for (const entry of ROOM.streams.values()) entry.close();
+});
 server.listen(PORT, HOST, () => {
   const lan = lanAddresses();
   console.log(`S-ID 联机试玩服务已启动`);
   console.log(`本机访问: http://127.0.0.1:${PORT}`);
   console.log(`开发重置: ${DEV_ENABLED ? '启用（仅本机、已加入身份、同源Origin和CSRF）' : '关闭（需维护时以SID_DEV=1重启启用）'}；本机路径 http://127.0.0.1:${PORT}/`);
-  console.log(`单点登录: ${process.env.SID_TEST === '1' ? '测试模式关闭，仍用昵称加入' : '已启用，CAS 姓名直接进局；会话在本进程内存，重启后需重新登录'}`);
+  console.log(`单点登录: ${SSO_REQUIRED ? '已启用，CAS 姓名直接进局；会话在本进程内存，重启后需重新登录' : '未启用（SID_TEST=1 或 SID_SSO=0），仍用昵称加入'}`);
   for (const address of lan) console.log(`局域网访问: http://${address}:${PORT}`);
   console.log(`技能次数恢复周期: ${SKILL_CONFIG.chargeIntervalMs / 1000}s（正式版改 room.js SKILL_CONFIG.chargeIntervalMs 为 1200000）`);
   if (!lan.length) console.log('未检测到局域网 IPv4 地址，同事可能无法通过局域网访问。');
