@@ -1,0 +1,42 @@
+antea-office — 第三方素材授权说明
+================================================================
+
+包名：Free Furniture Office Equipment Set Pixel Art
+作者：Antea ✮⋆˙ (stcrbcn)
+来源：https://stcrbcn.itch.io/furniture-office-set
+下载页：https://stcrbcn.itch.io/furniture-office-set/purchase （免费 PWYC，选 "No thanks, just take me to the downloads"）
+
+授权类型：CC-BY
+  - 允许用于个人与商业项目
+  - 允许修改
+  - **必须署名原作者（CC-BY 强制要求）**
+
+本项目署名文本（若在游戏内/文档中致谢，请使用）：
+  Office furniture sprites by Antea (stcrbcn)
+  https://stcrbcn.itch.io/furniture-office-set
+  Licensed under CC-BY
+
+原包文件：Office-Furniture-Pixel-Art.zip
+  大小：38,447 字节
+  SHA256：22f8f711a888c984a678a334c0883dadcce44a600fd69781d49caeace71b3e34
+
+本目录内容（43 个 PNG + 本文件）：
+  0-Tileset.png                合图总览（仅参考，不用于运行时）
+  Desk.png / Desk-2.png / Boss-Desk.png      工位桌（含显示器）
+  Chair.png / Chair-2.png / Boss-Chair.png   办公椅
+  Big-Sofa.png / Big-Sofa-2.png / Small-Sofa.png   沙发
+  Big-Plant.png / Small-Plant.png            盆栽
+  Bookshelf.png / Tall-Bookshelf.png         书架
+  Big-Filing-Cabinet.png / Filing-Cabinet-Small.png / Filing-Cabinet-Tall.png
+  Filing-Cabinet-Open.png / Wide-Filing-Cabinet.png  文件柜
+  Printer.png / Printer-Furniture.png / Big-Office-Printer.png  打印机
+  Board.png                                  白板
+  Coffee-Machine.png / Vending-Machine.png / Water-Dispenser.png  茶水/售货/饮水
+  Toilet-Open.png / Toilet-Closed.png / WC-Sink.png / WC-Paper.png / Mirror.png  卫生间
+  Bin.png / Folders.png / Folders-2.png / Papers.png / Books.png  杂项
+  Wall-Clock.png / Wall-Graph.png / Wall-Note.png / Wall-Note-2.png / Wall-Shelf.png  墙面件
+  Big-Round-Table.png / Small-Table.png      桌
+
+规格：单个精灵 16×16 或 32×32，透明背景 PNG，正俯视 3/4 视角。
+用途：online/shared/scene.js 的家具绘制（desk / seat / sofa / plant / cabinet / table / counter / reception）。
+缺项：本包不含地板、墙面与角色动画；跑步机、哑铃等健身器材在整个素材库中均无对应素材。

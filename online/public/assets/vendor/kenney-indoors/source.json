@@ -1,0 +1,32 @@
+{
+  "id": "kenney-indoors",
+  "source": "https://kenney.nl/assets/roguelike-indoors",
+  "download": "https://kenney.nl/media/pages/assets/roguelike-indoors/4d5b520b03-1702169567/kenney_roguelike-indoors.zip",
+  "zip": "kenney_roguelike-indoors.zip",
+  "sheet": "Tilesheets/roguelikeIndoor_transparent.png",
+  "cols": 27,
+  "rows": 18,
+  "spacing": 1,
+  "author": "Kenney / Kenney Vleugels",
+  "license": "CC0-1.0",
+  "licenseFile": "License.txt",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "commercialUse": true,
+  "attributionRequired": false,
+  "sha256": "578cfdb066c4a9de78a52535adaf953728889b2cf268441bd4d338844f7aa586",
+  "zipBytes": 112227,
+  "imageSize": [
+    458,
+    305
+  ],
+  "tileSize": [
+    16,
+    16
+  ],
+  "margin": 0,
+  "webPath": "/assets/vendor/kenney-indoors/Tilesheets/roguelikeIndoor_transparent.png",
+  "date": "2026-10-14",
+  "downloaded": true,
+  "extracted": true,
+  "actualPngVisuallyRead": true
+}
