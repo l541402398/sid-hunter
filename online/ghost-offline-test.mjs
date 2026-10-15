@@ -1,6 +1,7 @@
 'use strict';
 // Real HTTP/SSE on an isolated loopback server; deterministic module-level random injection.
 import { spawn } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -348,7 +349,11 @@ try {
     auto.r.useSkill('M0',{skill:'probe',targetId:resetB.id,commandId:randomUUID()});fixedNow+=90000;
     check('模块reset后清冻结并恢复技能次数', resetA.skillsFrozenAt===null && auto.r.privateSnapshot(resetA.id).me.skills.probe.chargesRemaining===2);
   } finally { Date.now=realNow; }
-  const html=readFileSync(new URL('./public/index.html',import.meta.url),'utf8');
+  // 重构适配：规则页/开发管理/覆盖层等静态标记已移到 public/js/markup/*，
+  // 「静态 HTML 面」= index.html + 全部标记模块（顺序无关，只做文本断言）。
+  const markupDir=new URL('./public/js/markup/',import.meta.url);
+  const html=readFileSync(new URL('./public/index.html',import.meta.url),'utf8')
+    + readdirSync(markupDir).sort().map(f=>readFileSync(new URL(f,markupDir),'utf8')).join('\n');
   const client=readFileSync(new URL('./public/game.js',import.meta.url),'utf8');
   check('静态键位契约：K跳且无Space游戏跳跃绑定', client.includes("e.code === 'KeyK'") && !client.includes("e.code === 'Space' ? 'jump'") && !html.includes('空格跳') && !html.includes('空格 跳'));
   check('静态规则：保留Survivor id用户拼写与4/3属性标题', html.includes('Survivor id（幸存者id）') && html.includes('4项外观属性，3项隐藏属性'));

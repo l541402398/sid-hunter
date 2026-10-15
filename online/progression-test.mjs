@@ -1,6 +1,7 @@
 // 进度机制回归：单局连续对局转盘（阶梯收费、可重复、特殊券）、全行为计分、三种结束方式与排名。
 // 零依赖：直接 require('./room.js') 构造权威房间；HTTP 段复用 mechanics-test 的 spawn 模式。
 import assert from 'node:assert/strict';
+import { readWorldSource } from './test-helpers/world-source.mjs';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
@@ -35,7 +36,8 @@ const search = (r, p, id) => r.interact(p.sessionId, { commandId: nonce(), kind:
 const exchange = (r, p, entity) => r.interact(p.sessionId, { commandId: nonce(), kind: 'exchange', entityId: entity.id });
 
 await test('WORLD 新常量与函数：浏览器脚本与 CommonJS 双载、无 import/export', async () => {
-  const source = await readFile(new URL('./shared/world.js', import.meta.url), 'utf8');
+  // 合并适配：world 已拆成 shared/world/* + 聚合器；加载契约检查统一读拼接源码（顺序同 index.html）。
+  const source = await readWorldSource();
   assert.ok(!/^\s*(import|export)\s/m.test(source));
   for (const sandbox of [{ window: {} }, {}]) {
     runInNewContext(source, sandbox);

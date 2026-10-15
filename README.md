@@ -235,6 +235,26 @@ node online/deploy-smoke.mjs https://game.afann.xyz
 
 > 冒烟里的“重开”只验证接口已开通且要求二次确认（期望 400），**不会真的清空线上房间**。房间状态在内存里，`restart` 会清空当前对局。
 
+## 目录结构与分包
+
+为降低多人并行开发时的合并冲突，原先 6 个「什么都往里塞」的巨型文件按职责拆成模块；**旧路径全部保留**（入口/shim），部署与自测命令不用改：
+
+| 旧文件（行数 / 近 30 提交改动次数） | 现在的结构 | 新增代码时改哪里 |
+| --- | --- | --- |
+| `online/shared/world.js`(967 / 12) | 聚合器 + `shared/world/{config,geometry,furniture,floors,sprite}.js` | 调参→`config.js`；几何→`geometry.js`；家具/楼层→对应文件。**新增子模块要同步三处**：`index.html`、`demo/index.html` 的脚本顺序，以及 `online/test-helpers/world-source.mjs` 的清单 |
+| `online/room.js`(1408 / 14) | shim + `room/{config,charges,badpool,digest,events,index}.js` | 自带状态的子系统按工厂拆（`createXxx({...注入})`）；纯计算用显式传参（如 `charges.sync(player,t,finished)`） |
+| `online/server.js`(503 / 11) | 薄入口 + `server/{config,http-util,auth,sse,app}.js` + `server/routes/{manager,session,gameplay,dev}.js` | 加接口只动 `server/routes/` 里对应文件；`handle(ctx)` 返回 `false` 表示未处理，其它返回值都表示已应答（与原先 `return send(...)` 等价） |
+| `online/public/game.js`(3030 / 14) | 客户端核心 + `public/js/core/*`、`public/js/render/*` | 自包含工具已抽出并以别名引回；面板逻辑仍在内核，后续按「状态门面」继续拆 |
+| `online/public/index.html`(113 / 15) | 骨架 + `public/js/markup/*.js` | 标记模块用 `document.currentScript.insertAdjacentHTML('beforebegin', …)` 原位注入并自我移除宿主 `<script>`。**必须同步加载（不能 defer）**，否则 head 里同为 defer 的 `game.js` 会先执行、绑定时元素还不存在 |
+| `online/public/styles.css`(336 / 15) | `@import` 入口 + `public/styles/*.css` | 按分区改样式；新增分区在入口清单末尾追加一行 |
+
+客户端零构建、经典脚本：拆出来的模块挂在 `window.SID` 命名空间下，`window.WORLD` / `window.SID_SCENE` 契约不变。加载顺序固定为
+`/shared/world/* → /shared/world.js → /shared/scene.js → js/core|js/render → js/markup（同步）→ game.js(defer)`。
+
+测试侧配套：
+- `online/test-helpers/guard-files.mjs`：文件哈希守卫的**唯一清单**（含分包后的新模块目录）。新增模块目录/文件后在这里补一行，`mechanics/exploration/movement-attack/progression-browser-test`、`theme-assets-browser-test`、`rules-qa`、`privacy-reset-qa` 的守卫才会覆盖它。
+- `online/test-helpers/world-source.mjs`：按浏览器加载顺序拼接 world 子模块 + 聚合器，供「源码进 vm 沙箱」的加载契约检查使用。
+
 ## 已知限制
 
 - 「定期公布坏人线索」与「积分兑换/名次奖励」等细化规则仍未实现，界面中明确标注为待补充。

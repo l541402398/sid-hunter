@@ -1,0 +1,10 @@
+/* 变量/重置/body 与按钮基础样式 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
+*{box-sizing:border-box}:root{--text:#e2e8f0;--blue:#60a5fa;--green:#4ade80;--gray:#94a3b8}
+body{margin:0;background:radial-gradient(960px 540px at 16% -10%,#1e3554 0,rgba(10,16,28,0) 64%),radial-gradient(760px 460px at 88% 2%,#1b2c48 0,rgba(10,16,28,0) 62%),linear-gradient(#0c1524 0,#070c16 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;letter-spacing:.2px;-webkit-font-smoothing:antialiased}
+button,input{font:inherit}
+button{color:inherit;background:linear-gradient(180deg,#1d2c44,#16223a);border:1px solid #3a4f6c;border-radius:9px;padding:9px 13px;cursor:pointer;box-shadow:inset 0 1px 0 #ffffff12,0 6px 14px -10px #000;transition:background .12s,border-color .12s}
+button:hover{background:linear-gradient(180deg,#27405f,#1b2c47);border-color:#6d90b8}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid #60a5fa;outline-offset:3px}
+button:disabled{opacity:.42;cursor:not-allowed}
+button:active{transform:translateY(1px)}
+[hidden]{display:none!important}

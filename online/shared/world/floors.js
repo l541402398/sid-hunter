@@ -1,0 +1,554 @@
+'use strict';
+// 七层楼面数据、建造、查询与乘梯资格判定（浏览器与 Node 共用；由 online/shared/world.js 汇总为 window.WORLD）
+(function (root, factory) {
+  const isNode = typeof module !== 'undefined' && module.exports;
+  const D = isNode ? Object.assign({}, require('./config.js'), require('./geometry.js'), require('./furniture.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const api = factory(D);
+  if (isNode) module.exports = api;
+  else Object.assign(root.SID_WORLD_PARTS = root.SID_WORLD_PARTS || {}, api);
+})(typeof window !== 'undefined' ? window : globalThis, function (D) {
+  const { lineClear, collidesAt, coverFor, pointOccluded, facingVector, blocksFor, DOOR_HALF_PX_H, DOOR_HALF_PX_V, INTERACT_RANGE } = D;
+  // ---------- 七层楼层数据（1–7F，两端与服务端同源） ----------
+  // 逻辑视口基准高度：动态适配时统一缩放 s = 视区CSS高 / FLOOR_BASE_HEIGHT。
+  // 世界坐标与屏幕坐标共用同一个 s，屏幕变宽=看到更多世界，绝不非等比拉伸。
+  // 阶段2-阶段1（÷4 尺度修正）：FLOOR_BASE_HEIGHT 640→320，FLOOR_W 3840→960，FLOOR_H 1600→400。
+  // 唯一尺度源：水平/立面 32px/m，平面进深 13.33px/m（保持 2.4:1）；0–1000 单位 = 30m×30m 楼板。
+  // 两轴同比例缩小，nX/nY 自动把全部家具/墙/门/出生点/入口缩到同一尺度。
+  const FLOOR_BASE_HEIGHT = 320;
+  // 阶段3（楼板加宽 · 每层不能太小）：每层世界像素宽 960→1440（1.5×，45m×30m）。
+  // 为让家具/角色/门洞的**像素尺度完全不变**，x 轴归一化空间同步由 0–1000 扩到 0–1500（X_SPAN）：
+  // 1 设计单位仍 = 0.96px，故既有 0–1000 内容落在原像素位置，右侧 1000–1500 是新增的
+  // 「东侧走廊 + 东侧服务翼（电梯厅/楼梯间/卫生间）」。y 轴保持 0–1000（1 单位 = 0.4px）。
+  const FLOOR_W = 1440, FLOOR_H = 400; // 每层世界像素尺寸（二维相机需要纵向空间）
+  const X_SPAN = 1500, Y_SPAN = 1000;
+  const LIFT_CONFIG = Object.freeze({ hallW: 144, hallH: 96, opening: 48, trigger: 38, closeDelayMs: 650 });
+  // 归一化坐标 → 世界像素（x/y 各按自身设计跨度换算，保持 2.4:1 斜俯视与既有像素尺度）。
+  const nX = v => Math.round(v / X_SPAN * FLOOR_W);
+  const nY = v => Math.round(v / Y_SPAN * FLOOR_H);
+  const nRect = c => { const x1 = nX(c[0]), y1 = nY(c[1]), x2 = nX(c[2]), y2 = nY(c[3]); return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }; };
+  // 楼层外轮廓（0–1500 × 0–1000 归一化）。轮廓外是非楼面，禁止行走，不得用矩形底板补平。
+  const FULL_RECT = [[0, 0], [1500, 0], [1500, 1000], [0, 1000]];
+  const L24 = [[0, 0], [1500, 0], [1500, 1000], [255, 1000], [255, 710], [122, 710], [122, 550], [0, 550]];
+  const L56 = [[0, 0], [1500, 0], [1500, 1000], [151, 1000], [151, 620], [72, 620], [72, 520], [0, 520]];
+
+  // 每层规格：rooms 用 zones 呈现；furniture 行为 [type,label,x1,y1,x2,y2,flag?]（角点、0–1000 归一化）。
+  // 可搜容器以 flag 'container:<name>' 标记并生成稳定 ID f{层}:container:{name}。
+  // walls 行为 [orient,fixed,a1,a2]（orient 'h'/'v'），是真正的碰撞墙体；门=两段墙之间留出的空隙，
+  // 因此门是可通行的真实开洞，不是贴图。
+  const FLOOR_SPECS = [
+    { id: 1, name: '1F · 原创大厅食堂', source: 'original', outline: FULL_RECT,
+      zones: ['接待区', '等候区', '食堂', '后厨取餐', '核心筒', '东侧服务翼'], stairLeft: [70, 700], stairRight: [1220, 620],
+      furniture: [
+        ['reception', '接待台', 150, 120, 320, 220, 'container:reception'],
+        ['sofa', '等候沙发', 430, 150, 610, 250],
+        ['plant', '门厅绿植', 650, 130, 710, 200],
+        // —— 任务8：每层新增可搜容器与星露谷风装饰（工位缩减后腾出的探索点）——
+        ['cabinet', '大厅储物柜', 340, 300, 460, 390, 'container:hall1'],
+        ['sofa', '阅读沙发', 860, 150, 1000, 240],
+        ['plant', '图书角绿植', 980, 300, 1030, 360],
+        ['table', '食堂餐桌一', 360, 600, 470, 690, 'container:table1'],
+        ['table', '食堂餐桌二', 540, 600, 650, 690],
+        ['table', '食堂餐桌三', 720, 600, 830, 690],
+        ['table', '食堂餐桌四', 360, 740, 470, 830],
+        ['table', '食堂餐桌五', 540, 740, 650, 830],
+        ['table', '食堂餐桌六', 720, 740, 830, 830],
+        ['counter', '取餐台', 340, 860, 700, 950, 'container:counter'],
+        ['cabinet', '后厨操作台', 710, 880, 830, 960],
+        ['plant', '食堂绿植', 300, 950, 350, 995],
+        ['cabinet', '核心筒', 30, 430, 125, 610],
+        // —— 东侧服务翼（阶段3新增，x 1000–1500）：走廊 + 电梯厅 + 楼梯间 + 卫生间 + 装饰 ——
+        ['cabinet', '东侧电梯厅', 1140, 400, 1300, 560],
+        ['cabinet', '东侧楼梯间', 1320, 400, 1470, 560],
+        ['counter', '东侧卫生间台面', 1140, 700, 1470, 860],
+        ['sofa', '东侧等候沙发', 1180, 120, 1360, 220],
+        ['plant', '东侧绿植一', 1010, 120, 1070, 190],
+        ['plant', '东侧绿植二', 1420, 120, 1480, 190]
+      ],
+      npcs: [{ slug: 'reception', name: '接待员小禾', x: 250, y: 175, dialogue: '你好，需要用筹码交换一条办公室线索吗？', cost: 3 }],
+      walls: [['h', 470, 300, 490], ['h', 470, 575, 825], ['h', 800, 300, 650], ['h', 800, 710, 825],
+        ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
+      spawns: [[75, 340], [75, 700], [75, 750], [500, 360], [700, 360], [500, 480], [900, 360], [1080, 500], [1080, 850]] },
+
+    { id: 2, name: '2F · 综合办公', source: 'real', outline: L24,
+      zones: ['220 会议室', '上层工位', '核心筒', '卫生间', '茶水间', '226 斜角室', '205', '206', '东侧服务翼'],
+      stairLeft: [70, 520], stairRight: [1220, 620],
+      furniture: [
+        ['table', '220 会议室', 15, 20, 150, 235],
+        ['desk', '研发办公桌一', 258, 25, 395, 235, 'container:desk1'],
+        ['desk', '工位岛二', 400, 25, 540, 235],
+        ['cabinet', '核心筒', 15, 345, 125, 425, 'container:cabinet'],
+        ['counter', '卫生间台面', 130, 345, 250, 430],
+        ['table', '茶水间台面', 125, 565, 250, 700],
+        ['table', '226 斜角室', 258, 795, 362, 995],
+        ['desk', '205 工位', 370, 895, 436, 995],
+        ['desk', '206 工位', 442, 895, 506, 995],
+        ['desk', '中央工位一', 409, 370, 569, 500],
+        ['desk', '中央工位二', 409, 540, 569, 680],
+        ['desk', '中央工位三', 481, 725, 641, 845],
+        ['desk', '右上工位', 868, 10, 995, 205],
+        // —— 任务8：每层新增可搜容器与星露谷风装饰（工位缩减后腾出的探索点）——
+        ['cabinet', '打印间文件柜', 590, 370, 710, 460, 'container:printer2'],
+        ['sofa', '中庭沙发', 258, 430, 395, 510],
+        ['plant', '中庭绿植', 258, 640, 310, 700],
+        // 2d 闭合：205/206 工位之间 29px 凹角（北侧 h890 薄墙与南楼面沿之间只剩 3px 缝）填成一件真实共享绿植箱，
+        // 避免"看得见地板却走不进"的隐形墙（team-lead 方案 A：只增实体、不加墙）。造型待美术确认（绿植箱/打印柜皆可）。
+        ['plant', '工位绿植箱', 436, 893, 467, 940],
+        // —— 东侧服务翼（阶段3新增，x 1000–1500）——
+        ['cabinet', '东侧电梯厅', 1140, 400, 1300, 560],
+        ['cabinet', '东侧楼梯间', 1320, 400, 1470, 560],
+        ['counter', '东侧卫生间台面', 1140, 700, 1470, 860],
+        ['sofa', '东侧等候沙发', 1180, 120, 1360, 220],
+        ['plant', '东侧绿植一', 1010, 120, 1070, 190],
+        ['plant', '东侧绿植二', 1420, 120, 1480, 190]
+      ],
+      walls: [['v', 253, 0, 250], ['h', 250, 0, 150], ['h', 250, 255, 540],
+        ['h', 340, 0, 250], ['v', 250, 340, 600], ['h', 710, 0, 255], ['h', 890, 365, 510],
+        ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
+      spawns: [[70, 470], [300, 760], [330, 300], [600, 300], [588, 500], [577, 705], [900, 470], [900, 760], [1080, 500], [1080, 850]] },
+
+    { id: 3, name: '3F · 产品研发', source: 'real', outline: L24,
+      zones: ['301', '302', '303', '核心筒', '茶水间', '316 斜角室', '305', '讨论区', '小会议区', '东侧服务翼'],
+      stairLeft: [70, 520], stairRight: [1220, 620],
+      furniture: [
+        // 301/302/303 会议桌只占房间上部，底部留出门口步道（门墙 y205），不再封住门内。
+        ['desk', '301', 8, 15, 128, 150],
+        ['desk', '302', 146, 15, 188, 150],
+        ['desk', '303', 208, 15, 250, 150],
+        ['cabinet', '核心筒', 10, 290, 118, 490],
+        ['table', '茶水间台面', 125, 500, 250, 660],
+        ['desk', '研发办公桌二', 312, 90, 503, 220, 'container:desk2'],
+        ['table', '316 斜角室', 253, 730, 362, 995],
+        ['desk', '305', 368, 840, 433, 995],
+        ['table', '讨论区', 440, 840, 498, 995],
+        ['table', '小会议区', 503, 840, 608, 995],
+        ['desk', '工位带一', 409, 290, 569, 430],
+        ['desk', '工位带二', 409, 475, 569, 640],
+        ['desk', '工位带三', 481, 655, 641, 790],
+        // —— 任务8：每层新增可搜容器与星露谷风装饰（工位缩减后腾出的探索点）——
+        ['cabinet', '产品资料柜', 590, 290, 710, 380, 'container:docs3'],
+        ['sofa', '休息角沙发', 745, 480, 900, 570],
+        ['plant', '讨论区绿植', 745, 300, 800, 360],
+        // —— 东侧服务翼（阶段3新增，x 1000–1500）——
+        ['cabinet', '东侧电梯厅', 1140, 400, 1300, 560],
+        ['cabinet', '东侧楼梯间', 1320, 400, 1470, 560],
+        ['counter', '东侧卫生间台面', 1140, 700, 1470, 860],
+        ['sofa', '东侧等候沙发', 1180, 120, 1360, 220],
+        ['plant', '东侧绿植一', 1010, 120, 1070, 190],
+        ['plant', '东侧绿植二', 1420, 120, 1480, 190]
+      ],
+      walls: [['h', 205, 0, 254], ['v', 254, 0, 205], ['v', 130, 0, 205], ['v', 192, 0, 205],
+        ['h', 495, 0, 120], ['h', 727, 250, 365], ['h', 835, 365, 610],
+        ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
+      npcs: [{ slug: 'archive', name: '档案员阿卷', x: 330, y: 300, dialogue: '我可以帮你寻找一条尚未掌握的线索。', cost: 3 }],
+      spawns: [[70, 250], [183, 660], [330, 250], [583, 260], [631, 825], [900, 300], [900, 700], [1080, 500], [1080, 850]] },
+
+    { id: 4, name: '4F · 档案票证', source: 'real', outline: L24,
+      zones: ['401', '403', '404', '核心筒', '茶水间', '416 作战室', '讨论区', '406 会议室', '票证工位区', '东侧服务翼'],
+      stairLeft: [70, 520], stairRight: [1220, 620],
+      furniture: [
+        // 401/403/404 同上：家具缩到 y150，让出 3F/4F 会议室的门口通道。
+        ['desk', '401', 8, 15, 128, 150],
+        ['desk', '403', 146, 15, 188, 150],
+        ['desk', '404', 208, 15, 250, 150],
+        ['cabinet', '核心筒', 10, 285, 118, 480],
+        ['table', '茶水间台面', 125, 500, 250, 660],
+        ['desk', '档案办公桌一', 295, 70, 493, 215, 'container:desk3'],
+        ['table', '416 作战室', 253, 730, 362, 995],
+        ['table', '讨论区', 368, 845, 433, 995],
+        ['table', '406 会议室', 437, 845, 498, 995],
+        ['desk', '票证工位区', 503, 845, 613, 995],
+        ['desk', '中央带一', 409, 280, 569, 425],
+        ['desk', '中央带二', 409, 470, 569, 610],
+        ['desk', '中央带三', 481, 650, 641, 800],
+        // —— 任务8：每层新增可搜容器与星露谷风装饰（工位缩减后腾出的探索点）——
+        ['cabinet', '票证储藏柜', 590, 280, 710, 370, 'container:ticket4'],
+        ['sofa', '档案区沙发', 745, 480, 900, 570],
+        ['plant', '档案区绿植', 745, 290, 800, 350],
+        // —— 东侧服务翼（阶段3新增，x 1000–1500）——
+        ['cabinet', '东侧电梯厅', 1140, 400, 1300, 560],
+        ['cabinet', '东侧楼梯间', 1320, 400, 1470, 560],
+        ['counter', '东侧卫生间台面', 1140, 700, 1470, 860],
+        ['sofa', '东侧等候沙发', 1180, 120, 1360, 220],
+        ['plant', '东侧绿植一', 1010, 120, 1070, 190],
+        ['plant', '东侧绿植二', 1420, 120, 1480, 190],
+        // 档案票证层：东侧加两件文件柜强化主题（非容器，不改经济）。
+        ['cabinet', '档案柜一', 1010, 760, 1110, 890],
+        ['cabinet', '档案柜二', 1010, 900, 1110, 995]
+      ],
+      walls: [['h', 205, 0, 254], ['v', 254, 0, 205], ['v', 130, 0, 205], ['v', 192, 0, 205],
+        ['h', 495, 0, 120], ['h', 727, 250, 365], ['h', 840, 365, 615],
+        ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
+      spawns: [[70, 250], [183, 660], [330, 250], [583, 260], [631, 825], [900, 300], [900, 700], [1080, 500], [1080, 850]] },
+
+    { id: 5, name: '5F · 值班会议', source: 'real', outline: L56,
+      zones: ['501', '502', '503', '核心筒', '卫生间', '516', '值班室', '左下附翼', '会议区', '509', '茶水间', '东侧服务翼'],
+      stairLeft: [70, 250], stairRight: [1220, 620],
+      furniture: [
+        // 501/502/503 会议桌缩到 y150，让出 5F 会议室的门口通道（门墙 y195）。
+        ['desk', '501', 8, 15, 128, 150],
+        ['desk', '502', 144, 15, 186, 150],
+        ['desk', '503', 193, 15, 251, 150],
+        ['cabinet', '核心筒', 10, 290, 118, 490],
+        ['counter', '卫生间台面', 142, 290, 248, 375],
+        ['table', '516', 253, 290, 305, 420],
+        ['table', '值班室', 75, 500, 149, 615],
+        // 任务9：附翼工位东移让出 v151 墙的两扇门（y710/y855），门口不再被工位岛堵死。
+        ['desk', '左下附翼一', 180, 640, 338, 760],
+        ['desk', '左下附翼二', 180, 780, 338, 900],
+        ['desk', '左下附翼三', 155, 915, 338, 995],
+        ['desk', '顶部工位排', 483, 45, 643, 190],
+        ['desk', '中短带', 425, 305, 585, 385],
+        ['table', '休息桌二', 310, 500, 700, 630, 'container:table2'],
+        ['desk', '下带', 425, 675, 585, 795],
+        // —— 任务8：每层新增可搜容器与星露谷风装饰（工位缩减后腾出的探索点）——
+        ['cabinet', '值班储物柜', 610, 305, 710, 385, 'container:duty5'],
+        ['sofa', '茶歇沙发', 710, 450, 860, 540],
+        ['plant', '值班区绿植', 720, 560, 775, 620],
+        ['table', '小室', 345, 855, 405, 995],
+        ['table', '讨论区', 410, 855, 473, 995],
+        ['table', '宽会议区', 478, 855, 598, 995],
+        ['desk', '509', 603, 855, 674, 995],
+        ['table', '茶水间台面', 752, 855, 810, 995],
+        // —— 东侧服务翼（阶段3新增，x 1000–1500）——
+        ['cabinet', '东侧电梯厅', 1140, 400, 1300, 560],
+        ['cabinet', '东侧楼梯间', 1320, 400, 1470, 560],
+        ['counter', '东侧卫生间台面', 1140, 700, 1470, 860],
+        ['sofa', '东侧等候沙发', 1180, 120, 1360, 220],
+        ['plant', '东侧绿植一', 1010, 120, 1070, 190],
+        ['plant', '东侧绿植二', 1420, 120, 1480, 190]
+      ],
+      walls: [['h', 195, 0, 253], ['v', 130, 0, 195], ['v', 190, 0, 195],
+        ['h', 280, 0, 120], ['h', 495, 0, 307], ['v', 307, 280, 495],
+        ['h', 620, 72, 151], ['v', 151, 620, 1000], ['h', 850, 342, 676], ['h', 850, 750, 813],
+        ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
+      spawns: [[500, 250], [500, 450], [420, 440], [500, 820], [900, 250], [900, 450], [900, 700], [250, 560], [1080, 500], [1080, 850]] },
+
+    { id: 6, name: '6F · 财务会议', source: 'real', outline: L56,
+      zones: ['604', '602', '601', '核心筒', '卫生间', '603', '值班室', '顶工位', '会议簇', '茶水间', '财务工位', '东侧服务翼'],
+      stairLeft: [70, 250], stairRight: [1220, 620],
+      furniture: [
+        // 604/602/601 会议桌缩到 y150，让出 6F 会议室的门口通道（门墙 y195）。
+        ['desk', '604', 8, 15, 121, 150],
+        ['desk', '602', 140, 15, 241, 150],
+        ['desk', '601', 247, 15, 365, 150],
+        ['cabinet', '核心筒', 10, 320, 121, 515],
+        ['counter', '卫生间台面', 127, 320, 248, 400],
+        ['table', '603', 253, 320, 303, 445],
+        ['table', '值班室', 75, 525, 149, 648],
+        // 任务9：下翼工位东移让出 v151 墙的两扇门（y710/y855），门口不再被工位岛堵死。
+        ['desk', '下翼一', 180, 660, 338, 780],
+        ['desk', '下翼二', 180, 795, 338, 915],
+        ['desk', '下翼三', 155, 930, 338, 995],
+        ['desk', '顶工位', 521, 82, 681, 218],
+        ['desk', '中带', 462, 355, 622, 415],
+        ['desk', '中央带', 462, 515, 622, 655],
+        // —— 任务8：每层新增可搜容器与星露谷风装饰（工位缩减后腾出的探索点）——
+        ['cabinet', '财务保险柜', 640, 355, 740, 435, 'container:safe6'],
+        ['sofa', '财务休息沙发', 755, 480, 900, 570],
+        ['plant', '财务区绿植', 755, 300, 810, 360],
+        ['desk', '档案办公桌二', 385, 705, 700, 785, 'container:desk4'],
+        ['table', '小会议簇一', 345, 878, 458, 995],
+        ['table', '小会议簇二', 463, 878, 589, 995],
+        ['table', '小会议簇三', 596, 878, 725, 995],
+        ['table', '茶水间台面', 752, 878, 808, 995],
+        ['desk', '财务工位一', 852, 10, 995, 90],
+        ['desk', '财务工位二', 852, 100, 995, 160],
+        // —— 东侧服务翼（阶段3新增，x 1000–1500）——
+        ['cabinet', '东侧电梯厅', 1140, 400, 1300, 560],
+        ['cabinet', '东侧楼梯间', 1320, 400, 1470, 560],
+        ['counter', '东侧卫生间台面', 1140, 700, 1470, 860],
+        ['sofa', '东侧等候沙发', 1180, 120, 1360, 220],
+        ['plant', '东侧绿植一', 1010, 120, 1070, 190],
+        ['plant', '东侧绿植二', 1420, 120, 1480, 190]
+      ],
+      walls: [['h', 195, 0, 368], ['v', 123, 0, 195], ['v', 245, 0, 195],
+        ['h', 313, 0, 305], ['v', 305, 313, 520], ['h', 520, 0, 305],
+        ['h', 652, 72, 151], ['v', 151, 652, 1000], ['h', 875, 343, 727], ['h', 875, 750, 810],
+        ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
+      spawns: [[480, 260], [480, 460], [472, 680], [480, 820], [900, 260], [900, 460], [900, 700], [250, 580], [1080, 500], [1080, 850]] },
+
+    { id: 7, name: '7F · 原创健身会议大厅', source: 'original', outline: FULL_RECT,
+      zones: ['健身器械区', '自由训练', '更衣室', '会议大厅', '舞台', '核心筒', '东侧服务翼'], stairLeft: [70, 700], stairRight: [1220, 620],
+      furniture: [
+        ['treadmill', '跑步机一', 170, 40, 250, 120],
+        ['treadmill', '跑步机二', 260, 40, 340, 120],
+        ['treadmill', '跑步机三', 350, 40, 430, 120],
+        ['treadmill', '跑步机四', 440, 40, 520, 120],
+        ['rack', '哑铃架一', 560, 40, 640, 110],
+        ['rack', '哑铃架二', 560, 150, 640, 220],
+        ['mat', '训练垫一', 680, 50, 790, 130],
+        ['mat', '训练垫二', 680, 150, 790, 230],
+        ['cabinet', '更衣柜', 165, 540, 280, 620, 'container:locker'],
+        // —— 任务8：每层新增可搜容器与星露谷风装饰（健身房/报告厅的探索点）——
+        ['counter', '能量补给台', 480, 320, 640, 420, 'container:bar7'],
+        ['table', '体测记录台', 850, 330, 970, 410],
+        ['sofa', '观赛沙发', 850, 560, 990, 650],
+        ['plant', '大厅绿植', 850, 480, 910, 550],
+        ['table', '更衣台', 165, 640, 280, 720],
+        ['seat', '左三排一座', 360, 560, 430, 610],
+        ['seat', '左三排二座', 360, 640, 430, 690],
+        ['seat', '左三排三座', 360, 720, 430, 770],
+        ['seat', '右三排一座', 680, 560, 750, 610],
+        ['seat', '右三排二座', 680, 640, 750, 690],
+        ['seat', '右三排三座', 680, 720, 750, 770],
+        ['stage', '舞台', 345, 820, 800, 970],
+        ['cabinet', '核心筒', 30, 430, 155, 610],
+        // —— 东侧服务翼（阶段3新增，x 1000–1500）——
+        ['cabinet', '东侧电梯厅', 1140, 400, 1300, 560],
+        ['cabinet', '东侧楼梯间', 1320, 400, 1470, 560],
+        ['counter', '东侧卫生间台面', 1140, 700, 1470, 860],
+        ['sofa', '东侧等候沙发', 1180, 120, 1360, 220],
+        ['plant', '东侧绿植一', 1010, 120, 1070, 190],
+        ['plant', '东侧绿植二', 1420, 120, 1480, 190]
+      ],
+      walls: [['v', 155, 500, 1000], ['h', 500, 160, 285], ['h', 500, 320, 825], ['h', 790, 160, 440], ['h', 790, 500, 690], ['h', 790, 750, 825],
+        ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
+      spawns: [[75, 300], [75, 700], [500, 300], [500, 480], [500, 720], [900, 300], [900, 700], [1080, 500], [1080, 850]] }
+  ];
+
+  // 经济实体沿用既有唯一 ID；楼层归属独立存放，装饰与墙体使用新稳定 ID。
+  const CONTAINER_IDS = {
+    reception: 'reception-132-173', counter: 'counter-1990-165', table1: 'table-2010-514',
+    cabinet: 'cabinet-785-160', desk1: 'desk-1035-172', desk2: 'desk-1690-172',
+    desk3: 'desk-2940-172', table2: 'table-2535-513', desk4: 'desk-3600-172',
+    // 阶段3新增：7F 原本 0 容器（搜寻维度为死层），把「更衣柜」升为可搜容器（改坐标不换既有 9 个 ID）。
+    locker: 'locker-7000-770',
+    // 任务3（五项场景修改）新增：每层 1 个新可搜容器（工位缩减后腾出的探索点）。ID 同样稳定不复查。
+    hall1: 'hall1-340-300', printer2: 'printer2-590-370', docs3: 'docs3-590-290',
+    ticket4: 'ticket4-590-280', duty5: 'duty5-610-305', safe6: 'safe6-640-355', bar7: 'bar7-480-300'
+  };
+  const CONTAINER_NAMES = {};
+  const FLOORS = {};
+  const NPCS = [];
+  // ===== 阶段2-2d：行走碰撞「单体足迹」(R-DECOMP / R-FOOT / R-CLIP / R-MERGE) =====
+  // 语义：f.footprint 保持原样（供 coverFor / pointOccluded / lineClear / 命中 / 视线）；
+  //       新增 f.blocks[] 仅供行走碰撞（collidesAt）。区域 rect 的碰撞 = 若干单体底部足迹的并集。
+  (function buildFloors() {
+    for (const spec of FLOOR_SPECS) {
+      const floor = {
+        id: spec.id, name: spec.name, source: spec.source,
+        width: FLOOR_W, height: FLOOR_H, zones: spec.zones.slice(),
+        polygon: spec.outline.map(([x, y]) => ({ x: nX(x), y: nY(y) })),
+        furniture: [], walls: [], doors: [], spawnPoints: [], portals: [], npcs: []
+      };
+      // 家具：经济容器保留原稳定 ID，装饰按楼层编号；坐标调整不改变经济键。
+      spec.furniture.forEach((row, i) => {
+        const [type, label, x1, y1, x2, y2, flag] = row;
+        const r = nRect([x1, y1, x2, y2]);
+        const footHeight = type === 'plant' ? 18 : 24;
+        let id, container = null;
+        if (flag && flag.indexOf('container:') === 0) {
+          const name = flag.slice('container:'.length);
+          id = CONTAINER_IDS[name];
+          container = { name: label };
+          CONTAINER_NAMES[id] = label;
+        } else {
+          id = `f${spec.id}:${type}:${i}`;
+        }
+        const f = { id, floorId: spec.id, x: r.x, y: r.y, w: r.w, h: r.h, type, label,
+          footprint: { x: r.x, y: r.y + r.h - footHeight, w: r.w, h: footHeight }, depth: r.y + r.h };
+        // 行走碰撞 = 单体底部足迹并集（R-DECOMP）；f.footprint 语义不变。
+        f.blocks = blocksFor(f);
+        // Preserve the row and decorative ID, but an elevator hall is not a cabinet.
+        if (label === '东侧电梯厅') { f.architecturalPlaceholder = true; f.blocks = []; f.footprint = null; f.w = 0; f.h = 0; }
+        if (container) f.container = container;
+        floor.furniture.push(f);
+      });
+      // 墙体：真实碰撞矩形，厚度约 7 归一化；门是两段墙间的空隙，天然可通行。
+      // 阶段2-阶段1（门洞改世界 px）：开口净宽按轴绑定身体包络 —— h 门沿 x 用身体 18px、声明开口 40px；
+      //  v 门沿 y 用脚部 9px、声明开口 32px。门洞与墙段都在 px 上生成，端部守卫按同轴换算回归一化单位。
+      spec.walls.forEach((w, i) => {
+        const [orient, fixed, a1, a2] = w, t = 7, isH = orient === 'h';
+        const toPx = isH ? nX : nY;      // 沿墙方向的归一化 → 世界 px
+        const nFixed = isH ? nY : nX;    // 墙厚方向的归一化 → 世界 px
+        const halfPx = isH ? DOOR_HALF_PX_H : DOOR_HALF_PX_V;
+        const guard = halfPx / (isH ? FLOOR_W / X_SPAN : FLOOR_H / Y_SPAN); // 端部守卫：半开口 px → 归一化单位
+        // 顶部会议室及左下附翼必须有真实入口，不能仅画门但保留完整碰撞墙。
+        let openings = [];
+        if (isH && fixed === 205 && (spec.id === 3 || spec.id === 4)) openings = [64, 161, 223];
+        if (isH && fixed === 195 && spec.id === 5) openings = [64, 161, 222];
+        if (isH && fixed === 195 && spec.id === 6) openings = [62, 184, 306];
+        if (!isH && fixed === 151 && (spec.id === 5 || spec.id === 6)) openings = [710, 855];
+        // QA-D09：6F 左下服务柱网被 h313 + v305 + h520 合围成全宽封闭区（含 f6:portal:left-down 本体）。
+        // 在 y495 横墙 x≈238 处开一个真门（复用 openings 机制），使该区可由走廊真实走进。
+        if (isH && fixed === 313 && spec.id === 6) openings = [62];
+        const lo = toPx(a1), hi = toPx(a2), near = nFixed(fixed - t / 2), far = nFixed(fixed + t / 2);
+        let cursor = lo, segment = 0;
+        const pushWall = (start, end) => {
+          if (end <= start) return;
+          const x = isH ? start : near, y = isH ? near : start;
+          const ww = isH ? end - start : far - near, hh = isH ? far - near : end - start;
+          floor.walls.push({ id: `f${spec.id}:wall:${i}:${segment++}`, x, y, w: ww, h: hh, type: 'wall',
+            footprint: { x, y, w: ww, h: hh }, depth: y + hh });
+        };
+        for (const center of openings.filter(v => v > a1 + guard && v < a2 - guard)) {
+          const c = toPx(center);
+          pushWall(cursor, c - halfPx);
+          floor.doors.push({ id: `f${spec.id}:door:${i}:${segment}`, orientation: orient,
+            x: isH ? c : nX(fixed), y: isH ? nY(fixed) : c, width: 2 * halfPx });
+          cursor = c + halfPx;
+        }
+        pushWall(cursor, hi);
+      });
+      // 出生点：安全池，按 id 轮转，服务端还会再做无碰撞/无遮挡校验。
+      spec.spawns.forEach(([x, y]) => floor.spawnPoints.push({ x: nX(x), y: nY(y) }));
+      // 到达候选按侧独立；不改变普通出生池及其轮转顺序，中心线不归任一侧。
+      floor.arrivalPoints = {
+        left: floor.spawnPoints.filter(p => p.x < floor.width / 2).map(p => ({ ...p })),
+        right: floor.spawnPoints.filter(p => p.x > floor.width / 2).map(p => ({ ...p }))
+      };
+      FLOORS[spec.id] = floor;
+      // Annex geometry is in world pixels; the original normalized floor never moves or scales.
+      floor.halls = []; floor.glassDoors = [];
+      floor.worldBounds = { minX: -LIFT_CONFIG.hallW, maxX: FLOOR_W + LIFT_CONFIG.hallW, minY: 0, maxY: FLOOR_H };
+      const staticBlockers = floor.furniture.concat(floor.walls);
+      for (const side of ['left', 'right']) {
+        const edgeX = side === 'left' ? 0 : FLOOR_W;
+        const approachX = edgeX + (side === 'left' ? 28 : -28);
+        // The west entrance must avoid conference walls/core cabinets. Pick a genuine free corridor.
+        let entryY = null;
+        for (const cy of [100, 96, 108, 92, 80, 120, 140, 156, 176, 200]) {
+          let safe = true;
+          for (let x = side === 'left' ? 0 : FLOOR_W - 48; x <= (side === 'left' ? 48 : FLOOR_W); x += 4) {
+            for (let y = cy - 12; y <= cy + 12; y += 4) {
+              if (!inMainFloor(floor, x === FLOOR_W ? x - .01 : x + .01, y) || collidesAt(x, y, staticBlockers)) safe = false;
+            }
+          }
+          if (safe) { entryY = cy; break; }
+        }
+        if (entryY === null) throw new Error(`No safe annex entrance for ${spec.id}F ${side}`);
+        const hall = { id: `f${spec.id}:hall:${side}`, side, x: side === 'left' ? -144 : FLOOR_W,
+          y: entryY - 48, w: 144, h: 96, entryY, approach: { x: approachX, y: entryY } };
+        floor.halls.push(hall);
+        const addWall = (name, x, y, w, h) => floor.walls.push({ id: `${hall.id}:wall:${name}`, x, y, w, h,
+          type: 'wall', footprint: { x, y, w, h }, depth: y + h });
+        addWall('north', hall.x, hall.y, hall.w, 4);
+        addWall('south', hall.x, hall.y + hall.h - 4, hall.w, 4);
+        addWall('outer', side === 'left' ? hall.x : hall.x + hall.w - 4, hall.y, 4, hall.h);
+        addWall('entry-north', edgeX - 2, hall.y, 4, 24);
+        addWall('entry-south', edgeX - 2, entryY + 24, 4, 24);
+        floor.glassDoors.push({ id: `${hall.id}:glass`, hallId: hall.id, side, x: edgeX, y: entryY,
+          opening: 48, footprint: { x: edgeX - 2, y: entryY - 24, w: 4, h: 48 }, depth: entryY + 24 });
+        floor.portals.push({ id: `f${spec.id}:portal:${side}`, floorId: spec.id, side,
+          x: hall.x + 72, y: entryY - 12, w: 64, h: 30 });
+      }
+      // 阶段3：西侧 portal 统一落在「西侧核心筒」中心（stairLeft x=70，与参考图 5F/6F 一致），
+      // 3F/4F 原有的局部重排（把左门挪到桌南空带）随之取消：锚点不再落在桌面遮挡足迹内。
+      // NPC：唯一迁移且保留原 ID，floorId 独立决定归属。
+      for (const n of (spec.npcs || [])) {
+        const npc = { id: `npc-${n.slug}`,  name: n.name, x: nX(n.x), y: nY(n.y),
+          dialogue: n.dialogue, cost: n.cost, floorId: spec.id };
+        NPCS.push(npc);
+        floor.npcs.push(npc);
+      }
+      FLOORS[spec.id] = floor;
+    }
+  })();
+  function floorById(id = 1) { const n = Number(id); return Number.isSafeInteger(n) ? FLOORS[n] || null : null; }
+  function floorOptions() { return FLOOR_SPECS.map(f => ({ id: f.id, label: `${f.id}F`, name: f.name })); }
+  function inHall(floorId, side, x, y) {
+    const f = floorById(floorId), hall = f && f.halls.find(h => h.side === side);
+    return !!hall && x > hall.x && x < hall.x + hall.w && y > hall.y && y < hall.y + hall.h;
+  }
+  // Only public door states are replicated; no actor identity or faction enters this state machine.
+  function advanceGlassDoors(floorId, previous, actors, now) {
+    const f = floorById(floorId), next = {};
+    for (const d of f.glassDoors) {
+      const near = actors.some(p => p.floorId === floorId && p.online !== false && p.alive !== false &&
+        Math.abs(p.x - d.x) <= LIFT_CONFIG.trigger && Math.abs(p.y - d.y) <= d.opening / 2 + 12);
+      const old = previous[d.id] || { open: false, holdUntil: 0 };
+      next[d.id] = { open: near || now < old.holdUntil, holdUntil: near ? now + LIFT_CONFIG.closeDelayMs : old.holdUntil };
+    }
+    return next;
+  }
+  function floorBlockers(floorId, doorStates) {
+    const f = floorById(floorId);
+    if (!f) return [];
+    return f.furniture.filter(q => !q.architecturalPlaceholder).concat(f.walls,
+      doorStates ? f.glassDoors.filter(d => !(doorStates[d.id] && doorStates[d.id].open)) : []);
+  }
+  function floorFurniture(floorId) { return floorById(floorId).furniture.slice(); }
+  function floorWalls(floorId) { return floorById(floorId).walls.slice(); }
+  function floorPortals(floorId) { return floorById(floorId).portals.map(p => ({ ...p })); }
+  function floorSpawns(floorId) { return floorById(floorId).spawnPoints.map(p => ({ ...p })); }
+  function floorArrivals(floorId, side) {
+    const floor = FLOORS[Number(floorId)];
+    if (!floor || !['left', 'right'].includes(side)) return [];
+    return floor.arrivalPoints[side].map(p => ({ ...p }));
+  }
+  function safeSideLanding(floorId, side) {
+    const floor = FLOORS[Number(floorId)];
+    if (!floor) return null;
+    const blockers = floorBlockers(floorId);
+    for (const p of floorArrivals(floorId, side)) {
+      const sameSide = side === 'left' ? p.x < floor.width / 2 : side === 'right' && p.x > floor.width / 2;
+      if (!sameSide || floorCollides(floorId, p.x, p.y, blockers) || coverFor(p, blockers)) continue;
+      if (floor.portals.some(portal => Math.hypot(p.x - portal.x, p.y - portal.y) <= INTERACT_RANGE)) continue;
+      return p;
+    }
+    return null; // 同侧无合法候选时拒绝，绝不回退到另一侧。
+  }
+  // 指定层、指定侧（west=left / east=right）的电梯门户。
+  function floorPortal(floorId, side) {
+    const floor = FLOORS[Number(floorId)];
+    if (!floor) return null;
+    const p = floor.portals.find(q => q.side === side);
+    return p ? { ...p } : null;
+  }
+  // 乘梯落点：落在目标层**同侧电梯门口**。优先门口正前方（南 14px），其次门口本身，
+  // 都要求楼面内、不碰撞、不被家具遮挡；否则回退门口原坐标。
+  function elevatorLanding(floorId, side) {
+    const floor = FLOORS[Number(floorId)];
+    if (!floor) return null;
+    const portal = floor.portals.find(p => p.side === side);
+    if (!portal) return null;
+    const blockers = floorBlockers(floorId);
+    const candidates = [[portal.x, portal.y + 14], [portal.x, portal.y], [portal.x, portal.y - 14]];
+    for (const [x, y] of candidates) {
+      if (inFloor(floorId, x, y) && !collidesAt(x, y, blockers) && !coverFor({ x, y }, blockers)) return { x, y };
+    }
+    return null;
+  }
+  function floorNpcs(floorId) { return floorById(floorId).npcs.map(n => ({ ...n })); }
+  function floorContainers(floorId) { return floorById(floorId).furniture.filter(f => f.container).map(f => ({ ...f, footprint: { ...f.footprint } })); }
+  // 点是否在该层楼面内（多边形内），用于「轮廓外禁止行走」。
+  function inFloor(floorId, x, y) {
+    const f = floorById(floorId);
+    return !!f && (inMainFloor(f, x, y) || f.halls.some(h => x >= h.x && x <= h.x + h.w && y > h.y && y < h.y + h.h));
+  }
+  function inMainFloor(floor, x, y) {
+    const poly = floor.polygon;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  // 该层可行走判定：楼面内 + 不撞家具/墙体。服务端权威移动使用它。
+  function floorCollides(floorId, x, y, blockers) {
+    if (!inFloor(floorId, x, y)) return true;
+    return collidesAt(x, y, blockers || floorBlockers(floorId));
+  }
+  function floorBounds(floorId) { const f = floorById(floorId); return { minX: f.worldBounds.minX + 12, maxX: f.worldBounds.maxX - 12, minY: 40, maxY: f.height - 24 }; }
+  function cameraBounds(floorId, viewW, viewH, x, y) {
+    const b = floorById(floorId).worldBounds, w = b.maxX - b.minX, h = b.maxY - b.minY;
+    return { x: viewW >= w ? b.minX + (w - viewW) / 2 : Math.max(b.minX, Math.min(b.maxX - viewW, x - viewW / 2)),
+      y: viewH >= h ? b.minY + (h - viewH) / 2 : Math.max(b.minY, Math.min(b.maxY - viewH, y - viewH / 2)) };
+  }
+  // 兼容旧接口：返回指定层（默认 1F）的家具，供仍按单层语义调用的代码使用。
+  function makeFurniture(floorId = 1) { return floorFurniture(floorId); }
+  function portalAccess(actor, portal, range = INTERACT_RANGE) {
+    if (!actor || !portal) return { inReach: false, facingOk: false, allowed: false, reason: '无可用电梯门' };
+    if (actor.floorId !== portal.floorId || !inHall(portal.floorId, portal.side, actor.x, actor.y))
+      return { inReach: false, facingOk: false, allowed: false, reason: '请穿过玻璃门进入电梯厅后乘梯' };
+    const dx = portal.x - actor.x, dy = portal.y - actor.y, d = Math.hypot(dx, dy);
+    if (d > range) return { inReach: false, facingOk: false, allowed: false, reason: '距离电梯太远，请靠近后再按 E（64 像素以内）' };
+    if (d === 0) return { inReach: true, facingOk: true, allowed: true, reason: '' };
+    const f = facingVector(actor.spriteFacing);
+    const facingOk = (dx * f.x + dy * f.y) / d >= 0.5;
+    if (!facingOk) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 E' };
+    return { inReach: true, facingOk: true, allowed: true, reason: '' };
+  }
+  return { FLOOR_BASE_HEIGHT, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess };
+});

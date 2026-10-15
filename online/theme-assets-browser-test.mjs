@@ -1,6 +1,7 @@
 // Team-owned theme-assets QA. Isolated loopback port + own Chrome profile. Never touches 8788 or 8787.
 // Owner: quality-lead. Writes ONLY to outputs/theme-qa/.
 import assert from 'node:assert/strict';
+import { MODULE_FILES, GUARD_PATHS } from './test-helpers/guard-files.mjs';
 import {spawn} from 'node:child_process';
 import {mkdir,writeFile,rm} from 'node:fs/promises';
 import {join,dirname} from 'node:path';
@@ -45,7 +46,8 @@ const PROFILE = join(out, '.chrome-profile');
 const freePort = () => new Promise((ok, no) => { const s = createServer(); s.once('error', no); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(e => e ? no(e) : ok(p)); }); });
 const pause = ms => new Promise(r => setTimeout(r, ms));
 const sha = f => createHash('sha256').update(readFileSync(join(root, f))).digest('hex');
-const GUARDED = ['online/shared/scene.js', 'online/shared/world.js', 'online/room.js', 'online/server.js', 'online/public/game.js', 'demo/main.js'];
+// 重构适配：分包后守卫必须覆盖新模块目录。
+const GUARDED = GUARD_PATHS;
 const beforeHashes = Object.fromEntries(GUARDED.map(f => [f, sha(f)]));
 
 const results = [], runtimeErrors = [], consoleErrors = [], notes = [];
