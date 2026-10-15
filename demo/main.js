@@ -11,7 +11,8 @@
   let cssW=960,cssH=640,scale=1,viewW=960,viewH=BASE_H,dpr=1;
   let cameraX=0,cameraY=0,drawCamX=0,drawCamY=0;
   // ---------- 楼层渲染状态：只对应当前层，换层时整层原子替换 ----------
-  let floorId=1,floorName='';
+  let floorId=1,floorName='',glassDoorStates={};
+  const SCENE=window.SID_SCENE;
   let furniture=[],walls=[],occluders=[],portals=[],npcs=[];
   const furnitureSprites=new Map();
   const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
@@ -22,8 +23,8 @@
   // 换层时整层原子替换：floorId、家具/墙/NPC/入口/碰撞集合、点击标签全部对应同一新层。
   function loadFloorLocal(id){
     floorId=id;floorName=WORLD.floorById(id).name;
-    furniture=WORLD.floorFurniture(id);walls=WORLD.floorWalls(id);
-    occluders=furniture.concat(walls);portals=WORLD.floorPortals(id);npcs=buildNpcs(id);
+    furniture=WORLD.floorFurniture(id).filter(f=>!f.architecturalPlaceholder);walls=WORLD.floorWalls(id);
+    glassDoorStates={};occluders=WORLD.floorBlockers(id,glassDoorStates);portals=WORLD.floorPortals(id);npcs=buildNpcs(id);
   }
   // 背景：固定 256×256 分块，按相机矩形枚举相交块；每块惰性烘焙一次后复用，与视口宽度解耦。
   // QA-D14：分块缓存加 LRU 上限（与在线客户端同口径）。原先 cx:cy 键无上限、跨楼层共享，
@@ -41,7 +42,7 @@
     }
   }
   function chunkFor(cx,cy){
-    const key=cx+':'+cy;const hit=chunkCache.get(key);if(hit)return hit;
+    const key=floorId+':'+cx+':'+cy;const hit=chunkCache.get(key);if(hit)return hit;
     const c=document.createElement('canvas');c.width=CHUNK;c.height=CHUNK;
     const g=c.getContext('2d');g.imageSmoothingEnabled=false;
     g.fillStyle='#4a3727';g.fillRect(0,0,CHUNK,CHUNK);
@@ -60,13 +61,14 @@
       g.fillStyle='#5e4936';g.fillRect(0,y,CHUNK,1);
       g.fillStyle='#33251b';g.fillRect(0,y+7,CHUNK,1);
     }
+    if(SCENE)SCENE.floor(g,floorId,cx*CHUNK,cy*CHUNK,CHUNK,CHUNK);
     chunkCache.set(key,c);chunkTotal++;return c;
   }
   // 每帧先把相机相交块全部就绪并 LRU 触及，再淘汰离屏块：本帧零重烘焙、可见块不被淘汰。
   function ensureChunks(c0x,c0y,c1x,c1y){
     const keep=new Set();
     for(let cy=c0y;cy<=c1y;cy++)for(let cx=c0x;cx<=c1x;cx++){
-      const key=cx+':'+cy;keep.add(key);
+      const key=floorId+':'+cx+':'+cy;keep.add(key);
       if(chunkCache.has(key)){const v=chunkCache.get(key);chunkCache.delete(key);chunkCache.set(key,v);}
       else chunkFor(cx,cy);
     }
@@ -169,6 +171,8 @@
   // 电梯过渡状态机：IDLE_SOURCE → PREPARING → SUBMITTING → TARGET_READY → OPENING → IDLE_TARGET；
   // 失败分 FAILED_SOURCE（已证实未换层，回源层）与 UNCONFIRMED（结果不明，只读对账，不重发）。
   let floorState='IDLE_SOURCE',floorFlight=null,floorStartedAt=0,floorStageTimer=null,floorNoticeTimer=null;
+  // 电梯选层面板：不分方向的电梯，进门（E / 点击）先弹选层（1–7，禁当前层），选定后才发起换层。
+  let elevatorPicker=null;
   // 本地娱乐互动状态：转盘领取记录、猜拳冷却/结果、J 互动冷却与朝向。全部只在本地，不写公共日志。
   const RPS_ZH = {rock:'石头',paper:'布',scissors:'剪刀'};
   let wheelClaims = new Set();
@@ -905,6 +909,7 @@
   const isControl=()=>/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(document.activeElement?.tagName)||document.activeElement?.isContentEditable;
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){
+      if(closeElevatorPicker()){e.preventDefault();return;} // 电梯选层面板可被 Esc 取消（未提交任何请求）
       if(dismissFloorNotice()){e.preventDefault();return;} // 电梯 10 秒静态提示可被 Esc 关闭
       clearAllInput();$('candidates').hidden=true;$('candidates').replaceChildren();return;
     }
@@ -912,6 +917,15 @@
       e.preventDefault();if(!e.repeat){myKey=e.code;myHeld=true;renderMine();}return;
     }
     if(isTyping())return;
+    // 电梯选层面板打开时：忽略移动 / E / J（先选楼层或 Esc 取消），数字键直达对应楼层。
+    if(elevatorPicker){
+      if(/^[1-7]$/.test(e.key)){
+        e.preventDefault();
+        const f=Number(e.key);
+        if(f!==floorId){const pid=elevatorPicker.portalId;closeElevatorPicker();requestFloorChange(pid,f);}
+      }else e.preventDefault();
+      return;
+    }
     // 电梯过渡进行中：忽略移动 / E / J，避免在换层中途驱动旧层或重复发起。
     if(floorState!=='IDLE_SOURCE'&&floorState!=='IDLE_TARGET')return;
     if(e.code==='KeyJ'){
@@ -922,10 +936,10 @@
       e.preventDefault();if(e.repeat)return;
       if(exploration)closeExploration();
       else {
-        // 需求2：面向电梯门（cos≥0.5）时 E 优先乘梯，不被附近容器/NPC 抢走。
+        // 面向电梯门（cos≥0.5）时 E 优先乘梯（弹选层面板），不被附近容器/NPC 抢走。
         const lift=elevatorTarget();
         if(lift){
-          if(lift.access.allowed)requestFloorChange(lift.portal.id);
+          if(lift.access.allowed)openElevatorPicker(lift.portal.id);
           else showToast(lift.access.reason);
         } else {
           const near=nearbyEntities()[0];
@@ -956,7 +970,8 @@
   const furniturePad=type=>FURN_PAD[type]||FURN_PAD.default;
   const cellC=(x,w,i,N)=>x+w*(i+0.5)/N;
   // 家具 sprite 预烘焙所有楼层（换层无需重烘焙，保证目标层首帧即就绪）。
-  (function bakeSprites(){
+  function bakeSprites(){
+    furnitureSprites.clear();
     for(const key of Object.keys(WORLD.FLOORS)){
       for(const f of WORLD.FLOORS[key].furniture){
         // 阶段2-2a：per-type 烘焙 padding；画布 (w+2padX)×(h+padUp+padDown)，偏移 (-padX,-padUp)。
@@ -972,17 +987,22 @@
         drawFurniture(local,g);furnitureSprites.set(f.id,c);
       }
     }
-  })();
-  function collides(x,y) {return !WORLD.inFloor(floorId,x,y)||WORLD.collidesAt(x,y,occluders);}
+  }
+  bakeSprites();
+  if(SCENE)SCENE.ready.then(()=>{chunkCache.clear();chunkTotal=0;bakeSprites();draw();});
+  function collides(x,y) {return WORLD.floorCollides(floorId,x,y,WORLD.floorBlockers(floorId,glassDoorStates));}
   function step(dt) {
     dt=Math.max(0,Math.min(.05,dt));clock+=dt;
+    glassDoorStates=WORLD.advanceGlassDoors(floorId,glassDoorStates,players,clock*1000);
+    occluders=WORLD.floorBlockers(floorId,glassDoorStates);
     if(self.alive&&!finished&&!isTyping()&&(floorState==='IDLE_SOURCE'||floorState==='IDLE_TARGET')){
       let dx=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));
       let dy=Number(keys.has('KeyS')||keys.has('ArrowDown'))-Number(keys.has('KeyW')||keys.has('ArrowUp'));
       const len=Math.hypot(dx,dy),ox=self.x,oy=self.y,fl=WORLD.floorById(floorId);
       if(len){facing={x:dx/len,y:dy/len};dx=dx/len*SPEED*dt;dy=dy/len*SPEED*dt;
-        const nx=Math.max(24,Math.min(fl.width-24,self.x+dx));if(!collides(nx,self.y))self.x=nx;
-        const ny=Math.max(40,Math.min(fl.height-24,self.y+dy));if(!collides(self.x,ny))self.y=ny;
+        const bounds=WORLD.floorBounds(floorId);
+        const nx=Math.max(bounds.minX,Math.min(bounds.maxX,self.x+dx));if(!collides(nx,self.y))self.x=nx;
+        const ny=Math.max(bounds.minY,Math.min(bounds.maxY,self.y+dy));if(!collides(self.x,ny))self.y=ny;
       }
       // 行走相位按实际位移累积：撞墙时不播放迈步，只保留待机呼吸。
       const actualDx=self.x-ox,actualDy=self.y-oy,moved=Math.hypot(actualDx,actualDy);
@@ -991,14 +1011,14 @@
     }else self.moving=false;
     // 相机：世界某轴小于视口时该轴居中（cam 可为负），否则夹在楼面内。
     const cam=WORLD.floorById(floorId);
-    cameraX=viewW>=cam.width?(cam.width-viewW)/2:clamp(self.x-viewW/2,0,cam.width-viewW);
-    cameraY=viewH>=cam.height?(cam.height-viewH)/2:clamp(self.y-viewH/2,0,cam.height-viewH);
+    cameraX=WORLD.cameraBounds(floorId,viewW,viewH,self.x,self.y).x;
+    cameraY=WORLD.cameraBounds(floorId,viewW,viewH,self.x,self.y).y;
   }
   // ---------- 电梯过渡（本地 DEMO 版）：同样的状态机与失败分支 ----------
   // IDLE_SOURCE → PREPARING → SUBMITTING → TARGET_READY → OPENING → IDLE_TARGET；失败 FAILED_SOURCE / UNCONFIRMED。
   // DEMO 离线运行：裁决在本地即时完成（等价服务端权威），但仍保留“准备→提交→确认→开门”的顺序与门帘。
   const reduceMotion=()=>!!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  function floorArrowText(from,to,dir){return `${from}F ${dir==='down'?'↓':dir==='up'?'↑':'→'} ${to}F`;}
+  function floorArrowText(from,to){return `${from}F → ${to}F`;}
   function showFloorOverlay(arrow,phase,detail){
     const overlay=$('floor-transition');if(!overlay)return;
     overlay.hidden=false;
@@ -1033,31 +1053,68 @@
   function adoptFloor(id){
     loadFloorLocal(id);
     nearbySignature='';
-    clearPrivate(true);closeExploration();closeGames();closeWheel();
+    clearPrivate(true);closeExploration();closeGames();closeWheel();closeElevatorPicker();
     candidates=[];$('candidates').hidden=true;$('candidates').replaceChildren();selectedId=null;
     renderTarget();renderRoster();
     const fl=WORLD.floorById(id);
-    cameraX=viewW>=fl.width?(fl.width-viewW)/2:clamp(self.x-viewW/2,0,fl.width-viewW);
-    cameraY=viewH>=fl.height?(fl.height-viewH)/2:clamp(self.y-viewH/2,0,fl.height-viewH);
+    cameraX=WORLD.cameraBounds(floorId,viewW,viewH,self.x,self.y).x;
+    cameraY=WORLD.cameraBounds(floorId,viewW,viewH,self.x,self.y).y;
     draw();
   }
-  function requestFloorChange(portalId){
+  // 电梯选层面板：进门（E / 点击门）→ 弹出 1–7 楼层按钮（当前层禁选）→ 选定后发起换层。
+  // DEMO 与联机版同一交互模型；Esc / × / 数字键直达均可用。
+  function closeElevatorPicker(){
+    if(!elevatorPicker)return false;
+    elevatorPicker=null;
+    const overlay=$('elevator-picker');if(overlay)overlay.hidden=true;
+    return true;
+  }
+  function openElevatorPicker(portalId){
     if(floorState!=='IDLE_SOURCE'&&floorState!=='IDLE_TARGET')return;
     if(finished||!self.alive)return;
     if(clock<self.stunUntil/1000||clock<self.freezeUntil/1000){showToast('眩晕/僵直中，暂时无法乘梯');return;}
     const portal=portals.find(p=>p.id===portalId);
     if(!portal)return;
-    if(portal.dir==='up'&&floorId>=7){showToast('7F 已是最上层，无法上行');return;}
-    if(portal.dir==='down'&&floorId<=1){showToast('1F 已是最下层，无法下行');return;}
-    if(!portal.targetFloorId){showToast('该入口当前不可用');return;}
+    const access=WORLD.portalAccess(self,portal);
+    if(!access.inReach){showToast(access.reason||'距离电梯太远，请靠近后再按 E');return;}
+    if(!access.facingOk){showToast(access.reason||'请面向电梯门后再按 E');return;}
+    closeExploration();closeGames();closeWheel();closeElevatorPicker();
+    elevatorPicker={portalId};
+    const box=$('elevator-floors');box.replaceChildren();
+    for(const fl of WORLD.floorOptions()){
+      const f=fl.id,btn=document.createElement('button');
+      btn.type='button';btn.className='elevator-floor-btn';btn.dataset.floorId=String(f);
+      btn.setAttribute('aria-label',`${fl.label} ${fl.name} ${f===floorId?'当前楼层':'目标楼层'}`);
+      if(f===floorId){btn.disabled=true;btn.title='当前楼层';btn.innerHTML=`<span>${f}F</span><small>当前楼层</small>`;}
+      else{
+        btn.innerHTML=`<span>${f}F</span><small>${fl?(fl.name||'').replace(/^\d+F\s*·?\s*/,''):''}</small>`;
+        btn.onclick=()=>{const pid=elevatorPicker?elevatorPicker.portalId:portalId;closeElevatorPicker();requestFloorChange(pid,f);};
+      }
+      box.append(btn);
+    }
+    const title=$('elevator-picker-title');
+    if(title)title.textContent=`请选择楼层（当前 ${floorId}F）`;
+    $('elevator-picker').hidden=false;
+  }
+  function requestFloorChange(portalId,targetFloorId){
+    if(floorState!=='IDLE_SOURCE'&&floorState!=='IDLE_TARGET')return;
+    if(finished||!self.alive)return;
+    if(clock<self.stunUntil/1000||clock<self.freezeUntil/1000){showToast('眩晕/僵直中，暂时无法乘梯');return;}
+    const portal=portals.find(p=>p.id===portalId);
+    if(!portal)return;
+    // 电梯无方向：目标层 1–7 任选（除当前层）。
+    const target=Number(targetFloorId);
+    if(!Number.isSafeInteger(target)||target<1||target>WORLD.FLOOR_COUNT){showToast('目标楼层无效（1–7）');return;}
+    if(target===floorId){showToast('已在本层，请选择其它楼层');return;}
     if(WORLD.distanceToEntity(self,{x:portal.x,y:portal.y})>WORLD.INTERACT_RANGE){showToast('距离入口太远，请靠近后再试（64 像素以内）');return;}
-    if(!WORLD.safeSideLanding(portal.targetFloorId,portal.side)){showToast('目标层同侧暂无安全落点，换层已取消');return;}
+    const access=WORLD.portalAccess(self,portal);if(!access.allowed){showToast(access.reason);return;}
+    if(!WORLD.elevatorLanding(target,portal.side)){showToast('目标层电梯门口暂无安全落点，换层已取消');return;}
     keys.clear();
-    clearPrivate(true);closeExploration();closeGames();closeWheel();
+    clearPrivate(true);closeExploration();closeGames();closeWheel();closeElevatorPicker();
     candidates=[];$('candidates').hidden=true;$('candidates').replaceChildren();selectedId=null;renderTarget();renderRoster();
-    floorFlight={portalId,fromFloorId:floorId,targetFloorId:portal.targetFloorId,side:portal.side,dir:portal.dir,submitted:false};
+    floorFlight={portalId,fromFloorId:floorId,targetFloorId:target,side:portal.side,submitted:false};
     floorState='PREPARING';
-    showFloorOverlay(floorArrowText(floorId,portal.targetFloorId,portal.dir),'正在准备目标楼层…','保留当前画面 · 准备目标楼层资源');
+    showFloorOverlay(floorArrowText(floorId,target),'正在准备目标楼层…','保留当前画面 · 准备目标楼层资源');
     floorDoorsClosed(true);
     floorStartedAt=performance.now();
     floorStageTimer=setTimeout(floorSlowStage,2000);
@@ -1071,9 +1128,9 @@
     if(!$('floor-transition').hidden)$('floor-phase').textContent='正在确认（本地权威）…';
     Promise.resolve().then(()=>{
       if(floorFlight!==flight)return;
-      if(flight.targetFloorId<1||flight.targetFloorId>7){floorRejected(flight,'目标楼层不存在');return;}
-      const landing=WORLD.safeSideLanding(flight.targetFloorId,flight.side);
-      if(!landing){floorRejected(flight,'目标层同侧暂无安全落点，换层已取消');return;}
+      if(flight.targetFloorId<1||flight.targetFloorId>WORLD.FLOOR_COUNT){floorRejected(flight,'目标楼层不存在');return;}
+      const landing=WORLD.elevatorLanding(flight.targetFloorId,flight.side);
+      if(!landing){floorRejected(flight,'目标层电梯门口暂无安全落点，换层已取消');return;}
       floorArrived(flight,landing);
     });
   }
@@ -1081,7 +1138,7 @@
     self.x=landing.x;self.y=landing.y;
     self.floorId=flight.targetFloorId;
     floorState='TARGET_READY';adoptFloor(flight.targetFloorId);
-    showFloorOverlay(floorArrowText(flight.fromFloorId,flight.targetFloorId,flight.dir),`已到达 ${floorName}`,'正在开门 · 即将恢复操作');
+    showFloorOverlay(floorArrowText(flight.fromFloorId,flight.targetFloorId),`已到达 ${floorName}`,'正在开门 · 即将恢复操作');
     floorState='OPENING';floorDoorsClosed(false);
     const delay=reduceMotion()?0:320;
     setTimeout(()=>{if(floorState!=='OPENING')return;floorState='IDLE_TARGET';floorFlight=null;closeFloorOverlay();renderPublic();},delay);
@@ -1407,6 +1464,7 @@
   }
   function drawFurniture(f,g=ctx){
     const {x,y,w,h,type}=f;
+    if(SCENE&&SCENE.furniture(g,f))return;
     if(type==='table'&&/^食堂餐桌/.test(f.label||'')){drawDiningTable(f,g);return;}
     if(WORLD.deskBranch(f)){drawWorkstation(f,g);return;}
     if(type==='cabinet'&&f.label==='后厨操作台'){const g2=Object.assign({},f,{type:'counter'}),FACE=30;
@@ -1472,45 +1530,46 @@
     glow(g,cx,21,46,.5);
   }
   // 背景改为固定 512×512 分块 + 楼面轮廓多边形裁剪（见 chunkFor / draw），不再逐层整图烘焙。
-  // 需求2：电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 方向箭头 + 呼梯按钮。
-  // 端点（1F 下行 / 7F 上行）整体灰化；站在门前并面向门时叠呼吸描边与「E」提示。
+  // 电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 单个呼梯按钮。
+  // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
+  // 站在门前并面向门时叠呼吸描边与「E 选择楼层」提示。
   function drawElevatorHall(p,active,g=ctx){
     const cx=Math.round(p.x),cy=Math.round(p.y);
-    const disabled=!p.targetFloorId,accent=p.dir==='up'?'#7fe3ff':'#ffd76a';
-    const hw=21,hh=9,x0=cx-hw,y0=cy-hh;
-    const metal=disabled?'#5f646b':'#8d929a',metalHi=disabled?'#6f747b':'#a9aeb6';
+    const accent='#7fe3ff';
+    const hw=32,hh=15,x0=cx-hw,y0=cy-hh;
+    const metal='#8d929a',metalHi='#a9aeb6';
     g.save();
-    rect(x0-4,y0-4,hw*2+8,hh*2+12,'#3a3f4a',g);
-    rect(x0-4,y0-4,hw*2+8,1,'#6b7480',g);
-    rect(x0-4,y0+hh*2+7,hw*2+8,1,'#242a33',g);
-    rect(x0-1,y0-1,hw*2+2,hh*2+2,'#39414a',g);
-    rect(x0+1,y0+1,hw-2,hh*2-2,metal,g);
-    rect(x0+hw+1,y0+1,hw-2,hh*2-2,metal,g);
-    rect(cx-1,y0+1,2,hh*2-2,'#2b323a',g);
-    rect(x0+1,y0+1,hw-2,2,metalHi,g);
-    rect(x0+hw+1,y0+1,hw-2,2,metalHi,g);
-    rect(cx-10,y0-9,20,7,'#1a1f26',g);
-    rect(cx-10,y0-9,20,1,'#2f3640',g);
-    g.font='6px ui-monospace,SFMono-Regular,monospace';g.textAlign='center';g.textBaseline='middle';
-    g.fillStyle=disabled?'#8a9099':accent;
-    g.fillText(`${p.floorId}F`,cx,y0-5.5);
-    const ay=y0+hh*2+3,up=p.dir==='up',arrow=disabled?'#6f747b':accent;
-    for(let i=0;i<3;i++){const w=1+i*2;rect(cx-(w-1)/2,up?ay+i:ay+2-i,w,1,arrow,g);}
-    rect(cx-.5,up?ay+3:ay-3,1,3,arrow,g);
-    rect(x0+hw*2+4,cy-5,5,10,'#39414a',g);
-    rect(x0+hw*2+5,cy-4,3,3,disabled?'#6f747b':'#7fe3ff',g);
-    rect(x0+hw*2+5,cy+1,3,3,disabled?'#6f747b':'#ffd76a',g);
+    rect(x0-7,y0-7,hw*2+14,hh*2+18,'#3a3f4a',g);
+    rect(x0-7,y0-7,hw*2+14,1,'#6b7480',g);
+    rect(x0-7,y0+hh*2+10,hw*2+14,1,'#242a33',g);
+    rect(x0-2,y0-2,hw*2+4,hh*2+4,'#39414a',g);
+    rect(x0,y0,hw-1,hh*2,metal,g);
+    rect(x0+hw+1,y0,hw-1,hh*2,metal,g);
+    rect(cx-1,y0,2,hh*2,'#2b323a',g);
+    rect(x0,y0,hw-1,3,metalHi,g);
+    rect(x0+hw+1,y0,hw-1,3,metalHi,g);
+    for(let i=0;i<2;i++){
+      rect(x0+6+i*10,y0+8,6,2,'#767c85',g);
+      rect(x0+hw+7+i*10,y0+8,6,2,'#767c85',g);
+    }
+    rect(cx-13,y0-13,26,9,'#1a1f26',g);
+    rect(cx-13,y0-13,26,1,'#2f3640',g);
+    g.font='7px ui-monospace,SFMono-Regular,monospace';g.textAlign='center';g.textBaseline='middle';
+    g.fillStyle=accent;
+    g.fillText(`${p.floorId}F`,cx,y0-8.5);
+    rect(x0+hw*2+5,cy-4,6,8,'#39414a',g);
+    rect(x0+hw*2+6,cy-3,4,6,'#7fe3ff',g);
     if(active){
       g.globalAlpha=.5+.35*Math.sin(clock*4);g.strokeStyle=accent;g.lineWidth=2;
-      g.strokeRect(x0-4,y0-4,hw*2+8,hh*2+10);
+      g.strokeRect(x0-6,y0-6,hw*2+12,hh*2+14);
       g.globalAlpha=1;g.lineWidth=1;
-      const label=p.targetFloorId?`E ${p.dir==='up'?'↑ 上行':'↓ 下行'}至 ${p.targetFloorId}F`:(p.dir==='up'?'已是最上层（7F）':'已是最下层（1F）');
+      const label='E 选择楼层';
       g.font='10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-      const tw=Math.round(g.measureText(label).width)+12,lx=cx-tw/2,ly=y0-26;
+      const tw=Math.round(g.measureText(label).width)+12,lx=cx-tw/2,ly=y0-32;
       g.fillStyle='rgba(8,11,18,.88)';g.fillRect(lx,ly,tw,16);
-      g.strokeStyle=disabled?'#6f747b':accent;g.lineWidth=1;
+      g.strokeStyle=accent;g.lineWidth=1;
       g.strokeRect(lx+.5,ly+.5,tw-1,15);
-      g.fillStyle=disabled?'#9aa1ab':'#eaf4ff';
+      g.fillStyle='#eaf4ff';
       g.textAlign='center';g.textBaseline='middle';
       g.fillText(label,cx,ly+8.5);
     }
@@ -1573,9 +1632,68 @@
     if(f.w>=f.h){for(let x=f.x+18;x<f.x+f.w-8;x+=36)rect(x,f.y+6,2,Math.max(0,f.h-12),'#4b3a2d');}
     else{for(let y=f.y+18;y<f.y+f.h-8;y+=36)rect(f.x+5,y,Math.max(0,f.w-10),2,'#4b3a2d');}
   }
+  // ---------- 任务7：上半部分后墙（墙带 + 窗户 + 标语展示区，星露谷风） ----------
+  // 沿楼层轮廓上边缘画一面后墙：上半部分不再突兀消失。墙带只作背景（先于家具/角色绘制），
+  // 家具与角色按深度自然叠在其前方；行走不受影响（MIN_Y 已把角色挡在墙根以南）。
+  // 布局：10 个 144px 模块，第 3/6/9 模块为标语展示板（中央板显示本层名，两侧预留），其余为窗户。
+  const BACK_WALL_H=58,WALL_MODULE=144;
+  function drawBackWall(f){
+    const w=f.width,y1=BACK_WALL_H,y0=-56; // 向上延伸：相机纵向居中（camY<0）时墙面不露底
+    rect(0,y0,w,y1-y0,'#4d4460',ctx);
+    rect(0,y0,w,2,'#6a5f80',ctx);
+    rect(0,y0+2,w,1,'#585070',ctx);
+    rect(0,y1-7,w,7,'#3a3248',ctx);
+    rect(0,y1,w,2,'#241f30',ctx);
+    for(let x=36;x<w;x+=48)rect(x,y0+3,1,y1-y0-10,'#443c56',ctx);
+    const modules=Math.floor(w/WALL_MODULE);
+    for(let i=0;i<modules;i++){
+      const cx=Math.round(WALL_MODULE*(i+.5));
+      if(i===2||i===5||i===8){drawSloganBoard(cx,i===5?(f.name||'').replace(/^\d+F\s*·?\s*/,''):null);continue;}
+      drawBackWindow(cx);
+    }
+  }
+  // 窗户：木框 + 玻璃（天空渐变 + 窗棂）+ 窗台 + 玻璃反光。
+  function drawBackWindow(cx){
+    const ww=64,wh=34,x0=cx-ww/2,y0=12;
+    rect(x0-4,y0+wh,ww+8,4,'#8d745e',ctx);
+    rect(x0-4,y0+wh+4,ww+8,1,'#5b4a3c',ctx);
+    rect(x0-2,y0-2,ww+4,wh+4,'#6b5545',ctx);
+    rect(x0,y0,ww,wh,'#2f2a3a',ctx);
+    const g=ctx.createLinearGradient(0,y0,0,y0+wh);
+    g.addColorStop(0,'#aee0ff');g.addColorStop(.6,'#8fc4ee');g.addColorStop(1,'#cfe6f7');
+    ctx.fillStyle=g;ctx.fillRect(x0,y0,ww,wh);
+    rect(x0+6,y0+wh-9,10,9,'#7da4c8',ctx);
+    rect(x0+8,y0+wh-14,6,5,'#7da4c8',ctx);
+    rect(x0+22,y0+wh-12,12,12,'#8fb4d6',ctx);
+    rect(x0+40,y0+wh-8,8,8,'#7da4c8',ctx);
+    rect(x0+50,y0+wh-13,9,13,'#8fb4d6',ctx);
+    rect(x0+14,y0+6,12,3,'#f2f8ff',ctx);rect(x0+17,y0+4,7,3,'#f2f8ff',ctx);
+    rect(x0+38,y0+9,10,2,'#f2f8ff',ctx);
+    rect(cx-1,y0,2,wh,'#6b5545',ctx);
+    rect(x0,y0+Math.floor(wh/2)-1,ww,2,'#6b5545',ctx);
+    ctx.globalAlpha=.22;
+    for(let k=0;k<5;k++)rect(x0+6+k*7,y0+2+k*5,3,8,'#ffffff',ctx);
+    ctx.globalAlpha=1;
+  }
+  // 标语展示板：木框深色板面。中央板显示本层名，两侧为预留标语位（后续挂内容，不臆造文案）。
+  function drawSloganBoard(cx,text){
+    const bw=104,bh=30,x0=cx-bw/2,y0=14;
+    rect(cx-2,4,1,10,'#5b4a3c',ctx);
+    rect(cx+1,4,1,10,'#5b4a3c',ctx);
+    rect(cx-3,3,7,2,'#8d745e',ctx);
+    rect(x0-3,y0-3,bw+6,bh+6,'#8d745e',ctx);
+    rect(x0-3,y0+bh+1,bw+6,2,'#5b4a3c',ctx);
+    rect(x0,y0,bw,bh,'#1d2438',ctx);
+    rect(x0+2,y0+2,bw-4,bh-4,'#232c44',ctx);
+    ctx.font=text?'9px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif':'8px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=text?'#f0c47d':'#4d5a7a';
+    ctx.fillText(text?text:'标 语 预 留',cx,y0+bh/2+1);
+  }
   function draw() {
     if(floorState==='PREPARING'||floorState==='SUBMITTING'||floorState==='UNCONFIRMED')return;
     const camX=Math.round(cameraX),camY=Math.round(cameraY);
+    const WALL_Y=WORLD.WALL_BASE||58;   // 后墙墙带下沿：墙带以内属纯背景，家具需裁剪
     drawCamX=camX;drawCamY=camY;
     const f=WORLD.floorById(floorId);
     ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
@@ -1590,13 +1708,17 @@
     const c0x=Math.floor(camX/CHUNK),c1x=Math.floor((camX+viewW)/CHUNK);
     const c0y=Math.floor(camY/CHUNK),c1y=Math.floor((camY+viewH)/CHUNK);
     ensureChunks(c0x,c0y,c1x,c1y);
-    for(let cy=c0y;cy<=c1y;cy++)for(let cx=c0x;cx<=c1x;cx++)ctx.drawImage(chunkCache.get(cx+':'+cy),cx*CHUNK,cy*CHUNK);
+    for(let cy=c0y;cy<=c1y;cy++)for(let cx=c0x;cx<=c1x;cx++)ctx.drawImage(chunkCache.get(floorId+':'+cx+':'+cy),cx*CHUNK,cy*CHUNK);
     ctx.restore();
+    // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
+    // 逐层"世界风格"主题：改由共享 scene.js 按主题绘制墙带材质/配色/墙饰；未就绪时回退原生画法。
+    if(!(SCENE&&SCENE.wall(ctx,f)))drawBackWall(f);
     ctx.restore();
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
     if(vignette)ctx.drawImage(vignette,0,0,cssW,cssH);
     ctx.save();ctx.scale(scale,scale);ctx.translate(-camX,-camY);
     const near=(x,y,w,h,padx,pady)=>x+w+padx>camX&&x-padx<camX+viewW&&y+h+pady>camY&&y-(pady+20)<camY+viewH;
+    if(SCENE)SCENE.halls(ctx,f,glassDoorStates);
     const list=[...players.filter(p=>p.alive&&p.floorId===floorId).map(p=>({...p,spriteFacing:p.spriteFacing||'front'})),...npcs];
     const scene=[
       ...furniture.filter(f2=>near(f2.x,f2.y,f2.w,f2.h,12,12)).map(f2=>({depth:f2.depth,f:f2})),
@@ -1607,9 +1729,13 @@
       if(item.f){
         const f2=item.f;
         if(f2.type==='wall'){drawWallPanel(f2);continue;}
+        // 后墙墙带（y<WALL_Y）是纯背景：只对可能画进墙带的家具裁剪，避免"家具/装饰被画到墙上"。
+        const clipWall=f2.y-24<WALL_Y;
+        if(clipWall){ctx.save();ctx.beginPath();ctx.rect(camX-400,WALL_Y,viewW+800,viewH+600);ctx.clip();}
         const pad=furniturePad(f2.type);
         ctx.drawImage(furnitureSprites.get(f2.id),f2.x-pad.padX,f2.y-pad.padUp);
         if(f2.container)drawInteractOutline('container',f2);
+        if(clipWall)ctx.restore();
       }else{sprite(item.p);if(item.p.npc)drawInteractOutline('npc',item.p);}
     }
     // 需求2：当前层电梯厅（左右各一处，含上行/下行两扇门）。脉冲空框改为可辨认的电梯门，
@@ -1665,11 +1791,11 @@
       if(label&&y>=label.y+15)copySID(label.p.sid);
       else select(hits[0]);
     }else {
-      // 需求2：点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径。
+      // 点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径；进门先弹选层面板。
       const portalHit=portals.find(pt=>x>=pt.x-pt.w/2&&x<=pt.x+pt.w/2&&y>=pt.y-pt.h/2&&y<=pt.y+pt.h/2);
       if(portalHit){
         const access=WORLD.portalAccess(self,portalHit);
-        if(access.allowed)requestFloorChange(portalHit.id);
+        if(access.allowed)openElevatorPicker(portalHit.id);
         else showToast(access.reason);
         canvas.focus();return;
       }
@@ -1683,6 +1809,7 @@
     canvas.focus();
   });
   $('floor-transition-close').onclick=()=>dismissFloorNotice();
+  $('elevator-close').onclick=()=>closeElevatorPicker();
   function frame(now) {
     const begin=performance.now();step(Math.min(.05,(now-lastNow)/1000));lastNow=now;checkFinish();draw();
     if(Math.floor(clock)!==lastUI){lastUI=Math.floor(clock);updateSkillStatus();const rk=$('ranking');if(rk&&!rk.hidden)renderRanking();}
@@ -1691,13 +1818,26 @@
   reset();resizeCanvas();draw();requestAnimationFrame(frame);
   // 显式启用测试时才提供诊断接口，正常地址不暴露权威状态或私密线索。
   if(new URLSearchParams(location.search).has('test')) {
+    // &floor=N（1–7）：测试直达指定楼层（不经过电梯），仅供无头截图/验收。
+    {
+      const want=Number(new URLSearchParams(location.search).get('floor'));
+      if(want>=1&&want<=7){
+        loadFloorLocal(want);
+        self.floorId=want;
+        const fl=WORLD.floorById(want);
+        cameraX=WORLD.cameraBounds(floorId,viewW,viewH,self.x,self.y).x;
+        cameraY=WORLD.cameraBounds(floorId,viewW,viewH,self.x,self.y).y;
+        draw();
+      }
+    }
     const explorationSnapshot=()=>({chips,searched:[...searched],clues:clues.map(c=>({...c})),
       panel:exploration?{...exploration}:null,result:explorationResult,alive:self.alive,
       nearby:nearbyEntities().map(({kind,entity})=>({kind,entityId:entity.id}))});
     window.__sidTest={
       reset,select,step,draw,
-      floorChange:portalId=>{requestFloorChange(portalId);},
-      floorState:()=>({floorId,floorName,floorState,portals:portals.map(p=>({id:p.id,dir:p.dir,targetFloorId:p.targetFloorId,x:p.x,y:p.y})),containers:furniture.filter(f=>f.container).map(f=>f.id),npcs:npcs.map(n=>n.id)}),
+      floorChange:(portalId,targetFloorId)=>{requestFloorChange(portalId,targetFloorId);},
+      openElevatorPicker:portalId=>{openElevatorPicker(portalId);},
+      floorState:()=>({floorId,floorName,floorState,portals:portals.map(p=>({id:p.id,side:p.side,x:p.x,y:p.y})),containers:furniture.filter(f=>f.container).map(f=>f.id),npcs:npcs.map(n=>n.id)}),
       interact:(kind,entityId)=>{
         if(kind==='search'||kind==='exchange'){
           const panelKind=kind==='search'?'container':'npc';

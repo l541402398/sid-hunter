@@ -258,21 +258,29 @@ try {
       sC && `C.bumps=${sC.bumps} C.visible=${sC.visible}`);
   }
 
-  // ---------- 13. visible 布尔 + 楼层边界（把推算变成断言）----------
-  // 合并适配：七层地图每层 960×400，与 VIEW_W 同宽，一层即一屏；可见性等价于「同层」。
+  // ---------- 13. visible 布尔 + 相机窗口裁剪（把推算变成断言）----------
+  // 阶段3：每层楼板加宽到 1440×400（大于 VIEW_W=960），可见性 = 「同层 且 落在观察者相机窗口内」，
+  // 不再等价于「同层」。这里同时断言「窗口内可见」与「同层但在窗口外被裁剪」。
   await advance(1400);
   await place(idA, 300, 300);
   await place(idB, 330, 300);
   const hs = await action(ta, 'hammer');
   const expectBumps = of((await pub(ta)).players, idB).bumps;
   check('基线：A 敲中 B 拿到真实肿包数', hs.data.hit === true && expectBumps > 0, `bumps=${expectBumps}`);
-  // 贴着本层可行走边界内侧的位置：同层就一定看得到，必须拿到真实值而不是 0。
   const bounds1 = (await import('./shared/world.js')).default.floorBounds(1);
-  for (const [label, bx] of [['左边界内侧', bounds1.minX], ['右边界内侧', bounds1.maxX]]) {
+  // 相机窗口内（A 位于 x=300，窗口约 [0, VIEW_W]）：同层可见，必须拿到真实值而不是 0。
+  for (const [label, bx] of [['窗口内左近', Math.max(bounds1.minX, 120)], ['窗口内右近', Math.min(bounds1.maxX, 780)]]) {
     await place(idB, bx, 300);
     const b = of((await pub(ta)).players, idB);
-    check(`同层可达位置（${label}）拿到真实值而非 0`, b.visible === true && b.bumps === expectBumps,
+    check(`同层且相机窗口内（${label}）拿到真实值而非 0`, b.visible === true && b.bumps === expectBumps,
       `visible=${b.visible} bumps=${b.bumps} 期望=${expectBumps}`);
+  }
+  // 同层但在观察者相机窗口之外：楼板已宽于一屏，应被裁剪为 0（不再是「同层即可见」）。
+  await place(idB, bounds1.maxX, 120);
+  {
+    const b = of((await pub(ta)).players, idB);
+    check('同层但相机窗口外（右边界内侧）被裁剪为 0', b.visible === false && b.bumps === 0,
+      `visible=${b.visible} bumps=${b.bumps}`);
   }
   await place(idC, 300, 300, 2);
   await place(idB, 330, 300);

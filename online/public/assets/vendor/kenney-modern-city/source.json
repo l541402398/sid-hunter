@@ -1,0 +1,32 @@
+{
+  "id": "kenney-modern-city",
+  "source": "https://kenney.nl/assets/roguelike-modern-city",
+  "download": "https://kenney.nl/media/pages/assets/roguelike-modern-city/0ff3dfff2b-1677694743/kenney_roguelike-modern-city.zip",
+  "zip": "kenney_roguelike-modern-city.zip",
+  "sheet": "Tilemap/tilemap.png",
+  "cols": 37,
+  "rows": 28,
+  "spacing": 1,
+  "author": "Kenney / Kenney Vleugels",
+  "license": "CC0-1.0",
+  "licenseFile": "License.txt",
+  "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "commercialUse": true,
+  "attributionRequired": false,
+  "sha256": "2a3f36b1bc3a3d1cb4b9da051c493d163c493fe54adc66e78e76b3fb4abcfc56",
+  "zipBytes": 519937,
+  "imageSize": [
+    628,
+    475
+  ],
+  "tileSize": [
+    16,
+    16
+  ],
+  "margin": 0,
+  "webPath": "/assets/vendor/kenney-modern-city/Tilemap/tilemap.png",
+  "date": "2026-10-14",
+  "downloaded": true,
+  "extracted": true,
+  "actualPngVisuallyRead": true
+}

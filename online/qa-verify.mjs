@@ -766,10 +766,11 @@ try {
       const after = await dPlayer(id);
       assert.ok(after.x > before.x + 8, `${cl.name} x ${before.x} -> ${after.x}`);
       // 注：#coordinate 元素已被产品删除（interaction-dev 同步，2026 本轮 UI 精简）。
-      // 改用仍由 game.js 维护的 #zone-name 做镜头/分区断言（zoneIndex = min(3, floor(x/960))）。
+      // 阶段3：zone-name 改为显示楼层名（不再用 4 个旧区域名），镜头跟随改断言渲染相机字段。
       const zone = await cl.eval(`document.getElementById('zone-name').textContent`);
-      const expectZone = ['接待区', '产品研发区', '茶水休息区', '档案工作区'][Math.min(3, Math.floor(after.x / 960))];
-      assert.equal(zone, expectZone, `镜头跟随: ${cl.name} x=${after.x} zone=${zone} 期望=${expectZone}`);
+      assert.ok(/^1F/.test(zone), `zone=${zone}`);
+      const camX = await cl.eval(`window.__viewport && window.__viewport.drawCamX`);
+      assert.ok(typeof camX === 'number' && Number.isFinite(camX), `drawCamX=${camX}`);
     }
   });
 

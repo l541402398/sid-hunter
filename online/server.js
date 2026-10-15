@@ -17,7 +17,7 @@ const HOST = process.env.HOST || '0.0.0.0'; // Tests explicitly bind 127.0.0.1; 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const TICK_MS = 50;
 const ROOM = createRoom();
-const ALLOWED_EXT = new Set(['.html', '.css', '.js', '.ico']);
+const ALLOWED_EXT = new Set(['.html', '.css', '.js', '.ico', '.png', '.jpg', '.jpeg', '.webp']);
 const DEV_ENABLED = process.env.SID_DEV === '1';
 const resetTokens = new Map(); // Scoped to an existing session, revoked together with the room.
 // dev 分支并入的 CAS 单点登录开关：默认正式模式要求登录；SID_TEST=1 保持自测的昵称加入；
@@ -150,16 +150,16 @@ function isLoopback(req) {
 function staticServe(req, res, pathname) {
   // Only public/ is hosted, plus read-only access to shared/world.js so the client and
   // the server literally load the same furniture layout. Nothing else is reachable.
-  const isShared = pathname === '/shared/world.js';
+  const isShared = ['/shared/world.js', '/shared/scene.js'].includes(pathname);
   const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   if (relative.includes('..') || path.isAbsolute(relative)) return send(res, 403, { error: 'forbidden' });
   const base = isShared ? path.join(__dirname, 'shared') : PUBLIC_DIR;
-  const target = path.join(base, isShared ? 'world.js' : relative);
+  const target = path.join(base, isShared ? path.basename(pathname) : relative);
   if (!target.startsWith(base)) return send(res, 403, { error: 'forbidden' });
   if (!ALLOWED_EXT.has(path.extname(target).toLowerCase())) return send(res, 404, { error: 'not found' });
   fs.readFile(target, (error, data) => {
     if (error) return send(res, 404, { error: 'not found' });
-    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon' }[path.extname(target)] || 'application/octet-stream';
+    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }[path.extname(target)] || 'application/octet-stream';
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
     res.end(data);
   });
