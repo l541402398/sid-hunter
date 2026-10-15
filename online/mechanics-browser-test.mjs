@@ -18,7 +18,8 @@ const demoShot = join(outputs, '离线机制验收.png');
 const chromePath = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const results = [], runtimeErrors = [], consoleErrors = [], cleanup = {}, screenshots = [];
 // 本任务明确禁止修改的源码；脚本只会新增验收文件与 outputs，绝不削弱断言。
-const frozenFiles = ['online/server.js', 'online/room.js', 'online/shared/world.js'];
+// 重构适配：分包后守卫必须覆盖新模块目录（见 test-helpers/guard-files.mjs）。
+const frozenFiles = ['online/server.js', 'online/room.js', 'online/shared/world.js', ...MODULE_FILES];
 const allGameFiles = [...frozenFiles, 'online/public/game.js', 'online/public/index.html', 'online/public/styles.css', 'demo/main.js', 'demo/index.html', 'demo/styles.css'];
 const hashes = async list => Object.fromEntries(await Promise.all(list.map(async f => [f, createHash('sha256').update(await readFile(join(root, f))).digest('hex')])));
 const frozenBefore = await hashes(frozenFiles), allBefore = await hashes(allGameFiles);

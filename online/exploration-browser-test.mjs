@@ -1,6 +1,7 @@
 // 零依赖真实 Chrome / 原生 CDP 探索验收；不由游戏页面加载。
 // 使用 managed Node 执行本脚本，服务端使用 process.execPath；不修改玩法源码。
 import assert from 'node:assert/strict';
+import { MODULE_FILES, GUARD_PATHS } from './test-helpers/guard-files.mjs';
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -16,7 +17,8 @@ const screenshotPath = join(outputs, '探索玩法验收.png');
 const coverScreenshotPath = join(outputs, '家具遮挡验证.png');
 const chromePath = process.env.SID_CHROME || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const results = [], runtimeErrors = [], consoleErrors = [], cleanup = {}, screenshots = [];
-const protectedFiles = ['online/server.js', 'online/room.js', 'online/shared/world.js', 'online/public/game.js', 'online/public/index.html', 'online/public/styles.css', 'demo/main.js', 'demo/index.html', 'demo/styles.css'];
+// 重构适配：分包后守卫必须覆盖新模块目录。
+const protectedFiles = GUARD_PATHS;
 const hashes = async () => Object.fromEntries(await Promise.all(protectedFiles.map(async f => [f, createHash('sha256').update(await readFile(join(root, f))).digest('hex')])));
 const beforeHashes = await hashes();
 const freePort = () => new Promise((ok, no) => { const s = createServer(); s.once('error', no); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(e => e ? no(e) : ok(p)); }); });

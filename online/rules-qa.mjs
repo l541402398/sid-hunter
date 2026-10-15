@@ -1,3 +1,4 @@
+import { MODULE_FILES } from './test-helpers/guard-files.mjs';
 // Independent re-sign: rules dialog + canonical four skills. Never imports old QA runners.
 import {spawn} from 'node:child_process';
 import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
@@ -12,7 +13,9 @@ const qaRunId=randomUUID();
 console.log('QA-RUN-ID',qaRunId);
 const root=dirname(fileURLToPath(import.meta.url)),NODE=process.execPath;
 const CHROME=process.env.SID_CHROME||'C:/Program Files/Google/Chrome/Application/chrome.exe';
-const files=['room.js','server.js','shared/world.js','public/game.js','public/index.html','public/styles.css'];
+// 重构适配：分包后哈希守卫覆盖新模块（GUARD_PATHS 为仓库根相对路径，这里转成 online/ 相对）。
+const files=['room.js','server.js','shared/world.js','public/game.js','public/index.html','public/styles.css',
+  ...MODULE_FILES.map(f => f.replace(/^online\//, ''))];
 const hashes=async()=>Object.fromEntries(await Promise.all(files.map(async f=>[f,createHash('sha256').update(await readFile(join(root,f))).digest('hex')])));
 const beforeHashes=await hashes();
 // 合并适配：合并 dev 分支的规则文案（Survivor id 术语、2 血试玩说明、K 跳跃 / 幽灵 / 匿名坏人线索池）
