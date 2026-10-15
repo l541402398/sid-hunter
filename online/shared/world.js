@@ -3,8 +3,8 @@
 (function (root) {
   const WORLD_W = 3840, WORLD_H = 640, VIEW_W = 960, VIEW_H = 640;
   // 阶段2-阶段1（÷4 尺度修正）：世界像素尺度整体缩小 4 倍，使既有 px 常量首次落到真实含义。
-  // SPEED 由创意总监裁定为 2.0 m/s（新尺度 32px/m ⇒ 64px/s）。
-  const SPEED = 64, MIN_Y = 135, MAX_Y = WORLD_H - 24, MIN_X = 20, MAX_X = WORLD_W - 20;
+  // 行走手感：144世界像素/秒；两端读取同一配置，冷却不阻止行走。
+  const SPEED = 144, MIN_Y = 135, MAX_Y = WORLD_H - 24, MIN_X = 20, MAX_X = WORLD_W - 20;
   const BODY_HALF = 9, FOOT_TOP = 4, FOOT_BOTTOM = 5;
   // 阶段2-阶段1（门洞改世界 px）：门洞净宽按轴向绑定身体包络，而不是两轴都用 18px。
   //  h 门（开口沿 x）绑定身体 x 向 2*BODY_HALF = 18px ⇒ 声明开口 40px（净 40-18-2 = 20）；
@@ -671,7 +671,7 @@
     pixel(Math.round(hand.x) - 2, Math.round(hand.y) + 1, 4, 1, colors.skinLo);
   }
   // 可选攻击 age 单位为毫秒；固定攻击方向只影响这次挥击，待机/走路仍使用原外观。
-  function drawCharacterBody(g, p, clock, attackAgeMs = null, attackDirection = null) {
+  function drawCharacterBody(g, p, clock, attackAgeMs = null, attackDirection = null, elevation = 0) {
     g.save();
     const rect = (x, y, w, h, color) => {
       g.fillStyle = color;
@@ -685,7 +685,8 @@
     const pants = c.pants[1], pantsHi = shade(pants, .18), pantsLo = shade(pants, -.26);
     const shoes = c.shoes[1], shoeLo = shade(shoes, -.32), OL = '#1c1620';
     const ph = (p.walk || 0) * .13, sw = p.moving ? Math.sin(ph) : 0;
-    const bob = p.moving ? -Math.round(Math.abs(Math.sin(ph)) * 2) : Math.round(Math.sin(clock * 1.5 + (p.spriteIndex ?? p.id) * 1.9) * .7);
+    // 行走用双腿交替抬脚，不再把整个人向上提，支撑脚保持贴地。
+    const bob = p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + (p.spriteIndex ?? p.id) * 1.9) * .7);
     const yb = Math.round(p.y) + bob;
     const liftL = Math.max(0, sw) * 2, liftR = Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
@@ -693,9 +694,12 @@
     const direction = (attacking ? attackDirection : p.spriteFacing) || p.spriteFacing || 'front';
     const drawAttack = () => drawCharacterAttack(rect, x, yb, direction, attackAgeMs,
       { outline: OL, skin, skinLo, topLo, topHi });
-    g.globalAlpha = .3 * a;
-    rect(x - 11, p.y + 2, 22, 5, '#0f0a12'); rect(x - 8, p.y + 1, 16, 6, '#0f0a12');
+    // 地面阴影贴在脚底中心，先绘制再抬高跳跃身体，避免影子与人物一起离地。
+    const z = Math.max(0, Number(elevation) || 0);
+    g.globalAlpha = (z > 0 ? .22 : .3) * a;
+    rect(x - 11, Math.round(p.y) - 1, 22, 4, '#0f0a12');
     g.globalAlpha = a;
+    if (z) g.translate(0, -z);
     if (direction === 'left' || direction === 'right') {
       // 以右侧面为基准逐块镜像，远侧肢体先画、近侧后画，两个步行相位相反。
       const sideRect = (sx, sy, w, h, color) => rect(x + (direction === 'left' ? -sx - w : sx), yb + sy, w, h, color);

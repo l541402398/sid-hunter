@@ -532,9 +532,15 @@
   function renderLogs() {
     const mine = me ? me.name : null;
     $('log-count').textContent = logs.length;
-    if ($('logs').hidden) return;
+    // 常驻栏只在公开日志或本人标记变化时更新，避免20Hz刷新打断阅读与滚动。
+    const sig = JSON.stringify([mine, logs]);
+    if (sig === lastLogSig) return;
+    lastLogSig = sig;
+    const list = $('log-items');
+    const scrollTop = list.scrollTop;
     // 涉及自己的条目仅对自己高亮：不新增任何信息，只是把已有的公开条目标出来。
-    $('log-items').innerHTML = logs.map(l => `<li${mine && l.text.includes(mine) ? ' class="log-mine"' : ''}><time>${l.time}</time><p>${escapeText(l.text).replace(/[A-Z0-9*]{3}-[A-Z0-9*]{3}-[A-Z0-9*]{3}/g, sidHTML)}</p></li>`).join('');
+    list.innerHTML = logs.length ? logs.map(l => `<li${mine && l.text.includes(mine) ? ' class="log-mine"' : ''}><time>${escapeText(l.time)}</time><p>${escapeText(l.text).replace(/[A-Z0-9*]{3}-[A-Z0-9*]{3}-[A-Z0-9*]{3}/g, sidHTML)}</p></li>`).join('') : '<li class="log-empty"><p>暂无公共事件</p></li>';
+    list.scrollTop = scrollTop;
   }
   function renderPublic() {
     $('alive-count').textContent = aliveCount;
@@ -1453,12 +1459,10 @@
     if (combatFlight || !me || !me.alive || finished || selfDisabled() || rpsNow() < (me.combat?.attackUntil || 0)) return;
     const request = { session: sessionGeneration, token: sessionToken, combat: JSON.stringify(me.combat || {}) };
     const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
-    combatFlight = request; keys.clear(); lastIntent = '';
+    // 挥锤冷却只限制再次挥锤，保留方向键与服务端移动意图，不给自己加硬控。
+    combatFlight = request;
     updateCombatHUD();
     try {
-      const stopped = await stopIntent();
-      if (!same()) return;
-      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
       const result = await api('/api/attack', { commandId: commandId(), ...floorFields() });
       if (!same()) return;
       if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结果未确认');
@@ -2420,15 +2424,17 @@
     if (!p.alive) { ghostSprite(p); return; }
     const x = Math.round(p.x), meId = selfId();
     const ph = p.walk * .13;
-    const bob = p.moving ? -Math.round(Math.abs(Math.sin(ph)) * 2) : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7);
+    const bob = p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7);
     const yb = Math.round(p.y) + bob;
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
     const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
     // dev 分支并入：跳跃只在画面上把整身抬高（地面坐标不参与），镜头外由 visible 兜一层。
     const seen = p.visible !== false;
     const z = seen ? (Number(p.z) || 0) : 0;
-    ctx.save(); if (z) ctx.translate(0, -z);
-    WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection);
+    ctx.save();
+    WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection, z);
+    // 身体绘制函数已把地面影子与跳跃分离；附加特效仍跟随腾空身体。
+    if (z) ctx.translate(0, -z);
     // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
     if (p.freezeUntil && p.freezeUntil > now) {
       ctx.globalAlpha = .4 * a; rect(x - 13, yb - 55, 26, 62, '#bfe8ff');
@@ -2444,8 +2450,7 @@
     // 被家具/墙体遮挡时（含自己）隐藏脚下指示与选中框，避免把位置信息透出去。
     const covered = !!WORLD.coverFor(p, occluders);
     if (!p.npc && p.id === meId && p.id !== selectedId && !covered) {
-      ctx.globalAlpha = .8 * a; ctx.strokeStyle = '#7cc4ff'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.ellipse(x, p.y + 5, 13, 4, 0, 0, Math.PI * 2); ctx.stroke();
+      // 自己只保留头顶小箭头，不绘制脚底蓝圈；地面影子由角色身体函数绘制。
       const off = Math.round(Math.sin(clock * 2.6) * 1.5);
       rect(x - 3, yb - 60 + off, 6, 3, '#9ed4ff'); rect(x - 2, yb - 57 + off, 4, 2, '#9ed4ff');
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
@@ -2480,6 +2485,29 @@
   }
   // 命中框（x±21, y-53~y+8）与名牌偏移保持不变，外观升级不影响任何交互判定。
   let labels = [];
+  const nameplateMetrics = new Map();
+  function nameplateText(p) {
+    return {
+      name: p.name + (p.npc ? ' · NPC' : p.id === selfId() ? ' · 自己' : p.online === false ? ' · 离线' : ''),
+      detail: p.npc ? `${p.cost} 筹码 / 私密线索兑换` : p.sid
+    };
+  }
+  function nameplateSize(text) {
+    const key = JSON.stringify([text.name, text.detail]);
+    let width = nameplateMetrics.get(key);
+    if (width === undefined) {
+      ctx.save();
+      ctx.font = '11px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      const nameWidth = ctx.measureText(text.name).width;
+      ctx.font = '10px ui-monospace,SFMono-Regular,monospace';
+      width = Math.ceil(Math.max(nameWidth, ctx.measureText(text.detail).width)) + 14;
+      ctx.restore();
+      // Measure only when displayed public text changes, not for every animation frame.
+      if (nameplateMetrics.size >= 512) nameplateMetrics.clear();
+      nameplateMetrics.set(key, width);
+    }
+    return { w: Math.max(90, width), h: 27 };
+  }
   function drawList() {
     return [...players.filter(p => p.floorId === floorId).map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
@@ -2493,7 +2521,10 @@
     labels = list.filter(p => p.alive && p.x >= drawCamX - 40 && p.x <= drawCamX + viewW + 40 &&
       p.y >= drawCamY - 30 && p.y <= drawCamY + viewH + 30 &&
       !WORLD.coverFor(p, occluders))
-      .map(p => ({ x: p.x - 72, y: p.y + 12, w: 144, h: 31, ids: p.npc ? [] : [p.id], p }));
+      .map(p => {
+        const text = nameplateText(p), size = nameplateSize(text);
+        return { x: p.x - size.w / 2, y: p.y + 10, ...size, text, ids: p.npc ? [] : [p.id], p };
+      });
   }
   function draw() {
     if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
@@ -2551,17 +2582,18 @@
     for (const l of labels.slice().sort((a, b) => Number(a.p.id === selectedId || a.p.id === meId) - Number(b.p.id === selectedId || b.p.id === meId))) {
       const active = l.ids.includes(selectedId);
       const accent = l.p.npc ? '#e9c877' : active ? '#7cc4ff' : (l.p.alive ? '#78c39b' : '#7c8698');
-      roundPx(l.x + 2, l.y + 3, l.w, l.h, '#080b12a0');
-      roundPx(l.x - 1, l.y - 1, l.w + 2, l.h + 2, active ? '#4f88c4' : '#2f425c');
-      roundPx(l.x, l.y, l.w, l.h, active ? '#14304f' : '#0f1826f2');
-      rect(l.x + 8, l.y + 1, l.w - 16, 1, '#ffffff1f');
-      rect(l.x + 1, l.y + 5, 2, l.h - 10, accent);
-      ctx.font = '12px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      // Translucent backdrop; keep glyphs opaque and avoid an opaque border behind the fill.
+      rect(l.x + 1, l.y + 2, l.w, l.h, '#080b1220');
+      rect(l.x, l.y, l.w, l.h, active ? '#14304fcc' : '#0f1826b3');
+      ctx.strokeStyle = active ? '#7cc4ffb3' : '#536c8980'; ctx.lineWidth = 1;
+      ctx.strokeRect(l.x + .5, l.y + .5, l.w - 1, l.h - 1);
+      rect(l.x + 1, l.y + 4, 2, l.h - 8, accent);
+      ctx.font = '11px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       ctx.fillStyle = active ? '#eaf4ff' : '#e2e8f0';
-      ctx.fillText(l.p.name + (l.p.npc ? ' · NPC' : l.p.id === meId ? ' · 自己' : l.p.online === false ? ' · 离线' : ''), l.x + l.w / 2, l.y + 13);
+      ctx.fillText(l.text.name, l.x + l.w / 2, l.y + 11);
       ctx.font = '10px ui-monospace,SFMono-Regular,monospace';
-      ctx.fillStyle = active ? '#a8cbe8' : '#96adc8';
-      ctx.fillText(l.p.npc ? `${l.p.cost} 筹码 / 私密线索兑换` : l.p.sid, l.x + l.w / 2, l.y + 26);
+      ctx.fillStyle = active ? '#bbd9f3' : '#b0c5dd';
+      ctx.fillText(l.text.detail, l.x + l.w / 2, l.y + 23);
     }
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2642,7 +2674,7 @@
     if (hits.length > 1) showCandidates(hits);
     else if (hits.length === 1) {
       const label = labelHits.find(l => l.ids.includes(hits[0]));
-      if (label && y >= label.y + 15) copySID(label.p.sid);
+      if (label && y >= label.y + 13) copySID(label.p.sid);
       else select(hits[0]);
     } else {
       // 需求2：点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径。
@@ -2667,12 +2699,9 @@
     $(panel).hidden = !visible;
     $(button).setAttribute('aria-expanded', String(visible));
     if (panel === 'roster') renderRoster();
-    if (panel === 'logs') renderLogs();
   }
   $('roster-toggle').onclick = () => toggle('roster', 'roster-toggle');
   $('roster-close').onclick = () => toggle('roster', 'roster-toggle');
-  $('log-toggle').onclick = () => toggle('logs', 'log-toggle');
-  $('log-close').onclick = () => toggle('logs', 'log-toggle');
   $('search').oninput = renderRoster;
   // ---------- 匿名坏人线索池（dev 分支并入）：只消费服务端的匿名投影，不推断身份 ----------
   function renderBadPool() {

@@ -61,7 +61,10 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .icon-button{border:0;background:transparent;box-shadow:none;font-size:23px;padding:0 5px;color:#93a9c6;border-radius:8px}
 .icon-button:hover{color:#dbe9fb;background:#22364f}
 .roster{left:12px;top:60px;bottom:52px;width:266px;padding:18px;z-index:7}
-.logs{right:12px;top:60px;bottom:52px;width:278px;padding:18px;z-index:7}
+.logs{display:flex;flex-direction:column;min-width:0;padding:18px;background:linear-gradient(158deg,#1b2a40,#111d2e);border:1px solid #456180;border-radius:14px;overflow:hidden}
+.log-total{flex:none;color:#93a9c6;font-size:11px;padding:5px 9px;border:1px solid #354b66;border-radius:999px}
+.log-total b{color:#cfe3fb}.logs>.panel-heading,.logs>.panel-note{flex:none}
+.logs li.log-empty{border:0;margin:0;padding:6px 0;color:#8199b5}.logs li.log-empty:before{display:none}
 .search-label span{font-size:10px;color:#93a8c2}
 .search-label input{margin-top:6px;width:100%;background:#0d1826;border:1px solid #36506d;border-radius:8px;padding:10px 11px;color:#e2e8f0;font-size:12px;box-shadow:inset 0 1px 3px #0008}
 .search-label input:focus{outline:none;border-color:#5f8fc4;box-shadow:0 0 0 3px #60a5fa26,inset 0 1px 3px #0008}
@@ -151,7 +154,7 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .sid-copy:focus-visible{outline:2px solid #60a5fa;outline-offset:3px}
 #copy-toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:linear-gradient(180deg,#1f3a55,#16304a);color:#e2e8f0;border:1px solid #5e86ad;border-radius:10px;padding:12px 20px;z-index:100;pointer-events:none;box-shadow:0 12px 34px -12px #000,inset 0 1px 0 #ffffff1a}
 @media(min-width:1500px){.shell{max-width:1460px}.stage{max-height:calc(100vh - 300px)}}
-@media(max-width:850px){.shell{padding:14px 12px}.public-stats{gap:8px}.local-badge{display:none}h1{font-size:17px}.brand-mark{font-size:22px;padding:9px}.brand{gap:10px}.brand p{letter-spacing:1px;font-size:8px}.private-hint{display:none}.stage{min-height:340px;max-height:none}.footer{flex-direction:column;gap:3px}.map-foot{left:10px;right:10px;gap:8px;align-items:flex-end}.map-foot #coordinate{flex:none}.map-foot .walk-help{display:block;min-width:0;text-align:right;line-height:1.8;overflow-wrap:anywhere}.walk-help kbd{white-space:nowrap}.target{width:262px;right:8px;top:52px}.roster,.logs{top:52px;bottom:43px}.world-chip{left:10px;top:10px}.world-chip small{display:none}}
+@media(max-width:850px){.shell{padding:14px 12px}.public-stats{gap:8px}.local-badge{display:none}h1{font-size:17px}.brand-mark{font-size:22px;padding:9px}.brand{gap:10px}.brand p{letter-spacing:1px;font-size:8px}.private-hint{display:none}.stage{min-height:340px;max-height:none}.footer{flex-direction:column;gap:3px}.map-foot{left:10px;right:10px;gap:8px;align-items:flex-end}.map-foot #coordinate{flex:none}.map-foot .walk-help{display:block;min-width:0;text-align:right;line-height:1.8;overflow-wrap:anywhere}.walk-help kbd{white-space:nowrap}.target{width:262px;right:8px;top:52px}.roster{top:52px;bottom:43px}.world-chip{left:10px;top:10px}.world-chip small{display:none}}
 /* Static field guide: warm amber paper accents over the pixel-office night palette. */
 #rules-toggle{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(#f3c773,#d49a42);border-color:#ffdda0;color:#30200b;font-weight:700;box-shadow:0 0 18px #f0b55524,inset 0 1px 0 #fff7}
 #rules-toggle:hover{background:#ffda91;border-color:#fff0c6}
@@ -294,6 +297,14 @@ body{min-height:100%}
 .floor-indicator{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(180deg,#26405f,#16273f);border:1px solid #5b83ad;border-radius:999px;padding:7px 14px;color:#cde5ff;font:700 12px ui-monospace,monospace;letter-spacing:1px;box-shadow:inset 0 1px 0 #ffffff14}
 .instructions{flex:0 0 auto;max-height:34dvh;overflow:auto}
 .instructions .lan-section{margin-top:0;margin-bottom:12px}
+/* 公共日志为地图右侧独立占位栏，不属于地图浮层，也不提供折叠行为。 */
+.game-layout{display:grid;grid-template-columns:minmax(0,1fr) clamp(240px,22vw,320px);gap:12px;align-items:stretch;flex:1 1 auto;min-height:calc(min(40dvh,340px) + 182px)}
+.shell>.bad-section,.shell>.dev-management{flex:0 0 auto}
+.game-layout>.stage{min-width:0;height:100%}
+.game-layout>.log-sidebar{position:static;width:auto;min-height:0;height:0;align-self:stretch;min-height:100%;z-index:auto;box-shadow:inset 0 1px 0 #ffffff0d}
+.log-sidebar ol{overscroll-behavior:contain;overflow-wrap:anywhere;padding-right:4px}
+@media(max-width:850px){.game-layout{grid-template-columns:minmax(0,1fr) 220px;gap:8px}.log-sidebar{padding:12px}.log-sidebar .panel-heading{gap:8px}.log-sidebar h2{font-size:15px}}
+@media(max-width:560px){.game-layout{grid-template-columns:minmax(0,1fr) 160px;gap:6px}.log-sidebar{padding:10px}.log-sidebar .panel-heading{align-items:flex-start;flex-wrap:wrap}.log-sidebar .panel-note{font-size:9px}.log-sidebar li p{font-size:11px}}
 /* 电梯过渡：门覆盖层只盖住地图视区，不遮挡 HUD 文字与 Esc。 */
 .floor-transition{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden}
 .floor-transition .door{position:absolute;top:0;bottom:0;width:52%;background:repeating-linear-gradient(90deg,#243244 0 14px,#1b2637 14px 28px);border:1px solid #3f5874;box-shadow:inset 0 0 60px #000a;transition:transform .38s ease}
