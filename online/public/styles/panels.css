@@ -1,0 +1,66 @@
+/* 通用面板与名单/日志/目标档案/候选 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
+.panel{position:absolute;background:linear-gradient(158deg,#1b2a40f5,#111d2ef8);border:1px solid #456180;border-radius:14px;box-shadow:0 28px 60px -26px #000c,inset 0 1px 0 #ffffff12;backdrop-filter:blur(14px);z-index:5;overflow:hidden;display:flex;flex-direction:column}
+.panel-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}
+.panel-heading small,.eyebrow{font:9px ui-monospace,monospace;color:#83a8d2;letter-spacing:2px}
+h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
+.icon-button{border:0;background:transparent;box-shadow:none;font-size:23px;padding:0 5px;color:#93a9c6;border-radius:8px}
+.icon-button:hover{color:#dbe9fb;background:#22364f}
+.roster{left:12px;top:60px;bottom:52px;width:266px;padding:18px;z-index:7}
+.logs{display:flex;flex-direction:column;min-width:0;padding:18px;background:linear-gradient(158deg,#1b2a40,#111d2e);border:1px solid #456180;border-radius:14px;overflow:hidden}
+.log-total{flex:none;color:#93a9c6;font-size:11px;padding:5px 9px;border:1px solid #354b66;border-radius:999px}
+.log-total b{color:#cfe3fb}.logs>.panel-heading,.logs>.panel-note{flex:none}
+.logs li.log-empty{border:0;margin:0;padding:6px 0;color:#8199b5}.logs li.log-empty:before{display:none}
+.search-label span{font-size:10px;color:#93a8c2}
+.search-label input{margin-top:6px;width:100%;background:#0d1826;border:1px solid #36506d;border-radius:8px;padding:10px 11px;color:#e2e8f0;font-size:12px;box-shadow:inset 0 1px 3px #0008}
+.search-label input:focus{outline:none;border-color:#5f8fc4;box-shadow:0 0 0 3px #60a5fa26,inset 0 1px 3px #0008}
+.panel-note{font-size:10px;color:#8ca2bd;line-height:1.75;margin:9px 0 12px}
+.roster-items{overflow:auto;flex:1 1 auto;min-height:0;height:auto;padding-right:3px}
+.roster-row{width:100%;padding:8px 6px;display:flex;align-items:center;gap:9px;text-align:left;border:1px solid transparent;background:transparent;margin-bottom:4px;border-radius:10px}
+.roster-row:hover{background:#1c2c44;border-color:#3c5273}
+.roster-row.active{background:linear-gradient(180deg,#254063,#1b2f4a);border-color:#5b86b8;box-shadow:inset 0 0 0 1px #60a5fa33}
+.portrait{display:inline-block;flex:none;width:32px;height:38px;image-rendering:pixelated}
+.roster-row strong{font-size:12px;font-weight:500;letter-spacing:.4px}
+.roster-row small{display:block;font:10px ui-monospace,monospace;color:#91a6c2;margin-top:5px}
+.roster-row small.roster-match{display:block;color:#e9c877;margin-top:4px;line-height:1.5;word-break:break-all}
+.out-label,.self-label,.offline-tag,.online-tag{font-size:9px;margin-left:auto;border-radius:999px;padding:3px 7px;background:#18253c;border:1px solid #35496a;color:#8191a5}
+.self-label{color:#8fc6ff;border-color:#3f6ea3;background:#16304e}
+.offline-tag{color:#9aa6b8;border-color:#3a4757}
+.online-tag{color:#8fbfa2;border-color:#3c5c4c}
+.logs ol{list-style:none;padding:0;margin:0;overflow:auto;flex:1 1 auto;min-height:0}
+.logs li{border-left:1px solid #3b536e;margin-left:3px;padding:0 0 18px 14px;position:relative}
+.logs li:before{content:'';position:absolute;width:5px;height:5px;border-radius:50%;background:#60a5fa;left:-3px;top:5px;box-shadow:0 0 8px #60a5fa80}
+.logs li.log-mine p{color:#bcd8f5}
+.logs time{display:block;font:10px ui-monospace,monospace;color:#8199b5;margin-bottom:5px}
+.logs li p{font-size:12px;line-height:1.7}
+.target{right:14px;top:62px;width:288px;padding:17px;max-height:calc(100% - 114px);overflow:auto;z-index:9;display:block}
+.target .panel-heading{margin-bottom:12px}
+.target-person{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.target-person .portrait{width:40px;height:48px}
+.target-person h2{font-size:18px}
+.sid{font:12px ui-monospace,monospace;color:#b6cdea;letter-spacing:1px;margin-top:7px}
+.status{font-size:10px;margin-top:7px;color:#98aec8}
+.color-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.attribute{border:1px solid #33496a;background:linear-gradient(180deg,#152339,#111c2e);padding:9px;border-radius:8px;font-size:11px;box-shadow:inset 0 1px 0 #ffffff0d}
+.attribute span{color:#8ea5c3;display:block;font-size:9px;margin-bottom:5px}
+.swatch{width:8px;height:8px;display:inline-block;border:1px solid #ffffff44;border-radius:3px;margin:0 6px 0 0;box-shadow:0 0 0 1px #0006}
+.traits{display:grid;gap:7px;margin:13px 0}
+.trait{display:flex;justify-content:space-between;gap:10px;font-size:11px}
+.trait span{color:#8ea5c3}
+.trait strong{font-weight:400}
+.private-gate{width:100%;background:linear-gradient(180deg,#1e324c,#16263c);border:1px dashed #567593;font-size:12px;border-radius:9px}
+.hold-note{font-size:10px;color:#90a8c4;line-height:1.6;margin-top:7px}
+.private-block{border-top:1px solid #445e7a;margin-top:12px;padding-top:12px}
+.private-title{font-size:11px;color:#c3d5ec;margin-bottom:9px}
+.skill-row{display:flex;gap:7px}
+.skill-row button{flex:1;font-size:12px;padding:8px;border-radius:8px}
+.investigate{background:#193c60;border-color:#477bad}
+.accuse{background:#58341e;border-color:#a56736}
+.kill{background:#4c2530;border-color:#93515c}
+.skill-info{color:#a8bad0;font-size:10px;margin:8px 0;line-height:1.6}
+.confirm-box{margin-top:9px;background:#0e1927;padding:10px;border:1px solid #4f6a89;border-radius:8px}
+.confirm-box p{font-size:11px;line-height:1.6;margin-bottom:8px}
+.confirm-box input{width:100%;padding:9px;background:#101d2e;border:1px solid #597391;color:#e2e8f0;border-radius:6px;font:12px ui-monospace,monospace;margin-bottom:8px}
+.confirm-box button{font-size:11px;padding:7px 10px}
+.private-result{font-size:11px;line-height:1.7;color:#c5dcf7;margin-top:10px;border-left:2px solid #60a5fa;padding-left:9px}
+.candidates{left:50%;top:50%;transform:translate(-50%,-50%);width:268px;padding:18px;z-index:10;display:block}
+.candidates p{font-size:10px;color:#90a8c4;margin-bottom:10px}
