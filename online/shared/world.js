@@ -940,6 +940,9 @@
   }
   const WORLD = {
     WORLD_W, WORLD_H, VIEW_W, VIEW_H, SPEED, MIN_X, MAX_X, MIN_Y, MAX_Y,
+    // 后墙墙带高度（世界像素）：墙带覆盖楼面北侧 y<WALL_BASE 的区域，属纯背景，不参与碰撞。
+    // 两端 drawBackWall 与 shared/scene.js 的家具裁剪共用此值，避免"家具画到墙上"。
+    WALL_BASE: 58,
     BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, PALETTES,
     makeFurniture, collidesAt, coverFor, pointOccluded, distanceToEntity, INTERACT_RANGE, NPCS,
     deskIsland, deskBranch,

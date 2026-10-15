@@ -7,7 +7,7 @@
 
 两版共用同一份地图与规则文件 `online/shared/world.js`（服务端与浏览器都能加载），并共用浏览器场景绘制文件 `online/shared/scene.js`。
 
-> **本轮状态（2026-10-14）：三份真实素材包（Kenney CC0 ×2 + Antea CC-BY ×1）与独立电梯厅已集成，独立最终验收中。** 本文件下方旧测试与部署记录是历史记录，不代表本轮全部通过或已上线；本轮准确边界与证据见 `design/CHANGELOG-真实素材与独立电梯厅.md`，第三方署名见本文末“第三方素材署名”。未 commit、push、deploy，未重启既有 8787 实例。
+> **本轮状态（2026-10-14）**：真实素材（Kenney 系列 / lumimae / cwendeku 为 CC0；Antea、OGA 为 CC-BY 须署名）、双侧独立电梯厅，以及“七层世界主题”均已集成；独立验收 **17 项 17/17 全部通过**（其中 1 项以实时画面像素判定替代 blit 计数，详见 `design/CHANGELOG-真实素材与独立电梯厅.md` §8.8）。整体仍处**验收中，未发布**，本文件下方旧测试与部署记录属历史记录。未 commit、push、deploy，未重启既有 8787 实例。第三方署名见本文末“第三方素材署名”。
 
 ## 运行
 
@@ -331,8 +331,34 @@ node online/deploy-smoke.mjs https://game.afann.xyz
 运行素材来自以下第三方包，按其授权要求署名；不要移除署名。
 
 - **Antea 办公家具包 —— CC-BY，允许商用但必须署名**：作者 `Antea ✮⋆˙ (stcrbcn)`，来源 https://stcrbcn.itch.io/furniture-office-set （包名 Free Furniture Office Equipment Set）。用于 2F–6F 办公桌/椅/沙发/文件柜/打印机/白板/售货机/饮水机等。**CC-BY 署名是硬性义务**，随包发布、改版、转商用均须保留。
-- **Kenney Roguelike Indoors / Roguelike Modern City —— CC0，无需署名**：作者 Kenney / Kenney Vleugels，来源 https://kenney.nl/assets/roguelike-indoors 、https://kenney.nl/assets/roguelike-modern-city 。CC0 无署名义务，仍保留来源与许可以便审计。
+- **Kenney Roguelike Indoors / Roguelike Modern City / Tiny Town / Sports Pack / Topdown Shooter —— CC0，无需署名**：作者 Kenney / Kenney Vleugels，来源 https://kenney.nl 。CC0 无署名义务，仍保留来源与许可以便审计。
+- **lumimae yaycandies、cwendeku Cute Food Sprites —— CC0，无需署名**：来源 https://opengameart.org/content/candy-pack-1 、https://www.opengameart.org/content/cute-food-sprites 。（Cute Food Sprite 本轮经清理后未随运行时加载，凭据见 vendor 各目录 `SOURCE-README.txt`。）
+- **OGA 室内 RPG 图集（CC-BY 3.0，须署名；本轮未加载、仅 vendor 留档）**：baseline 作者 Redshrike（https://opengameart.org/content/16x16-indoor-rpg-tileset-the-baseline ）；Expansion 1 作者 Stephen Challener (Redshrike) and Jetrel（https://opengameart.org/content/rpg-indoor-tileset-expansion-1 ）。本轮无 spec 引用、未随运行时加载，但文件仍在 `vendor/oga-indoor/`，凭据见该目录 `SOURCE-README.txt`；如后续启用须保留署名。
 
 > 建议署名位置：本 README 小节 + 游戏内“关于/致谢”页。授权凭据：`online/public/assets/vendor/antea-office/LICENSE.txt`（作者/来源/CC-BY 强制署名文本/原包 SHA256/43 精灵清单/缺项）与 `outputs/asset-acquisition/antea-office.json`；原 Antea 包未附独立许可文件，该 `LICENSE.txt` 为依据包页 CC-BY 声明的自撰凭据。建议署名文本：`Office furniture sprites by Antea (stcrbcn) — https://stcrbcn.itch.io/furniture-office-set — Licensed under CC-BY`。
 
-**当前发布门控：待审，不批准上线；无 commit/push/deploy。** 详见 `design/CHANGELOG-真实素材与独立电梯厅.md`，待独立 QA 与美术结论后再更新准确统计和残余风险。
+**当前发布门控：待用户审批上线；本轮无 commit/push/deploy。** 独立 QA 已在最终哈希上 17/17 通过；美术裁片复核与上线审批仍待，故本轮不发布、也不宣称已上线。详见 `design/CHANGELOG-真实素材与独立电梯厅.md`。
+
+## 本轮变更：七层世界主题与主题家具（2026-10-14，验收中）
+
+在上一轮基础上，每层换一套**世界主题**（墙带材质/配色/墙饰 + 地板材质/环境色/纹样 + 主题家具），并新增若干真实素材包。**未提交，验收中。**
+
+- **改动文件（4 个，非仅 scene.js）**：`online/shared/scene.js`（主改动）、`online/shared/world.js`（+3 行，导出 `WORLD.WALL_BASE = 58`）、`online/public/game.js` 与 `demo/main.js`（各 8 行，后墙改由 `SCENE.wall()` 绘制并按 `WALL_BASE` 裁剪家具）。
+- **新增机制**：`SHEET_GRID`（非 16px 图集步长：farm 17/16、shooter 64/64、sports 64/64）、`drawSpecAt` 支持 `single`（居中、整数倍放大封顶 2×）/`native`/`prop+scale`、`drawSpec` 逐 block、`floorStyles[].cell`、`THEME_WALL`。
+- **两处修复**：① `blit` 不再按 `dy<58` 裁北侧墙带（离屏家具/地板是局部坐标，原逻辑误裁世界 y256..314 的合法内容并漏出旧手绘地板），墙体裁剪改由两版最终合成负责；② 工位岛主题家具原只取 `blocks[0]`，现逐 `block` 绘制，第二排不再漏画。
+- **七层落位**：F2/F5 书架带 + 木桌 + 木椅；F3 暖木桌/书架/盆栽；F4 地面换 Kenney Tiny Town 真实草地 `(0,0)–(2,0)`；F6 棒棒糖作观叶位装饰（约 2×）；F7 stage/mat 用 Sports Pack 球场图集；F1 墙带用 Topdown Shooter 带窗设施墙带。（此前这两项的图集 key 未注册、会静默回退，**已修**，见下。）
+- **新增素材（全部 CC0，不新增 CC-BY 义务）**：Kenney Tiny Town、Kenney Sports Pack、lumimae yaycandies、cwendeku Cute Food Sprites、Kenney Topdown Shooter。Antea 与 OGA 仍按本文末署名小节执行。
+- **如实排除**：Topdown Shooter 的 `(0,15)` 实测为亮绿草地 `rgb(35,199,52)`（非浅灰地板），沙发 `(12,16)/(12,17)` 整格不透明带自底，故 F1 家具不使用该包；F7 无健身器材、F6 无甜点家具（站点与关键词见 `outputs/asset-acquisition/theme-furniture-downloads.json`）。1F/7F 原始参考图仍缺，未臆造布局。
+- **图集注册（已修）**：`shooter`/`sports` 曾漏注册导致 F1 墙带与 F7 stage/mat 静默回退；现已在 `atlases` 注册 `shooter='scifi-kenney-topdown-shooter/Tilesheet/tilesheet_complete.png'`（1728×1280，27×20，64px）、`sports='sports-kenney-sportsPack/Tilesheet/groundBeige_white.png'`（832×1024，64px）。修后重跑：`ready:true`、`error:null`、`themed 72→75`、运行期报错 0，F1 截图呈绿底白窗设施墙带。
+- **来源留档与清理**：新建 `online/public/assets/vendor/oga-indoor/SOURCE-README.txt`（baseline = Redshrike，CC-BY 3.0/OGA-BY 3.0；expansion1 = Stephen Challener (Redshrike) and Jetrel，CC-BY 3.0），并附强制署名文本。OGA 三图本轮**无任何 spec 引用**，已从 `atlases` 移除（不再加载，文件仍在 vendor 留档）；同时删掉 10 个未使用的 `propFiles` 条目（candyBean/candySwirl/candyStar/candyCane/miniCake + 7 个 sports 单件）。`THEMES[5].name` 已由「温泉旅馆」统一为「暮色书房」。
+- **已知遗留小项**：① `CHROMA_TILE_SPACING` 仍列有 `ogaBase/ogaExp/ogaExtra` 三个 key，但对应图集已不加载（死配置、无功能影响）。**本轮保留原样不清**（避免改动使 QA 验收版本与交付版本错开），待下一轮清理。② **判断“主题是否生效”要看最终画面像素，不要只看实时 blit 计数**（本轮踩过的坑；工具见 `outputs/theme-work/pixel-count.mjs`）。
+- **独立验收：17 项全部通过（17/17，fail=0）**（`outputs/theme-qa/theme-assets-results.json`，钉在哈希 `2da5528b…`；快照 `outputs/theme-qa/scene-snapshot.sha256.txt`；前后六份源码 `unchanged=true`，runtime/console 错误 0；三套回归 exit 0）。套件由 15 项扩到 17 项，原 15 项在两版结论一致。
+  - 其中 1 项以**实时画面像素判定**替代原先的“实时 blit 计数”，现名 `ONLINE：实时画面像素判定 F7 场地为 sports 图集材质（blit 计数对烘焙缓存不适用）`。原因：在线端家具走 `furnitureSprites` 烘焙缓存，稳态窗口内数不到图集 blit 属机制使然，**不是回退**。
+  - 该替代由 QA **自己的 harness 独立产出**（CDP 截图 clip 到 `#office`、内联零依赖 PNG 解码，统计目标色 ±6）：F7 实时画布 **113** 个近似像素 vs F1 对照 **9** 个（12.6×，断言 ≥50 且 >F1×5）→ 通过；同窗口另记录 `groundBeige` blit = 9，与“启动 `bakeSprites()` 先跑一次、`SCENE.ready` 后重烘焙并重绘”的解释吻合。
+  - QA 另用 `outputs/theme-work/pixel-count.mjs` 复算四张图，与工程统计一致（F7 修正前 ≈`1` → 修正后 `1512`；F1 对照 `11`/`2`，精确命中 0、容差 ±6）。**该替换不是弱化**：它检验玩家可见结果，且与工程统计互为独立证据；被替代的 blit 计数因烘焙缓存架构本就不适用于该断言。
+  - 该项**由 FAIL 改判为 PASS**；QA 确认除该项外无任何遗留。新增证据 `outputs/theme-qa/live-floor1.png`、`live-floor7.png`。
+- **oga 清理零行为影响佐证**：当前 `scene.js` 只有 5 个图集键 `indoors/city/farm/shooter/sports`；残留 oga 仅 1 处注释 + `CHROMA_TILE_SPACING` 的 3 个 key（`CHROMA_SET` 为空集、该表实际不被使用）；`floorStyles`/`THEME_FURN`/`THEME_WALL` 均不引用 oga。
+- **工程统计与证据**：工程实机统计（真 Chrome，七层×两机位，同一次 capture，跑在最终 `2da5528b…` 上）：`themed 75`、`furniture 163`、`drawImage 7729`、`floors 12`、`ready:true`、`error:null`、运行期报错 0。其中 `themed` 由改动前基线 `29` → 主题接入 `72`（注册修正前）→ `75`（修正后）；`drawImage` 由修正前的 `7968` 降至 `7729`，原因即本轮清理（OGA 三图不再加载 + 10 条未使用 `propFiles` 移除）。截图 `outputs/theme-work/cur-f{1..7}-{north,mid}.png`、基线 `outputs/theme-work/baseline/`、脚本 `outputs/theme-work/capture.mjs`、像素计数 `outputs/theme-work/pixel-count.mjs`。当前 `scene.js` `2da5528b…`（自验收开始未再改动）。
+- **边界**：本轮未 commit/push/deploy；用户已取消 8788 常驻服务，本机联机需自行起服。**门控：独立 QA 17/17 通过，待美术复核与用户审批上线。**
+
+详见 `design/CHANGELOG-真实素材与独立电梯厅.md` §8。

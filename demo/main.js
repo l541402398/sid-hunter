@@ -1693,6 +1693,7 @@
   function draw() {
     if(floorState==='PREPARING'||floorState==='SUBMITTING'||floorState==='UNCONFIRMED')return;
     const camX=Math.round(cameraX),camY=Math.round(cameraY);
+    const WALL_Y=WORLD.WALL_BASE||58;   // 后墙墙带下沿：墙带以内属纯背景，家具需裁剪
     drawCamX=camX;drawCamY=camY;
     const f=WORLD.floorById(floorId);
     ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
@@ -1710,7 +1711,8 @@
     for(let cy=c0y;cy<=c1y;cy++)for(let cx=c0x;cx<=c1x;cx++)ctx.drawImage(chunkCache.get(floorId+':'+cx+':'+cy),cx*CHUNK,cy*CHUNK);
     ctx.restore();
     // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
-    drawBackWall(f);
+    // 逐层"世界风格"主题：改由共享 scene.js 按主题绘制墙带材质/配色/墙饰；未就绪时回退原生画法。
+    if(!(SCENE&&SCENE.wall(ctx,f)))drawBackWall(f);
     ctx.restore();
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
     if(vignette)ctx.drawImage(vignette,0,0,cssW,cssH);
@@ -1727,9 +1729,13 @@
       if(item.f){
         const f2=item.f;
         if(f2.type==='wall'){drawWallPanel(f2);continue;}
+        // 后墙墙带（y<WALL_Y）是纯背景：只对可能画进墙带的家具裁剪，避免"家具/装饰被画到墙上"。
+        const clipWall=f2.y-24<WALL_Y;
+        if(clipWall){ctx.save();ctx.beginPath();ctx.rect(camX-400,WALL_Y,viewW+800,viewH+600);ctx.clip();}
         const pad=furniturePad(f2.type);
         ctx.drawImage(furnitureSprites.get(f2.id),f2.x-pad.padX,f2.y-pad.padUp);
         if(f2.container)drawInteractOutline('container',f2);
+        if(clipWall)ctx.restore();
       }else{sprite(item.p);if(item.p.npc)drawInteractOutline('npc',item.p);}
     }
     // 需求2：当前层电梯厅（左右各一处，含上行/下行两扇门）。脉冲空框改为可辨认的电梯门，

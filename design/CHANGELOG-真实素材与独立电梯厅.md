@@ -142,21 +142,22 @@ node online/elevator-browser-test.mjs
 | --- | --- |
 | Kenney 两份 ZIP、hash、License 和来源保留 | 已核对；ZIP 大小/hash 复算一致 |
 | Antea 包来源与 CC-BY 署名 | 已建立署名小节；`LICENSE.txt` + `antea-office.json` 凭据就绪；原包自带许可文件不存在（已自撰并说明） |
+| OGA 三图（CC-BY）来源与署名 | 已补 `oga-indoor/SOURCE-README.txt`；本轮未加载、仅留档 |
 | 工程新增世界/房间与浏览器自检 | 已有工程通过报告；不代替独立 QA |
-| 14 厅路径连通、玻璃门防夹、多玩家/SSE一致性 | 独立最终验收中 |
-| 所有有效跨层路径与楼层 ID 一致性 | 独立最终验收中 |
-| 1440/768/390 选层视觉、点击命中、滚动与禁当前层 | 独立最终验收中 |
-| 全七层真实贴图表现与裁片语义 | 美术及独立最终验收中 |
-| 旧回归失败项归因 | 进行中；观察结果不等于批准发布 |
+| 14 厅路径连通、玻璃门防夹、多玩家/SSE一致性 | 独立 QA 回归通过（`elevator-world`/`elevator-room` 84 路由/`elevator-browser` 均 exit 0） |
+| 所有有效跨层路径与楼层 ID 一致性 | 独立 QA 通过（同上一行回归） |
+| 1440/768/390 选层视觉、点击命中、滚动与禁当前层 | 独立 QA 通过 |
+| 全七层真实贴图表现与裁片语义 | 独立 QA 通过（含 F7 实时画面像素判定）；**美术裁片复核仍待** |
+| 旧回归失败项归因 | 已出首失败归因；观察结果不等于批准发布 |
 | 用户上线/热修审批 | 未请求、未获准，本轮不执行 |
 
 旧逻辑套件观察为 281/363（82 未通过），旧探索浏览器为 5/17（12 未通过）；这些数字不是新增测试结果，也不能仅凭目录名认定为本轮改动前基线。
 
 `outputs/qa-floor-final/failure-attribution.json` 已记录 82 个逻辑与 12 个浏览器未通过项的逐条名称、断言与首个失败归因；含当前树 8 个文件 hash/mtime，以及原浏览器记录 9 个文件与 HEAD 的 CRLF 哈希一致性证据。归因涉及旧协议/字段前提、失败级联、浮点边界、旧速度和坐标、几何及遮挡、跨层 undefined、RPS 旧路线、Canvas 观察点与计数等；这些解释**不将原 FAIL 改成 PASS**。旧 fixture 修正后仍须完整重跑后续断言，尤其不能假定旧 RPS respond 模型等同当前 accept/choice。
 
-390px 面板真实越界与 7F 电梯覆盖是已经复现的独立产品缺陷，不以“测试陈旧”掩盖；当前工程已修，修复后的终验仍待独立 QA。所有定案须记录运行版本/哈希、证据时间与覆盖限制，不能提前宣称“无新增失败”。
+390px 面板真实越界与 7F 电梯覆盖曾复现为独立产品缺陷，不以“测试陈旧”掩盖；修复后已随第三轮独立 QA 套件覆盖（含 1440/768/390 与 F7 实时画面像素判定）。所有定案均须记录运行版本/哈希（`2da5528b…`）、证据时间与覆盖限制。
 
-**发布门控：待审 / 不批准上线。** 独立最终 QA 和美术审核未结，不能宣布完整 PASS。若存在未清 Blocker，不发布，除非用户明确豁免并接受风险。
+**发布门控：第三轮独立 QA 已在 `2da5528b…` 上 17/17 通过（其中 1 项以实时画面像素判定替代 blit 计数）；待美术裁片复核与用户审批上线。** 本轮无发布动作；若存在未清 Blocker，不发布，除非用户明确豁免并接受风险。
 
 ## 6. 跨部门清单与已知风险
 
@@ -184,3 +185,104 @@ node online/elevator-browser-test.mjs
 ## 7. 本地化边界
 
 本轮是中文场景及 UI 调整，不包含多语言发布。楼层名字、提示与按钮中文仍在源码中；厅标识含 WEST/EAST，图集可能包含原始文字或符号。本轮没有字符串抽取、翻译表或 LQA 的统计分母，**本地化覆盖率未统计**，不能将素材覆盖当本地化完成。若后续扩语言，须先建立字符串表、审核图中文字、做长文本/平台验证，再冻结字符串。
+
+---
+
+## 8. 第三轮补充：七层「世界主题」与主题家具（2026-10-14，验收中）
+
+本轮在上一节基础上继续改造场景绘制：每层换一套**世界主题**（墙带材质/配色/墙饰 + 地板材质/环境色/纹样 + 主题家具），并新增若干真实素材包。状态仍为**验收中**。
+
+### 8.1 实际改动文件（与“只改 scene.js”不同）
+
+当前工作树未提交差异共 4 个文件：
+
+| 文件 | 变化 |
+| --- | --- |
+| `online/shared/scene.js` | 主改动：新增加载机制、主题家具表、七层主题墙/地板（含图集注册修正，见 §8.6） |
+| `online/shared/world.js` | +3 行：导出 `WORLD.WALL_BASE = 58`（后墙墙带下沿，墙带属纯背景、不参与碰撞） |
+| `online/public/game.js`、`demo/main.js` | 各 8 行：后墙改由 `SCENE.wall()` 绘制（未就绪回退 `drawBackWall`）；家具绘制前按 `WALL_BASE` 裁剪，避免家具画到墙上 |
+
+### 8.2 新增机制
+
+- `SHEET_GRID`：非 16px 图集的取格参数 —— `farm 17/16`、`shooter 64/64`、`sports 64/64`；`cellOf()` 供 `tile()`/`atlasRow()`/`drawSpecAt()` 统一取值。
+- `drawSpecAt(spec)`：单件居中式绘制，支持三种形态 —— `single`（居中一张、整数倍放大且封顶 2×）、`native`（按原生像素不放大）、`{prop,scale}`（单图精灵 + 缩放）；`repeat` 时按宽度平铺。
+- `drawSpec(spec,f)`：逐 `blocks` 绘制（修复②，见下）。
+- `floorStyles[].cell`：地板格尺寸可与 16 不同（如 F4 的 farm 用 16）；`tint` 环境色 + `accent` 主题纹样（`tech/rune/farm/sweet/court`）随地板块一起烘焙。
+- `THEME_WALL`：按层替换后墙墙带为真实图集墙带（当前仅 F1 配置）。
+- `blit()` 不再裁剪（修复①，见下）。
+- 新增导出：`wall`、`themeOf`。
+
+### 8.3 两处修复
+
+1. **blit 误裁**：原 `blit` 按 `dy<58` 裁掉北侧墙带，但离屏家具与地板 chunk 用的是**局部坐标**，导致世界 y256..314 的合法家具/地板被误裁、并漏出旧手绘地板。现 `blit` 不裁；墙体裁剪只由 `demo/main.js` 与 `online/public/game.js` 的最终合成负责。
+2. **工位岛漏画第二排**：主题家具原只取 `blocks[0]`，双排工位岛第二排不画。现 `drawSpec` 逐 `block` 绘制，做到「画什么、撞什么」一致。
+
+### 8.4 七层主题与落位（按当前源码）
+
+| 层 | 主题名 | 地板（sheet/tile） | 家具主题替换 |
+| --- | --- | --- | --- |
+| 1F | 科幻 | city `10–12,1` 冷灰 + `tech` 纹 | 无（用默认办公家具 + 真实墙带，见 §8.6） |
+| 2F | 魔幻 | city `0–2,19` + `rune` 纹 | 木长桌/圆木桌/书架/木椅 |
+| 3F | 温馨可爱 | indoors `24,0–24,3` 暖木 | 木桌/书架/盆栽/木椅 |
+| 4F | 田园农家 | farm `0,0`–`2,0` Tiny Town 真实草地 | 木桌/木柜/木椅/盆栽 |
+| 5F | 暮色书房 | indoors `23/25,0`、`23/25,2` 深木 | 木桌/书架/盆栽/木椅 |
+| 6F | 糖果 | city `25–28,1` 粉彩 + `sweet` 纹 | 棒棒糖（`candyPop`，观叶位，约 2×） |
+| 7F | 活力运动 | indoors `24,4–24,7` 绿茵 + `court` 纹 | stage/mat 用 Sports Pack 球场图集（注册修正见 §8.6） |
+
+### 8.5 新增素材包与授权（全部 CC0）
+
+`outputs/asset-acquisition/theme-furniture-downloads.json` 记录本批下载；均为 CC0，**不新增 CC-BY 署名义务**。Antea（CC-BY）与 OGA（CC-BY）仍按 §2.1 原署名执行。
+
+| 包 | 作者 | 授权 | 运行目录 | 主题 |
+| --- | --- | --- | --- | --- |
+| Kenney Tiny Town | Kenney | CC0-1.0 | `farm-kenney-tiny-town/` | F4 |
+| Kenney Sports Pack (350) | Kenney | CC0-1.0 | `sports-kenney-sportsPack/` | F7 |
+| yaycandies | lumimae | CC0-1.0 | `candy-lumimae-yaycandies/` | F6 |
+| Cute Food Sprites | cwendeku | CC0-1.0 | `candy-cwendeku-cute-food/` | F6/F3 |
+| Kenney Topdown Shooter | Kenney | CC0-1.0 | `scifi-kenney-topdown-shooter/` | F1 |
+| OGA indoor（baseline/expansion1/extratiles） | baseline=Redshrike；expansion1=Stephen Challener (Redshrike) and Jetrel | **CC-BY 3.0 / OGA-BY 3.0（须署名）** | `oga-indoor/` | 预留（**本轮未加载**） |
+
+`vendor/` 现共 9 个包目录：`antea-office`、`candy-cwendeku-cute-food`、`candy-lumimae-yaycandies`、`farm-kenney-tiny-town`、`kenney-indoors`、`kenney-modern-city`、`oga-indoor`、`scifi-kenney-topdown-shooter`、`sports-kenney-sportsPack`，**均含 `License.txt` 或 `SOURCE-README.txt`**。其中本轮运行时实际加载：Kenney Indoors / Modern City / Tiny Town / Topdown Shooter / Sports Pack（CC0）、Antea（CC-BY）、lumimae yaycandies（CC0，仅 `candyPop`）；`oga-indoor/`（CC-BY）与 cwendeku Cute Food（CC0）经清理后未加载，仅留档。
+
+### 8.6 读码核对与修正记录
+
+文档编辑时对 `scene.js` 读码发现 4 处疑点，工程已逐条处理；现状态如下（当前 `scene.js` SHA-256 `2da5528b29f42f18706aafff26a1102ad41082a2681f9afb1d73ca3c1353be3d`，此前 `4757f901…` 已作废）：
+
+1. **`shooter` / `sports` 曾漏注册** → **已修**。原先 `atlases` 只含 `indoors/city/oga*/farm`，而 `THEME_WALL[1]` 取 `sheet:'shooter'`、`THEME_FURN[7].stage/mat` 取 `sheet:'sports'`，两项会静默回退（此前 F1 看到的“窗墙”实为程序化墙带自带的窗户）。现注册 `shooter='scifi-kenney-topdown-shooter/Tilesheet/tilesheet_complete.png'`（1728×1280，27×20，64px）、`sports='sports-kenney-sportsPack/Tilesheet/groundBeige_white.png'`（832×1024，64px）。修后重跑 `capture`：`ready:true`、`error:null`、`themed 72→75`、errors 0；F1 截图呈绿底白窗设施墙带。
+2. **“加载却从不绘制”的条目** → **已清理**。OGA 三图（`oga-indoor/`）与 10 个未使用 `propFiles`（`candyBean/candySwirl/candyStar/candyCane/miniCake` + 7 个 sports 单件）已从加载表移除；OGA 三张 PNG 仍在 `vendor/oga-indoor/` 留档，将来要用再注册。残留 `CHROMA_TILE_SPACING` 中的 `ogaBase/ogaExp/ogaExtra` 三个 key 已无对应加载（死配置，无功能影响）。
+3. **`oga-indoor/` 缺授权凭据** → **已补**。新建 `online/public/assets/vendor/oga-indoor/SOURCE-README.txt`：baseline = Redshrike（CC-BY 3.0 / OGA-BY 3.0，https://opengameart.org/content/16x16-indoor-rpg-tileset-the-baseline ）；expansion1 = Stephen Challener (Redshrike) and Jetrel（CC-BY 3.0 / GPL 2.0 / GPL 3.0 / OGA-BY 3.0，https://opengameart.org/content/rpg-indoor-tileset-expansion-1 ），并列出强制署名文本。该目录为 CC-BY（可商用须署名），**本轮未加载**，但文件仍在产物目录，故署名义务保留。
+4. **命名注释不一致** → **已修**。`THEMES[5].name` 由「温泉旅馆」统一为「暮色书房」。
+
+### 8.7 排除项（如实记录）
+
+- **Topdown Shooter 的 `(0,15)`**：实测是**亮绿草地** `rgb(35,199,52)`，不是浅灰地板（包内 `SOURCE-README.txt` 旧标注为“浅灰实心地板”，已不采用）。
+- **Topdown Shooter 的沙发 `(12,16)/(12,17)`**：整格不透明、会带自底，**F1 家具一律不使用该包**。
+- **F7 无健身器材、F6 无甜点家具**：检索 kenney.nl / opengameart.org / 0x72 / ansimuz / pixelfrog 未找到可用 CC0/CC-BY 俯视跑步机·哑铃·更衣柜·健身房长椅与甜点家具；`theme-furniture-downloads.json` 的 `searchedButNotFound` 已记录。
+- **1F/7F 原始参考图仍缺**，未臆造布局。
+
+### 8.8 工程统计与验收状态
+
+- 工程实机统计（team-lead 真 Chrome，七层 × 长安/中景两机位，同一次 `capture`，跑在最终 `2da5528b…` 上）：`themed 75`、`furniture 163`、`drawImage 7729`、`floors 12`、`ready:true`、`error:null`、runtime errors 0。
+  - 指标演进：`themed` 改动前基线 `29` → 主题接入 `72`（图集注册修正前）→ `75`（修正后）；`drawImage` 由图集注册修正前的 `7968` 降至 `7729`，原因即本轮清理（OGA 三图不再加载 + 10 条未使用 `propFiles` 移除）。
+  - 证据：截图 `outputs/theme-work/cur-f{1..7}-{north,mid}.png`（14 张）、改动前基线 `outputs/theme-work/baseline/`、采集脚本 `outputs/theme-work/capture.mjs`（走 `demo/index.html?test&floor=N` 的 file:// 路径）。**该批统计未落独立 JSON**，且属工程自测。
+- 当前版本：`online/shared/scene.js` SHA-256 `2da5528b29f42f18706aafff26a1102ad41082a2681f9afb1d73ca3c1353be3d`（`4757f901…` 为修正前版本，已作废；自验收开始未再改动）。QA 快照 `outputs/theme-qa/scene-snapshot.sha256.txt`，旧 scene-freeze 文件已删除，避免两个哈希造成歧义。
+- **独立验收：17 项全部通过（17/17，fail=0）**（`outputs/theme-qa/theme-assets-results.json`，钉在 `2da5528b…`；快照 `outputs/theme-qa/scene-snapshot.sha256.txt`；前后六份源码 `unchanged=true`，runtime/console 错误 0；三套回归 exit 0）。套件由 15 项扩到 17 项，原 15 项在两版结论一致。
+  - 其中 1 项由“实时 blit 计数”改造为**实时画面截图像素判定**，现名 `ONLINE：实时画面像素判定 F7 场地为 sports 图集材质（blit 计数对烘焙缓存不适用）`，并在用例内固定标注：**在线端家具走 `furnitureSprites` 烘焙缓存，稳态窗口内数不到图集 blit 属机制使然，不是回退**。
+  - 判定方式（QA 自产、零依赖）：CDP 截图 clip 到 `#office`，内联 PNG 解码统计目标色 ±6 —— F7 实时画布 **113** 个近似像素 vs F1 对照 **9** 个（12.6×，断言 ≥50 且 >F1×5）→ 通过；同窗口另记录 `groundBeige` blit = 9，与“启动 `bakeSprites()` 先跑一次、`SCENE.ready` 后重烘焙并重绘”吻合。
+  - QA 另用工程提供的 `outputs/theme-work/pixel-count.mjs` 复算四张图，与工程统计完全一致（F7 修正前 ≈`1` → 修正后 `1512`；F1 对照 `11`/`2`，精确命中 0、容差 ±6）。
+  - **该替换不是弱化**：它检验玩家可见结果，且由 QA 自己的 harness 独立产出，与工程统计互为独立证据；被替代的 blit 计数因烘焙缓存架构本就不适用于该断言。
+  - 该项**由 FAIL 改判为 PASS**；QA 确认除该项外无任何遗留。新增证据：`outputs/theme-qa/live-floor1.png`、`live-floor7.png`。
+- 结论：**独立验收 17/17 全部通过**（其中 1 项以实时画面像素判定替代 blit 计数）。整体仍处**验收中、未发布**。
+
+### 8.8.1 oga 清理零行为影响（佐证）
+
+当前 `scene.js` 只有 5 个图集键 `indoors/city/farm/shooter/sports`；残留 oga 仅 1 处注释（第 18 行）+ `CHROMA_TILE_SPACING` 的 3 个 key（`ogaBase/ogaExp/ogaExtra`），而 `CHROMA_SET` 为空集、该表实际不被使用；`floorStyles`/`THEME_FURN`/`THEME_WALL` 均不引用 oga。故移除 oga 加载对绘制无行为影响。
+
+**已知遗留小项（本轮不处理）**：
+
+1. `scene.js` 的 `CHROMA_TILE_SPACING` 仍保留 `ogaBase/ogaExp/ogaExtra` 三个 key，但对应图集已从 `atlases` 移除、不再加载 —— 属**死配置、无功能影响**。为免改动使 QA 验收版本（`2da5528b…`）与交付版本错开，本轮**保持原样不清**，待下一轮统一清理。
+2. **判断“主题是否生效”要看最终画面像素，不要只看实时 blit 计数** —— 本轮踩过的坑（在线端 `furnitureSprites` 烘焙缓存会让稳态窗口内图集 blit 数为 0，易被误读为“未生效”）。后续已由 QA 将该判定改为实时画面截图像素比对（见 §8.8）；复用的像素计数工具：`outputs/theme-work/pixel-count.mjs`。
+
+### 8.9 边界
+
+未 commit / push / deploy；用户已取消 8788 常驻服务，本机联机需自行起服（本轮文档编写未启动任何服务，未重启既有 8787）。第三轮独立 QA 已在最终哈希 `2da5528b…` 上 **17/17 通过**；发布门控为**待美术复核与用户审批上线**（本轮无发布动作）。

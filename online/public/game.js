@@ -2615,6 +2615,7 @@
     if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
     const camX = Math.round(cameraX), camY = Math.round(cameraY);
     drawCamX = camX; drawCamY = camY;
+    const WALL_Y = WORLD.WALL_BASE || 58;   // 后墙墙带下沿：墙带以内属纯背景，家具需裁剪
     const f = WORLD.floorById(floorId);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
@@ -2632,7 +2633,8 @@
     for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkCache.get(floorId + ':' + cx + ':' + cy), cx * CHUNK, cy * CHUNK);
     ctx.restore();
     // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
-    drawBackWall(f);
+    // 逐层"世界风格"主题：改由共享 scene.js 按主题绘制墙带材质/配色/墙饰；未就绪时回退原生画法。
+    if (!(SCENE && SCENE.wall(ctx, f))) drawBackWall(f);
     ctx.restore();
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
     if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
@@ -2649,10 +2651,14 @@
       if (item.f) {
         const f2 = item.f;
         if (f2.type === 'wall') { drawWallPanel(f2); continue; }
+        // 后墙墙带（y<WALL_Y）是纯背景：只对可能画进墙带的家具裁剪，避免"家具/装饰被画到墙上"。
+        const clipWall = f2.y - 24 < WALL_Y;
+        if (clipWall) { ctx.save(); ctx.beginPath(); ctx.rect(camX - 400, WALL_Y, viewW + 800, viewH + 600); ctx.clip(); }
         const pad = furniturePad(f2.type);
         ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
         // 紧跟家具 sprite 之后画描边：深度更大的家具后画时会自然盖住描边，不穿透遮挡。
         if (f2.container) drawOutline(f2.x, f2.y, f2.w, f2.h, interactTier('container', f2.id), '#7fe3ff');
+        if (clipWall) ctx.restore();
       } else {
         sprite(item.p);
         // NPC 描边对准命中框 x±21, y-53..y+8。
