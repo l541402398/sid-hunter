@@ -50,7 +50,13 @@ function clueValid(r, actor, clue) {
 }
 
 await test('01 WORLD 在普通浏览器脚本、globalThis 和 CommonJS 中合约一致', async () => {
-  const source = await readFile(new URL('./shared/world.js', import.meta.url), 'utf8');
+  // 合并适配：world 已拆成 shared/world/* 子模块 + 聚合器；按浏览器加载顺序拼接后在沙箱里求值，
+  // 检查意图不变（普通脚本 / window / globalThis 三种宿主下 window.WORLD 合约一致）。
+  const WORLD_PARTS = ['config', 'geometry', 'furniture', 'floors', 'sprite'];
+  const source = (await Promise.all([
+    ...WORLD_PARTS.map(n => readFile(new URL(`./shared/world/${n}.js`, import.meta.url), 'utf8')),
+    readFile(new URL('./shared/world.js', import.meta.url), 'utf8')
+  ])).join('\n;\n');
   for (const sandbox of [{ window: {} }, {}]) {
     runInNewContext(source, sandbox);
     const w = sandbox.window ? sandbox.window.WORLD : sandbox.WORLD;

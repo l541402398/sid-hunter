@@ -19,7 +19,7 @@ const beforeHashes=await hashes();
 // 后 index.html 已变化，这里更新冻结哈希；其余断言仍逐条校验规则页内容。
 // 合并适配：dev 528fd9e 的右侧常驻日志栏重排了 index.html（移除 #log-toggle、日志移入 .game-layout），
 // 合入 feature_dev_floor 后重新冻结哈希；其余断言逐条校验规则页与私有投影。
-const FROZEN_INDEX_SHA256='2d406eba7f17853d29a61c56a2248ce2fa5dcb6787ecee75f4f0f8bc833e7eda';
+const FROZEN_INDEX_SHA256='b695631e4f16d5be5ad1dc0f60edd0205fb784582fe134acea1475770fad5cf4';
 assert.equal(beforeHashes['public/index.html'],FROZEN_INDEX_SHA256,'must test frozen final HTML');
 const results=[],runtimeErrors=[],children=[],clients=[];
 let fatal=null,port,base,serverLog='';

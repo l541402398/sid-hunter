@@ -148,13 +148,13 @@ function isLoopback(req) {
   return isLoopbackAddress(req.socket.remoteAddress || '');
 }
 function staticServe(req, res, pathname) {
-  // Only public/ is hosted, plus read-only access to shared/world.js so the client and
-  // the server literally load the same furniture layout. Nothing else is reachable.
-  const isShared = ['/shared/world.js', '/shared/scene.js'].includes(pathname);
+  // Only public/ is hosted, plus read-only access to the shared/ source tree (world/scene 子模块)：
+  // 让客户端与服务端字面加载同一份地图/几何真源。其余路径不可达。
   const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   if (relative.includes('..') || path.isAbsolute(relative)) return send(res, 403, { error: 'forbidden' });
+  const isShared = relative === 'shared' || relative.startsWith('shared/');
   const base = isShared ? path.join(__dirname, 'shared') : PUBLIC_DIR;
-  const target = path.join(base, isShared ? path.basename(pathname) : relative);
+  const target = path.join(base, isShared ? relative.slice('shared/'.length) : relative);
   if (!target.startsWith(base)) return send(res, 403, { error: 'forbidden' });
   if (!ALLOWED_EXT.has(path.extname(target).toLowerCase())) return send(res, 404, { error: 'not found' });
   fs.readFile(target, (error, data) => {

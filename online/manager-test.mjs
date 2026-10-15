@@ -102,8 +102,10 @@ try {
   check('伪造 Cookie => 401', forged.status === 401, `status=${forged.status}`);
 
   // ---------- 4. 造一局并让它结束：坏人击杀后只剩 2 人，触发存活淘汰至剩余 2 人 ----------
-  const worldSrc = await readFile(join(root, 'shared', 'world.js'), 'utf8');
-  check('共享参数可调（存活阈值）', /endRemainingPlayers/.test(worldSrc), 'RULES.endRemainingPlayers 存在');
+  // 合并适配：world.js 拆分为 shared/world/* 子模块后，这里不再 grep 源码文本，
+  // 改为直接读取运行时配置（语义更强，也不受文件布局影响）。
+  const { RULES: worldRules } = (await import('./shared/world.js')).default;
+  check('共享参数可调（存活阈值）', Number.isSafeInteger(worldRules.endRemainingPlayers), 'RULES.endRemainingPlayers 存在');
   const joinOf = async nickname => {
     const res = await request('/api/join', { method: 'POST', body: { nickname } });
     return { token: res.body.sessionToken, id: res.body.playerId, name: res.body.name };
