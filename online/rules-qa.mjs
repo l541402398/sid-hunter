@@ -17,7 +17,9 @@ const hashes=async()=>Object.fromEntries(await Promise.all(files.map(async f=>[f
 const beforeHashes=await hashes();
 // 合并适配：合并 dev 分支的规则文案（Survivor id 术语、2 血试玩说明、K 跳跃 / 幽灵 / 匿名坏人线索池）
 // 后 index.html 已变化，这里更新冻结哈希；其余断言仍逐条校验规则页内容。
-const FROZEN_INDEX_SHA256='11704e6c477dcccc785e4810b54f056cf0476f14617eb6e2afbe4d4ae7ff48ef';
+// 合并适配：dev 528fd9e 的右侧常驻日志栏重排了 index.html（移除 #log-toggle、日志移入 .game-layout），
+// 合入 feature_dev_floor 后重新冻结哈希；其余断言逐条校验规则页与私有投影。
+const FROZEN_INDEX_SHA256='2d406eba7f17853d29a61c56a2248ce2fa5dcb6787ecee75f4f0f8bc833e7eda';
 assert.equal(beforeHashes['public/index.html'],FROZEN_INDEX_SHA256,'must test frozen final HTML');
 const results=[],runtimeErrors=[],children=[],clients=[];
 let fatal=null,port,base,serverLog='';
@@ -133,9 +135,11 @@ try{
  const A=new Client(),B=new Client();clients.push(A,B);await A.launch();await B.launch();const a=await A.boot('验收坏人'),b=await B.boot('验收好人');const sessions=(await api('/api/test/sessions')).body.sessions;const ta=sessions.find(x=>x.playerId===a.me.id).sessionId,tb=sessions.find(x=>x.playerId===b.me.id).sessionId;
  const c=(await api('/api/join',{nickname:'存活同伴'})).body;const tc=c.sessionToken;
  await test('H-01','AC-12','真实HTTP权限拒绝unknown/spy/kill与伪造阵营',async p=>{p.replies=[];for(const skill of ['spy','kill','bogus']){const q=await api('/api/skill',{skill,commandId:randomUUID(),targetId:a.me.id,faction:'bad',actorId:a.me.id},tb);p.replies.push(q);assert.equal(q.status,400);assert.equal(q.body.ok,false);}p.good=(await api('/api/state',undefined,tb)).body.me.skills;assert(Object.values(p.good).every(s=>s.chargesRemaining===2));});
- await test('D-01','AC-15','规则入口紧邻公共日志，醒目琥珀；图解静态内容正确与占位',async p=>{
- p.dom=await A.ev(`(()=>{const e=document.querySelector('#rules-toggle'),r=document.querySelector('#rules-view'),s=getComputedStyle(e);return {previous:e.previousElementSibling.id,text:e.textContent,bg:s.backgroundImage,color:s.color,dialog:r.tagName,sections:r.querySelectorAll('.rule-section').length,colors:r.querySelectorAll('.rule-color-grid>div').length,masks:r.querySelectorAll('.rule-masks>div').length,skills:[...r.querySelectorAll('.rule-skill-grid h4')].map(x=>x.textContent),textRules:r.textContent}})()`);
- assert.equal(p.dom.previous,'log-toggle');assert.equal(p.dom.dialog,'DIALOG');assert(p.dom.bg.includes('243, 199, 115'));assert.equal(p.dom.colors,4);assert.equal(p.dom.masks,3);assert.equal(p.dom.skills.length,4);for(const word of ['100 人','A7C-9K2-3M8','每段3位','独立储存 2 次','90 秒','20 分钟','线索规则待补充','不代表你的身份','存活淘汰至剩余 100 人','坏人全灭','时间到（2 小时）','按分数排名','仅三种'])assert(p.dom.textRules.includes(word),word);
+ await test('D-01','AC-15','规则入口醒目琥珀（日志已改为右侧常驻栏）；图解静态内容正确与占位',async p=>{
+ p.dom=await A.ev(`(()=>{const e=document.querySelector('#rules-toggle'),r=document.querySelector('#rules-view'),s=getComputedStyle(e);return {previous:e.previousElementSibling.id,hasLogSidebar:!!document.querySelector('#logs.log-sidebar'),text:e.textContent,bg:s.backgroundImage,color:s.color,dialog:r.tagName,sections:r.querySelectorAll('.rule-section').length,colors:r.querySelectorAll('.rule-color-grid>div').length,masks:r.querySelectorAll('.rule-masks>div').length,skills:[...r.querySelectorAll('.rule-skill-grid h4')].map(x=>x.textContent),textRules:r.textContent}})()`);
+ // 合并适配：dev 528fd9e 把公共日志改成右侧常驻栏并移除了工具栏里的 #log-toggle；
+ // 「规则入口紧邻日志开关」改为校验「紧邻玩家名单按钮 + 日志常驻栏仍在页面里」。
+ assert.equal(p.dom.previous,'roster-toggle');assert.equal(p.dom.hasLogSidebar,true);assert.equal(p.dom.dialog,'DIALOG');assert(p.dom.bg.includes('243, 199, 115'));assert.equal(p.dom.colors,4);assert.equal(p.dom.masks,3);assert.equal(p.dom.skills.length,4);for(const word of ['100 人','A7C-9K2-3M8','每段3位','独立储存 2 次','90 秒','20 分钟','线索规则待补充','不代表你的身份','存活淘汰至剩余 100 人','坏人全灭','时间到（2 小时）','按分数排名','仅三种'])assert(p.dom.textRules.includes(word),word);
  });
  await test('D-12','AC-18','双方目标原文精确一致',async p=>{
  p.goals=await A.ev(`(()=>{const x=document.querySelector('[aria-label="双方目标"]');return [...x.querySelectorAll('article')].map(e=>({title:e.querySelector('strong').textContent,text:e.querySelector('p').textContent}))})()`);

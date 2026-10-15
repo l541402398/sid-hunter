@@ -277,6 +277,11 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .elevator-floor-btn:hover:not(:disabled){border-color:#7fb2e5;background:#17233a;transform:translateY(-1px)}
 .elevator-floor-btn:disabled{opacity:.38;cursor:not-allowed}
 .elevator-floor-btn:disabled small{color:#64748b}
+/* 合并适配：dev 的右侧常驻日志栏在窄屏把舞台压窄，电梯选层卡片内容（7 个楼层按钮）超出
+   map-view 的高度，5/6/7F 按钮需要滚动、中心点会被舞台下方的匿名线索栏覆盖。
+   窄屏让选层覆盖层脱离 map-view、改为覆盖整个视口，卡片即可获得足够高度：
+   7 个楼层按钮全部可见可点，桌面端（>560px）行为不变。 */
+@media(max-width:560px){.elevator-picker{position:fixed}}
 /* 结算覆盖层：结束方式 + 排名，关闭后可再从排行榜查看。 */
 .finish-overlay{position:absolute;inset:0;z-index:54;display:flex;align-items:center;justify-content:center;background:#05080fdd;backdrop-filter:blur(6px)}
 .finish-card{width:min(500px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:linear-gradient(158deg,#1b2a40f8,#111d2efb);border:1px solid #9d8156;border-radius:16px;padding:20px;color:#e9e4da;box-shadow:0 30px 80px -24px #000}
