@@ -13,6 +13,11 @@
 <script src="/shared/world/sprite.js" defer></script>
 <script src="/shared/world.js" defer></script>
 <script src="/shared/scene.js" defer></script>
+<!-- 客户端自包含工具：defer 且排在 game.js 之前，game.js 里以别名引用（调用点不变） -->
+<script src="js/core/chunks.js" defer></script>
+<script src="js/core/wheel.js" defer></script>
+<script src="js/core/text.js" defer></script>
+<script src="js/render/paint.js" defer></script>
 <script src="game.js" defer></script>
 </head>
 <body>
