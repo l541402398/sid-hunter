@@ -1,0 +1,13 @@
+'use strict';
+// 标记模块：操作与联机说明 details
+// 用 currentScript.insertAdjacentHTML('beforebegin', ...) 在 <script> 所在位置原位注入，
+// DOM 位置与顺序与原先直接写在 index.html 里完全一致（含缩进）。
+(function () {
+  const html = `<details class="instructions"><summary>操作与联机说明</summary><div><section class="lan-section"><span class="lan-line"><i class="dot blue"></i> 局域网试玩 · 把下面地址发给同事即可加入</span><code id="lan-address">读取中…</code><span class="lan-note">服务端权威：位置、技能结算、公开状态与淘汰都由服务端计算；主持人接口仅限本机。</span></section><p>WASD / 方向键移动；家具足迹与墙体挡路，人物互穿。家具/墙体可遮挡角色身体：被遮挡的其他玩家不显示地图名牌和选中框，遮挡处点击不会选中角色；自己的遮挡状态会提示，但不免疫技能。点击角色或名单查看公开档案，重叠时先选目标；技能仍任意距离，禁止自选或操作已淘汰目标。</p><p>地图共七层（1–7F），每层左右两侧各有一部电梯，不分上下方向：靠近电梯门（64 像素内）点击或按 E 打开选层面板，可任选 1–7 层（当前层除外），到达目标楼层的同侧电梯门口。换层由服务端权威裁决，加载完成才会进入目标层。当前楼层显示在顶部工具栏。每层有 9 个共享容器与 2 位 NPC 分布在不同楼面；靠近至 64 像素内，点击容器 / NPC 或按 E 就近打开面板，容器搜索与 NPC 兑换要求同层。每人每个容器只能搜寻一次，状态与奖励由服务端确认。</p><p>好人：探查、指认；坏人：探查、指认、刺探、击杀。探查 / 指认对两种阵营效果相同；刺探公开目标SID段，击杀要求完整SID精确匹配。各技能独立2次，试玩90秒恢复1次、满停止，探查/刺探短冷却8秒，指认/击杀12秒。</p><p>猜拳：双方自愿，需双方在线、同层、64 像素内、家具不挡视线且双方至少 1 筹码；胜者 +1、败者 -1、平局不变，筹码不为负；邀请 30 秒未回应自动取消且不扣筹码，结算后 5 秒冷却。成功换层会取消未决猜拳。</p><p>按 J 或点击「J · 互动」发起约 260ms 的无伤害手持木锤挥击：命中只造成 0.8 秒眩晕与 1 秒僵直，无伤害、不淘汰、不影响技能与筹码，冷却 1.2 秒（空挥也进冷却），且只命中当前楼层。</p><p>结束方式仅三种：①存活淘汰至剩余 100 人；②坏人全灭；③时间到（2 小时）。计分：搜索容器、兑换线索、发现线索、猜拳胜负与平局、J 互动命中、探查 / 刺探 / 指认 / 击杀等行为均记分（具体分值见 world.js 的 SCORE）。</p><p>大转盘：可重复转动，首次免费，之后按次数阶梯收费；每次放置 10 个物品，含不同数量筹码；好人转盘含线索券，坏人转盘含洗心革面券与轮回券。每个容器仍限搜一次。</p></div></details>`;
+  const host = document.currentScript;
+  if (host) {
+    host.insertAdjacentHTML('beforebegin', html);
+    host.remove(); // 宿主 <script> 不留痕：兄弟关系与原先直接写 HTML 时完全一致
+  }
+  else document.addEventListener('DOMContentLoaded', () => document.body.insertAdjacentHTML('beforeend', html));
+})();
