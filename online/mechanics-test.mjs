@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readWorldSource } from './test-helpers/world-source.mjs';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
@@ -60,7 +61,8 @@ await test('共享契约、全部九种猜拳组合及浏览器导出', async ()
   assert.deepEqual(C, { rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, rpsRoundMs: 10000, attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000 });
   const expected = [[0, -1, 1], [1, 0, -1], [-1, 1, 0]];
   for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) assert.equal(WORLD.rpsOutcome(choices[i], choices[j]), expected[i][j]);
-  const source = await readFile(new URL('./shared/world.js', import.meta.url), 'utf8');
+  // 合并适配：world 已拆成 shared/world/* + 聚合器；加载契约检查统一读拼接源码（顺序同 index.html）。
+  const source = await readWorldSource();
   for (const sandbox of [{ window: {} }, {}]) {
     runInNewContext(source, sandbox);
     const w = sandbox.window ? sandbox.window.WORLD : sandbox.WORLD;

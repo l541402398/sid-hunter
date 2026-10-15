@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readWorldSource } from './test-helpers/world-source.mjs';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { runInNewContext } from 'node:vm';
@@ -50,13 +51,8 @@ function clueValid(r, actor, clue) {
 }
 
 await test('01 WORLD 在普通浏览器脚本、globalThis 和 CommonJS 中合约一致', async () => {
-  // 合并适配：world 已拆成 shared/world/* 子模块 + 聚合器；按浏览器加载顺序拼接后在沙箱里求值，
-  // 检查意图不变（普通脚本 / window / globalThis 三种宿主下 window.WORLD 合约一致）。
-  const WORLD_PARTS = ['config', 'geometry', 'furniture', 'floors', 'sprite'];
-  const source = (await Promise.all([
-    ...WORLD_PARTS.map(n => readFile(new URL(`./shared/world/${n}.js`, import.meta.url), 'utf8')),
-    readFile(new URL('./shared/world.js', import.meta.url), 'utf8')
-  ])).join('\n;\n');
+  // 合并适配：world 已拆成 shared/world/* + 聚合器；加载契约检查统一读拼接源码（顺序同 index.html）。
+  const source = await readWorldSource();
   for (const sandbox of [{ window: {} }, {}]) {
     runInNewContext(source, sandbox);
     const w = sandbox.window ? sandbox.window.WORLD : sandbox.WORLD;
