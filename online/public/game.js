@@ -162,7 +162,11 @@
     if (me && typeof me.floorRevision === 'number') f.expectedFloorRevision = me.floorRevision;
     return f;
   }
+  function operationModalOpen() {
+    return !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open;
+  }
   function sendIntent(force) {
+    if (operationModalOpen()) keys.clear();
     const sig = ['KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyS', 'ArrowDown', 'KeyD', 'ArrowRight'].map(c => keys.has(c) ? 1 : 0).join('');
     if (!force && sig === lastIntent) return;
     lastIntent = sig;
@@ -479,6 +483,8 @@
   function clearPrivate(clearMy) {
     privateGeneration++; privateOpen = false; pending = null; privateResult = '';
     const block = $('private-content'); if (block) block.replaceChildren();
+    if ($('private-dialog').open) $('private-dialog').close();
+    $('private-dialog-target').textContent = '';
     const gate = $('private-gate'); if (gate) { gate.textContent = '展开私密操作'; gate.setAttribute('aria-expanded', 'false'); }
     if (clearMy) {
       closeMine();
@@ -495,7 +501,7 @@
     for (const id of pointerIds) { try { if (canvas.hasPointerCapture && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch { } }
     pointerIds.clear();
     // blur 与 hidden 连续发生时零意图签名去重；不重发任何换层 POST。
-    sendIntent(false); clearPrivate(true); closeExploration(); closeWheel();
+    sendIntent(false); clearPrivate(true); closeExploration(); closeWheel(); closeBadPool();
   }
   function select(id) {
     closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
@@ -504,10 +510,10 @@
   }
   function renderTarget() {
     const p = selected();
-    if (!p) { $('target').hidden = true; $('target').replaceChildren(); return; }
+    if (!p) { clearPrivate(); $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
     const status = p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作';
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">中央操作窗 · 展开期间请注意周围视线 · 切出页面自动隐藏</p>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     const inviteBtn = $('target-invite-rps');
     if (inviteBtn) inviteBtn.onclick = () => { if (isInviteable(selected())) sendRps({ kind: 'rpsInvite', targetId: selected().id }); };
@@ -515,9 +521,14 @@
     if (returnBtn) returnBtn.onclick = () => { rpsResultDismissId = null; openGames(); };
     $('private-gate').onclick = () => {
       if (privateOpen) clearPrivate();
-      else { closeExploration(); closeGames(); privateOpen = true; renderPrivate(); $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true'); }
+      else {
+        keys.clear(); sendIntent(false); closeExploration(); closeGames(); closeMine();
+        privateOpen = true; renderPrivate();
+        $('private-dialog').showModal(); $('private-dialog').scrollTop = 0;
+        $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true');
+      }
     };
-    if (holding()) renderPrivate();
+    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}`; updateSkillStatus(); }
   }
   // ---------- 私密操作（点击展开，不再依赖 Shift） ----------
   function holding() { return privateOpen; }
@@ -540,8 +551,9 @@
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
+    $('private-dialog-target').textContent = `目标：${p.name}`;
     const ids = availableSkills();
-    host.innerHTML = `<div class="private-block"><p class="private-title">${me.faction === 'good' ? '好人' : '坏人'}技能 · 私密操作已展开</p><div class="skill-row">${ids.map(id => `<button id="${id}" data-skill="${id}" class="${id === 'probe' || id === 'spy' ? 'investigate' : id}">${skillNames[id]}</button>`).join('')}</div><p id="skill-info" class="skill-info"></p><div id="confirm-host"></div><div id="result-host"></div></div>`;
+    host.innerHTML = `<div class="private-block"><p class="private-title">${me.faction === 'good' ? '好人' : '坏人'}技能 · 私密操作已展开</p><div class="skill-row">${ids.map(id => `<button id="${id}" data-skill="${id}" class="${id === 'probe' || id === 'spy' ? 'investigate' : id}">${skillNames[id]}</button>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能冷却与恢复说明</summary><p id="skill-info" class="skill-info"></p></details></div>`;
     for (const id of ids) $(id).onclick = () => { if (!holding()) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
@@ -640,7 +652,7 @@
   function resetToJoin() {
     sessionGeneration++; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
     if (stream) { stream.close(); stream = null; }
-    closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); hideFinish(); keys.clear(); lastIntent = '';
+    closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); closeBadPool(); hideFinish(); keys.clear(); lastIntent = '';
     combatResult = ''; gamesResult = '';
     rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
     rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
@@ -788,8 +800,11 @@
     return candidates[0].hit;
   }
   function closeExploration() {
+    const wasOpen = !!explorationPanel;
     explorationGeneration++; explorationPanel = null; explorationResult = ''; explorationDataSig = '';
-    $('exploration').replaceChildren(); $('exploration').hidden = true;
+    if (wasOpen) { keys.clear(); sendIntent(false); }
+    if ($('exploration').open) $('exploration').close();
+    $('exploration').replaceChildren();
     $('clue-bag').setAttribute('aria-expanded', 'false');
   }
   function openExploration(kind, id = null) {
@@ -798,7 +813,7 @@
     $('candidates').hidden = true; $('candidates').replaceChildren(); renderTarget(); renderRoster();
     explorationPanel = { kind, entityId: id };
     const entity = explorationEntity(kind, id), host = $('exploration');
-    host.hidden = false; $('clue-bag').setAttribute('aria-expanded', String(kind === 'backpack'));
+    $('clue-bag').setAttribute('aria-expanded', String(kind === 'backpack'));
     const heading = kind === 'backpack' ? '线索背包' : kind === 'container' ? entity.container.name : entity.name;
     // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
     host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE EXPLORATION</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭私密探索">×</button></div><div class="exploration-body"><p class="exploration-balance">我的筹码：<strong id="exploration-chips"></strong></p>${kind === 'backpack'
@@ -810,6 +825,7 @@
     // 远处容器/NPC 仍可打开面板查看，但按钮禁用并给出「靠近」提示。
     if (kind !== 'backpack' && entityDistance(entity) > WORLD.INTERACT_RANGE) showToast('距离太远，请靠近后再互动（64 像素以内）');
     syncExploration();
+    host.showModal(); host.scrollTop = 0;
   }
   function syncExploration() {
     if (!explorationPanel || !me) return;
@@ -880,7 +896,7 @@
   function wheelSpinsFor(entityId) { return (me && me.games && me.games.wheelSpins && me.games.wheelSpins[entityId]) || 0; }
   function openWheel(entityId, name) {
     if (!me || !entityId) return;
-    closeGames(); closeRanking();
+    closeExploration(); closeGames(); closeRanking();
     selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster();
     wheelTarget = { entityId, name: name || '大转盘' };
     wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
@@ -1107,6 +1123,7 @@
         : '<p class="panel-note">没有存活玩家。</p>');
   }
   function showFinish() {
+    clearPrivate(true); closeExploration(); closeBadPool();
     const overlay = $('finish-overlay'); if (!overlay) return;
     lastFinishSig = ''; renderFinish(); overlay.hidden = false;
   }
@@ -1161,7 +1178,7 @@
   function openGames() {
     const host = $('games');
     if (!host) return;
-    closeWheel();
+    clearPrivate(); closeExploration(); closeBadPool(); closeWheel();
     host.hidden = false;
     if (!gamesDomReady) {
       gamesDomReady = true;
@@ -1375,6 +1392,7 @@
   }
   // ---------- J 互动：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
   async function attack() {
+    if (operationModalOpen()) return;
     if (combatFlight || !me || !me.alive || finished || selfDisabled() || rpsNow() < (me.combat?.attackUntil || 0)) return;
     const request = { session: sessionGeneration, token: sessionToken, combat: JSON.stringify(me.combat || {}) };
     const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
@@ -2777,13 +2795,25 @@
     }
     root.replaceChildren(fragment);
   }
+  function closeBadPool() {
+    if ($('bad-pool-dialog').open) $('bad-pool-dialog').close();
+    $('bad-slots').hidden = true;
+    $('bad-toggle').setAttribute('aria-expanded', 'false');
+    $('bad-toggle-label').textContent = '展开＋';
+  }
   $('bad-toggle').onclick = () => {
-    const expanded = $('bad-slots').hidden;
-    $('bad-slots').hidden = !expanded;
-    $('bad-toggle').setAttribute('aria-expanded', String(expanded));
-    $('bad-toggle-label').textContent = expanded ? '收起−' : '展开＋';
-    renderBadPool();
+    if ($('bad-pool-dialog').open) { closeBadPool(); return; }
+    clearAllInput(); closeGames();
+    $('bad-slots').hidden = false; renderBadPool();
+    $('bad-pool-dialog').showModal();
+    $('bad-toggle').setAttribute('aria-expanded', 'true');
+    $('bad-toggle-label').textContent = '收起−';
   };
+  $('bad-pool-close').onclick = closeBadPool;
+  $('bad-pool-dialog').addEventListener('cancel', e => { e.preventDefault(); closeBadPool(); });
+  $('private-close').onclick = () => { keys.clear(); sendIntent(false); clearPrivate(); };
+  $('private-dialog').addEventListener('cancel', e => { e.preventDefault(); keys.clear(); sendIntent(false); clearPrivate(); });
+  $('exploration').addEventListener('cancel', e => { e.preventDefault(); closeExploration(); });
   renderBadPool();
   $('join-form').addEventListener('submit', e => {
     e.preventDefault();
@@ -2807,7 +2837,7 @@
   // 同一条中文原因只弹一次，避免按住键时刷屏。
   const actionToast = { text: '' };
   async function sendAction(kind) {
-    if (!me || finished) return;
+    if (!me || finished || operationModalOpen()) return;
     const r = await api('/api/action', { kind }).catch(() => ({ ok: false, status: 0 }));
     if (r.ok || r.auth === false) { actionToast.text = ''; return; }
     if (r.status !== 401 && r.status !== 0) return; // 冷却 / 空中 / 硬控 / 已结束：静默
@@ -2818,6 +2848,19 @@
   }
   document.addEventListener('keydown', e => {
     if ($('rules-view').open || $('reset-confirm').open) return;
+    if (operationModalOpen()) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (privateOpen) clearPrivate();
+        else if (explorationPanel) closeExploration();
+        else closeBadPool();
+      } else if (e.code === 'KeyE' && explorationPanel && !isTyping()) {
+        e.preventDefault(); if (!e.repeat) closeExploration();
+      } else if (!isTyping() && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyJ','KeyK','KeyE'].includes(e.code)) {
+        e.preventDefault();
+      }
+      return;
+    }
     if (e.key === 'Escape') {
       // 电梯选层面板可被 Esc 取消（未提交任何请求）。
       if (closeElevatorPicker()) { e.preventDefault(); return; }

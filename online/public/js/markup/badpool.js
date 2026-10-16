@@ -3,11 +3,11 @@
 // 用 currentScript.insertAdjacentHTML('beforebegin', ...) 在 <script> 所在位置原位注入，
 // DOM 位置与顺序与原先直接写在 index.html 里完全一致（含缩进）。
 (function () {
-  const html = `<section class="bad-section" aria-label="匿名坏人线索">
-    <button id="bad-toggle" class="bad-toggle" type="button" aria-expanded="false" aria-controls="bad-slots"><span>匿名坏人线索 <small>身份不公开</small></span><span id="bad-toggle-label">展开＋</span></button>
+  const html = `<dialog id="bad-pool-dialog" class="center-dialog bad-pool-dialog" aria-labelledby="bad-pool-title">
+    <div class="panel-heading"><div><small>PUBLIC CLUES</small><h2 id="bad-pool-title">匿名坏人线索</h2></div><button id="bad-pool-close" class="icon-button" type="button" aria-label="关闭坏人线索">×</button></div>
     <div id="bad-slots" class="bad-slots" hidden></div>
     <p class="bad-note">仅展示已公开的隐藏属性；匿名编号不对应玩家顺序，不提供身份或选人链接。</p>
-  </section>`;
+  </dialog>`;
   const host = document.currentScript;
   if (host) {
     host.insertAdjacentHTML('beforebegin', html);

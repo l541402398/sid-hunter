@@ -27,6 +27,20 @@ body{min-height:100%}
 .log-sidebar ol{overscroll-behavior:contain;overflow-wrap:anywhere;padding-right:4px}
 @media(max-width:850px){.game-layout{grid-template-columns:minmax(0,1fr) 220px;gap:8px}.log-sidebar{padding:12px}.log-sidebar .panel-heading{gap:8px}.log-sidebar h2{font-size:15px}}
 @media(max-width:560px){.game-layout{grid-template-columns:minmax(0,1fr) 160px;gap:6px}.log-sidebar{padding:10px}.log-sidebar .panel-heading{align-items:flex-start;flex-wrap:wrap}.log-sidebar .panel-note{font-size:9px}.log-sidebar li p{font-size:11px}}
+/* 顶层居中操作窗：不受地图高度、缩放与 overflow 裁剪影响。 */
+dialog.center-dialog{position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 32px));height:fit-content;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:20px;border:1px solid #9d8156;border-radius:14px;background:#172331;color:#e9e4da;overflow:auto;box-shadow:0 24px 80px #0009;transform:none}
+dialog.center-dialog:not([open]){display:none}
+dialog.center-dialog::backdrop{background:#070c16ad;backdrop-filter:blur(3px)}
+dialog.center-dialog>.panel-heading{position:sticky;top:-20px;background:#172331;padding:10px 0;z-index:1;gap:12px}
+dialog.center-dialog .icon-button{min-width:44px;min-height:44px;flex:none}
+dialog.center-dialog .private-block{border:0;padding-top:0;margin-top:0}
+dialog.center-dialog .skill-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+dialog.center-dialog .skill-row button,dialog.center-dialog .confirm-box button{min-height:44px}
+dialog.center-dialog .skill-info{line-height:1.7;font-size:11px}
+dialog.exploration .exploration-body{overflow:visible}
+dialog.bad-pool-dialog{width:min(720px,calc(100vw - 32px))}
+dialog.bad-pool-dialog .bad-slots{padding:6px 0 12px}
+dialog.bad-pool-dialog .bad-note{padding:0}
 /* 电梯过渡：门覆盖层只盖住地图视区，不遮挡 HUD 文字与 Esc。 */
 .floor-transition{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden}
 .floor-transition .door{position:absolute;top:0;bottom:0;width:52%;background:repeating-linear-gradient(90deg,#243244 0 14px,#1b2637 14px 28px);border:1px solid #3f5874;box-shadow:inset 0 0 60px #000a;transition:transform .38s ease}
