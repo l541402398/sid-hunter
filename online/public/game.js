@@ -2130,7 +2130,7 @@
   function drawContainerMarker(f, tier) {
     const cx = f.x + f.w / 2, by = f.y + f.h;
     const span = (SCENE && SCENE.visualWidth) ? SCENE.visualWidth(f) : f.w;
-    const rx = Math.max(8, Math.min(26, span / 2 + 4));
+    const rx = Math.max(8, Math.min(26, span / 2 + 2));
     const ry = rx * 0.5;
     ctx.save();
     if (tier === 'ready') {
