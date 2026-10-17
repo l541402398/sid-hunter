@@ -33,6 +33,15 @@
   const nX = v => Math.round(v / X_SPAN * FLOOR_W);
   const nY = v => Math.round(v / Y_SPAN * FLOOR_H);
   const nRect = c => { const x1 = nX(c[0]), y1 = nY(c[1]), x2 = nX(c[2]), y2 = nY(c[3]); return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }; };
+  // 放大楼层时，家具**位置**随楼面摊开，但**尺寸**回到 1×：精灵本身就按原像素绘制，
+  // 保留放大后的矩形会让碰撞比画面大一圈（"空气墙"），也会让人走进家具上半截。
+  // 做法 = 以放大后矩形的中心为锚点，把宽高缩回 1/S；scale=1 时是恒等变换。
+  const visualRect = r => {
+    if (FLOOR_SCALE === 1) return r;
+    const w = Math.max(1, Math.round(r.w / FLOOR_SCALE));
+    const h = Math.max(1, Math.round(r.h / FLOOR_SCALE));
+    return { x: Math.round(r.x + (r.w - w) / 2), y: Math.round(r.y + (r.h - h) / 2), w, h };
+  };
   // 楼层外轮廓（0–1500 × 0–1000 归一化）。轮廓外是非楼面，禁止行走，不得用矩形底板补平。
   const FULL_RECT = [[0, 0], [1500, 0], [1500, 1000], [0, 1000]];
   const L24 = [[0, 0], [1500, 0], [1500, 1000], [255, 1000], [255, 710], [122, 710], [122, 550], [0, 550]];
@@ -351,7 +360,7 @@
       };
       rows.forEach((row, i) => {
         const [type, label, x1, y1, x2, y2, flag] = row;
-        const r = nRect([x1, y1, x2, y2]);
+        const r = visualRect(nRect([x1, y1, x2, y2]));
         // 后加的陈设（dressing）若与已放置家具明显重叠就跳过，避免物品堆积/错位。
         // 容器行永远保留（哪怕重叠），否则会把可搜容器挤掉。
         const isContainerRow = typeof flag === 'string' && flag.indexOf('container') === 0;

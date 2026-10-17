@@ -246,14 +246,27 @@
   };
 
   // 把一个「希望的门点」吸附到最近的可站立位置：螺旋搜索，最多 40 步。
-  // 找不到时返回 null（建造期会抛出，避免静默生成一个走不到的门）。
+  // 除了可站立，还要求门牌周围一块净空（不然门牌会压在桌子/树上，见用户截图）。
+  // 找不到净空点时退回旧的"只要求可站立"，避免因为拥挤直接丢门。
   function snapDoor(floorId, wanted) {
     const floor = floorById(floorId);
     if (!floor) return null;
     const blockers = floorBlockers(floorId, {});
     const ok = (x, y) => inFloor(floorId, x, y) && !floorCollides(floorId, x, y, blockers) &&
       x > 24 && x < floor.width - 24 && y > 100 && y < floor.height - 20;
-    if (ok(wanted[0], wanted[1])) return { x: wanted[0], y: wanted[1] };
+    // 门牌 + 地面光带的净空：宽 128、门点上方 72 / 下方 24。
+    const clearAt = (x, y) => !floor.furniture.some(f =>
+      f.x < x + 64 && f.x + f.w > x - 64 && f.y < y + 24 && f.y + f.h > y - 72);
+    const farFromDoors = (x, y) => !ROOM_LIST.some(r => r.floorId === floorId && Math.hypot(r.door.x - x, r.door.y - y) < 130);
+    const okClear = (x, y) => ok(x, y) && clearAt(x, y) && farFromDoors(x, y);
+    if (okClear(wanted[0], wanted[1])) return { x: wanted[0], y: wanted[1] };
+    for (let r = 8; r <= 420; r += 8) {
+      for (let a = 0; a < 20; a++) {
+        const th = a / 20 * Math.PI * 2;
+        const x = Math.round(wanted[0] + Math.cos(th) * r), y = Math.round(wanted[1] + Math.sin(th) * r);
+        if (okClear(x, y)) return { x, y };
+      }
+    }
     for (let r = 8; r <= 320; r += 8) {
       for (let a = 0; a < 16; a++) {
         const th = a / 16 * Math.PI * 2;

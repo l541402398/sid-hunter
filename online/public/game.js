@@ -2123,6 +2123,24 @@
     }
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
   }
+  // 可搜容器的"脚下光圈"：半径固定 20×10 世界像素，跟着相机缩放但不跟着家具尺寸膨胀。
+  // ready = 呼吸椭圆 + 内圈；blocked/idle = 灰圈，仍能看出这里可以搜。
+  function drawContainerMarker(f, tier) {
+    const cx = f.x + f.w / 2, by = f.y + f.h;
+    ctx.save();
+    if (tier === 'ready') {
+      const pulse = .55 + .4 * (0.5 + 0.5 * Math.sin(clock * 3.2));
+      ctx.globalAlpha = pulse; ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(cx, by - 2, 20, 10, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = .45; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(cx, by - 2, 11, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
+    } else {
+      ctx.globalAlpha = tier === 'blocked' ? .5 : .16;
+      ctx.strokeStyle = '#8b93a6'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(cx, by - 2, 16, 8, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
+  }
   // ---------- 家具三层绘制（阶段2-2a，美术规格 §3 C-0）----------
   // 视角约定：rect = 平面投影；立面占 rect 下沿起 facePx（柜类可越过 y，故需 padUp）；
   // 顶面 = 立面之上的可见上表面；立式部件自 y 向上生长。子件一律按 w / h / facePx 比例
@@ -3088,8 +3106,10 @@
         if (clipWall) { ctx.save(); ctx.beginPath(); ctx.rect(camX - 400, WALL_Y, viewW + 800, viewH + 600); ctx.clip(); }
         const pad = furniturePad(f2.type);
         ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
-        // 紧跟家具 sprite 之后画描边：深度更大的家具后画时会自然盖住描边，不穿透遮挡。
-        if (f2.container) drawOutline(f2.x, f2.y, f2.w, f2.h, interactTier('container', f2.id), '#7fe3ff');
+        // 紧跟家具 sprite 之后画交互标记：深度更大的家具后画时会自然盖住，不穿透遮挡。
+        // 用脚下的小椭圆光圈而不是整块家具矩形——放大后家具矩形可能很大，
+        // 框住整张桌子/工位岛会让人误以为"搜索范围有这么大"。
+        if (f2.container) drawContainerMarker(f2, interactTier('container', f2.id));
         if (clipWall) ctx.restore();
       } else {
         sprite(item.p);

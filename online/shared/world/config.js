@@ -24,7 +24,9 @@
   // 行走手感：144 世界像素/秒（吴佳润 528fd9e，2026-10-15 调参，晚于 feature_dev_floor 的 112，
   // 合并时以该最新调参为准）；两端读取同一配置，冷却不阻止行走。
   // 移动速度随地图比例缩放：放大到 2 倍后跑同样距离需要同样时间。
-  const SPEED = Math.round(144 * FLOOR_SCALE), MIN_Y = 135, MAX_Y = WORLD_H - 24, MIN_X = 20, MAX_X = WORLD_W - 20;
+  // 移动速度随地图比例缩放，但略低于线性：放大后距离翻倍，速度 2× 会显得"飘太快"，
+  // 2× 地图用 1.67×（144 → 240 px/s），跑图更稳，也贴合用户"稍微减小点"的反馈。
+  const SPEED = Math.round(144 * (FLOOR_SCALE >= 2 ? 1.67 : FLOOR_SCALE)), MIN_Y = 135, MAX_Y = WORLD_H - 24, MIN_X = 20, MAX_X = WORLD_W - 20;
   const BODY_HALF = 9, FOOT_TOP = 4, FOOT_BOTTOM = 5;
   // 阶段2-阶段1（门洞改世界 px）：门洞净宽按轴向绑定身体包络，而不是两轴都用 18px。
   //  h 门（开口沿 x）绑定身体 x 向 2*BODY_HALF = 18px ⇒ 声明开口 40px（净 40-18-2 = 20）；

@@ -80,12 +80,14 @@
           const base = { x: footLeft, y: by - 22, w: footW, h: 22 };
           if (occupied.some(q => rectHit(base, q, 2))) continue;
           if (placed.some(q => rectHit(visual, q, 8))) continue;
-          // 不盖住房间门牌 / 电梯口 / 出生点。
-          if (doors.some(d => Math.hypot(d.x - bx, d.y - by) < 110)) continue;
+          // 不盖住房间门牌 / 电梯口 / 出生点。门牌净空是"宽 136 + 上方 78"的一块，
+          // 只按基座距离判断会让树冠从下方盖住门牌。
+          if (doors.some(d => Math.hypot(d.x - bx, d.y - by) < 120 ||
+            rectHit(visual, { x: d.x - 68, y: d.y - 78, w: 136, h: 106 }, 6))) continue;
           if (portals.some(p => rectHit(visual, p, 70))) continue;
           if (spawns.some(s => Math.hypot(s.x - bx, s.y - by) < 60)) continue;
           // 基座碰撞条：只有最南沿 16px、树干宽度，允许人从两侧绕过。
-          const foot = { x: footLeft, y: by - 16, w: footW, h: 16 };
+          const foot = { x: footLeft, y: by - 24, w: footW, h: 24 };
           const f = {
             id: `f${fid}:clutter:${made}`,
             floorId: fid,
@@ -142,7 +144,7 @@
         const base = { x: left, y: by - 22, w, h: 22 };
         if (occupied.some(q => rectHit(base, q, 2))) continue;
         if (placed.some(q => rectHit(visual, q, 8))) continue;
-        const foot = { x: left, y: by - 16, w, h: 16 };
+        const foot = { x: left, y: by - 24, w, h: 24 };
         const f = {
           id: `${room.id}:clutter:${made}`,
           roomId: room.id,
