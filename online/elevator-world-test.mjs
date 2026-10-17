@@ -8,7 +8,12 @@ assert.equal(W.floorById(0), null);
 assert.equal(W.floorById(8), null);
 assert.deepEqual(W.floorOptions().map(f => f.id), [1, 2, 3, 4, 5, 6, 7]);
 const expectedContainers = ['reception-132-173', 'counter-1990-165', 'table-2010-514', 'cabinet-785-160', 'desk-1035-172', 'desk-1690-172', 'desk-2940-172', 'table-2535-513', 'desk-3600-172', 'locker-7000-770', 'hall1-340-300', 'printer2-590-370', 'docs3-590-290', 'ticket4-590-280', 'duty5-610-305', 'safe6-640-355', 'bar7-480-300'];
-assert.deepEqual(Object.values(W.FLOORS).flatMap(f => W.floorContainers(f.id).map(c => c.id)).sort(), expectedContainers.sort());
+// 阶段4（需求③）：每层大量新增可搜容器，因此这里从"精确等于 17 个"改成
+// "登记过的 17 个经济容器必须全部仍在"（经济键不能被增删悄悄改掉），再校验总量只增不减。
+const floorContainerIds = Object.values(W.FLOORS).flatMap(f => W.floorContainers(f.id).map(c => c.id));
+for (const id of expectedContainers) assert.ok(floorContainerIds.includes(id), `经济容器丢失：${id}`);
+assert.equal(new Set(floorContainerIds).size, floorContainerIds.length, '容器 ID 必须唯一');
+assert.ok(floorContainerIds.length >= expectedContainers.length, '容器数量不应减少');
 assert.deepEqual(W.NPCS.map(n => n.id).sort(), ['npc-archive', 'npc-reception']);
 function reachable(id, start, end, doors) {
   const b = W.floorBounds(id), blockers = W.floorBlockers(id, doors), step = 4;

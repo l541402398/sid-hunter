@@ -26,6 +26,9 @@ export const GUARD_DIRS = [
   'online/public/js/core',
   'online/public/js/render',
   'online/public/js/markup',
+  // 需求③：搜打撤物品格（图标 + 面板）——新增目录必须在这里登记，否则哈希守卫不覆盖。
+  'online/public/js/search',
+  'online/public/js/minigame',
   'online/public/styles',
 ];
 

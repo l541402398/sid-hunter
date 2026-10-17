@@ -10,7 +10,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ONLINE_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // online/
-export const WORLD_PART_FILES = ['config', 'geometry', 'furniture', 'floors', 'sprite']
+// 顺序必须与 online/public/index.html / demo/index.html 的 <script> 顺序一致：
+// dressing.js 必须先于 floors.js（floors 建造时 concat 逐层陈设）；
+// rooms.js 依赖 floors.js（需要 floorById / floorCollides），loot.js 独立。
+export const WORLD_PART_FILES = ['config', 'geometry', 'furniture', 'dressing', 'floors', 'rooms', 'loot', 'sprite']
   .map(name => `shared/world/${name}.js`);
 export const WORLD_ENTRY_FILE = 'shared/world.js';
 

@@ -188,8 +188,11 @@ try {
   check('公共快照不含 faction / hp / skills 字段', leaked.length === 0, leaked.length ? `泄漏字段: ${[...new Set(leaked)].join(',')}` : '无');
   // 合并适配：main 分支的公共投影另带战斗/楼层字段（score、floorId、spriteFacing、facing、
   // lastAttack*、freezeUntil）；这些是 main 的公开战斗状态，不属于锤戏裁剪字段。
+  // 阶段4（需求①）：新增 zoneId —— 独立小房间的公开空间键，客户端据此只渲染同一空间里的人；
+  // 它和 floorId 同级，是地图公开信息，不含任何身份/血量/筹码数据。
   const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt', 'frightUntil', 'scareAt', 'frightAt',
-    'score', 'floorId', 'spriteFacing', 'facing', 'lastAttackAt', 'lastAttackFacing', 'lastAttackDirection', 'freezeUntil']);
+    'score', 'floorId', 'spriteFacing', 'facing', 'lastAttackAt', 'lastAttackFacing', 'lastAttackDirection', 'freezeUntil',
+    'zoneId']);
   const extra = sa.data.players.flatMap(p => Object.keys(p).filter(k => !allowed.has(k)));
   check('公共快照未新增隐藏字段（仅visible与锤戏/受惊必要字段）', extra.length === 0, extra.length ? `多余字段: ${[...new Set(extra)].join(',')}` : '无');
   const logCountNow = sa.data.logs.length;

@@ -15,7 +15,12 @@
   // 逐类型「单体自深」(m × 13.33px/m)；缺省用 rect 深
   const FURN_SELF_D = {
     desk: 9.3, table: 24, counter: 8.7, cabinet: 6.7, reception: 10.7, sofa: 12,
-    plant: 10.7, treadmill: 9.3, rack: 6.7, seat: 6.7, mat: 24, stage: 24
+    plant: 10.7, treadmill: 9.3, rack: 6.7, seat: 6.7, mat: 24, stage: 24,
+    // 阶段4（需求③）：逐层陈设新增的家具类型，同样只占"南沿立面"一条窄带，
+    // 保证走廊不会被新增装饰切断（设计初衷：填满视觉、不堵路）。
+    shelf: 8.7, whiteboard: 4, tv: 4, server: 10.7, safe: 12, crate: 10.7, locker: 9.3,
+    bench: 8, chair: 6.7, lamp: 4, cooler: 8, vending: 9.3, printer: 8, boxstack: 10.7,
+    arcade: 9.3
   };
   // 工位分支的单一真源：'island'（连排/双面岛，C>=2）| 'workSingle'（工位型单桌）| 'roomSingle'（房号竖放单桌）。
   // blocksFor 与渲染（drawWorkstation）都以它为唯一判据，避免"房号单桌被画成工位岛"。

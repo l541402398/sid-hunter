@@ -5,17 +5,63 @@
 const http = require('http');
 const { createRoom, SKILL_CONFIG, WORLD } = require('./room.js');
 const { createManager } = require('./manager.js');
-const { PORT, HOST, TICK_MS, DEV_ENABLED, SSO_REQUIRED, MANAGER_CODE } = require('./server/config.js');
+const { PORT, HOST, TICK_MS, DEV_ENABLED, SSO_REQUIRED, MANAGER_CODE, DURATION_MS } = require('./server/config.js');
 const { everyMs, lanAddresses, send } = require('./server/http-util.js');
 const { makeSse } = require('./server/sse.js');
 const { makeRouter } = require('./server/app.js');
+const { createStore } = require('./server/store.js');
 
-const ROOM = createRoom();
+// 持久化：结算 + 整局快照。测试模式（SID_TEST=1）默认关闭，保证自测互不污染。
+// 必须在 createRoom 之前创建，因为启动时要用快照恢复玩家与会话。
+const STORE = createStore();
+// 多日长局：默认 7 天一场；若库里有整局快照，重启时原样恢复玩家与会话。
+const restoredSnapshot = STORE.loadSnapshot();
+const ROOM = createRoom({
+  ...(restoredSnapshot ? { restore: restoredSnapshot } : {}),
+  ...(DURATION_MS > 0 ? { rules: { timeLimitMs: DURATION_MS } } : {})
+});
 require('./server/auth.js').bindRoom(ROOM);
+const restored = STORE.loadLastRound();
+if (restored && !ROOM.room.lastResult) {
+  ROOM.room.lastResult = {
+    finishReason: restored.finishReason || '',
+    finishedAt: restored.finishedAt,
+    roster: restored.roster || [],
+    ranking: restored.ranking || []
+  };
+}
+let savedRoundId = null;
+// 结算落库用 1 秒轮询（房间一结束就写），玩家进度快照用 60 秒，两者成本都很低。
+const cancelPersist = STORE.enabled ? everyMs(() => {
+  const room = ROOM.room;
+  if (room.finished && room.lastResult && savedRoundId !== room.roundId) {
+    const saved = STORE.saveRound({
+      roundId: room.roundId, finishedAt: room.lastResult.finishedAt,
+      finishReason: room.lastResult.finishReason,
+      aliveCount: room.lastResult.roster.filter(r => r.alive).length,
+      roster: room.lastResult.roster, ranking: room.lastResult.ranking
+    });
+    if (saved) savedRoundId = room.roundId;
+    // 结算时顺带把最终进度也落一份，重启后仍能查到"这局谁有多少分/筹码"。
+    STORE.savePlayers(room.roundId, room.players);
+  }
+}, 1000) : () => { };
+const cancelSnapshot = STORE.enabled ? everyMs(() => {
+  const room = ROOM.room;
+  // 在局进度快照：进程崩掉时最多丢 60 秒；实时位置/指令仍只在内存。
+  if (!room.finished && room.players.some(p => !p.npc)) STORE.savePlayers(room.roundId, room.players);
+}, 60000) : () => { };
 const resetTokens = new Map(); // Scoped to an existing session, revoked together with the room.
 const MANAGER = createManager({ room: ROOM, passcode: MANAGER_CODE });
 const { openStream, startOfflineSweep } = makeSse(ROOM);
 const route = makeRouter({ ROOM, MANAGER, resetTokens, WORLD, openStream });
+
+// 整局快照：每 5 秒落一次（玩家+会话），重启后原样恢复；房间被清空时顺手删掉快照。
+const cancelSnapshotSave = STORE.enabled ? everyMs(() => {
+  const room = ROOM.room;
+  if (!room.players.length) { if (STORE.loadSnapshot()) STORE.clearSnapshot(); return; }
+  STORE.saveSnapshot({ roundId: room.roundId, startedAt: room.startedAt, players: room.players, sessions: [...room.sessions], features: room.features });
+}, 5000) : () => { };
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -29,7 +75,10 @@ const offlineTimer = startOfflineSweep();
 const cancelRoomTick = everyMs(() => ROOM.step(TICK_MS / 1000), TICK_MS);
 server.on('close', () => {
   cancelRoomTick();
+  cancelPersist();
+  cancelSnapshot();
   clearInterval(offlineTimer);
+  STORE.close();
   for (const entry of ROOM.streams.values()) entry.close();
 });
 server.listen(PORT, HOST, () => {

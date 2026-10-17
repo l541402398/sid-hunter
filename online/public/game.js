@@ -17,8 +17,13 @@
   let cameraX = 0, cameraY = 0, drawCamX = 0, drawCamY = 0;
   // ---------- 楼层渲染状态：只对应当前层，换层时整层原子替换 ----------
   let floorId = 1, floorName = '', glassDoorStates = {};
+  // ---------- 独立小房间状态（需求①）：zoneId 为 null 表示楼层公共空间 ----------
+  let zoneId = null, zoneName = '', zoneRoom = null, zoneRooms = [];
   const SCENE = window.SID_SCENE;
   const SID = window.SID;
+  // 搜打撤物品格面板（需求③）由 js/search/loot-grid.js 提供，这里只做别名与开关。
+  const LOOT = SID.lootGrid;
+  function closeLoot() { if (LOOT && LOOT.isOpen()) LOOT.close(true); }
   let furniture = [], walls = [], containers = [], occluders = [], npcs = [], portals = [];
   const furnitureSprites = new Map();
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -29,9 +34,64 @@
   // 换层时整层原子替换：floorId、家具/墙/NPC/容器/入口/碰撞集合、点击标签、HUD 全部对应同一新层。
   function loadFloorLocal(id) {
     floorId = id; floorName = WORLD.floorById(id).name;
+    // 需求①：回到楼层公共空间时清空 zone 上下文。
+    zoneId = null; zoneName = ''; zoneRoom = null;
     furniture = WORLD.floorFurniture(id).filter(f => !f.architecturalPlaceholder); walls = WORLD.floorWalls(id);
     occluders = WORLD.floorBlockers(id, glassDoorStates); containers = furniture.filter(f => f.container);
     npcs = buildNpcs(id); portals = WORLD.floorPortals(id);
+    zoneRooms = WORLD.roomsForFloor(id);
+  }
+  // 需求①：进入房间时整间原子替换 —— 房间有自己的家具/墙体/碰撞/容器，NPC 与电梯不属于房间。
+  // 人物也一样：drawList 只取同一 zoneId 的玩家，因此房间内看不到走廊上的人，反之亦然。
+  function loadRoomLocal(roomId) {
+    const room = WORLD.roomById(roomId);
+    if (!room) return false;
+    zoneId = room.id; zoneName = room.name; zoneRoom = room;
+    furniture = room.furniture.slice(); walls = room.walls.slice();
+    occluders = WORLD.roomBlockers(room.id);
+    containers = furniture.filter(f => f.container);
+    npcs = []; portals = [];
+    return true;
+  }
+  // 权威空间切换（快照对账 / 进入 / 离开都走这里），保证渲染与权威状态同帧切换。
+  function adoptZone(nextZone, position) {
+    const target = nextZone || null;
+    if (target === zoneId) return false;
+    if (target) { if (!loadRoomLocal(target)) { loadFloorLocal(floorId); return false; } }
+    else loadFloorLocal(floorId);
+    if (position) {
+      const authoritative = selfPlayer();
+      if (authoritative) { authoritative.x = position.x; authoritative.y = position.y; }
+    }
+    // 插值从权威坐标重新播种，避免"从走廊瞬移到房间"的残影。
+    for (const p of players) {
+      if (p.floorId !== floorId || (p.zoneId || null) !== target) continue;
+      const seed = (p.id === selfId() && position) ? position : { x: p.x, y: p.y };
+      renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false });
+    }
+    closeExploration(); closeLoot(); closeElevatorPicker();
+    $('candidates').hidden = true; $('candidates').replaceChildren();
+    selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); clearPrivate(true);
+    nearbySig = ''; labels = []; keys.clear(); lastIntent = '';
+    sendIntent(true);
+    syncZoneBanner();
+    const self = selfPlayer();
+    if (self) {
+      const cam = WORLD.zoneCamera(floorId, zoneId, viewW, viewH, self.x, self.y);
+      cameraX = cam.x; cameraY = cam.y; drawCamX = cameraX; drawCamY = cameraY;
+    }
+    updateExplorationHUD();
+    draw();
+    return true;
+  }
+  function syncZoneBanner() {
+    const banner = $('zone-banner'), name = $('zone-banner-name');
+    if (!banner || !name) return;
+    banner.hidden = !zoneId;
+    if (zoneId) name.textContent = `${floorId}F · ${zoneName}`;
+    const chip = $('zone-name'), coord = $('coordinate');
+    if (chip) chip.textContent = zoneId ? zoneName : floorName;
+    if (coord) coord.textContent = zoneId ? `${floorId}F · ${zoneName}` : `${floorId}F / 7F`;
   }
   loadFloorLocal(1);
   // 互动、结束条件、计分与转盘全部读服务端共享配置（window.WORLD），客户端不新增硬编码数值。
@@ -117,7 +177,7 @@
   // 新增：大转盘覆盖层 / 排行榜 / 结算（均只读私有投影与公开投影，不新增身份线索）。
   let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
   let wheelSpinFlight = null, wheelResult = '';
-  let rulesInfo = null, finishReason = '', rankingList = null, finishShown = false, lastRankingSig = '', lastFinishSig = '';
+  let rulesInfo = null, finishReason = '', rankingList = null, achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
   // serverTime 只在快照到达时更新；本地用单调时钟插值，避免计时与动画在快照间隙抖动/闪烁。
   function serverNow() { return serverTime + (performance.now() - serverPerfBase); }
   function selfDisabled() {
@@ -331,6 +391,8 @@
     finished = !!s.finished;
     if (s.rules) rulesInfo = s.rules;
     rankingList = Array.isArray(s.ranking) ? s.ranking : null;
+    achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
+    achievementLeaders = Array.isArray(s.achievementLeaders) ? s.achievementLeaders : [];
     if (typeof s.finishReason === 'string') finishReason = s.finishReason;
     logs = s.logs || [];
     players = s.players || [];
@@ -363,8 +425,15 @@
       } else if (me.floorId && me.floorId !== floorId && !floorFlight) {
         adoptFloor(me.floorId);
       }
+      // 需求①：权威空间对账。进入/离开房间与重连都由服务端决定，客户端只跟随权威 zoneId，
+      // 因此别人把你踢出房间、或你换层后残留的旧 zone 都会被这一行收敛。
+      const authZone = me.zoneId || null;
+      if (authZone !== zoneId) {
+        const authoritative = players.find(p => p.id === me.id);
+        adoptZone(authZone, authoritative ? { x: authoritative.x, y: authoritative.y } : null);
+      }
     }
-    occluders = WORLD.floorBlockers(floorId, glassDoorStates);
+    occluders = zoneId ? WORLD.roomBlockers(zoneId) : WORLD.floorBlockers(floorId, glassDoorStates);
     for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false });
     if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
     renderPublic();
@@ -507,8 +576,10 @@
     if (!p) { $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
     const status = p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作';
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><button id="target-invite-minigame" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>小游戏</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">点击展开或收起 · 展开期间请注意周围视线 · 切出页面自动隐藏</p><div id="private-content"></div>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
+    const minigameBtn = $('target-invite-minigame');
+    if (minigameBtn) minigameBtn.onclick = () => { if (SID.minigame) SID.minigame.open({ opponentId: p.id }); };
     const inviteBtn = $('target-invite-rps');
     if (inviteBtn) inviteBtn.onclick = () => { if (isInviteable(selected())) sendRps({ kind: 'rpsInvite', targetId: selected().id }); };
     const returnBtn = $('target-return-rps');
@@ -738,8 +809,21 @@
   }
   function nearbyEntities() {
     if (!me?.alive || finished) return [];
-    return [...containers.map(entity => ({ kind: 'container', id: entity.id, entity })),
-      ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity }))]
+    const self = selfPlayer();
+    const list = [...containers.map(entity => ({ kind: 'container', id: entity.id, entity })),
+      ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity }))];
+    // 需求①：楼层上的房间门 / 房间内的出口也进入「就近互动」候选，
+    // 这样 E 键与 HUD 只需一套排序逻辑，不需要给门单独开一条输入路径。
+    const door = roomDoorCandidate();
+    if (door) list.push({ kind: 'door', id: door.room.id, entity: { x: door.room.door.x, y: door.room.door.y, name: door.room.name, room: door.room } });
+    const exit = roomExitCandidate();
+    if (exit) list.push({ kind: 'exit', id: exit.id, entity: { x: exit.exit.x, y: exit.exit.y, name: exit.name, room: exit } });
+    // 楼层游戏机：靠近按 E 直接进小游戏大厅（可跨楼层匹配）。
+    for (const cab of furniture) {
+      if (cab.type !== 'arcade') continue;
+      list.push({ kind: 'arcade', id: cab.id, entity: { x: cab.x + cab.w / 2, y: cab.y + cab.h / 2, name: cab.label || '游戏机' } });
+    }
+    return list
       .filter(({ entity }) => entityDistance(entity) <= WORLD.INTERACT_RANGE)
       .sort((a, b) => entityDistance(a.entity) - entityDistance(b.entity));
   }
@@ -756,6 +840,239 @@
     }
     return best ? { portal: best, access: bestAccess } : null;
   }
+  // ---------- 需求①：房间门（进入 / 离开）----------
+  // 门是楼层与房间之间唯一的连接：门外按 E 进入，房间内走到门口按 E 离开。
+  // 位置还原由服务端保证（zoneReturn），客户端只提交意图。
+  function roomDoorCandidate() {
+    const self = selfPlayer();
+    if (!self || zoneId || !me?.alive || finished) return null;
+    return WORLD.roomDoorNear(floorId, self.x, self.y, WORLD.ROOM_ENTER_PAD);
+  }
+  function roomExitCandidate() {
+    const self = selfPlayer();
+    if (!self || !zoneId || !me?.alive || finished) return null;
+    const room = WORLD.roomById(zoneId);
+    if (!room) return null;
+    return Math.hypot(self.x - room.exit.x, self.y - room.exit.y) <= 74 ? room : null;
+  }
+  let zoneFlight = false;
+  async function postZone(path, body, okText) {
+    if (zoneFlight || !me) return;
+    zoneFlight = true; clearAllInput();
+    try {
+      const stopped = await stopIntent();
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('stop');
+      const r = await api(path, { commandId: commandId(), ...body, ...floorFields() });
+      if (!r || r.status !== 200 || !r.ok) { showToast((r && r.error) || '操作未确认，请靠近后再试'); return; }
+      const nextZone = r.zone ? r.zone.id : null;
+      if (r.floor) me = { ...me, floorId: r.floor.id, floorRevision: r.floor.revision };
+      if (r.position) me = { ...me, x: r.position.x, y: r.position.y };
+      me = { ...me, zoneId: nextZone };
+      if (typeof r.exploration === 'object' && r.exploration) me = { ...me, exploration: r.exploration };
+      adoptZone(nextZone, r.position || null);
+      showToast(okText || r.resultText || '已完成');
+    } catch {
+      showToast('网络异常，操作未确认。');
+    } finally {
+      zoneFlight = false;
+    }
+  }
+  function enterRoom(roomId, roomName) {
+    return postZone('/api/zone/enter', { zoneId: roomId }, `进入「${roomName || '房间'}」`);
+  }
+  function leaveRoom(roomName) {
+    return postZone('/api/zone/exit', {}, `离开「${roomName || '房间'}」`);
+  }
+  // 需求③：容器不再"点一下就搜完"，而是打开逐格揭示的物品格面板。
+  function openLootFor(container) {
+    if (!container || !LOOT) return;
+    if (!me) return;
+    if (me.alive === false || finished) { showToast(finished ? '游戏已结束，探索已冻结' : '已淘汰，无法搜索'); return; }
+    if (entityDistance(container) > WORLD.INTERACT_RANGE) { showToast('距离太远，请靠近后再搜索（64 像素以内）'); return; }
+    if (explorationState().searched.includes(container.id)) { showToast('这个容器你已经搜过了'); return; }
+    LOOT.open({
+      containerId: container.id,
+      containerName: container.container ? container.container.name : (container.label || '容器'),
+      api, floorFields, commandId, showToast,
+      onResult: (exploration, score, backpack) => {
+        if (exploration) me = { ...me, exploration };
+        if (Array.isArray(backpack)) me = { ...me, backpack };
+        if (typeof score === 'number') me = { ...me, score };
+        updateExplorationHUD();
+      }
+    });
+  }
+  // ============================================================
+  // 第二轮：道具背包 / NPC 商店 / 限时 buff
+  // ============================================================
+  // 服务端把 items（key→数量）与 buffs（剩余毫秒）放在私密快照的 me 上；
+  // 客户端只负责渲染与提交意图，所有判定（够不够、能不能用、剩多久）都在服务端。
+  const BAG = SID.lootIcons;
+  function itemDef(key) { return (WORLD.LOOT && WORLD.LOOT.ITEMS && WORLD.LOOT.ITEMS[key]) || null; }
+  function effectDef(key) { return (WORLD.LOOT && WORLD.LOOT.EFFECTS && WORLD.LOOT.EFFECTS[key]) || null; }
+  function meItems() { return me && me.items && typeof me.items === 'object' ? me.items : {}; }
+  function meBuffs() { return me && me.buffs ? me.buffs : { speedMs: 0, shieldMs: 0, focusNext: false }; }
+  function itemIconCanvas(key, size) {
+    const def = itemDef(key);
+    const c = document.createElement('canvas');
+    c.width = c.height = size; c.className = 'bag-icon';
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    if (BAG && def) g.drawImage(BAG.sprite(def.icon, size, def.art), 0, 0);
+    return c;
+  }
+  async function postItem(path, body, fallback) {
+    if (!me || itemFlight) return;
+    itemFlight = true;
+    try {
+      const stopped = await stopIntent();
+      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('stop');
+      const r = await api(path, { commandId: commandId(), ...body, ...floorFields() });
+      if (!r || (r.status !== 200 && r.status !== 400)) throw new Error('net');
+      if (r.items) me = { ...me, items: r.items };
+      if (r.buffs) me = { ...me, buffs: r.buffs };
+      if (typeof r.chips === 'number') me = { ...me, exploration: { ...(me.exploration || {}), chips: r.chips } };
+      if (typeof r.score === 'number') me = { ...me, score: r.score };
+      const text = r.resultText || r.error || fallback;
+      if (r.ok) showToast(text); else showToast(text);
+      renderBagAndShop();
+      updateBuffHUD();
+    } catch {
+      showToast('网络异常，操作未确认。');
+    } finally {
+      itemFlight = false;
+    }
+  }
+  // 背包格子（需求④）：一格里一件物品，图标 + 数量角标 + 稀有度色条。
+  function bagCell(key, count) {
+    const def = itemDef(key); if (!def) return null;
+    const cell = document.createElement('button');
+    cell.type = 'button'; cell.className = 'bag-cell';
+    cell.dataset.key = key;
+    cell.setAttribute('role', 'gridcell');
+    cell.title = `${def.label} ×${count}`;
+    cell.append(itemIconCanvas(key, 34));
+    const badge = document.createElement('span');
+    badge.className = 'bag-count';
+    badge.textContent = count > 1 ? `×${count}` : '';
+    cell.append(badge);
+    const bar = document.createElement('span');
+    bar.className = `bag-rarity r-${def.rarity || 'common'}`;
+    cell.append(bar);
+    cell.onclick = () => {
+      const grid = $('bag-items');
+      if (grid) grid.querySelectorAll('.bag-cell').forEach(n => n.classList.toggle('active', n === cell));
+      renderBagDetail(key, count);
+    };
+    return cell;
+  }
+  // 点格子 → 在背包旁边弹出该物品的介绍与操作。
+  function renderBagDetail(key, count) {
+    const host = $('bag-detail'); if (!host) return;
+    const def = itemDef(key); if (!def) { host.hidden = true; return; }
+    const rar = WORLD.LOOT.RARITY && WORLD.LOOT.RARITY[def.rarity];
+    host.hidden = false;
+    host.replaceChildren();
+    const head = document.createElement('div'); head.className = 'bag-detail-head';
+    head.append(itemIconCanvas(key, 28));
+    const title = document.createElement('div');
+    const name = document.createElement('strong'); name.textContent = def.label;
+    const sub = document.createElement('small'); sub.textContent = `${rar ? rar.label : def.rarity || ''} · 数量 ${count}`;
+    title.append(name, sub); head.append(title);
+    const close = document.createElement('button'); close.type = 'button'; close.className = 'icon-button';
+    close.textContent = '×'; close.setAttribute('aria-label', '关闭物品详情');
+    close.onclick = () => { host.hidden = true; const g = $('bag-items'); if (g) g.querySelectorAll('.bag-cell').forEach(n => n.classList.remove('active')); };
+    head.append(close);
+    host.append(head);
+    const desc = document.createElement('p'); desc.className = 'bag-detail-desc';
+    const parts = [];
+    if (def.value > 0) parts.push(`卖给 NPC：${def.value} 筹码`);
+    const pas = def.passive && WORLD.LOOT.PASSIVE_KINDS[def.passive.kind];
+    if (pas) parts.push(`在包生效：${pas.desc(def.passive.value)}`);
+    const eff = def.use && effectDef(def.use.effect);
+    if (eff) parts.push(`${eff.name}：${eff.desc}${def.use.durationMs ? `（${Math.round(def.use.durationMs / 1000)}s）` : ''}`);
+    desc.textContent = parts.join(' · ') || '这件物品只用于出售。';
+    host.append(desc);
+    const acts = document.createElement('div'); acts.className = 'bag-actions';
+    if (def.use) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = '使用';
+      b.disabled = !me || me.alive === false || finished;
+      b.onclick = () => postItem('/api/item/use', { itemKey: key }, '使用未确认');
+      acts.append(b);
+    }
+    if (def.value > 0) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'sell'; b.textContent = '卖出';
+      b.disabled = !me || me.alive === false || finished;
+      b.onclick = () => postItem('/api/item/sell', { itemKey: key, count }, '卖出未确认');
+      acts.append(b);
+    }
+    host.append(acts);
+  }
+  function shopRow(def) {
+    const row = document.createElement('div'); row.className = 'bag-item shop';
+    row.append(itemIconCanvas(def.key, 26));
+    const meta = document.createElement('div'); meta.className = 'bag-meta';
+    const name = document.createElement('strong'); name.textContent = def.label;
+    const sub = document.createElement('span');
+    const eff = def.use && effectDef(def.use.effect);
+    sub.textContent = `${def.price} 筹码${eff ? ` · ${eff.name}：${eff.desc}` : ''}`;
+    meta.append(name, sub); row.append(meta);
+    const acts = document.createElement('div'); acts.className = 'bag-actions';
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = '买入';
+    const chips = me?.exploration?.chips ?? 0;
+    b.disabled = !me || me.alive === false || finished || chips < def.price;
+    b.onclick = () => postItem('/api/shop/buy', { itemKey: def.key }, '购买未确认');
+    acts.append(b); row.append(acts);
+    return row;
+  }
+  function renderBagAndShop() {
+    const bagHost = $('bag-items');
+    if (bagHost) {
+      bagHost.replaceChildren();
+      const items = meItems();
+      const keys = Object.keys(items).sort((a, b) => (itemDef(b)?.value || 0) - (itemDef(a)?.value || 0));
+      if (!keys.length) {
+        const p = document.createElement('p'); p.className = 'panel-note';
+        p.textContent = '背包里还没有东西。搜容器、或者去 NPC 商店看看。';
+        bagHost.append(p);
+      } else {
+        for (const k of keys) { const cell = bagCell(k, items[k]); if (cell) bagHost.append(cell); }
+      }
+      const bagList = $('bag-log');
+      if (bagList) {
+        const bag = Array.isArray(me?.backpack) ? me.backpack.slice(-6).reverse() : [];
+        bagList.textContent = bag.length ? `最近拾取：${bag.map(b => b.label).join('、')}` : '';
+      }
+    }
+    const shopHost = $('shop-items');
+    if (shopHost) {
+      shopHost.replaceChildren();
+      const list = (WORLD.LOOT && WORLD.LOOT.SHOP_ITEMS) || [];
+      const chips = me?.exploration?.chips ?? 0;
+      const head = document.createElement('p'); head.className = 'panel-note';
+      head.textContent = `用筹码买道具 · 当前 ${chips} 筹码`;
+      shopHost.append(head);
+      for (const it of list) shopHost.append(shopRow(it));
+    }
+  }
+  // buff 条：只在有生效中的 buff 时出现，倒计时用服务端下发的剩余毫秒。
+  function updateBuffHUD() {
+    const host = $('buff-bar'); if (!host) return;
+    const b = meBuffs();
+    const chips = [];
+    if (b.speedMs > 0) chips.push({ cls: 'speed', label: '疾行 +45%', ms: b.speedMs });
+    if (b.shieldMs > 0) chips.push({ cls: 'shield', label: '护体 · 免疫眩晕', ms: b.shieldMs });
+    if (b.focusNext) chips.push({ cls: 'focus', label: '专注 · 下次搜索 +1 件', ms: 0 });
+    host.replaceChildren();
+    for (const c of chips) {
+      const el = document.createElement('span');
+      el.className = 'buff-chip ' + c.cls;
+      el.textContent = c.ms > 0 ? `${c.label} ${Math.ceil(c.ms / 1000)}s` : c.label;
+      host.append(el);
+    }
+    host.hidden = chips.length === 0;
+  }
+  let itemFlight = false;
   // E 就近互动：同时比较附近玩家、家具/NPC 与楼梯入口，取距离最近者；已选中的近玩家在距离相当时优先。
   // 玩家必须同层（floorId 一致）才参与就近判定。
   function nearestInteractable() {
@@ -793,6 +1110,15 @@
     $('clue-bag').setAttribute('aria-expanded', 'false');
   }
   function openExploration(kind, id = null) {
+    // 背包是仓库型面板：在画面正中弹出，和容器/NPC 的侧栏面板区分开。
+    const explorationHost = $('exploration');
+    if (explorationHost) explorationHost.classList.toggle('bag-mode', kind === 'backpack');
+    // 需求③：容器一律走搜打撤物品格面板；线索背包与 NPC 兑换仍用原私密面板。
+    if (kind === 'container') {
+      const c = explorationEntity('container', id);
+      if (c) openLootFor(c);
+      return;
+    }
     if (!me || (kind !== 'backpack' && !explorationEntity(kind, id))) return;
     clearAllInput(); selectedId = null; lastTargetSig = '';
     $('candidates').hidden = true; $('candidates').replaceChildren(); renderTarget(); renderRoster();
@@ -802,8 +1128,8 @@
     const heading = kind === 'backpack' ? '线索背包' : kind === 'container' ? entity.container.name : entity.name;
     // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
     host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE EXPLORATION</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭私密探索">×</button></div><div class="exploration-body"><p class="exploration-balance">我的筹码：<strong id="exploration-chips"></strong></p>${kind === 'backpack'
-      ? '<p id="exploration-clue-count" class="panel-note"></p><div id="exploration-clues" class="clue-list"></div>'
-      : `<p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p>${kind === 'npc' ? `<p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="wheel-block"><p class="private-title">大转盘</p><p class="panel-note">10 格等概率 · 首次免费，之后按次数阶梯收费</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div>` : ''}<p class="panel-note">${kind === 'container' ? '每名玩家每个容器限搜一次，奖励由服务端结算。' : `每次 ${entity.cost} 筹码兑换一条尚未拥有的真实隐藏属性线索；无新线索不扣筹码。`}</p><button id="exploration-action">${kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 筹码兑换线索`}</button>`}<p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即销毁显示，不回滚已结算奖励。</p></div>`;
+      ? '<div class="bag-block"><p class="private-title">道具背包</p><div class="bag-wrap"><div id="bag-items" class="bag-grid" role="grid" aria-label="道具背包格子"></div><aside id="bag-detail" class="bag-detail" hidden aria-live="polite"></aside></div><p id="bag-log" class="panel-note"></p></div><p id="exploration-clue-count" class="panel-note"></p><div id="exploration-clues" class="clue-list"></div>'
+      : `<p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p>${kind === 'npc' ? `<p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="bag-block"><p class="private-title">商店</p><div id="shop-items" class="bag-items"></div></div><div class="wheel-block"><p class="private-title">大转盘</p><p class="panel-note">10 格等概率 · 首次免费，之后按次数阶梯收费</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div>` : ''}<p class="panel-note">${kind === 'container' ? '每名玩家每个容器限搜一次，奖励由服务端结算。' : `每次 ${entity.cost} 筹码兑换一条尚未拥有的真实隐藏属性线索；无新线索不扣筹码。`}</p><button id="exploration-action">${kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 筹码兑换线索`}</button>`}<p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即销毁显示，不回滚已结算奖励。</p></div>`;
     $('exploration-close').onclick = closeExploration;
     if ($('exploration-action')) $('exploration-action').onclick = commitInteraction;
     if ($('exploration-wheel')) $('exploration-wheel').onclick = () => openWheel(entity.entityId, entity.name);
@@ -847,6 +1173,8 @@
     }
     $('exploration-result').textContent = explorationResult;
     $('exploration-result').hidden = !explorationResult;
+    // 第二轮：筹码/道具变化时同步刷新背包与商店（只渲染服务端权威值，不做本地乐观记账）。
+    renderBagAndShop();
   }
   async function commitInteraction() {
     if (!explorationPanel || interactionFlight || !me || $('exploration-action')?.disabled) return;
@@ -1068,14 +1396,41 @@
       + (left != null ? ` · 距时间到还有 ${formatDuration(left)}` : '')
       + (finished ? ` · 已结束：${finishReasonText(finishReason)}` : '');
   }
+  // 双榜：筹码榜（经济）与成就榜（参与度）。成就点只公开"点数"，不含私密数据。
+  function ensureRankingTabs() {
+    if ($('ranking-tabs')) return;
+    const anchor = $('ranking-items'); if (!anchor || !anchor.parentNode) return;
+    const bar = document.createElement('div');
+    bar.id = 'ranking-tabs'; bar.className = 'ranking-tabs'; bar.setAttribute('role', 'tablist');
+    bar.innerHTML = '<button type="button" data-tab="score" role="tab">筹码榜</button>'
+      + '<button type="button" data-tab="achievement" role="tab">成就榜</button>';
+    bar.querySelectorAll('button').forEach(b => {
+      b.onclick = () => { rankingTab = b.dataset.tab; lastRankingSig = ''; syncRanking(); };
+    });
+    anchor.parentNode.insertBefore(bar, anchor);
+  }
   function syncRanking() {
     const host = $('ranking'); if (!host || host.hidden) return;
     updateRankingHeader();
+    ensureRankingTabs();
     const sorted = players.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
-    const sig = JSON.stringify([finishReason, aliveCount, players.map(p => [p.id, p.name, p.score || 0, p.alive]), rankingList]);
+    const sig = JSON.stringify([finishReason, aliveCount, rankingTab,
+      players.map(p => [p.id, p.name, p.score || 0, p.alive]), rankingList, achievementList, achievementLeaders]);
     if (sig === lastRankingSig) return;
     lastRankingSig = sig;
     $('ranking-alive').textContent = aliveCount;
+    const tabs = $('ranking-tabs');
+    if (tabs) tabs.querySelectorAll('button').forEach(b => {
+      const on = b.dataset.tab === rankingTab;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    if (rankingTab === 'achievement') {
+      const list = (achievementList && achievementList.length) ? achievementList
+        : achievementLeaders.map(r => ({ ...r, score: r.points || 0 }));
+      renderRankingRows($('ranking-items'), list);
+      return;
+    }
     const source = rankingList && rankingList.length
       ? rankingList
       : sorted.map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, score: p.score || 0, alive: p.alive }));
@@ -1128,14 +1483,30 @@
         let button = [...host.children].find(b => b.dataset.entity === item.id);
         if (!button) {
           button = document.createElement('button'); button.dataset.entity = item.id;
-          button.textContent = item.kind === 'container' ? item.entity.container.name : `${item.entity.name} · NPC / ${item.entity.cost} 筹码`;
-          button.onclick = () => openExploration(item.kind, item.id); host.append(button);
+          button.onclick = () => activateNearby(item.kind, item.id); host.append(button);
         }
+        // 文案随状态更新（房间门/出口/容器/NPC 四类）
+        button.textContent = item.kind === 'container' ? item.entity.container.name
+          : item.kind === 'door' ? `进入「${item.entity.name}」`
+            : item.kind === 'exit' ? `离开「${item.entity.name}」`
+              : `${item.entity.name} · NPC / ${item.entity.cost} 筹码`;
       }
       for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
     }
     $('nearby-empty').hidden = nearby.length > 0;
-    $('nearby-empty').textContent = !me ? '加入后靠近容器或 NPC' : finished ? '游戏已结束，探索已冻结' : !me.alive ? '已淘汰，无法探索' : '靠近容器或 NPC，按 E 互动（64 像素）';
+    $('nearby-empty').textContent = !me ? '加入后靠近容器或 NPC'
+      : finished ? '游戏已结束，探索已冻结'
+        : !me.alive ? '已淘汰，无法探索'
+          : zoneId ? '靠近容器搜索 · 走到门口按 E 离开房间'
+            : '靠近容器 / NPC / 房间门，按 E 互动（64 像素）';
+  }
+  // 就近列表点击与 E 键共用同一套分流逻辑（门 → 容器 → NPC → 玩家档案）。
+  function activateNearby(kind, id) {
+    if (kind === 'door') { const r = WORLD.roomById(id); if (r) enterRoom(r.id, r.name); return; }
+    if (kind === 'exit') { const r = WORLD.roomById(id); if (r) leaveRoom(r.name); return; }
+    if (kind === 'container') { openLootFor(explorationEntity('container', id)); return; }
+    if (kind === 'arcade') { if (SID.minigame) SID.minigame.open({ arcade: true }); return; }
+    openExploration(kind, id);
   }
   $('clue-bag').onclick = () => { if (explorationPanel?.kind === 'backpack') closeExploration(); else openExploration('backpack'); };
 
@@ -2261,30 +2632,38 @@
   // 家具/墙体 sprite 只为所有楼层的非墙家具烘焙一次；墙体在场景中按程序化面板绘制。
   function bakeSprites() {
     furnitureSprites.clear();
-    for (const key of Object.keys(WORLD.FLOORS)) {
-      for (const f of WORLD.FLOORS[key].furniture) {
-        // 阶段2-2a（§3 C0-2）：per-type 烘焙 padding；画布 (w+2padX)×(h+padUp+padDown)，绘制偏移 (-padX,-padUp)。
-        const pad = furniturePad(f.type);
-        const c = document.createElement('canvas'); c.width = f.w + pad.padX * 2; c.height = f.h + pad.padUp + pad.padDown;
-        const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
-        const dx = pad.padX - f.x, dy = pad.padUp - f.y;
-        const local = {
-          ...f, x: pad.padX, y: pad.padUp,
-          ...(f.blocks ? { blocks: f.blocks.map(b => ({ ...b, x: b.x + dx, y: b.y + dy })) } : {}),
-          ...(f.footprint ? { footprint: { ...f.footprint, x: f.footprint.x + dx, y: f.footprint.y + dy } } : {})
-        };
-        drawFurniture(local, g); furnitureSprites.set(f.id, c);
-      }
+    // 楼层家具 + 房间家具一起烘焙：两者的 id 都稳定唯一，共用同一张缓存表。
+    const allFurniture = [...Object.keys(WORLD.FLOORS).flatMap(k => WORLD.FLOORS[k].furniture),
+      ...Object.keys(WORLD.ROOMS || {}).flatMap(k => WORLD.ROOMS[k].furniture)];
+    for (const f of allFurniture) {
+      // 阶段2-2a（§3 C0-2）：per-type 烘焙 padding；画布 (w+2padX)×(h+padUp+padDown)，绘制偏移 (-padX,-padUp)。
+      const pad = furniturePad(f.type);
+      const c = document.createElement('canvas'); c.width = f.w + pad.padX * 2; c.height = f.h + pad.padUp + pad.padDown;
+      const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+      const dx = pad.padX - f.x, dy = pad.padUp - f.y;
+      const local = {
+        ...f, x: pad.padX, y: pad.padUp,
+        ...(f.blocks ? { blocks: f.blocks.map(b => ({ ...b, x: b.x + dx, y: b.y + dy })) } : {}),
+        ...(f.footprint ? { footprint: { ...f.footprint, x: f.footprint.x + dx, y: f.footprint.y + dy } } : {})
+      };
+      drawFurniture(local, g); furnitureSprites.set(f.id, c);
     }
   }
   bakeSprites();
   if (SCENE) SCENE.ready.then(() => { chunkClear(); bakeSprites(); draw(); });
   function drawWallPanel(f) {
-    rect(f.x, f.y, f.w, f.h, '#5b4a3c');
-    rect(f.x, f.y, f.w, 3, '#8d745e');
-    rect(f.x, f.y + f.h - 3, f.w, 3, '#33251b');
-    if (f.w >= f.h) { for (let x = f.x + 18; x < f.x + f.w - 8; x += 36) rect(x, f.y + 6, 2, Math.max(0, f.h - 12), '#4b3a2d'); }
-    else { for (let y = f.y + 18; y < f.y + f.h - 8; y += 36) rect(f.x + 5, y, Math.max(0, f.w - 10), 2, '#4b3a2d'); }
+    // 需求②：楼层里的隔墙也要跟随该层主题配色，否则 3F/6F/7F 会突兀地出现棕色木墙。
+    const t = SCENE && SCENE.themeOf ? SCENE.themeOf(floorId) : null;
+    const p = t && t.wall ? t.wall : null;
+    const base = p ? p.base : '#5b4a3c';
+    const trim = p ? p.trim : '#8d745e';
+    const dark = p ? p.skirt : '#33251b';
+    const seam = p ? p.line : '#4b3a2d';
+    rect(f.x, f.y, f.w, f.h, base);
+    rect(f.x, f.y, f.w, 3, trim);
+    rect(f.x, f.y + f.h - 3, f.w, 3, dark);
+    if (f.w >= f.h) { for (let x = f.x + 18; x < f.x + f.w - 8; x += 36) rect(x, f.y + 6, 2, Math.max(0, f.h - 12), seam); }
+    else { for (let y = f.y + 18; y < f.y + f.h - 8; y += 36) rect(f.x + 5, y, Math.max(0, f.w - 10), 2, seam); }
   }
   // 电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 单个呼梯按钮。
   // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
@@ -2468,7 +2847,9 @@
     return { w: Math.max(90, width), h: 27 };
   }
   function drawList() {
-    return [...players.filter(p => p.floorId === floorId).map(p => {
+    // 需求①：只画"自己所在的这个空间"里的人 —— 同层 + 同 zoneId。
+    // 房间内因此看不到走廊上的人，走廊上也看不到房间里的人（与 visibleTo 的服务端裁剪一致）。
+    return [...players.filter(p => p.floorId === floorId && (p.zoneId || null) === zoneId).map(p => {
       const r = renderMap.get(p.id) || { x: p.x, y: p.y, walk: 0, moving: false };
       return { ...p, x: r.x, y: r.y, walk: r.walk, moving: r.moving, spriteFacing: p.spriteFacing || 'front' };
     }), ...npcs];
@@ -2555,35 +2936,108 @@
     ctx.fillStyle = text ? '#f0c47d' : '#4d5a7a';
     ctx.fillText(text ? text : '标 语 预 留', cx, y0 + bh / 2 + 1);
   }
+  // 需求①：楼层上的房间门（门牌 + 地面光垫 + 可进入时的呼吸描边）
+  function drawRoomDoors() {
+    const self = selfPlayer();
+    const t = performance.now() / 1000;
+    const theme = SCENE && SCENE.themeOf ? SCENE.themeOf(floorId) : null;
+    const wp = theme && theme.wall ? theme.wall : null;
+    for (const room of zoneRooms) {
+      const x = room.door.x, y = room.door.y;
+      // 门所在的墙段：让门"长在墙上"，而不是悬在空地中间
+      if (wp) {
+        ctx.fillStyle = wp.base; ctx.fillRect(x - 56, y - 48, 112, 36);
+        ctx.fillStyle = wp.trim; ctx.fillRect(x - 56, y - 48, 112, 3);
+        ctx.fillStyle = wp.skirt; ctx.fillRect(x - 56, y - 15, 112, 3);
+        ctx.fillStyle = wp.line;
+        for (let sx = x - 50; sx < x + 56; sx += 28) ctx.fillRect(sx, y - 44, 1, 26);
+      }
+      // 地面门垫
+      ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.fillRect(x - 26, y - 13, 52, 26);
+      const g2 = ctx.createLinearGradient(0, y - 13, 0, y + 13);
+      g2.addColorStop(0, 'rgba(127,227,255,0.34)'); g2.addColorStop(1, 'rgba(127,227,255,0.05)');
+      ctx.fillStyle = g2; ctx.fillRect(x - 26, y - 13, 52, 26);
+      ctx.strokeStyle = 'rgba(127,227,255,0.42)'; ctx.lineWidth = 1; ctx.strokeRect(x - 25.5, y - 12.5, 51, 25);
+      // 门框 + 门扇
+      ctx.fillStyle = '#3b2f24'; ctx.fillRect(x - 31, y - 44, 62, 8);
+      ctx.fillStyle = '#8d745e'; ctx.fillRect(x - 31, y - 44, 62, 2);
+      ctx.fillStyle = '#2b3442'; ctx.fillRect(x - 23, y - 37, 46, 24);
+      ctx.fillStyle = '#6b8fb5'; ctx.fillRect(x - 21, y - 35, 42, 20);
+      ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(x - 1, y - 35, 2, 20);
+      ctx.fillStyle = '#ffe3a3'; ctx.fillRect(x + 14, y - 24, 2, 4);   // 门把手
+      // 门牌
+      ctx.fillStyle = '#0d1b2a'; ctx.fillRect(x - 38, y - 66, 76, 19);
+      ctx.strokeStyle = 'rgba(127,227,255,0.55)'; ctx.strokeRect(x - 37.5, y - 65.5, 75, 18);
+      ctx.fillStyle = '#bfe9ff';
+      ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(room.name.length > 7 ? room.name.slice(0, 7) + '…' : room.name, x, y - 56);
+      // 可进入：呼吸描边
+      if (self && Math.hypot(self.x - x, self.y - y) <= WORLD.ROOM_ENTER_PAD) {
+        const a = 0.45 + 0.35 * Math.sin(t * 4);
+        ctx.strokeStyle = `rgba(127,227,255,${a.toFixed(3)})`; ctx.lineWidth = 2;
+        ctx.strokeRect(x - 27, y - 14, 54, 28);
+        ctx.fillStyle = `rgba(191,233,255,${(0.55 + 0.35 * Math.sin(t * 4)).toFixed(3)})`;
+        ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+        ctx.fillText('E 进入房间', x, y + 30);
+      }
+    }
+  }
+  // 需求①：房间内的出口（门垫 + 提示），走到这里按 E 离开；位置会还原到进门时的站位。
+  function drawRoomExit(room) {
+    const x = room.exit.x, y = room.exit.y;
+    ctx.fillStyle = 'rgba(0,0,0,0.30)'; ctx.fillRect(x - 34, y - 12, 68, 24);
+    const g2 = ctx.createLinearGradient(0, y - 12, 0, y + 12);
+    g2.addColorStop(0, 'rgba(255,214,120,0.30)'); g2.addColorStop(1, 'rgba(255,214,120,0.05)');
+    ctx.fillStyle = g2; ctx.fillRect(x - 34, y - 12, 68, 24);
+    ctx.strokeStyle = 'rgba(255,214,120,0.45)'; ctx.lineWidth = 1; ctx.strokeRect(x - 33.5, y - 11.5, 67, 23);
+    ctx.fillStyle = '#2b3442'; ctx.fillRect(x - 40, y + 18, 80, 16);
+    ctx.fillStyle = '#ffe3a3';
+    ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('E 离开房间', x, y + 26);
+  }
   function draw() {
     if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
     const camX = Math.round(cameraX), camY = Math.round(cameraY);
     drawCamX = camX; drawCamY = camY;
     const WALL_Y = WORLD.WALL_BASE || 58;   // 后墙墙带下沿：墙带以内属纯背景，家具需裁剪
     const f = WORLD.floorById(floorId);
+    const currentRoom = zoneId ? WORLD.roomById(zoneId) : null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
-    // 楼面：按轮廓多边形裁剪后铺 512 分块地板；轮廓外保持非楼面（不补平）。
-    ctx.beginPath();
-    f.polygon.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y));
-    ctx.closePath();
-    ctx.save(); ctx.clip();
-    ctx.fillStyle = '#2b2333'; ctx.fillRect(camX, camY, viewW, viewH);
-    const c0x = Math.floor(camX / CHUNK), c1x = Math.floor((camX + viewW) / CHUNK);
-    const c0y = Math.floor(camY / CHUNK), c1y = Math.floor((camY + viewH) / CHUNK);
-    ensureChunks(c0x, c0y, c1x, c1y, floorId);
-    for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkGet(cx, cy, floorId), cx * CHUNK, cy * CHUNK);
-    ctx.restore();
-    // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
-    // 逐层"世界风格"主题：改由共享 scene.js 按主题绘制墙带材质/配色/墙饰；未就绪时回退原生画法。
-    if (!(SCENE && SCENE.wall(ctx, f))) drawBackWall(f);
+    if (currentRoom) {
+      // 需求①：房间是独立空间 —— 不画楼层轮廓/分块/后墙/电梯厅，只画这间屋子自己的地面与墙。
+      ctx.fillStyle = '#070a10'; ctx.fillRect(camX - 8, camY - 8, viewW + 16, viewH + 16);
+      if (!(SCENE && SCENE.roomFloor(ctx, currentRoom))) {
+        ctx.fillStyle = '#2b2333'; ctx.fillRect(0, 0, currentRoom.width, currentRoom.height);
+      }
+      drawRoomExit(currentRoom);
+    } else {
+      // 楼面：按轮廓多边形裁剪后铺 512 分块地板；轮廓外保持非楼面（不补平）。
+      ctx.beginPath();
+      f.polygon.forEach((q, i) => i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y));
+      ctx.closePath();
+      ctx.save(); ctx.clip();
+      ctx.fillStyle = '#2b2333'; ctx.fillRect(camX, camY, viewW, viewH);
+      const c0x = Math.floor(camX / CHUNK), c1x = Math.floor((camX + viewW) / CHUNK);
+      const c0y = Math.floor(camY / CHUNK), c1y = Math.floor((camY + viewH) / CHUNK);
+      ensureChunks(c0x, c0y, c1x, c1y, floorId);
+      for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkGet(cx, cy, floorId), cx * CHUNK, cy * CHUNK);
+      ctx.restore();
+      // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
+      // 逐层"世界风格"主题：改由共享 scene.js 按主题绘制墙带材质/配色/墙饰；未就绪时回退原生画法。
+      if (!(SCENE && SCENE.wall(ctx, f))) drawBackWall(f);
+    }
     ctx.restore();
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
     if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
-    if (SCENE) SCENE.halls(ctx, f, glassDoorStates);
+    if (SCENE && !currentRoom) SCENE.halls(ctx, f, glassDoorStates);
+    // 需求①：楼层上画出通往各独立房间的门（门牌 + 地面指示灯带），让"哪面墙能进去"一眼可见。
+    if (!currentRoom) drawRoomDoors();
     const list = drawList();
     const near = (x, y, w, h, padx, pady) => x + w + padx > camX && x - padx < camX + viewW && y + h + pady > camY && y - (pady + 20) < camY + viewH;
     const scene = [
@@ -2594,7 +3048,12 @@
     for (const item of scene) {
       if (item.f) {
         const f2 = item.f;
-        if (f2.type === 'wall') { drawWallPanel(f2); continue; }
+        if (f2.type === 'wall') {
+          // 需求①：房间墙体走独立画法（主题色 + 门洞 + 挂画），楼层墙体保持原程序化面板。
+          if (f2.roomId && SCENE && SCENE.roomWall) SCENE.roomWall(ctx, f2, currentRoom || { floorId });
+          else drawWallPanel(f2);
+          continue;
+        }
         // 后墙墙带（y<WALL_Y）是纯背景：只对可能画进墙带的家具裁剪，避免"家具/装饰被画到墙上"。
         const clipWall = f2.y - 24 < WALL_Y;
         if (clipWall) { ctx.save(); ctx.beginPath(); ctx.rect(camX - 400, WALL_Y, viewW + 800, viewH + 600); ctx.clip(); }
@@ -2651,20 +3110,24 @@
     const self = selfPlayer() ? renderMap.get(selfId()) : null;
     const fl = WORLD.floorById(floorId);
     // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
+    // 需求①：房间内用房间自己的相机边界（房间通常小于一屏 → 整间居中，不产生滚动）。
     if (self) {
-      cameraX = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).x;
-      cameraY = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).y;
+      const cam = WORLD.zoneCamera(floorId, zoneId, viewW, viewH, self.x, self.y);
+      cameraX = cam.x;
+      cameraY = cam.y;
     } else {
-      cameraX = WORLD.cameraBounds(floorId, viewW, viewH, cameraX + viewW / 2, cameraY + viewH / 2).x;
-      cameraY = clamp(cameraY, 0, Math.max(0, fl.height - viewH));
+      const cam = WORLD.zoneCamera(floorId, zoneId, viewW, viewH, cameraX + viewW / 2, cameraY + viewH / 2);
+      cameraX = cam.x;
+      cameraY = zoneId ? cam.y : clamp(cameraY, 0, Math.max(0, fl.height - viewH));
     }
     $('floor-indicator').textContent = `${floorId}F`;
-    $('zone-name').textContent = floorName;
-    $('coordinate').textContent = `${floorId}F / 7F`;
+    // 需求①：空间提示条 / 坐标随 zone 变化（房间内显示房间名）。
+    syncZoneBanner();
     const tick = Math.floor(serverTime / 1000);
     if (tick !== lastSkillTick) {
       lastSkillTick = tick;
       if (holding()) updateSkillStatus();
+      updateBuffHUD();
       if (mineOpen) renderMine();
       syncTimeLeft();
       if (!$('ranking').hidden) syncRanking();
@@ -2715,6 +3178,18 @@
       if (label && y >= label.y + 13) copySID(label.p.sid);
       else select(hits[0]);
     } else {
+      // 需求①：点在房间门牌上 → 进入该房间（门牌本身就是交互热区）。
+      if (!zoneId) {
+        const door = roomDoorCandidate();
+        if (door && Math.hypot(x - door.room.door.x, y - door.room.door.y) <= 34) {
+          enterRoom(door.room.id, door.room.name); canvas.focus(); return;
+        }
+      } else {
+        const exit = roomExitCandidate();
+        if (exit && Math.hypot(x - exit.exit.x, y - exit.exit.y) <= 40) {
+          leaveRoom(exit.name); canvas.focus(); return;
+        }
+      }
       // 点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径；进门先弹选层面板。
       const portalHit = portals.find(pt => x >= pt.x - pt.w / 2 && x <= pt.x + pt.w / 2 && y >= pt.y - pt.h / 2 && y <= pt.y + pt.h / 2);
       if (portalHit) {
@@ -2726,7 +3201,9 @@
       const npc = npcs.filter(p => atBody(p) || labels.some(l => l.p.id === p.id && atLabel(l))).sort((a, b) => b.y - a.y)[0];
       // 只点击最前面的家具，不能隔着另一件家具搜寻容器。
       const front = furniture.filter(f => x >= f.x && x <= f.x + f.w && y >= f.y && y <= f.y + f.h).sort((a, b) => b.depth - a.depth)[0];
-      if (npc || front?.container) openExploration(npc ? 'npc' : 'container', npc ? npc.entityId : front.id);
+      // 需求③：容器点击打开物品格面板（不再是一键搜完的旧面板）。
+      if (npc) openExploration('npc', npc.entityId);
+      else if (front?.container) openLootFor(front);
       else { closeExploration(); clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); }
     }
     canvas.focus();
@@ -2842,9 +3319,28 @@
     // 电梯过渡进行中：忽略移动 / E / J，避免在换层中途驱动旧层或重复发起。
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return;
     if (isTyping()) return;
+    // B：随时开关背包（画布正中弹出）。
+    if (e.code === 'KeyB' && !e.repeat) {
+      e.preventDefault();
+      if (explorationPanel && explorationPanel.kind === 'backpack') { closeExploration(); return; }
+      if (explorationPanel) closeExploration();
+      if (LOOT && LOOT.isOpen()) LOOT.close();
+      openExploration('backpack');
+      return;
+    }
     if (e.code === 'KeyE') {
       e.preventDefault(); if (e.repeat) return;
+      // 物品格面板打开时，E 先收起面板（与其它私密面板一致）。
+      if (LOOT && LOOT.isOpen()) { LOOT.close(); return; }
       if (explorationPanel) { closeExploration(); return; }
+      // 需求①：房间内先判「走到门口离开」，房间外先判「门口进入」——
+      // 门的优先级高于旁边的容器/NPC，避免站在门口按 E 却搜到了柜子。
+      const exitRoom = roomExitCandidate();
+      if (exitRoom) { leaveRoom(exitRoom.name); return; }
+      if (!zoneId) {
+        const door = roomDoorCandidate();
+        if (door) { enterRoom(door.room.id, door.room.name); return; }
+      }
       // 需求2：站在电梯门前并面向门时，E 优先乘梯（弹选层面板），不被旁边的玩家/NPC/容器抢走。
       const lift = elevatorTarget();
       if (lift) {
@@ -2855,8 +3351,12 @@
       const hit = nearestInteractable();
       if (hit) {
         if (hit.kind === 'player') select(hit.id);
+        else if (hit.kind === 'door') { const r = WORLD.roomById(hit.id); if (r) enterRoom(r.id, r.name); }
+        else if (hit.kind === 'exit') { const r = WORLD.roomById(hit.id); if (r) leaveRoom(r.name); }
+        else if (hit.kind === 'container') openLootFor(explorationEntity('container', hit.id));
+        else if (hit.kind === 'arcade') { if (SID.minigame) SID.minigame.open({ arcade: true }); }
         else openExploration(hit.kind, hit.id);
-      } else showToast('请靠近角色、容器/NPC 或电梯门（64 像素以内）');
+      } else showToast(zoneId ? '走到门口按 E 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
       return;
     }
     // K 跳跃 / J 攻击（幽灵 J 吓人）：服务端权威，这里只提交意图。

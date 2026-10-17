@@ -4,6 +4,9 @@
 // elimination, finish) is computed here. Clients only submit intents and render.
 const { randomUUID, randomInt } = require('crypto');
 const WORLD = require('../shared/world.js');
+const { defaultFeatures, sanitizeFeatures } = require('../server/features.js');
+const { createMinigames } = require('./minigames.js');
+const SPIRE = require('../shared/world/spire.js');
 
 // Charge interval is a build-time switch: 90s for the LAN playtest build, 20 minutes
 // for the real game. Change ONLY this constant when shipping the正式版; all charge
@@ -26,7 +29,11 @@ function createRoom(options = {}) {
   // 结束规则默认取 WORLD.RULES；测试可通过 options.rules 覆盖（如小房间活人阈值）。
   const rules = { ...WORLD.RULES, ...(options.rules || {}) };
   const room = {
+    // 功能开关：管理页可随时开关（见 server/features.js）。默认全开，未配置时行为与以前一致。
+    features: sanitizeFeatures(options && options.features, defaultFeatures()),
     players: [],
+    // 卡牌对决（spire）：每人一局，单人闯三关，不占用坦克的双人对局表。
+    spireBattles: new Map(),
     logs: [],
     eliminateEvents: 0,
     finished: false,
@@ -44,11 +51,51 @@ function createRoom(options = {}) {
     // 独立于 processed（技能/J 的成功 nonce 表），reset 清空。
     floorReceipts: new Map(),
     glassDoors: {},
+    // 搜打撤式物品格搜索：会话只在服务端内存里，键 sessionId → {playerId, containerId, floorId, zoneId,
+    // plan, revealed:Set, taken:Set, createdAt, lastAt}。reset 清空。绝不进入公共快照。
+    searchSessions: new Map(),
+    searchSeq: 0,
     roundId: randomUUID()
   };
+  // 多日长局恢复：从 SQLite 快照把玩家与会话原样塞回来（NPC 不落盘，重启后由 dev 钩子重新生成）。
+  if (options && options.restore) {
+    const r = options.restore;
+    if (Array.isArray(r.players) && r.players.length) {
+      room.players = r.players.filter(p => p && !p.npc);
+      if (Number.isFinite(r.startedAt)) room.startedAt = r.startedAt;
+      if (typeof r.roundId === 'string' && r.roundId) room.roundId = r.roundId;
+      for (const entry of (Array.isArray(r.sessions) ? r.sessions : [])) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string') room.sessions.set(entry[0], Number(entry[1]));
+      }
+      for (const p of room.players) {
+        // 重启后一律视为离线：等浏览器带着会话令牌重连时再置回在线。
+        p.online = false;
+        p.lastSeen = 0;
+        p.sessionId = p.sessionId || null;
+        if (!room.pending.has(p.id)) room.pending.set(p.id, []);
+      }
+    }
+  }
   // 楼层查询：家具/墙体碰撞一律按玩家当前层取，服务端与两端共享同一份世界数据。
   const floorFurniture = floorId => WORLD.floorById(floorId).furniture;
   const floorBlockers = floorId => WORLD.floorBlockers(floorId, room.glassDoors[floorId] || {});
+  // ---------- 独立小房间（需求①）：空间键 = floorId + zoneId ----------
+  // zoneId 为 null 表示"楼层公共空间（走廊/大厅）"，否则是 online/shared/world/rooms.js 里的房间 ID。
+  // 判定一律用这两个函数，避免各处散落 `p.zoneId === actor.zoneId` 漏判。
+  const sameZone = (a, b) => a && b && a.floorId === b.floorId && (a.zoneId || null) === (b.zoneId || null);
+  function zoneIdOf(p) { return (p && p.zoneId) || null; }
+  function zoneBlockersOf(p) {
+    const z = zoneIdOf(p);
+    return z ? WORLD.roomBlockers(z) : floorBlockers(p.floorId);
+  }
+  function zoneCollides(p, x, y) {
+    const z = zoneIdOf(p);
+    return z ? WORLD.roomCollides(z, x, y) : collides(x, y, p.floorId);
+  }
+  function zoneBoundsOf(p) {
+    const z = zoneIdOf(p);
+    return z ? WORLD.roomBounds(z) : WORLD.floorBounds(p.floorId);
+  }
   function updateGlassDoors(t) {
     for (const f of Object.values(WORLD.FLOORS)) room.glassDoors[f.id] = WORLD.advanceGlassDoors(f.id, room.glassDoors[f.id] || {}, room.players, t);
   }
@@ -105,11 +152,14 @@ function createRoom(options = {}) {
   // 不传 viewerId 时一律可见（服务端内部拼日志文案用，只读 sid，不涉及锤戏字段）。
   const VIEW_MARGIN = 140;
   function cameraXOf(viewer) {
-    return WORLD.cameraBounds(viewer.floorId, WORLD.VIEW_W, WORLD.VIEW_H, viewer.x, viewer.y).x;
+    // 房间内不需要横向滚动（房间比视口小），cameraBounds 会居中。
+    return WORLD.zoneCamera(viewer.floorId, viewer.zoneId || null, WORLD.VIEW_W, WORLD.VIEW_H, viewer.x, viewer.y).x;
   }
   function visibleTo(viewer, camX, target) {
     if (!viewer || viewer.id === target.id) return true;
     if (viewer.floorId !== target.floorId) return false;
+    // 需求①：独立空间内的人只对同一空间内的人可见（走廊看不到房间里，房间也看不到走廊）。
+    if ((viewer.zoneId || null) !== (target.zoneId || null)) return false;
     return target.x >= camX - VIEW_MARGIN && target.x <= camX + WORLD.VIEW_W + VIEW_MARGIN;
   }
   // 结束后表播过期的结算水位（dev 分支并入）：同一时间戳只结算一次肿包过期。
@@ -133,6 +183,7 @@ function createRoom(options = {}) {
   }
 
   function collides(x, y, floorId) {
+    // floorBlockers(floorId) 已经带上该层的玻璃门状态（见本文件的 floorBlockers 定义）。
     return WORLD.floorCollides(floorId, x, y, floorBlockers(floorId));
   }
   // 落点安全判定：无碰撞、不在任何入口触发范围内、身体不被遮挡。服务端决定换层落点。
@@ -165,6 +216,24 @@ function createRoom(options = {}) {
     return id === undefined ? null : find(id);
   }
   // 统一计分入口：所有行为只加分、绝不扣分，分值表来自 WORLD.SCORE。
+  // ===== 成就点（与分数分开的第二条进度）=====
+  // 用户定义：猜拳、淘汰玩家、玩小游戏等所有行为都给成就点；排行榜按「筹码」和「成就点」分别排。
+  const ACHIEVEMENT = {
+    search: 1, sell: 2, buy: 1, wheel: 2,
+    rpsWin: 5, rpsDraw: 2, rpsLose: 1,
+    hammer: 1, kill: 30, eliminated: 5, minigame: 8, minigameWin: 20
+  };
+  function gainAchievement(p, key, times = 1) {
+    const base = ACHIEVEMENT[key] || 0;
+    if (!base || !p.achievements) return 0;
+    const add = base * Math.max(1, Math.floor(times));
+    p.achievements.points += add;
+    p.achievements.byKind[key] = (p.achievements.byKind[key] || 0) + add;
+    return add;
+  }
+  const minigames = createMinigames({
+    room, now, find, gainAchievement,
+  });
   function award(p, key) {
     p.score += WORLD.SCORE[key] || 0;
   }
@@ -206,7 +275,8 @@ function createRoom(options = {}) {
     const t = now();
     const isFirst = room.players.length === 0;
     const faction = isFirst ? 'bad' : 'good';
-    const id = room.players.length;
+    // 多日恢复后 id 不再等于数组下标：取现有最大 id + 1，避免重启后新玩家顶替旧身份。
+    const id = room.players.reduce((m, q) => Math.max(m, Number(q.id) || 0), -1) + 1;
     const rawName = typeof nickname === 'string' ? nickname.trim().slice(0, 8) : '';
     const name = empNo ? uniqueName(displayName(identity.name, empNo)) : uniqueName(rawName || pick(NAME_POOL));
     // 新玩家统一在 1F 安全出生池（按 id 轮转）；每个点都已校验无碰撞、无遮挡、不在入口触发范围内。
@@ -227,6 +297,10 @@ function createRoom(options = {}) {
       y: spawn.y,
       floorId: 1,
       floorRevision: 0,
+      // 需求①：当前所处空间。null = 楼层公共空间；房间 ID = 独立空间内（由 enterZone 设置）。
+      zoneId: null,
+      // 进房前的楼层位置，退房时原样还原（"退出房间后位置还是处于进入的位置"）。
+      zoneReturn: null,
       online: true,
       lastSeen: t,
       sessionId,
@@ -234,7 +308,9 @@ function createRoom(options = {}) {
       input: { up: false, down: false, left: false, right: false },
       walk: 0,
       spriteFacing: 'front',
-      exploration: { chips: 0, clues: [], searched: [] },
+      exploration: { chips: 0, clues: [], searched: [], backpack: [], items: {} },
+      buffs: { speedUntil: 0, shieldUntil: 0, focusNext: false },
+      achievements: { points: 0, byKind: {} },
       games: { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
       combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
       // 肢体互动状态（dev 分支并入）：纯表播字段，不参与血量 / S-ID / 技能 / 淘汰结算。
@@ -279,7 +355,8 @@ function createRoom(options = {}) {
     const floorId = near && WORLD.floorById(near.floorId) ? near.floorId : 1;
     const made = [];
     for (let i = 0; i < n; i++) {
-      const id = room.players.length;
+      // 多日恢复后 id 不再等于数组下标：取现有最大 id + 1，避免重启后新玩家顶替旧身份。
+    const id = room.players.reduce((m, q) => Math.max(m, Number(q.id) || 0), -1) + 1;
       const raw = 'NPC·' + pick(NAME_POOL);
       const name = room.players.some(p => p.name === raw) ? uniqueName(raw) : raw;
       const spot = npcSpot(near || { x: 430, y: 340 }, i, floorId);
@@ -299,6 +376,8 @@ function createRoom(options = {}) {
         y: spot.y,
         floorId,
         floorRevision: 0,
+        zoneId: null,       // NPC 永远在楼层公共空间，不进房间
+        zoneReturn: null,
         online: true, // NPC 永远在线，没有流也就不会进离线扫描
         lastSeen: now(),
         sessionId: null, // 永不能被昵称或会话认领
@@ -306,7 +385,9 @@ function createRoom(options = {}) {
         input: { up: false, down: false, left: false, right: false },
         walk: 0,
         spriteFacing: 'front',
-        exploration: { chips: 0, clues: [], searched: [] },
+        exploration: { chips: 0, clues: [], searched: [], backpack: [], items: {} },
+        buffs: { speedUntil: 0, shieldUntil: 0, focusNext: false },
+        achievements: { points: 0, byKind: {} },
         games: { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
         combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
         jumpStartedAt: 0, stunUntil: 0, bumps: [], bumpMax: 0,
@@ -370,6 +451,7 @@ function createRoom(options = {}) {
     if (room.finished) return;
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(0.05, dt)) : 0;
     updateGlassDoors(t);
+    minigames.tick();
     for (const p of room.players) {
       expireBumps(p, t);
       if (p.npc) continue; // NPC 纯站立：不移动，但肿包照常过期
@@ -384,14 +466,19 @@ function createRoom(options = {}) {
       let dy = Number(p.input.down) - Number(p.input.up);
       const len = Math.hypot(dx, dy);
       if (!len) continue;
-      dx = dx / len * WORLD.SPEED * dt;
-      dy = dy / len * WORLD.SPEED * dt;
+      // 第二轮：疾行 buff —— 只在服务端生效，客户端看到的位移由快照驱动，无法伪造。
+      const act = p.buffs && t < (p.buffs.speedUntil || 0) ? 1.45 : 1;
+      const pass = WORLD.LOOT.passiveTotals(p.exploration.items || {});
+      const speedMul = act * (1 + Math.min(40, pass.speed || 0) / 100);
+      dx = dx / len * WORLD.SPEED * speedMul * dt;
+      dy = dy / len * WORLD.SPEED * speedMul * dt;
       const oldX = p.x, oldY = p.y;
-      const bounds = WORLD.floorBounds(p.floorId);
+      // 需求①：房间内按房间几何裁剪/碰撞，走廊按楼层；幽灵仍可穿（既有行为保持）。
+      const bounds = zoneBoundsOf(p);
       const nx = Math.max(bounds.minX, Math.min(bounds.maxX, p.x + dx));
-      if (!p.alive || !collides(nx, p.y, p.floorId)) p.x = nx;
+      if (!p.alive || !zoneCollides(p, nx, p.y)) p.x = nx;
       const ny = Math.max(bounds.minY, Math.min(bounds.maxY, p.y + dy));
-      if (!p.alive || !collides(p.x, ny, p.floorId)) p.y = ny;
+      if (!p.alive || !zoneCollides(p, p.x, ny)) p.y = ny;
       const actualDx = p.x - oldX, actualDy = p.y - oldY;
       const moved = Math.hypot(actualDx, actualDy);
       p.walk += moved;
@@ -411,6 +498,9 @@ function createRoom(options = {}) {
       x: p.x,
       y: p.y,
       floorId: p.floorId,
+      // 需求①：房间是独立空间。公开投影带 zoneId，客户端据此只渲染同一空间里的人；
+      // 它本身不含任何私密数据（房间 ID 是公开地图信息）。
+      zoneId: p.zoneId || null,
       spriteFacing: p.spriteFacing,
       facing: { ...p.combat.facing },
       lastAttackAt: p.combat.lastAttackAt,
@@ -448,8 +538,19 @@ function createRoom(options = {}) {
       floorId: p.floorId,
       floorRevision: p.floorRevision,
       floorName: WORLD.floorById(p.floorId).name,
+      // 需求①：房间内额外下发房间名/尺寸，客户端据此切相机、画室内墙体与地板。
+      zoneId: p.zoneId || null,
+      zoneName: p.zoneId ? (WORLD.roomById(p.zoneId) || {}).name || '' : '',
       spriteFacing: p.spriteFacing,
       exploration: explorationProjection(p),
+      // 需求③：只发给本人的战利品清单（不进公开投影、不进 exploration 的旧结构）。
+      backpack: backpackProjection(p),
+      // 第二轮：道具背包与限时 buff（只发给本人；buff 附带剩余毫秒供客户端画倒计时）。
+      items: itemsProjection(p),
+      buffs: buffsProjection(p),
+      // 背包被动总加成（放在背包就生效；卖掉/用掉立刻消失）。
+      passive: passiveProfile(p),
+      achievement: { points: (p.achievements && p.achievements.points) || 0, byKind: { ...((p.achievements && p.achievements.byKind) || {}) } },
       games: gamesProjection(p),
       combat: combatProjection(p),
       skills: Object.fromEntries(Object.entries(p.skills).map(([id, skill]) => [id, { ...skill }])),
@@ -471,6 +572,7 @@ function createRoom(options = {}) {
     const viewer = viewerId === undefined || viewerId === null ? null : find(viewerId);
     const camX = viewer ? cameraXOf(viewer) : 0;
     updateGlassDoors(t);
+    minigames.tick();
     return {
       type: 'snapshot',
       serverTime: now(),
@@ -478,8 +580,16 @@ function createRoom(options = {}) {
       finished: room.finished,
       finishReason: room.finishReason || null,
       ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
+      rankingAchievement: room.rankingAchievement ? room.rankingAchievement.map(r => ({ ...r })) : null,
+      // 进行中的成就榜（前 10）：不算私密数据，只暴露名字与点数。
+      achievementLeaders: room.players.slice()
+        .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
+        .slice(0, 10)
+        .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, points: (p.achievements && p.achievements.points) || 0, alive: p.alive })),
       rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs },
       floorList: WORLD.floorOptions(),
+      // 功能开关随快照下发：客户端据此隐藏未开放的入口（服务端仍然会拒绝）。
+      features: { ...room.features },
       glassDoors: viewer ? WORLD.floorById(viewer.floorId).glassDoors.map(d => ({ id: d.id, open: !!room.glassDoors[viewer.floorId][d.id].open })) : [],
       aliveCount: room.players.filter(p => p.alive).length,
       players: room.players.map(p => publicProjection(p, viewer, camX)),
@@ -551,16 +661,32 @@ function createRoom(options = {}) {
     }
     if (!best) return { ok: true, kind: 'hammer', targetId: null, hit: false };
     countOfflineHit(best, 'hammer');
-    // 同时写 dev 字段与主分支的硬控锁，保证移动/攻击/乘梯一致地被锁住。
-    best.stunUntil = t + A.stunMs;
-    best.combat.stunUntil = Math.max(best.combat.stunUntil || 0, t + A.stunMs);
+    // 第二轮：护体 buff —— 免疫眩晕与僵直（但仍然算"被敲到"，留肿包与动画，避免无反馈）。
+    const shielded = best.buffs && t < (best.buffs.shieldUntil || 0);
+    if (!shielded) {
+      // 同时写 dev 字段与主分支的硬控锁，保证移动/攻击/乘梯一致地被锁住。
+      // 背包「硬朗」被动：按百分比缩短眩晕。
+      const stunMul = 1 - Math.min(50, WORLD.LOOT.passiveTotals(best.exploration.items || {}).stun || 0) / 100;
+      const stunMs = Math.max(120, Math.round(A.stunMs * stunMul));
+      best.stunUntil = t + stunMs;
+      best.combat.stunUntil = Math.max(best.combat.stunUntil || 0, t + stunMs);
+    }
     best.lastHitAt = t;
+    gainAchievement(actor, 'hammer');
     best.bumps.push({ expiresAt: t + A.bumpMs });
     if (best.bumps.length > A.maxBumps) best.bumps.shift();
     best.bumpMax = best.bumps.reduce((m, b) => Math.max(m, b.expiresAt), 0);
     return { ok: true, kind: 'hammer', targetId: best.id, hit: true };
   }
   // 排名：分数降序，其次存活优先，再按 id 升序。
+  // 成就榜：按成就点降序（与筹码榜并列的第二套排名）。
+  function buildAchievementRanking() {
+    return room.players.slice()
+      .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
+      .map((p, index) => ({ rank: index + 1, id: p.id, name: p.name,
+        points: (p.achievements && p.achievements.points) || 0,
+        chips: p.exploration.chips, alive: p.alive, faction: p.faction }));
+  }
   function buildRanking() {
     return room.players.slice()
       .sort((a, b) => (b.score - a.score) || (Number(b.alive) - Number(a.alive)) || (a.id - b.id))
@@ -576,10 +702,17 @@ function createRoom(options = {}) {
       .sort((a, b) => (b.score - a.score) || (a.id - b.id))
       .map((p, index) => ({ rank: index + 1, id: p.id, name: p.name, score: p.score, alive: true, faction: p.faction }));
     const rankedList = Array.isArray(archived.ranking) && archived.ranking.length ? archived.ranking : null;
+    // 成就榜并存：管理页也要能看到该局按成就点的排名。
+    const rankedAchievement = Array.isArray(room.rankingAchievement) && room.rankingAchievement.length ? room.rankingAchievement : null;
     return {
       finishReason: archived.finishReason || null,
       finishedAt: archived.finishedAt,
       playerCount: roster.length,
+      rankingAchievement: rankedAchievement,
+      achievementTop: room.players.slice()
+        .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
+        .slice(0, 10)
+        .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, points: (p.achievements && p.achievements.points) || 0 })),
       aliveCount: roster.filter(p => p.alive).length,
       ranked: !!rankedList,
       ranking: rankedList ? rankedList.map(r => ({ ...r })) : null,
@@ -612,6 +745,7 @@ function createRoom(options = {}) {
       freezeRoom(t);
       room.finishReason = reason;
       room.ranking = (reason === 'badWiped' || reason === 'timeUp') ? buildRanking() : null;
+    room.rankingAchievement = buildAchievementRanking();
       archiveResult(t);
       log(reason === 'aliveFloor' ? `游戏结束：存活人数已淘汰至剩余${rules.endRemainingPlayers}人。`
         : reason === 'badWiped' ? '游戏结束：坏人已全部出局。'
@@ -688,6 +822,10 @@ function createRoom(options = {}) {
       return { ok: true, kind: 'kill', resultText: 'S-ID不匹配：目标未淘汰，进入冷却。', targetId: target.id };
     }
     award(actor, 'kill');
+    gainAchievement(actor, 'kill');
+    gainAchievement(target, 'eliminated');
+    gainAchievement(actor, 'kill');
+    gainAchievement(target, 'eliminated');
     freezeSkills(target, t); // 先结算已赚到的恢复，再冻结资源
     target.hp = 0;
     target.alive = false;
@@ -733,7 +871,41 @@ function createRoom(options = {}) {
     return resolved;
   }
   function explorationProjection(p) {
-    return { chips: p.exploration.chips, clues: p.exploration.clues.map(c => ({ ...c })), searched: p.exploration.searched.slice() };
+    // 私密探索投影保持既有三字段形状（chips/clues/searched）不变 —— 多个既有测试按此结构做深比较。
+    // 需求③的战利品清单单独走 `backpack` 字段（privateProjection 里下发），不混进 exploration。
+    return { chips: p.exploration.chips, clues: p.exploration.clues.map(c => ({ ...c })),
+      searched: p.exploration.searched.slice() };
+  }
+  function backpackProjection(p) {
+    const bag = Array.isArray(p.exploration.backpack) ? p.exploration.backpack : [];
+    return bag.map(b => ({ ...b }));
+  }
+  // 第二轮：道具背包（key → 数量）与 buff 剩余时间。两者都只下发给本人。
+  function itemsProjection(p) {
+    const items = p.exploration.items && typeof p.exploration.items === 'object' ? p.exploration.items : {};
+    return Object.fromEntries(Object.entries(items).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)]));
+  }
+  // 第二轮：背包被动加成（放在背包里就生效；卖掉/用掉立刻失效）。
+  function passivesOf(actor) {
+    return WORLD.LOOT.passiveTotals((actor && actor.exploration && actor.exploration.items) || {});
+  }
+  function passiveProfile(p) {
+    return WORLD.LOOT.passiveTotals(p.exploration.items || {});
+  }
+  function buffsProjection(p) {
+    const t = now(), b = p.buffs || {};
+    return {
+      speedUntil: b.speedUntil || 0, shieldUntil: b.shieldUntil || 0,
+      speedMs: Math.max(0, (b.speedUntil || 0) - t), shieldMs: Math.max(0, (b.shieldUntil || 0) - t),
+      focusNext: !!b.focusNext
+    };
+  }
+  // 道具增减的唯一入口：保证 items 里不留 0，且数量不为负。
+  function addItem(p, key, delta) {
+    const items = p.exploration.items || (p.exploration.items = {});
+    const next = Math.max(0, (Number(items[key]) || 0) + Number(delta || 0));
+    if (next > 0) items[key] = next; else delete items[key];
+    return next;
   }
   function availableClue(actor, source) {
     const seen = new Set(actor.exploration.clues.map(c => `${c.targetId}:${c.key}`));
@@ -800,11 +972,14 @@ function createRoom(options = {}) {
       }
       actor.exploration.searched.push(entity.id);
       award(actor, 'search');
+      gainAchievement(actor, 'search');
     } else {
-      if (actor.exploration.chips < entity.cost) return fail(`筹码不足，需要${entity.cost}筹码`);
+      // 背包「人脉」被动：NPC 线索兑换便宜 N 筹码（最低 0）。
+      const clueCost = Math.max(0, entity.cost - (passivesOf(actor).clue || 0));
+      if (actor.exploration.chips < clueCost) return fail(`筹码不足，需要${clueCost}筹码`);
       const clue = availableClue(actor, entity.name);
       if (!clue) return fail('暂无尚未拥有的隐藏线索，不扣筹码');
-      actor.exploration.chips -= entity.cost;
+      actor.exploration.chips -= clueCost;
       actor.exploration.clues.push(clue);
       resultText = `兑换完成：${clue.text}`;
       award(actor, 'exchange');
@@ -883,6 +1058,9 @@ function createRoom(options = {}) {
       if (delta > 0) { award(from, 'rpsWin'); award(to, 'rpsLose'); }
       else if (delta < 0) { award(to, 'rpsWin'); award(from, 'rpsLose'); }
       else { award(from, 'rpsDraw'); award(to, 'rpsDraw'); }
+      // 成就点与分数分开计：猜拳无论胜负都给点（胜 > 平 > 负）。
+      gainAchievement(from, delta > 0 ? 'rpsWin' : delta < 0 ? 'rpsLose' : 'rpsDraw');
+      gainAchievement(to, delta < 0 ? 'rpsWin' : delta > 0 ? 'rpsLose' : 'rpsDraw');
       const labels = { rock: '石头', paper: '布', scissors: '剪刀' };
       room.challenges.delete(challenge.id);
       for (const p of [from, to]) {
@@ -915,6 +1093,8 @@ function createRoom(options = {}) {
   // 邀请阶段仅在超时取消，选择阶段到 deadline 才同步结算一次（即便双方都已选也不提前结算）。
   function syncRoom(t) {
     checkFinish(t, false);
+    // 搜索会话按时间过期：玩家中途关页面时，容器不会永久卡在"搜到一半"的状态。
+    expireSearchSessions(t);
     if (room.finished) {
       for (const ch of [...room.challenges.values()]) cancelChallenge(ch, t, '游戏已结束');
       return;
@@ -942,6 +1122,11 @@ function createRoom(options = {}) {
     return '';
   }
   function play(sessionId, body) {
+    // 小游戏开关：只拦注册表里的小游戏；其它 kind 交给原有逻辑。
+    if (body && typeof body.kind === 'string' && Object.prototype.hasOwnProperty.call(room.features, body.kind) && !room.features[body.kind]) {
+      return reject('该小游戏尚未开放');
+    }
+    // 只拦明确属于某个开关的 kind；缺省/其它形态交给原有校验，避免误拒旧调用。
     const t = now();
     checkFinish(t);
     syncRoom(t);
@@ -1192,6 +1377,9 @@ function createRoom(options = {}) {
     actor.floorId = targetFloorId;
     actor.x = landing.x;
     actor.y = landing.y;
+    // 换层一定回到楼层公共空间：房间是楼层的子空间，跨层后旧的 zone 不再成立。
+    actor.zoneId = null;
+    actor.zoneReturn = null;
     actor.floorRevision += 1;
     // 乘梯不改朝向、不给无敌、不产生眩晕/僵直、不重置也不消耗 J 冷却；walk 不累加。
     const targetName = WORLD.floorById(actor.floorId).name;
@@ -1210,6 +1398,374 @@ function createRoom(options = {}) {
     });
     return response;
   }
+  // ============================================================
+  // 需求①：独立小房间（zone）——进入 / 离开
+  // ============================================================
+  // 一个"空间"由 floorId + zoneId 唯一确定。进入房间时把楼层位置存进 zoneReturn，
+  // 退出时原样还原，因此"退出房间后位置还是处于进入的位置"是结构性保证，不依赖任何估算。
+  function zoneInfo(p) {
+    const z = p.zoneId ? WORLD.roomById(p.zoneId) : null;
+    return z ? { id: z.id, name: z.name, kind: z.kind, width: z.width, height: z.height,
+      door: { ...z.door }, entry: { ...z.entry }, exit: { ...z.exit } } : null;
+  }
+  function zonePayload(actor) {
+    return {
+      zone: zoneInfo(actor),
+      position: { x: actor.x, y: actor.y },
+      floor: { id: actor.floorId, revision: actor.floorRevision },
+      exploration: explorationProjection(actor)
+    };
+  }
+  // 房间门在楼层上的交互资格：同层、活着、不在眩晕、离门点足够近。
+  function zoneDoorAccess(actor, roomList, maxDist) {
+    const near = WORLD.roomDoorNear(actor.floorId, actor.x, actor.y, maxDist);
+    if (!near) return { ok: false, reason: '附近没有可进入的房间门（请靠近门牌）' };
+    if (roomList && !roomList.includes(near.room.id)) return { ok: false, reason: '该房间不在本层' };
+    return { ok: true, room: near.room, distance: near.distance };
+  }
+  function enterZone(sessionId, body) {
+    const t = now();
+    checkFinish(t); syncRoom(t);
+    const actor = playerBySession(sessionId);
+    if (!actor) return reject('身份无效，请重新加入');
+    if (room.finished) return reject('游戏已结束，探索已冻结');
+    if (!actor.alive) return reject('你已淘汰，不能进入房间');
+    if (movementLocked(actor, t)) return reject('你正在眩晕或僵直，暂时不能进入房间');
+    if (!body || typeof body !== 'object') return reject('进入指令无效');
+    const commandId = typeof body.commandId === 'string' ? body.commandId : '';
+    if (!commandId.trim()) return reject('缺少 commandId');
+    if (room.processed.has(commandId)) return reject('该指令已结算过');
+    if (actor.zoneId) return reject('你已经在房间内');
+    const roomId = typeof body.zoneId === 'string' ? body.zoneId : '';
+    const target = WORLD.roomById(roomId);
+    if (!target) return reject('房间不存在');
+    if (target.floorId !== actor.floorId) return reject('房间不在当前楼层');
+    const guard = floorGuard(actor, body);
+    if (guard) return reject(guard);
+
+    const access = zoneDoorAccess(actor, [roomId], WORLD.ROOM_ENTER_PAD);
+    if (!access.ok) return reject(access.reason);
+    // 进入：先记下楼层位置，再把玩家放进房间内部落点。
+    actor.zoneReturn = { x: actor.x, y: actor.y, floorId: actor.floorId };
+    actor.zoneId = target.id;
+    actor.x = target.entry.x;
+    actor.y = target.entry.y;
+    actor.floorRevision += 1;
+    actor.input = { up: false, down: false, left: false, right: false };
+    room.processed.set(commandId, t);
+    return { ok: true, resultText: `进入「${target.name}」`, ...zonePayload(actor) };
+  }
+  function exitZone(sessionId, body) {
+    const t = now();
+    checkFinish(t); syncRoom(t);
+    const actor = playerBySession(sessionId);
+    if (!actor) return reject('身份无效，请重新加入');
+    if (!actor.zoneId) return reject('你不在房间内');
+    if (!body || typeof body !== 'object') return reject('离开指令无效');
+    const commandId = typeof body.commandId === 'string' ? body.commandId : '';
+    if (!commandId.trim()) return reject('缺少 commandId');
+    if (room.processed.has(commandId)) return reject('该指令已结算过');
+    const guard = floorGuard(actor, body);
+    if (guard) return reject(guard);
+    const zone = WORLD.roomById(actor.zoneId);
+    if (!zone) { actor.zoneId = null; return reject('房间数据丢失，已退回楼层'); }
+    // 必须走到门口才能离开（避免在房间深处瞬间传送回楼层）。
+    const dist = Math.hypot(actor.x - zone.exit.x, actor.y - zone.exit.y);
+    if (dist > 74) return reject('请走到门口再离开房间');
+    // 还原到进入时站的位置；若该点变得不可站立（家具变化等）则退回门点。
+    const back = actor.zoneReturn || { x: zone.door.x, y: zone.door.y, floorId: actor.floorId };
+    let landing = { x: back.x, y: back.y };
+    if (WORLD.floorCollides(actor.floorId, landing.x, landing.y, floorBlockers(actor.floorId))) {
+      landing = { x: zone.door.x, y: zone.door.y };
+    }
+    actor.zoneId = null;
+    actor.zoneReturn = null;
+    actor.x = landing.x;
+    actor.y = landing.y;
+    actor.floorRevision += 1;
+    actor.input = { up: false, down: false, left: false, right: false };
+    room.processed.set(commandId, t);
+    return { ok: true, resultText: `离开「${zone.name}」`, ...zonePayload(actor) };
+  }
+
+  // ============================================================
+  // 需求③：搜打撤式物品格搜索（start → reveal… → take）
+  // ============================================================
+  // 服务端一次性掷完整个容器（确定性），但**只按 reveal 请求逐格下发**：
+  // 客户端在拿到揭示结果前，连"这格是不是空的"都无从得知，因此无法提前挑选稀有物品。
+  function findContainerInZone(actor, containerId) {
+    if (!containerId) return null;
+    return WORLD.zoneContainers(actor.floorId, actor.zoneId || null).find(c => c.id === containerId) || null;
+  }
+  function searchSessionFor(actor, sessionId) {
+    const s = room.searchSessions.get(String(sessionId || ''));
+    return s && s.playerId === actor.id ? s : null;
+  }
+  function expireSearchSessions(t) {
+    for (const [id, s] of room.searchSessions) if (t - s.lastAt > WORLD.LOOT.SEARCH_CONFIG.sessionTtlMs) room.searchSessions.delete(id);
+  }
+  function describeSearchSession(s) {
+    // revealedContent 只回放"该玩家自己已经揭示过的格子"，用于关掉面板再打开时恢复画面；
+    // 未揭示的格子永远不下发内容（只给数量）。
+    const revealedContent = [];
+    for (let i = 0; i < s.revealed.size; i++) revealedContent.push(WORLD.LOOT.describeSlot(s.plan.slots[i]));
+    return { id: s.id, containerId: s.containerId, containerName: s.containerName,
+      cols: s.plan.cols, rows: s.plan.rows, slotCount: s.plan.slots.length,
+      revealed: s.revealed.size, profileKey: s.plan.profileKey,
+      revealDelayMs: WORLD.LOOT.SEARCH_CONFIG.revealDelayMs(s.plan.profileKey),
+      nextRevealAt: s.nextAt, revealedContent, completed: s.revealed.size >= s.plan.slots.length };
+  }
+  function searchStart(sessionId, body) {
+    const t = now();
+    checkFinish(t); syncRoom(t);
+    const actor = playerBySession(sessionId);
+    const fail = reason => ({ ...reject(reason), exploration: actor ? explorationProjection(actor) : null });
+    if (!actor) return fail('身份无效，请重新加入');
+    if (room.finished) return fail('游戏已结束，探索已冻结');
+    if (!actor.alive) return fail('你已淘汰，不能搜索');
+    if (movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能搜索');
+    if (!body || typeof body !== 'object') return fail('搜索指令无效');
+    const commandId = typeof body.commandId === 'string' ? body.commandId : '';
+    if (!commandId.trim()) return fail('缺少 commandId');
+    if (room.processed.has(commandId)) return fail('该指令已结算过');
+    const guard = floorGuard(actor, body);
+    if (guard) return fail(guard);
+    const container = findContainerInZone(actor, body.containerId);
+    if (!container) return fail('搜索目标无效');
+    if (WORLD.distanceToEntity(actor, container) > WORLD.INTERACT_RANGE) return fail('距离太远，请靠近后再搜索');
+    if (actor.exploration.searched.includes(container.id)) return fail('你已经搜索过这个容器');
+    // 已有未完成会话：直接复用，避免连点开出多个格子面板。
+    for (const s of room.searchSessions.values()) if (s.playerId === actor.id && s.containerId === container.id) {
+      return { ok: true, resultText: '继续搜索', reused: true, session: describeSearchSession(s), serverNow: t };
+    }
+    const bonus = EXPLORATION_REWARDS[container.id] || null;
+    // 专注 buff：本次多翻 1 件，开搜即消耗（无论最后拿不拿，眼镜已经戴上了）。
+    const focus = !!(actor.buffs && actor.buffs.focusNext);
+    if (focus && actor.buffs) actor.buffs.focusNext = false;
+    const pass = passivesOf(actor);
+    const plan = WORLD.LOOT.buildSearchPlan(container, actor.id, { salt: room.roundId, bonus,
+      extra: (focus ? 1 : 0) + Math.min(2, pass.search || 0), luck: Math.min(50, pass.luck || 0) });
+    room.searchSeq += 1;
+    const s = { id: `search-${room.searchSeq}-${actor.id}`, playerId: actor.id, containerId: container.id,
+      floorId: actor.floorId, zoneId: actor.zoneId || null, containerName: container.container.name,
+      plan, revealed: new Set(), taken: false, createdAt: t, lastAt: t, nextAt: 0 };
+    room.searchSessions.set(s.id, s);
+    room.processed.set(commandId, t);
+    actor.input = { up: false, down: false, left: false, right: false };
+    return { ok: true, resultText: `开始搜索「${s.containerName}」`, session: describeSearchSession(s), serverNow: t };
+  }
+  function searchReveal(sessionId, body) {
+    const t = now();
+    checkFinish(t); syncRoom(t);
+    const actor = playerBySession(sessionId);
+    const fail = reason => ({ ...reject(reason), exploration: actor ? explorationProjection(actor) : null });
+    if (!actor) return fail('身份无效，请重新加入');
+    if (room.finished) return fail('游戏已结束，探索已冻结');
+    const s = searchSessionFor(actor, body && body.sessionId);
+    if (!s) return fail('搜索会话已失效，请重新打开容器');
+    s.lastAt = t;
+    // 防连点：每格之间有最小间隔，由服务端时间判定（客户端改计时器无效）。
+    if (t < (s.nextAt || 0)) return fail('搜索进行中，请稍候');
+    const index = s.revealed.size;
+    if (index >= s.plan.slots.length) return fail('该容器已经全部揭示');
+    s.revealed.add(index);
+    s.nextAt = t + WORLD.LOOT.SEARCH_CONFIG.revealDelayMs(s.plan.profileKey);
+    const content = WORLD.LOOT.describeSlot(s.plan.slots[index]);
+    return { ok: true, index, content, session: describeSearchSession(s), serverNow: t };
+  }
+  function searchTake(sessionId, body) {
+    const t = now();
+    checkFinish(t); syncRoom(t);
+    const actor = playerBySession(sessionId);
+    const fail = reason => ({ ...reject(reason), exploration: actor ? explorationProjection(actor) : null });
+    if (!actor) return fail('身份无效，请重新加入');
+    if (room.finished) return fail('游戏已结束，探索已冻结');
+    const s = searchSessionFor(actor, body && body.sessionId);
+    if (!s) return fail('搜索会话已失效，请重新打开容器');
+    if (s.revealed.size < s.plan.slots.length) return fail('还有格子没有揭示完，请先完成搜索');
+    if (s.taken) return fail('该容器已经结算过');
+    s.taken = true;
+    const gained = { chips: 0, items: [], clues: 0 };
+    const bag = Array.isArray(actor.exploration.backpack) ? actor.exploration.backpack : (actor.exploration.backpack = []);
+    for (let i = 0; i < s.plan.slots.length; i++) {
+      const slot = s.plan.slots[i];
+      if (!slot) continue;
+      if (slot.kind === 'chips') {
+        actor.exploration.chips += slot.amount;
+        gained.chips += slot.amount;
+      } else if (slot.kind === 'clue') {
+        const clue = availableClue(actor, s.containerName);
+        if (clue) { actor.exploration.clues.push(clue); gained.clues++; award(actor, 'clue'); }
+        else { actor.exploration.chips += 2; gained.chips += 2; }
+      } else {
+        const item = WORLD.LOOT.ITEMS[slot.itemKey];
+        if (!item) continue;
+        bag.push({ key: item.key, label: item.label, rarity: item.rarity, icon: item.icon,
+          value: item.value, from: s.containerName, at: t });
+        // 第二轮：物品不再当场折现，而是进背包，由玩家自己决定"卖掉换筹码"还是"用掉"。
+        addItem(actor, item.key, 1);
+        gained.items.push({ key: item.key, label: item.label, rarity: item.rarity, value: item.value });
+      }
+    }
+    if (!actor.exploration.searched.includes(s.containerId)) actor.exploration.searched.push(s.containerId);
+    award(actor, 'search');
+    room.searchSessions.delete(s.id);
+    actor.input = { up: false, down: false, left: false, right: false };
+    const parts = [];
+    if (gained.chips) parts.push(`${gained.chips} 筹码`);
+    if (gained.clues) parts.push(`${gained.clues} 条线索`);
+    if (gained.items.length) parts.push(`${gained.items.length} 件物品`);
+    return { ok: true, resultText: parts.length ? `搜索完成：获得${parts.join('、')}。` : '搜索完成：只翻出一堆没用的东西。',
+      gained, exploration: explorationProjection(actor), backpack: backpackProjection(actor), score: actor.score };
+  }
+
+    // ============================================================
+  // 第二轮：道具经济 —— 使用 / 出售 / 购买
+  // ============================================================
+  // 设计意图：搜到的东西不再是"到手即折现的数字"，而是**资产**：
+  //   · 卖掉 → 换筹码（再去 NPC 换线索 / 转盘 / 买道具）
+  //   · 用掉 → 换一段时间的战力（疾行 / 护体）或一次更好的搜索（专注）
+  // 所有判定与计时都在服务端；客户端只提交 itemKey 并渲染返回的 items/buffs。
+  function itemDef(key) { return WORLD.LOOT.ITEMS[String(key || '')] || null; }
+  function economyResponse(actor, ok, resultText, extra = {}) {
+    return { ok, ...(ok ? {} : { error: resultText }), resultText,
+      items: actor ? itemsProjection(actor) : null,
+      buffs: actor ? buffsProjection(actor) : null,
+      chips: actor ? actor.exploration.chips : 0,
+      score: actor ? actor.score : 0, ...extra };
+  }
+  // 三个动作共用的准入检查
+  function economyGuard(sessionId, body) {
+    const t = now();
+    checkFinish(t); syncRoom(t);
+    const actor = playerBySession(sessionId);
+    // 失败返回 { error }，成功返回 { actor, t, commandId }；调用方用 g.error 判空。
+    const fail = reason => ({ error: economyResponse(actor, false, reason) });
+    if (!actor) return fail('身份无效，请重新加入');
+    if (room.finished) return fail('游戏已结束，背包已冻结');
+    if (!actor.alive) return fail('你已淘汰，不能操作背包');
+    if (!body || typeof body !== 'object') return fail('指令无效');
+    const commandId = typeof body.commandId === 'string' ? body.commandId : '';
+    if (!commandId.trim()) return fail('缺少 commandId');
+    if (room.processed.has(commandId)) return fail('该指令已结算过');
+    return { actor, t, commandId };
+  }
+  function useItem(sessionId, body) {
+    const g = economyGuard(sessionId, body);
+    if (g.error) return g.error;
+    const { actor, t, commandId } = g;
+    const fail = reason => economyResponse(actor, false, reason);
+    const def = itemDef(body.itemKey);
+    if (!def || !def.use) return fail('该物品不能直接使用');
+    if (!(Number(actor.exploration.items[def.key]) > 0)) return fail('背包里没有这件物品');
+    const eff = WORLD.LOOT.EFFECTS[def.use.effect];
+    if (!eff) return fail('物品效果未定义');
+    const duration = Number(def.use.durationMs) || eff.durationMs || 0;
+    let text;
+    if (def.use.effect === 'focus') {
+      actor.buffs.focusNext = true;
+      text = `使用「${def.label}」：下一次搜索会多翻出 1 件物品。`;
+    } else if (def.use.effect === 'speed') {
+      actor.buffs.speedUntil = Math.max(t, actor.buffs.speedUntil || 0) + duration;
+      text = `使用「${def.label}」：${Math.round(duration / 1000)} 秒内移动速度 +45%。`;
+    } else if (def.use.effect === 'shield') {
+      actor.buffs.shieldUntil = Math.max(t, actor.buffs.shieldUntil || 0) + duration;
+      text = `使用「${def.label}」：${Math.round(duration / 1000)} 秒内免疫 J 键攻击的眩晕与僵直。`;
+    } else {
+      return fail('未知的物品效果');
+    }
+    addItem(actor, def.key, -1);
+    room.processed.set(commandId, t);
+    return economyResponse(actor, true, text, { used: def.key, effect: def.use.effect });
+  }
+  function sellItem(sessionId, body) {
+    const g = economyGuard(sessionId, body);
+    if (g.error) return g.error;
+    const { actor, t, commandId } = g;
+    const fail = reason => economyResponse(actor, false, reason);
+    const def = itemDef(body.itemKey);
+    if (!def) return fail('未知物品');
+    const have = Number(actor.exploration.items[def.key]) || 0;
+    if (have <= 0) return fail('背包里没有这件物品');
+    const want = Math.max(1, Math.min(have, Math.floor(Number(body.count) || 1)));
+    // 背包「行情」被动：卖出价 +N%。
+    const unit = Math.max(0, Math.floor((Number(def.value) || 0) * (1 + Math.min(50, passivesOf(actor).sell || 0) / 100)));
+    if (unit <= 0) return fail(`「${def.label}」卖不出价钱`);
+    addItem(actor, def.key, -want);
+    actor.exploration.chips += unit * want;
+    room.processed.set(commandId, t);
+    return economyResponse(actor, true, `卖出「${def.label}」×${want}，获得 ${unit * want} 筹码。`, { sold: def.key, count: want, gained: unit * want });
+  }
+  function buyItem(sessionId, body) {
+    const g = economyGuard(sessionId, body);
+    if (g.error) return g.error;
+    const { actor, t, commandId } = g;
+    const fail = reason => economyResponse(actor, false, reason);
+    const def = itemDef(body.itemKey);
+    if (!def || !def.shop) return fail('这件商品不在售');
+    const price = Math.max(1, Number(def.price) || 0);
+    const want = Math.max(1, Math.min(5, Math.floor(Number(body.count) || 1)));
+    if (actor.exploration.chips < price * want) return fail(`筹码不足：需要 ${price * want}，当前 ${actor.exploration.chips}`);
+    actor.exploration.chips -= price * want;
+    addItem(actor, def.key, want);
+    room.processed.set(commandId, t);
+    return economyResponse(actor, true, `买入「${def.label}」×${want}，花费 ${price * want} 筹码。`, { bought: def.key, count: want, spent: price * want });
+  }
+
+  // ===== 小游戏 =====
+  function startMinigame(sessionId, body) {
+    const actor = playerBySession(sessionId);
+    if (!actor) return { ok: false, error: '身份无效' };
+    if (room.finished) return { ok: false, error: '游戏已结束' };
+    const game = body && body.game;
+    if (game === 'spire') {
+      if (!room.features.spire) return { ok: false, error: '该小游戏尚未开放' };
+      if (!actor.alive) return { ok: false, error: '你已淘汰，不能开小游戏' };
+      if (room.spireBattles.has(actor.id)) return { ok: false, error: '你已有一局卡牌对决' };
+      const battle = SPIRE.createBattle(Date.now() % 100000 + actor.id * 7919);
+      room.spireBattles.set(actor.id, battle);
+      return { ok: true, spire: SPIRE.view(battle) };
+    }
+    return minigames.start(actor, game, body && body.opponentId, !!(body && body.viaArcade));
+  }
+  function actMinigame(sessionId, body) {
+    const actor = playerBySession(sessionId);
+    if (!actor) return { ok: false, error: '身份无效' };
+    if (room.finished) return { ok: false, error: '游戏已结束' };
+    // 坦克对局优先：玩家可能同时挂着一局卡牌，动作要先按当前对局分流。
+    const battle = minigames.matchOf(actor.id) ? null : room.spireBattles.get(actor.id);
+    if (battle) {
+      const action = body && body.action;
+      let res;
+      if (action === 'end') res = SPIRE.endTurn(battle);
+      else if (action === 'play') res = SPIRE.play(battle, Number(body.index));
+      else return { ok: false, error: '未知操作' };
+      if (!res.ok) return res;
+      if (battle.finished && battle.won) { gainAchievement(actor, 'minigame'); gainAchievement(actor, 'minigameWin'); }
+      else if (battle.finished) { gainAchievement(actor, 'minigame'); }
+      return { ok: true, spire: SPIRE.view(battle) };
+    }
+    return minigames.act(actor, body && body.action);
+  }
+  function minigameState(sessionId) {
+    const actor = playerBySession(sessionId);
+    if (!actor) return { ok: false, error: '身份无效' };
+    const m = minigames.matchOf(actor.id);
+    // 同层可挑战的对手由服务端算好下发：客户端少一次 /api/state 请求、少一个失败点。
+    // 对手列表带上楼层：直接挑战只显示同层，游戏机可以跨层匹配。
+    const foes = room.players
+      .filter(p => p.id !== actor.id && p.alive && !p.npc && p.online)
+      .map(p => ({ id: p.id, name: p.name, floorId: p.floorId }));
+    const battle = room.spireBattles.get(actor.id);
+    return { ok: true, match: m ? minigames.project(m, actor.id) : null, spire: battle ? SPIRE.view(battle) : null,
+      enabled: Object.keys(room.features).filter(k => room.features[k]), foes };
+  }
+  function quitMinigame(sessionId) {
+    const actor = playerBySession(sessionId);
+    if (!actor) return { ok: false, error: '身份无效' };
+    if (room.spireBattles.delete(actor.id)) return { ok: true };
+    return minigames.quit(actor);
+  }
   // 开新局：清空本局全部玩家与身份凭证，所有人必须重新加入。room.lastResult 故意不清，
   // 管理页在重开后仍要能看到上一局排名。
   function reset() {
@@ -1226,6 +1782,8 @@ function createRoom(options = {}) {
     room.pending.clear();
     room.floorReceipts.clear();
     room.glassDoors = {};
+    room.searchSessions.clear();
+    room.searchSeq = 0;
     badPool.reset(); digest.reset(); finishedExpiryAt = -Infinity;
     room.roundId = randomUUID();
     for (const entry of streams.values()) { try { entry.res && entry.res.end(); } catch { /* already closed */ } }
@@ -1247,6 +1805,11 @@ function createRoom(options = {}) {
   return {
     room, streams, now, join, setOffline, setIntent, step, useSkill, interact, play, attack, floorChange, ack,
     performAction, spawnNpc, prepareReconnect,
+    // 需求① / ③：独立房间进出与物品格搜索（服务端权威入口）。
+    enterZone, exitZone, searchStart, searchReveal, searchTake, zoneInfo,
+    // 第二轮：道具经济（使用 / 出售 / 购买）。
+    useItem, sellItem, buyItem, passiveProfile,
+    startMinigame, actMinigame, minigameState, quitMinigame,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
     playerBySession, playerByEmpNo, find, lastResultSummary, rules, config: SKILL_CONFIG,
     floorFurniture, floorBlockers, safeLanding
