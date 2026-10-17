@@ -44,6 +44,29 @@
       ['arcade', '楼层游戏机', 1320, 300, 1400, 380]
     ];
   };
+  // 「放大后第二圈」：地图 2× 后一屏能看到的世界面积约 2.5×，只靠第一圈 filler 会显得空。
+  // 这一圈优先填南区/中部/东翼的空带，全部靠墙或靠南沿，不压主走廊（y≈150–300）。
+  // 每层再补 2 个可搜容器，让主空间的搜索点密度跟得上放大后的面积。
+  const filler2 = (floorId) => {
+    const v = floorId;
+    return [
+      ['bench', '南区长凳', 320, 900, 480, 950],
+      ['plant', '南区绿植一', 520, 900, 580, 960],
+      ['crate', '南区周转箱', 620, 900, 700, 970, `container:south${v}a`],
+      ['boxstack', '南区纸箱', 740, 900, 820, 970],
+      ['shelf', '南区资料架', 860, 900, 980, 980],
+      ['chair', '南区座椅', 1020, 900, 1080, 950],
+      ['cooler', '南区饮水机', 1120, 900, 1170, 970],
+      ['arcade', '南区游戏机', 1220, 880, 1300, 960],
+      ['tv', '南区信息屏', 340, 620, 520, 650],
+      ['plant', '中部绿植', 620, 560, 680, 630],
+      ['bench', '中部长凳', 760, 580, 900, 630],
+      ['crate', '中部木箱', 700, 680, 780, 750, `container:mid${v}a`],
+      ['shelf', '中部书架', 1000, 600, 1100, 690],
+      ['chair', '中部座椅', 1120, 620, 1170, 670],
+      ['lamp', '中部落地灯', 940, 700, 985, 760]
+    ];
+  };
   const DRESSING = {
     // ===== 1F 门厅 · 晨光木石 =====
     1: [
@@ -181,7 +204,7 @@
   // 把「别让它太空」补丁接到每层末尾。用追加而不是改写既有数组，
   // 让原有手工摆位保持可读、可回溯（谁加的、加在哪一层一目了然）。
   for (const key of Object.keys(DRESSING)) {
-    if (Array.isArray(DRESSING[key])) DRESSING[key] = DRESSING[key].concat(filler(Number(key)));
+    if (Array.isArray(DRESSING[key])) DRESSING[key] = DRESSING[key].concat(filler(Number(key)), filler2(Number(key)));
   }
   return { DRESSING };
 });

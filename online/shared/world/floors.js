@@ -19,9 +19,16 @@
   // 为让家具/角色/门洞的**像素尺度完全不变**，x 轴归一化空间同步由 0–1000 扩到 0–1500（X_SPAN）：
   // 1 设计单位仍 = 0.96px，故既有 0–1000 内容落在原像素位置，右侧 1000–1500 是新增的
   // 「东侧走廊 + 东侧服务翼（电梯厅/楼梯间/卫生间）」。y 轴保持 0–1000（1 单位 = 0.4px）。
-  const FLOOR_W = 1440, FLOOR_H = 400; // 每层世界像素尺寸（二维相机需要纵向空间）
+  // 楼层尺寸可缩放：所有布局都是 1500×1000 归一化坐标，改比例即整体放大，不用重画。
+  // 倍数来自 config.js 的单一来源（服务端与浏览器一致）；默认 2 → 2880×800。
+  const FLOOR_SCALE = D.FLOOR_SCALE || 1;
+  const FLOOR_W = Math.round(1440 * FLOOR_SCALE), FLOOR_H = Math.round(400 * FLOOR_SCALE); // 每层世界像素尺寸
   const X_SPAN = 1500, Y_SPAN = 1000;
-  const LIFT_CONFIG = Object.freeze({ hallW: 144, hallH: 96, opening: 48, trigger: 38, closeDelayMs: 650 });
+  // 电梯厅尺寸随楼层同比例缩放，否则放大后厅会缩成一个小方块、门也错位。
+  const LIFT_CONFIG = Object.freeze({
+    hallW: Math.round(144 * FLOOR_SCALE), hallH: Math.round(96 * FLOOR_SCALE),
+    opening: Math.round(48 * FLOOR_SCALE), trigger: Math.round(38 * FLOOR_SCALE), closeDelayMs: 650
+  });
   // 归一化坐标 → 世界像素（x/y 各按自身设计跨度换算，保持 2.4:1 斜俯视与既有像素尺度）。
   const nX = v => Math.round(v / X_SPAN * FLOOR_W);
   const nY = v => Math.round(v / Y_SPAN * FLOOR_H);
@@ -354,8 +361,9 @@
         // 变成"看得见却撞到空气"的隐形墙（阶段4 新增矮件后暴露）。
         // 碰撞盒高度：桌子/柜子这类"整件都该挡人"的家具按高度 60% 计，
         // 否则人物会站进桌面上半截（旧实现固定 24px，只挡桌脚）。
-        const TALL_FURN = new Set(['desk', 'counter', 'cabinet', 'table', 'shelf', 'boxstack', 'arcade', 'vending', 'printer', 'cooler', 'reception', 'bed', 'server']);
-        const footHeight = Math.min(r.h, type === 'plant' ? 18 : (TALL_FURN.has(type) ? Math.round(r.h * 0.6) : 24));
+        // 默认按素材自身高度给碰撞（留 15% 顶部余量，免得贴图顶端也挡人）；
+        // 植物这类矮件保持 18px，避免盆栽形成隐形墙。
+        const footHeight = type === 'plant' ? Math.min(r.h, 18) : Math.max(12, Math.round(r.h * 0.85));
         let id, container = null;
         if (flag && flag.indexOf('container:') === 0) {
           const name = flag.slice('container:'.length);
@@ -648,5 +656,5 @@
     if (!facingOk) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 E' };
     return { inReach: true, facingOk: true, allowed: true, reason: '' };
   }
-  return { FLOOR_BASE_HEIGHT, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess };
+  return { FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess };
 });

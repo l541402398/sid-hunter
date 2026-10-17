@@ -447,10 +447,21 @@
     runner(g, st, ox, oy, w, h);
     if (st.accent) floorAccent(g, st.accent, ox, oy, w, h);
     // 环境光：每层一个色温的柔光斑（确定性位置），避免"整层一片死平"。
+    // 用径向渐变而不是实心椭圆：实心椭圆在放大后的宽视野里会读成"地上一个个大圆圈"。
     if (st.bloom) {
-      g.fillStyle = st.bloom;
+      const parts = /^rgba?\(([^)]+)\)$/.exec(st.bloom.trim());
+      const nums = parts ? parts[1].split(',').map(s => s.trim()) : null;
+      const fade = nums ? `rgba(${nums[0]},${nums[1]},${nums[2]},0)` : 'rgba(0,0,0,0)';
       for (let x = ox - ox % 320; x < ox + w; x += 320) {
-        g.beginPath(); g.ellipse(x + 160, oy + h * 0.45, 120, Math.max(40, h * 0.35), 0, 0, Math.PI * 2); g.fill();
+        const cx = x + 160, cy = oy + h * 0.45;
+        const rx = 190, ry = Math.max(80, h * 0.45);
+        g.save();
+        g.translate(cx, cy); g.scale(1, ry / rx);
+        const gr = g.createRadialGradient(0, 0, 8, 0, 0, rx);
+        gr.addColorStop(0, st.bloom); gr.addColorStop(0.55, st.bloom); gr.addColorStop(1, fade);
+        g.fillStyle = gr;
+        g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill();
+        g.restore();
       }
     }
     g.restore();

@@ -20,6 +20,12 @@ const {
   pick, randChar, randomSid, randomColors, randomTraits
 } = require('./config.js');
 
+// 可见性分层开关：默认关闭，压测达标后再打开。
+const AOI_ENABLED = process.env.SID_AOI === '1';
+const SKINS_SPLIT = process.env.SID_SKINS === '1';
+const LOD_ENABLED = process.env.SID_LOD === '1';
+// AOI 半径（世界像素）：只同步视野附近 ±1 屏的人；纵向按 0.6 收缩（斜俯视）。
+const AOI_RADIUS = Number(process.env.SID_AOI_RADIUS) > 0 ? Number(process.env.SID_AOI_RADIUS) : Math.round(WORLD.VIEW_W / 2);
 function createRoom(options = {}) {
   const wheelRandomInt = options.randomInt || randomInt;
   // dev 分支并入的可注入随机源：只影响「探查公开哪一项未公开属性」。
@@ -573,6 +579,7 @@ function createRoom(options = {}) {
     const camX = viewer ? cameraXOf(viewer) : 0;
     updateGlassDoors(t);
     minigames.tick();
+    room._snapNo = (room._snapNo || 0) + 1;
     return {
       type: 'snapshot',
       serverTime: now(),
@@ -586,13 +593,41 @@ function createRoom(options = {}) {
         .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
         .slice(0, 10)
         .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, points: (p.achievements && p.achievements.points) || 0, alive: p.alive })),
-      rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs },
+      rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs, speed: WORLD.SPEED },
       floorList: WORLD.floorOptions(),
       // 功能开关随快照下发：客户端据此隐藏未开放的入口（服务端仍然会拒绝）。
       features: { ...room.features },
       glassDoors: viewer ? WORLD.floorById(viewer.floorId).glassDoors.map(d => ({ id: d.id, open: !!room.glassDoors[viewer.floorId][d.id].open })) : [],
       aliveCount: room.players.filter(p => p.alive).length,
-      players: room.players.map(p => publicProjection(p, viewer, camX)),
+      // SID_AOI=1 时只同步同层同区玩家（默认关闭，保证既有测试与现网行为不变）。
+      players: (function projectPlayers() {
+        const near = [], far = [];
+        for (const p of room.players) {
+          if (AOI_ENABLED && viewer) {
+            const sameZone = (p.zoneId || null) === (viewer.zoneId || null);
+            const sameFloor = p.floorId === viewer.floorId;
+            const dx = Math.abs(p.x - viewer.x), dy = Math.abs(p.y - viewer.y);
+            const inView = p.id === viewer.id || (dx <= AOI_RADIUS && dy <= AOI_RADIUS * 0.6);
+            if (!sameZone || !sameFloor || !inView) continue;
+            (dx <= AOI_RADIUS / 2 ? near : far).push(p);
+          } else {
+            near.push(p);
+          }
+        }
+        // LOD: far ring is refreshed at 5Hz (every 4th frame); client merges by id.
+        const includeFar = !LOD_ENABLED || room._snapNo % 4 === 0;
+        const list = near.concat(includeFar ? far : []).map(p => publicProjection(p, viewer, camX));
+        if (SKINS_SPLIT) { for (const v of list) { delete v.colors; delete v.traits; } }
+        return list;
+      })(),
+      lod: LOD_ENABLED || undefined,
+      // roster 只在可见性分层启用时才下发，保持默认快照形状不变（既有测试按形状做深比较）。
+      roster: (AOI_ENABLED || SKINS_SPLIT || LOD_ENABLED) && (++room._snapNo || 0) % 20 === 0
+        ? room.players.map(p => ({ id: p.id, name: p.name, score: p.score, alive: p.alive, faction: p.faction }))
+        : undefined,
+      skins: (SKINS_SPLIT && room._snapNo % 20 === 0)
+        ? Object.fromEntries(room.players.map(p => [p.id, { colors: p.colors, traits: p.traits }]))
+        : undefined,
       badSlots: anonymousBadSlots(),
       logs: room.logs.slice(),
       config: { chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs }

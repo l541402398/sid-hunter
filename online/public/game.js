@@ -10,10 +10,14 @@
   const palettes = WORLD.PALETTES, zones = WORLD.ZONES;
   // 肢体互动常量与服务端共用同一份 world.js；渲染层只读，不自行判定命中或击晕。
   const ACTION = WORLD.ACTION || { jumpMs: 520, jumpHeight: 16, jumpDodgeFrom: 0.18, jumpDodgeTo: 0.82, hammerRange: 58, hammerCooldownMs: 1000, frightMs: 750, stunMs: 750, bumpMs: 15000, maxBumps: 3 };
-  const BASE_H = WORLD.FLOOR_BASE_HEIGHT || 640;
+  // 方案 B（放大地图后的镜头）：视野宽度固定为「半层」，高度按地图视区比例自适应。
+  // 放大 2× 后 FLOOR_W=2880，CAMERA_W=1440 → 一屏正好看半层；3:2 视区时高度为 960。
+  // 这比固定世界高度更稳：窗口变宽只增加可看的横向范围，不会把人物越放越大。
+  const CAMERA_W = Math.max(320, Math.round((WORLD.FLOOR_W || 1440) / 2));
+  const FLOOR_H = WORLD.FLOOR_H || 400;
   // ---------- 动态视口状态 ----------
-  // 统一缩放 s = 地图视区 CSS 高 / BASE_H；世界与屏幕共用同一 s，屏幕变宽=看到更多世界。
-  let cssW = 960, cssH = 640, scale = 1, viewW = 960, viewH = BASE_H, dpr = 1;
+  // 统一缩放 s = 地图视区 CSS 宽 / CAMERA_W；世界与屏幕共用同一 s。
+  let cssW = 960, cssH = 640, scale = 1, viewW = CAMERA_W, viewH = Math.round(CAMERA_W * 640 / 960), dpr = 1;
   let cameraX = 0, cameraY = 0, drawCamX = 0, drawCamY = 0;
   // ---------- 楼层渲染状态：只对应当前层，换层时整层原子替换 ----------
   let floorId = 1, floorName = '', glassDoorStates = {};
@@ -63,6 +67,8 @@
       const authoritative = selfPlayer();
       if (authoritative) { authoritative.x = position.x; authoritative.y = position.y; }
     }
+    // 进/出房间切换镜头：房间整间铺满，楼层回到半层视野。
+    applyViewport();
     // 插值从权威坐标重新播种，避免"从走廊瞬移到房间"的残影。
     for (const p of players) {
       if (p.floorId !== floorId || (p.zoneId || null) !== target) continue;
@@ -121,14 +127,25 @@
     rg.addColorStop(0, 'rgba(255,216,152,.05)'); rg.addColorStop(.55, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(6,4,10,.42)');
     g.fillStyle = rg; g.fillRect(0, 0, w, h); vignette = c;
   }
-  // 视口尺寸/DPR 变化时重建 backing，并重新设置 transform 与 imageSmoothingEnabled。
+  // 视区尺寸/DPR 变化时重建 backing，并重新设置 transform 与 imageSmoothingEnabled。
+  // 视野分两种：楼层 = 固定半层宽（方案 B）；独立房间 = 整间屋子铺满视区（进门自动"放大"）。
+  function applyViewport() {
+    const room = zoneId ? WORLD.roomById(zoneId) : null;
+    if (room) {
+      scale = Math.min(cssW / room.width, cssH / room.height);
+    } else {
+      scale = cssW / CAMERA_W;
+    }
+    viewW = cssW / scale; viewH = cssH / scale;
+    // 楼层：视区高不超过楼层高的 1.5 倍，避免超宽/超宽屏把镜头拉到虚空里。
+    if (!room && viewH > FLOOR_H * 1.5) { viewH = FLOOR_H * 1.5; scale = cssH / viewH; viewW = cssW / scale; }
+  }
   function resizeCanvas() {
     const cw = Math.max(1, Math.round(canvas.clientWidth || cssW || 960));
     const ch = Math.max(1, Math.round(canvas.clientHeight || cssH || 640));
     cssW = cw; cssH = ch;
     dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(4000000 / (cw * ch)));
-    scale = ch / BASE_H;
-    viewH = BASE_H; viewW = cw / scale;
+    applyViewport();
     const bw = Math.max(1, Math.round(cw * dpr)), bh = Math.max(1, Math.round(ch * dpr));
     if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -177,6 +194,7 @@
   // 新增：大转盘覆盖层 / 排行榜 / 结算（均只读私有投影与公开投影，不新增身份线索）。
   let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
   let wheelSpinFlight = null, wheelResult = '';
+  let playerCache = new Map(), skinCache = new Map(), rosterCache = [];
   let rulesInfo = null, finishReason = '', rankingList = null, achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
   // serverTime 只在快照到达时更新；本地用单调时钟插值，避免计时与动画在快照间隙抖动/闪烁。
   function serverNow() { return serverTime + (performance.now() - serverPerfBase); }
@@ -394,8 +412,18 @@
     achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
     achievementLeaders = Array.isArray(s.achievementLeaders) ? s.achievementLeaders : [];
     if (typeof s.finishReason === 'string') finishReason = s.finishReason;
-    logs = s.logs || [];
-    players = s.players || [];
+    if (Array.isArray(s.logs)) logs = s.logs;
+    // LOD/skins merge: keep entities that are missing from this frame (far ring is 5Hz).
+    if (s.skins) for (const [sid, v] of Object.entries(s.skins)) skinCache.set(Number(sid), v);
+    if (Array.isArray(s.roster)) rosterCache = s.roster;
+    if (s.players && (s.lod || s.skins)) {
+      for (const pp of s.players) playerCache.set(pp.id, pp);
+      players = [...playerCache.values()].map(pp => (pp.colors ? pp : Object.assign({}, pp, skinCache.get(pp.id) || {})));
+    } else {
+      players = s.players || [];
+      playerCache = new Map(players.map(pp => [pp.id, pp]));
+      if (skinCache.size) players = players.map(pp => (pp.colors ? pp : Object.assign({}, pp, skinCache.get(pp.id) || {})));
+    }
     badPoolAvailable = Array.isArray(s.badSlots);
     badSlots = badPoolAvailable ? s.badSlots : [];
     renderBadPool();
@@ -1413,7 +1441,8 @@
     const host = $('ranking'); if (!host || host.hidden) return;
     updateRankingHeader();
     ensureRankingTabs();
-    const sorted = players.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+    const rankSource = rosterCache.length ? rosterCache : players;
+    const sorted = rankSource.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
     const sig = JSON.stringify([finishReason, aliveCount, rankingTab,
       players.map(p => [p.id, p.name, p.score || 0, p.alive]), rankingList, achievementList, achievementLeaders]);
     if (sig === lastRankingSig) return;

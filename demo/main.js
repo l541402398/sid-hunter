@@ -4,11 +4,14 @@
   // No persistence, remote requests, analytics, or third-party libraries.
   const $ = id => document.getElementById(id);
   const WORLD = window.WORLD;
-  const SPEED = WORLD.SPEED, BASE_H = WORLD.FLOOR_BASE_HEIGHT || 640;
+  const SPEED = WORLD.SPEED;
+  // 与 online 客户端同一套镜头：视野宽固定半层（FLOOR_SCALE=2 时 1440），高度按视区比例自适应。
+  const CAMERA_W = Math.max(320, Math.round((WORLD.FLOOR_W || 1440) / 2));
+  const FLOOR_H = WORLD.FLOOR_H || 400;
   const canvas = $('office'), ctx = canvas.getContext('2d', {alpha:false});
   ctx.imageSmoothingEnabled = false;
   // ---------- 动态视口（统一缩放）---------- 世界与屏幕共用同一 s：屏幕变宽=看到更多世界，绝不非等比拉伸。
-  let cssW=960,cssH=640,scale=1,viewW=960,viewH=BASE_H,dpr=1;
+  let cssW=960,cssH=640,scale=1,viewW=CAMERA_W,viewH=Math.round(CAMERA_W*640/960),dpr=1;
   let cameraX=0,cameraY=0,drawCamX=0,drawCamY=0;
   // ---------- 楼层渲染状态：只对应当前层，换层时整层原子替换 ----------
   let floorId=1,floorName='',glassDoorStates={};
@@ -97,7 +100,9 @@
     const ch=Math.max(1,Math.round(canvas.clientHeight||cssH||640));
     cssW=cw;cssH=ch;
     dpr=Math.min(window.devicePixelRatio||1,2,Math.sqrt(4000000/(cw*ch)));
-    scale=ch/BASE_H;viewH=BASE_H;viewW=cw/scale;
+    scale=cw/CAMERA_W;viewW=CAMERA_W;viewH=ch/scale;
+    const maxViewH=FLOOR_H*1.5;
+    if(viewH>maxViewH){viewH=maxViewH;scale=ch/viewH;viewW=cw/scale;}
     const bw=Math.max(1,Math.round(cw*dpr)),bh=Math.max(1,Math.round(ch*dpr));
     if(canvas.width!==bw||canvas.height!==bh){canvas.width=bw;canvas.height=bh;}
     ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;

@@ -50,7 +50,7 @@ const state = () => ev("fetch('/api/test/state').then(r=>r.json())");
 
 try {
   server = spawn(process.execPath, [join(root, 'server.js')], {
-    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', SID_TEST: '1', SID_SSO: '0' }, stdio: 'ignore'
+    env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', SID_TEST: '1', SID_SSO: '0', SID_AOI: '0', SID_SKINS: '0', SID_LOD: '0' }, stdio: 'ignore'
   });
   await wait(() => fetch(base + '/api/auth/config').then(r => r.ok));
 
@@ -80,7 +80,7 @@ try {
     for(const r of WORLD.ROOM_LIST){const room=WORLD.roomById(r.id);out.rooms.push({id:r.id,floor:r.floorId,name:r.name,furniture:room.furniture.length,containers:room.containers.length,w:room.width,h:room.height});}
     return out;})()`);
   evidence.push({ worldStats });
-  assert.equal(worldStats.rooms.length, 14, '应有 14 间独立房间');
+  assert.equal(worldStats.rooms.length, 42, '应有 42 间独立房间（每层 6 间）');
   for (const f of worldStats.floors) {
     assert.ok(f.furniture >= 35, `${f.floor}F 家具过少：${f.furniture}`);
     assert.ok(f.containers >= 5, `${f.floor}F 可搜容器过少：${f.containers}`);
@@ -317,7 +317,7 @@ try {
   }
 
   assert.deepEqual(errors, [], '存在未捕获异常：' + JSON.stringify(errors).slice(0, 500));
-  console.log(`PASS rooms-loot: 14 间房间 / 每层 ≥35 件家具 / 物品格 ${slotCount} 格逐格揭示 / 拾取记账 / 进出房间位置还原 / 七层主题截图`);
+  console.log(`PASS rooms-loot: 42 间房间 / 每层 ≥35 件家具 / 物品格 ${slotCount} 格逐格揭示 / 拾取记账 / 进出房间位置还原 / 七层主题截图`);
   await writeFile(join(out, 'rooms-loot-results.json'), JSON.stringify({ status: 'pass', evidence, errors }, null, 2));
 } catch (error) {
   await writeFile(join(out, 'rooms-loot-results.json'), JSON.stringify({ status: 'fail', error: error.stack, evidence, errors }, null, 2));

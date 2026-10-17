@@ -5,6 +5,9 @@ const os = require('os');
 const path = require('path');
 const { performance } = require('node:perf_hooks');
 const { PORT, PUBLIC_DIR, ALLOWED_EXT, DEV_ENABLED } = require('./config.js');
+// 地图放大倍数：浏览器必须与服务端同源，否则客户端会按 1440 宽画、服务端按 2880 判碰撞。
+// 做法：静态托管 shared/world/config.js 时在文件头注入 window.__SID_FLOOR_SCALE__。
+const { FLOOR_SCALE } = require('../shared/world/config.js');
 // shared/ 源码树在 online/ 下（本文件在 online/server/，所以上一级）
 const SHARED_DIR = path.join(__dirname, '..', 'shared');
 
@@ -103,8 +106,12 @@ function staticServe(req, res, pathname) {
   fs.readFile(target, (error, data) => {
     if (error) return send(res, 404, { error: 'not found' });
     const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }[path.extname(target)] || 'application/octet-stream';
+    // 与浏览器共享地图倍数（见文件头注释）；只改这一份响应，磁盘源码保持原样。
+    const body = relative === 'shared/world/config.js'
+      ? Buffer.from(`window.__SID_FLOOR_SCALE__=${FLOOR_SCALE};\n` + data.toString('utf8'), 'utf8')
+      : data;
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
-    res.end(data);
+    res.end(body);
   });
 }
 

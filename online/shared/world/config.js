@@ -7,11 +7,24 @@
   if (isNode) module.exports = api;
   else Object.assign(root.SID_WORLD_PARTS = root.SID_WORLD_PARTS || {}, api);
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const WORLD_W = 3840, WORLD_H = 640, VIEW_W = 960, VIEW_H = 640;
+  const WORLD_W = 3840, WORLD_H = 640;
+  // ===== 地图放大倍数（服务端与浏览器共用同一份）=====
+  // 需求：每层 1440×400 太小，放大 2× → 2880×800（4 倍面积），支撑 200–300 人峰值。
+  // 单一来源：Node 读 SID_FLOOR_SCALE（测试/临时对比用），浏览器读服务端注入的
+  // window.__SID_FLOOR_SCALE__（staticServe 在 /shared/world/config.js 响应前写入），
+  // 都没有时默认 2 —— 这样正式环境两端一定一致，不会出现“服务端 2880、客户端 1440”的错位。
+  const FLOOR_SCALE = (function () {
+    if (typeof window !== 'undefined' && Number(window.__SID_FLOOR_SCALE__) > 0) return Number(window.__SID_FLOOR_SCALE__);
+    if (typeof process !== 'undefined' && process.env && Number(process.env.SID_FLOOR_SCALE) > 0) return Number(process.env.SID_FLOOR_SCALE);
+    return 2;
+  })();
+  // 逻辑视野：一屏看半层（半层宽 = 720*scale），高度按 3:2 基准；客户端再按窗口比例自适应。
+  const VIEW_W = Math.round(720 * FLOOR_SCALE), VIEW_H = Math.round(400 * FLOOR_SCALE);
   // 阶段2-阶段1（÷4 尺度修正）：世界像素尺度整体缩小 4 倍，使既有 px 常量首次落到真实含义。
   // 行走手感：144 世界像素/秒（吴佳润 528fd9e，2026-10-15 调参，晚于 feature_dev_floor 的 112，
   // 合并时以该最新调参为准）；两端读取同一配置，冷却不阻止行走。
-  const SPEED = 144, MIN_Y = 135, MAX_Y = WORLD_H - 24, MIN_X = 20, MAX_X = WORLD_W - 20;
+  // 移动速度随地图比例缩放：放大到 2 倍后跑同样距离需要同样时间。
+  const SPEED = Math.round(144 * FLOOR_SCALE), MIN_Y = 135, MAX_Y = WORLD_H - 24, MIN_X = 20, MAX_X = WORLD_W - 20;
   const BODY_HALF = 9, FOOT_TOP = 4, FOOT_BOTTOM = 5;
   // 阶段2-阶段1（门洞改世界 px）：门洞净宽按轴向绑定身体包络，而不是两轴都用 18px。
   //  h 门（开口沿 x）绑定身体 x 向 2*BODY_HALF = 18px ⇒ 声明开口 40px（净 40-18-2 = 20）；
@@ -98,5 +111,5 @@
     if (a === b) return 0;
     return ({ rock: 'scissors', paper: 'rock', scissors: 'paper' })[a] === b ? 1 : -1;
   }
-  return { WORLD_W, WORLD_H, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome };
+  return { WORLD_W, WORLD_H, FLOOR_SCALE, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome };
 });

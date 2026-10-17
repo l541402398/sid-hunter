@@ -8,7 +8,7 @@
   root.WORLD = WORLD;
   if (isNode) module.exports = WORLD;
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const { WORLD_W, WORLD_H, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, ATTACK_ANIMATION_MS, drawCharacterBody } = D;
+  const { WORLD_W, WORLD_H, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, ATTACK_ANIMATION_MS, drawCharacterBody } = D;
   const { ROOM_SIZES, WALL_T, DOOR_HALF, ENTER_PAD, ROOM_SPECS, ROOM_LIST, ROOMS, roomById, roomsForFloor,
     roomBlockers, roomCollides, inRoom, roomBounds, roomCamera, roomInteractables, roomDoorNear,
     zoneContainers, zoneFurniture, zoneBlockers, zoneCollides, zoneBounds, zoneCamera } = D;
@@ -47,7 +47,7 @@
     PLAY_CONFIG, rpsOutcome, lineClear, spriteDirection, drawCharacterBody, ATTACK_ANIMATION_MS,
     RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool,
     // 七层楼层数据与查询接口（服务端权威、两端同源）。
-    FLOOR_BASE_HEIGHT, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOORS, CONTAINER_NAMES, floorById, floorBlockers,
+    FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOORS, CONTAINER_NAMES, floorById, floorBlockers,
     floorOptions, inHall, advanceGlassDoors, cameraBounds,
     floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorNpcs, floorContainers,
     FLOOR_COUNT: FLOOR_SPECS.length,

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const W = require('./shared/world.js');
-assert.equal(W.FLOOR_W / W.X_SPAN, .96);
-assert.equal(W.FLOOR_H / W.Y_SPAN, .4);
+// 地图可缩放（SID_FLOOR_SCALE）：像素/归一化单位之比随比例线性放大，这里按实际比例推导。
+const SCALE = W.FLOOR_W / 1440;
+assert.equal(W.FLOOR_W / W.X_SPAN, .96 * SCALE);
+assert.equal(W.FLOOR_H / W.Y_SPAN, .4 * SCALE);
 assert.equal(W.floorById(0), null);
 assert.equal(W.floorById(8), null);
 assert.deepEqual(W.floorOptions().map(f => f.id), [1, 2, 3, 4, 5, 6, 7]);
@@ -31,12 +33,12 @@ function reachable(id, start, end, doors) {
   return false;
 }
 for(const f of Object.values(W.FLOORS)) {
-  assert.equal(f.width,1440); assert.equal(f.height,400);
+  assert.equal(f.width, W.FLOOR_W); assert.equal(f.height, W.FLOOR_H);
   assert.equal(f.halls.length,2);
   assert.deepEqual(f.portals.map(p=>p.id),[`f${f.id}:portal:left`,`f${f.id}:portal:right`]);
   for(const h of f.halls) {
     assert.equal(h.w,144);assert.equal(h.h,96);
-    assert.ok(h.side==='left'?h.x+h.w===0:h.x===1440);
+    assert.ok(h.side==='left'?h.x+h.w===0:h.x===W.FLOOR_W);
     const door=f.glassDoors.find(d=>d.hallId===h.id);
     assert.equal(door.opening,48);
     const p=W.floorPortal(f.id,h.side),landing=W.elevatorLanding(f.id,h.side);
@@ -54,6 +56,7 @@ for(const f of Object.values(W.FLOORS)) {
     assert.ok(seed,`${f.id}F ${h.side} spawn -> approach`);
   }
   assert.equal(W.inFloor(f.id,-160,100),false);
-  if(f.id>=2&&f.id<=6) assert.equal(W.inFloor(f.id,20,350),false,'preserve southwest notch');
+  // 探针点随比例缩放：缩放后 (20,350) 仍应落在西南缺口外。
+  if(f.id>=2&&f.id<=6) assert.equal(W.inFloor(f.id,20*SCALE,350*SCALE),false,'preserve southwest notch');
 }
 console.log('PASS elevator-world: 14 halls, openings, anti-pinch, BFS, bounds, IDs and 1-based floor contract');
