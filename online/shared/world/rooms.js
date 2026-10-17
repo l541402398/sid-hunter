@@ -252,11 +252,17 @@
     const floor = floorById(floorId);
     if (!floor) return null;
     const blockers = floorBlockers(floorId, {});
-    const ok = (x, y) => inFloor(floorId, x, y) && !floorCollides(floorId, x, y, blockers) &&
+    // 迷宫层：门必须落在真正的通道格里（只在墙缝里"不碰撞"不算可达）。
+    const openCells = floor._mazeOpen || null;
+    const inOpenCell = (x, y) => !openCells || openCells.some(c =>
+      Math.abs(x - c.x) <= floor.maze.cellW / 2 - 10 && Math.abs(y - c.y) <= floor.maze.cellH / 2 - 8);
+    const ok = (x, y) => inFloor(floorId, x, y) && !floorCollides(floorId, x, y, blockers) && inOpenCell(x, y) &&
       x > 24 && x < floor.width - 24 && y > 100 && y < floor.height - 20;
-    // 门牌 + 地面光带的净空：宽 128、门点上方 72 / 下方 24。
+    // 门牌 + 地面光带的净空：普通层 128×96；迷宫层通道只有一格宽，收窄到 100×56，
+    // 否则 5F 所有门都找不到"净空点"。
+    const cw = floor.maze ? 50 : 64, up = floor.maze ? 38 : 72, down = floor.maze ? 18 : 24;
     const clearAt = (x, y) => !floor.furniture.some(f =>
-      f.x < x + 64 && f.x + f.w > x - 64 && f.y < y + 24 && f.y + f.h > y - 72);
+      f.x < x + cw && f.x + f.w > x - cw && f.y < y + down && f.y + f.h > y - up);
     const farFromDoors = (x, y) => !ROOM_LIST.some(r => r.floorId === floorId && Math.hypot(r.door.x - x, r.door.y - y) < 130);
     const okClear = (x, y) => ok(x, y) && clearAt(x, y) && farFromDoors(x, y);
     if (okClear(wanted[0], wanted[1])) return { x: wanted[0], y: wanted[1] };

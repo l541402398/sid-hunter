@@ -58,7 +58,7 @@
       return list[list.length - 1];
     };
     let made = 0;
-    const TARGET = 88;                 // 每层最多撒 88 件；网格走完也不硬凑
+    const TARGET = fid === 5 ? 30 : 88;   // 迷宫层通道窄，少撒一点，避免堵路
     const STEP_X = 104, STEP_Y = 92;
     for (let pass = 0; pass < 3 && made < TARGET; pass++) {
       for (let gy = 360; gy < floor.height - 70 && made < TARGET; gy += STEP_Y) {
@@ -71,7 +71,7 @@
           const left = Math.round(bx - w / 2), top = by - h;
           // 必须踩在楼面上（基座 + 基座上方 10px），且不与主走廊/墙带相交。
           if (!inFloor(fid, bx, by) || !inFloor(fid, bx, by - 10)) continue;
-          if (by < 350 || by > floor.height - 30) continue;
+          if (by < (fid === 5 ? 90 : 350) || by > floor.height - 30) continue;
           // 视觉矩形（整棵树/霓虹牌）用于避免两件陈设叠在一起；
           // 与既有家具只校验**树干/底座**——树冠叠在桌子后面是正常的景深，不算穿模。
           const visual = { x: left, y: top, w, h };

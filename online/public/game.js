@@ -427,8 +427,10 @@
     badPoolAvailable = Array.isArray(s.badSlots);
     badSlots = badPoolAvailable ? s.badSlots : [];
     renderBadPool();
-    aliveCount = players.filter(p => p.alive).length;
-    outCount = players.filter(p => !p.alive).length;
+    // 存活/淘汰按服务端全量计数：迷雾层只下发附近玩家，不能拿过滤后的名单去数。
+    aliveCount = typeof s.aliveCount === 'number' ? s.aliveCount : players.filter(p => p.alive).length;
+    const totalPlayers = rosterCache.length || players.length;
+    outCount = Math.max(0, totalPlayers - aliveCount);
     if (s.me && s.me.id !== undefined) {
       // The first snapshot after (re)connecting carries everything queued while offline.
       if (awaitingFirst) { for (const e of (s.me.pending || [])) offlineEvents.add(e.eventId); awaitingFirst = false; }
@@ -3143,6 +3145,38 @@
     }
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawFogOverlay();
+  }
+  // 5F 战争迷雾：只留人物周围一小圈可见，其余压黑。半径与服务端裁剪共用 FLOOR_FOG。
+  // 房间内（zoneId）不盖雾——那是独立空间，有自己的小镜头。
+  function drawFogOverlay() {
+    const cfg = WORLD.FLOOR_FOG && WORLD.FLOOR_FOG[floorId];
+    if (!cfg || zoneId) return;
+    const self = renderMap.get(selfId());
+    if (!self) return;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    const sx = (self.x - drawCamX) * scale;
+    const sy = (self.y - drawCamY) * scale;
+    // 轻微呼吸/火光抖动，避免像一块固定黑色遮罩。
+    const wobble = 1 + Math.sin(clock * 6.3) * 0.012 + Math.sin(clock * 13.7) * 0.006;
+    const radius = Math.max(60, cfg.radius * scale * wobble);
+    // 可见圈里加一点暖色火光（贴地），让"一小圈可见"不是冷冰冰的探照灯。
+    const warm = ctx.createRadialGradient(sx, sy, 4, sx, sy, radius * 0.62);
+    warm.addColorStop(0, 'rgba(255,184,108,0.10)');
+    warm.addColorStop(0.55, 'rgba(255,160,90,0.05)');
+    warm.addColorStop(1, 'rgba(255,150,80,0)');
+    ctx.fillStyle = warm;
+    ctx.fillRect(0, 0, cssW, cssH);
+    const g = ctx.createRadialGradient(sx, sy, Math.max(8, radius * 0.26), sx, sy, radius);
+    g.addColorStop(0, 'rgba(3,4,8,0)');
+    g.addColorStop(0.5, 'rgba(3,4,8,0.06)');
+    g.addColorStop(0.72, 'rgba(3,4,8,0.45)');
+    g.addColorStop(0.88, 'rgba(2,3,6,0.88)');
+    g.addColorStop(1, 'rgba(1,2,4,0.99)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cssW, cssH);
+    ctx.restore();
   }
 
   // ---------- 插值与镜头 ----------

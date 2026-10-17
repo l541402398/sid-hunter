@@ -577,6 +577,7 @@ function createRoom(options = {}) {
     }
     const viewer = viewerId === undefined || viewerId === null ? null : find(viewerId);
     const camX = viewer ? cameraXOf(viewer) : 0;
+    const fogActive = !!(viewer && !viewer.zoneId && WORLD.FLOOR_FOG && WORLD.FLOOR_FOG[viewer.floorId]);
     updateGlassDoors(t);
     minigames.tick();
     room._snapNo = (room._snapNo || 0) + 1;
@@ -600,9 +601,16 @@ function createRoom(options = {}) {
       glassDoors: viewer ? WORLD.floorById(viewer.floorId).glassDoors.map(d => ({ id: d.id, open: !!room.glassDoors[viewer.floorId][d.id].open })) : [],
       aliveCount: room.players.filter(p => p.alive).length,
       // SID_AOI=1 时只同步同层同区玩家（默认关闭，保证既有测试与现网行为不变）。
+      // 战争迷雾层（5F）无条件按 FLOOR_FOG 半径裁剪：否则改客户端就能看到墙后的位置。
       players: (function projectPlayers() {
         const near = [], far = [];
+        const fog = fogActive ? WORLD.FLOOR_FOG[viewer.floorId] : null;
         for (const p of room.players) {
+          if (fog && p.id !== viewer.id) {
+            const sameZone = (p.zoneId || null) === (viewer.zoneId || null);
+            if (!sameZone || p.floorId !== viewer.floorId ||
+              Math.hypot(p.x - viewer.x, p.y - viewer.y) > fog.radius) continue;
+          }
           if (AOI_ENABLED && viewer) {
             const sameZone = (p.zoneId || null) === (viewer.zoneId || null);
             const sameFloor = p.floorId === viewer.floorId;
@@ -622,7 +630,7 @@ function createRoom(options = {}) {
       })(),
       lod: LOD_ENABLED || undefined,
       // roster 只在可见性分层启用时才下发，保持默认快照形状不变（既有测试按形状做深比较）。
-      roster: (AOI_ENABLED || SKINS_SPLIT || LOD_ENABLED) && (++room._snapNo || 0) % 20 === 0
+      roster: (AOI_ENABLED || SKINS_SPLIT || LOD_ENABLED || fogActive) && (++room._snapNo || 0) % 20 === 0
         ? room.players.map(p => ({ id: p.id, name: p.name, score: p.score, alive: p.alive, faction: p.faction }))
         : undefined,
       skins: (SKINS_SPLIT && room._snapNo % 20 === 0)

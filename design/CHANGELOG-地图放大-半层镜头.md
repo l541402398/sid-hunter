@@ -203,3 +203,41 @@
   `movement-attack` 14/29（比之前多 1 项）。
 - 已知取舍：碰撞深度受"不堵路"约束压到 24px（全矩形会让 4F 门点全部不可达），
   高柜上半截仍可能被走入；如需要可按类型继续加深。
+
+## 九、5F 地牢：迷宫 + 战争迷雾 + 地面重做（2026-10-18 01:00）
+
+### 9.1 迷宫
+
+- `floors.js` 新增 `buildMazeLayout()`：21×13 格递归回溯（seed 5）+ 10% 开环；
+  墙按整行合并（77 条），左右电梯口强制开放。
+- 5F `FLOOR_SPECS` 标记 `maze:{cols:10,rows:6,seed:5}`；建造期跳过手工墙/家具，
+  只保留 10 个经济容器（稳定 ID），把它们缩到格内并安置到互不重复的开放格。
+- 出生点由开放格生成（12 个，中心优先）；6 个房间门只吸附到 `floor._mazeOpen` 的通道格，
+  门牌净空收窄到 100×56。
+- 5F 陈设改由 `THEME_CLUTTER[5]` 撒 30 件（宝箱/木箱/石柱/骷髅/火把），格子网格从 y≈90 起。
+
+### 9.2 战争迷雾
+
+- `config.js`：`FLOOR_FOG = { 5: { radius: 340 } }`，服务端筛选与客户端渲染共用。
+- `room/index.js`：5F 公共空间无条件按半径裁剪玩家（不再只依赖 SID_AOI）；
+  `roster` 1Hz 通道在迷雾层也下发，保证排行榜仍是全量。
+- `game.js`：`drawFogOverlay()` 画径向渐变黑幕 + 暖色火光 + 呼吸抖动；房间内不盖雾。
+- `aliveCount` 改读服务端全量值，避免 HUD 只显示附近存活人数。
+
+### 9.3 地面/地毯
+
+- 新 `floorMaze`：湿冷碎石板 + 苔藓 + 水洼 + 符文圈，压暗 18%；5F 的 `runner` 置空，
+  移除位置错误且难看的旧地毯。
+- 墙面仍沿用 dungeon 主题（砖石/火把）。
+
+### 9.4 验收
+
+- `rooms-loot-browser-test` PASS；5F 截图 `outputs/status-rooms-loot/theme-5f.png`（迷雾）、
+  `room-5f-dungeon.png`（房间内无迷雾）。
+- `elevator-world/elevator-room/hammer/npc/manager` 全过。
+- 迷雾快照自测：200px 可见、1600px 不可见、非 5F 不裁剪、自己始终可见。
+
+### 9.5 参考（本次授权联网检索）
+
+- SLYNYRD Pixelblog 45（砖/墙/门）中文笔记：https://www.163.com/dy/article/KPDPFRB20526K8VB.html
+- 手机端战争迷雾的实现：https://www.gameres.com/826075.html

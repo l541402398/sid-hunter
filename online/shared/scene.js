@@ -135,7 +135,7 @@
     2: { procedural: 'court',   base: '#2f6a3a', runner: '#c8503c', bloom: 'rgba(255,240,180,0.09)', tint: 'rgba(255,240,190,0.05)' },
     3: { procedural: 'castle',  base: '#3f362b', runner: '#7a2f2f', bloom: 'rgba(255,205,140,0.13)', tint: 'rgba(255,200,140,0.06)' },
     4: { procedural: 'forest',  base: '#2f5230', runner: '#6b5236', bloom: 'rgba(190,255,160,0.10)', tint: 'rgba(180,255,150,0.05)' },
-    5: { procedural: 'dungeon', base: '#241f2b', runner: '#4a3552', bloom: 'rgba(255,168,88,0.14)', tint: 'rgba(255,168,110,0.06)' },
+    5: { procedural: 'maze',    base: '#1a171e', runner: null, bloom: 'rgba(255,150,80,0.09)', tint: 'rgba(70,96,78,0.08)' },
     6: { procedural: 'deck',    base: '#4a3421', runner: '#2e6a7a', bloom: 'rgba(255,220,160,0.10)', tint: 'rgba(255,210,150,0.06)' },
     7: { procedural: 'neon',    base: '#12121c', runner: '#7a1f6a', bloom: 'rgba(180,90,255,0.14)', tint: 'rgba(160,80,255,0.08)' }
   };
@@ -270,7 +270,7 @@
       }
     }
   }
-  const PROC_FLOOR = { scifi: floorScifi, court: floorCourt, castle: floorCastle, forest: floorForest, deck: floorDeck, neon: floorNeon };
+  const PROC_FLOOR = { scifi: floorScifi, court: floorCourt, castle: floorCastle, forest: floorForest, deck: floorDeck, neon: floorNeon, maze: floorMaze };
   // 地板主题纹样（确定性：只依赖世界坐标，所以分块被 LRU 淘汰后重建结果完全一致）
   function floorAccent(g, kind, ox, oy, w, h) {
     const x0 = ox, y0 = oy, x1 = ox + w, y1 = oy + h;
@@ -420,6 +420,38 @@
           g.fillStyle = gr; g.beginPath(); g.arc(cx, cy, 110, 0, Math.PI * 2); g.fill();
           prop(g, 'dgnLight', cx - 24, cy - 24, 48, 48);
         }
+      }
+    }
+  }
+  // 5F 迷宫：湿冷碎石地 + 苔藓 + 水洼 + 淡符文圈。
+  // 不用"整齐砖块"：整齐砖纹在宽视野里会被读成一面墙（用户反馈"地牢地毯/地面不好看"）。
+  function floorMaze(g, st, ox, oy, w, h) {
+    drawFlagstones(g, ox, oy, w, h);
+    g.fillStyle = 'rgba(8,10,12,0.18)'; g.fillRect(ox, oy, w, h);
+    for (let y = oy - oy % 64; y < oy + h; y += 64) for (let x = ox - ox % 64; x < ox + w; x += 64) {
+      const k = Math.abs(Math.round(x / 64) * 73 + Math.round(y / 64) * 131) % 97;
+      if (k % 3 === 0) { g.fillStyle = 'rgba(62,104,66,0.30)'; g.fillRect(x + 6 + (k % 11), y + 12 + (k % 9), 14 + (k % 18), 3); }
+      if (k % 5 === 0) { g.fillStyle = 'rgba(10,16,14,0.40)'; g.fillRect(x + 22, y + 34, 20, 2); }
+      if (k % 7 === 0) { g.fillStyle = 'rgba(120,140,110,0.10)'; g.fillRect(x + 10, y + 48, 3, 3); }
+    }
+    for (let y = oy - oy % 320; y < oy + h; y += 320) for (let x = ox - ox % 320; x < ox + w; x += 320) {
+      const k = Math.abs(Math.round(x / 320) * 29 + Math.round(y / 320) * 53) % 17;
+      if (k % 4 !== 0) continue;
+      const cx = x + 80 + (k * 31) % 190, cy = y + 70 + (k * 43) % 180;
+      g.fillStyle = 'rgba(18,30,34,0.35)';
+      g.beginPath(); g.ellipse(cx, cy, 26 + k % 12, 10 + k % 6, 0.4, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(90,150,150,0.08)'; g.lineWidth = 1; g.stroke();
+    }
+    for (let y = oy - oy % 640; y < oy + h; y += 640) for (let x = ox - ox % 640; x < ox + w; x += 640) {
+      const cx = x + 320, cy = y + 320;
+      if (cx < ox - 40 || cx > ox + w + 40 || cy < oy - 40 || cy > oy + h + 40) continue;
+      g.strokeStyle = 'rgba(96,190,170,0.10)'; g.lineWidth = 2;
+      g.beginPath(); g.arc(cx, cy, 58, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.arc(cx, cy, 44, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = 'rgba(96,190,170,0.16)';
+      for (let i = 0; i < 6; i++) {
+        const a = i / 6 * Math.PI * 2;
+        g.beginPath(); g.moveTo(cx + Math.cos(a) * 30, cy + Math.sin(a) * 30); g.lineTo(cx + Math.cos(a) * 40, cy + Math.sin(a) * 40); g.stroke();
       }
     }
   }

@@ -47,6 +47,74 @@
   const L24 = [[0, 0], [1500, 0], [1500, 1000], [255, 1000], [255, 710], [122, 710], [122, 550], [0, 550]];
   const L56 = [[0, 0], [1500, 0], [1500, 1000], [151, 1000], [151, 620], [72, 620], [72, 520], [0, 520]];
 
+  // 点是否在楼面轮廓内（本地版本，建造期 FLOORS 还没注册，不能调 inFloor）。
+  const pointInPoly = (poly, x, y) => {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  };
+  // ===== 5F 地牢迷宫 =====
+  // 在 (2*cols+1)×(2*rows+1) 的格子上跑递归回溯（完美迷宫），再随机开少量环，
+  // 让"死路"不至于太惩罚。墙壁按整格合并成横条，减少碰撞矩形数量。
+  // 电梯口两格强制打开，否则出生点/玻璃门到不了楼面。
+  function buildMazeLayout(spec) {
+    const { cols, rows, seed } = spec.maze;
+    const gw = cols * 2 + 1, gh = rows * 2 + 1;
+    const g = Array.from({ length: gh }, () => Array(gw).fill(1));
+    let s = (seed >>> 0) || 5;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const stack = [[1, 1]]; g[1][1] = 0;
+    const dirs = [[0, -2], [0, 2], [-2, 0], [2, 0]];
+    while (stack.length) {
+      const [cx, cy] = stack[stack.length - 1];
+      const opts = dirs.map(([dx, dy]) => [cx + dx, cy + dy, dx, dy])
+        .filter(([x, y]) => x > 0 && y > 0 && x < gw - 1 && y < gh - 1 && g[y][x] === 1);
+      if (!opts.length) { stack.pop(); continue; }
+      const [nx, ny, dx, dy] = opts[Math.floor(rnd() * opts.length)];
+      g[cy + dy / 2][cx + dx / 2] = 0; g[ny][nx] = 0;
+      stack.push([nx, ny]);
+    }
+    // 开环：消除约 10% 的内部墙格，避免整层只有一条正确路线。
+    for (let y = 2; y < gh - 2; y += 2) for (let x = 1; x < gw - 1; x++) if (g[y][x] === 1 && rnd() < 0.10) g[y][x] = 0;
+    // 电梯口：左右两端的第 1 行必须直通。
+    g[1][0] = 0; g[1][gw - 1] = 0;
+    const cellW = FLOOR_W / gw, cellH = FLOOR_H / gh;
+    const poly = spec.outline.map(([x, y]) => ({ x: nX(x), y: nY(y) }));
+    const inside = (x, y) => pointInPoly(poly, x, y);
+    const walls = []; let wid = 0;
+    for (let ry = 0; ry < gh; ry++) {
+      let run = 0;
+      for (let rx = 0; rx <= gw; rx++) {
+        const isWall = rx < gw && g[ry][rx] === 1 && inside((rx + 0.5) * cellW, (ry + 0.5) * cellH);
+        if (isWall) { run++; continue; }
+        if (run) {
+          const x = Math.round((rx - run) * cellW), y = Math.round(ry * cellH);
+          const w = Math.round(run * cellW), h = Math.round(cellH);
+          walls.push({ id: `f${spec.id}:wall:maze:${wid++}`, x, y, w, h, type: 'wall',
+            footprint: { x, y, w, h }, depth: y + h });
+          run = 0;
+        }
+      }
+    }
+    const open = [];
+    for (let ry = 1; ry < gh; ry += 2) for (let rx = 1; rx < gw; rx += 2) {
+      if (g[ry][rx] !== 0) continue;
+      const x = (rx + 0.5) * cellW, y = (ry + 0.5) * cellH;
+      if (inside(x, y)) open.push({ x, y });
+    }
+    // 出生点：从开放格里均匀取 12 个，归一化后交给原有 spawns 流程（会再做碰撞体检）。
+    const spawnsNorm = [];
+    for (let i = 0; i < open.length && spawnsNorm.length < 12; i += Math.max(1, Math.floor(open.length / 12))) {
+      spawnsNorm.push([open[i].x / FLOOR_W * X_SPAN, open[i].y / FLOOR_H * Y_SPAN]);
+    }
+    // 中心附近的出生点排前面：首屏/截图不会一出生就贴着楼角。
+    spawnsNorm.sort((a, b) => Math.hypot(a[0] - 750, a[1] - 500) - Math.hypot(b[0] - 750, b[1] - 500));
+    return { walls, open, cellW, cellH, spawnsNorm };
+  }
+
   // 每层规格：rooms 用 zones 呈现；furniture 行为 [type,label,x1,y1,x2,y2,flag?]（角点、0–1000 归一化）。
   // 可搜容器以 flag 'container:<name>' 标记并生成稳定 ID f{层}:container:{name}。
   // walls 行为 [orient,fixed,a1,a2]（orient 'h'/'v'），是真正的碰撞墙体；门=两段墙之间留出的空隙，
@@ -196,7 +264,7 @@
         ['h', 650, 1000, 1160], ['h', 650, 1300, 1500]],
       spawns: [[70, 250], [183, 660], [330, 250], [583, 260], [631, 825], [900, 300], [900, 700], [1080, 500], [1080, 850]] },
 
-    { id: 5, name: '5F · 地牢回廊层', source: 'real', outline: L56,
+    { id: 5, name: '5F · 地牢回廊层', source: 'real', outline: L56, maze: { cols: 10, rows: 6, seed: 5 },
       zones: ['501', '502', '503', '核心筒', '卫生间', '516', '值班室', '左下附翼', '会议区', '509', '茶水间', '东侧服务翼'],
       stairLeft: [70, 250], stairRight: [1220, 620],
       furniture: [
@@ -347,6 +415,9 @@
         polygon: spec.outline.map(([x, y]) => ({ x: nX(x), y: nY(y) })),
         furniture: [], walls: [], doors: [], spawnPoints: [], portals: [], npcs: []
       };
+      // 5F 地牢：整层换成程序生成的迷宫；家具只保留经济容器，并挪进开放格。
+      const maze = spec.maze ? buildMazeLayout(spec) : null;
+      if (maze) { floor.maze = { cellW: maze.cellW, cellH: maze.cellH }; floor._mazeOpen = maze.open; }
       // 家具：经济容器保留原稳定 ID，装饰按楼层编号；坐标调整不改变经济键。
       // 阶段4（需求③）：spec.furniture 之后追加 dressing.js 的逐层陈设，让"空荡荡的楼层"变成有内容的空间。
       // 追加项与原始项走完全相同的建造逻辑（碰撞/足迹/容器登记），不引入第二条代码路径。
@@ -359,6 +430,8 @@
         return w > 0 && h > 0 ? w * h : 0;
       };
       rows.forEach((row, i) => {
+        // 迷宫层：非容器家具会被墙切断/挡路，直接不上楼；容器留到最后统一安置到开放格。
+        if (maze && !(typeof row[6] === 'string' && row[6].indexOf('container:') === 0)) return;
         const [type, label, x1, y1, x2, y2, flag] = row;
         const r = visualRect(nRect([x1, y1, x2, y2]));
         // 后加的陈设（dressing）若与已放置家具明显重叠就跳过，避免物品堆积/错位。
@@ -393,7 +466,34 @@
         if (container) f.container = container;
         floor.furniture.push(f);
       });
+      // 迷宫层：把经济容器塞进互不重复的开放格，并缩到格子内（长桌不再横穿走廊）。
+      if (maze) {
+        const cells = maze.open.slice();
+        const used = new Set();
+        for (const f of floor.furniture) {
+          let pick = -1;
+          for (let k = 0; k < cells.length; k++) {
+            const idx = (Math.floor(cells.length * 0.13) + k * 7) % cells.length;
+            if (!used.has(idx)) { pick = idx; break; }
+          }
+          if (pick < 0) pick = 0;
+          used.add(pick);
+          const cell = cells[pick];
+          f.w = Math.min(f.w, Math.max(44, Math.round(maze.cellW - 30)));
+          f.h = Math.min(f.h, Math.max(26, Math.round(maze.cellH - 18)));
+          f.x = Math.round(cell.x - f.w / 2);
+          f.y = Math.round(cell.y - f.h / 2);
+          const footH = Math.max(10, Math.min(f.h, Math.round(f.h * 0.8)));
+          f.footprint = { x: f.x, y: f.y + f.h - footH, w: f.w, h: footH };
+          f.blocks = blocksFor(f);
+          f.depth = f.y + f.h;
+        }
+      }
       // 墙体：真实碰撞矩形，厚度约 7 归一化；门是两段墙间的空隙，天然可通行。
+      // 迷宫层用生成好的整格墙条，不再走原来的手工墙。
+      if (maze) {
+        for (const w of maze.walls) floor.walls.push({ ...w });
+      } else
       // 阶段2-阶段1（门洞改世界 px）：开口净宽按轴绑定身体包络 —— h 门沿 x 用身体 18px、声明开口 40px；
       //  v 门沿 y 用脚部 9px、声明开口 32px。门洞与墙段都在 px 上生成，端部守卫按同轴换算回归一化单位。
       spec.walls.forEach((w, i) => {
@@ -443,7 +543,7 @@
         }
         return true;
       };
-      spec.spawns.forEach(([x, y]) => {
+      (maze ? maze.spawnsNorm : spec.spawns).forEach(([x, y]) => {
         let sx = nX(x), sy = nY(y);
         if (!freeAt(sx, sy)) {
           let best = null;

@@ -113,5 +113,8 @@
     if (a === b) return 0;
     return ({ rock: 'scissors', paper: 'rock', scissors: 'paper' })[a] === b ? 1 : -1;
   }
-  return { WORLD_W, WORLD_H, FLOOR_SCALE, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome };
+  // 战争迷雾：5F 地牢回廊。半径是世界像素，服务端裁剪与客户端渲染共用同一份，
+  // 否则改客户端会看到"服务端没发、但客户端还画着残影"的不一致。
+  const FLOOR_FOG = { 5: { radius: 340 } };
+  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome };
 });

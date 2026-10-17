@@ -8,7 +8,7 @@
   root.WORLD = WORLD;
   if (isNode) module.exports = WORLD;
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const { WORLD_W, WORLD_H, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, ATTACK_ANIMATION_MS, drawCharacterBody } = D;
+  const { WORLD_W, WORLD_H, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, ATTACK_ANIMATION_MS, drawCharacterBody } = D;
   const { ROOM_SIZES, WALL_T, DOOR_HALF, ENTER_PAD, ROOM_SPECS, ROOM_LIST, ROOMS, roomById, roomsForFloor,
     roomBlockers, roomCollides, inRoom, roomBounds, roomCamera, roomInteractables, roomDoorNear,
     zoneContainers, zoneFurniture, zoneBlockers, zoneCollides, zoneBounds, zoneCamera } = D;
@@ -36,7 +36,7 @@
     }
   })();
   const WORLD = {
-    WORLD_W, WORLD_H, VIEW_W, VIEW_H, SPEED, MIN_X, MAX_X, MIN_Y, MAX_Y,
+    WORLD_W, WORLD_H, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_X, MAX_X, MIN_Y, MAX_Y,
     // 后墙墙带高度（世界像素）：墙带覆盖楼面北侧 y<WALL_BASE 的区域，属纯背景，不参与碰撞。
     // 两端 drawBackWall 与 shared/scene.js 的家具裁剪共用此值，避免"家具画到墙上"。
     WALL_BASE: 58,
