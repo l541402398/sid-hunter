@@ -3,7 +3,7 @@
 // 本文件是聚合器：子模块在 online/shared/world/*.js（浏览器需按序先加载它们），导出 window.WORLD / module.exports 保持不变。
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
-  const D = isNode ? Object.assign({}, require('./world/config.js'), require('./world/geometry.js'), require('./world/furniture.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/loot.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const D = isNode ? Object.assign({}, require('./world/config.js'), require('./world/geometry.js'), require('./world/furniture.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/clutter.js'), require('./world/loot.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
   const WORLD = factory(D);
   root.WORLD = WORLD;
   if (isNode) module.exports = WORLD;

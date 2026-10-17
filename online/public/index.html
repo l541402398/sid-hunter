@@ -12,8 +12,9 @@
 <!-- dressing.js 必须先于 floors.js：floors.js 建造时会把逐层陈设 concat 进家具表 -->
 <script src="/shared/world/dressing.js" defer></script>
 <script src="/shared/world/floors.js" defer></script>
-<!-- rooms.js 依赖 floors.js；loot.js 无依赖 -->
+<!-- rooms.js 依赖 floors.js；clutter.js 依赖 floors+rooms（按楼层撒装饰）；loot.js 无依赖 -->
 <script src="/shared/world/rooms.js" defer></script>
+<script src="/shared/world/clutter.js" defer></script>
 <script src="/shared/world/loot.js" defer></script>
 <script src="/shared/world/sprite.js" defer></script>
 <script src="/shared/world.js" defer></script>

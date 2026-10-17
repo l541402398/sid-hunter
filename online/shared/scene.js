@@ -486,6 +486,11 @@
   // 未配置的 type 自动回落到下面的默认 Antea 办公家具。图集 key 见 THEME_SHEETS。
   const THEME_FURN={};        // 主题家具表：floorId -> { type: spec }
   function themeSpec(id,type,item){
+    // 场景陈设（clutter.js）：单件自带 prop 的家具优先按自己的素材画，
+    // 这样"每层补什么树/石头/霓虹牌"由数据决定，不必往 THEME_FURN 里塞几十个假 type。
+    if (item && item.prop && props[item.prop]) {
+      return { prop: item.prop, scale: item.propScale || 2, repeat: !!item.propRepeat, native: !!item.propNative };
+    }
     // 第二轮：七层是七个世界观，房间也跟着所在楼层走（不再只对某一层例外）。
     const row=THEME_FURN[id];
     return row&&row[type]||null;
@@ -538,53 +543,79 @@
   // ===== 第二轮：七层七世界观 —— 逐层主题陈设 =====
   // 原则：**不把整层家具都换掉**（那会变成"同一栋楼换皮"），只替换"一眼认得出世界观"的那几类，
   // 其余保持现代办公家具，形成"办公室被搬进了这个世界"的观感。
+  // 家具种类与楼层主题必须一一对应：5F 是地牢、7F 是赛博，不能沿用旧版本的"健身层"配置。
+  // 同一 type 的后者会覆盖前者，所以每层只在这一处定义，避免出现"地牢层盆栽变回办公绿植"。
   THEME_FURN[1] = {   // 科幻实验室
     cabinet:   {prop:'controlBox', scale:2},
     vending:   {prop:'cyberLight', scale:2},
-    plant:     {prop:'antenna', scale:2}
+    plant:     {prop:'antenna', scale:2},
+    shelf:     {prop:'controlBox', scale:2},
+    tv:        {prop:'monitorFace', scale:3}
   };
-  THEME_FURN[4] = {   // 森林：树/灌木/树桩/石头
-    plant:     {prop:'forestTree1', scale:1},
-    sofa:      {prop:'forestBrush1', scale:1},
-    cabinet:   {prop:'forestStump', scale:1},
-    crate:     {prop:'forestRock1', scale:2},
-    boxstack:  {prop:'forestRock1', scale:2},
-    bench:     {prop:'forestRock2', scale:2}
+  // 2F 竞技运动：木长桌/木椅 + 真实球场材质（Kenney Sports Pack, CC0，64px 平块）
+  THEME_FURN[2] = {
+    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},   // 场边长桌（器材登记）
+    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
+    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
+    stage:     {sheet:'sports',col:0,row:0,cw:1,ch:1},
+    mat:       {sheet:'sports',col:0,row:0,cw:1,ch:1}
   };
-  THEME_FURN[3] = {   // 魔幻城堡：宝箱/木箱/石柱
+  THEME_FURN[3] = {   // 魔幻城堡：木桌 + 宝箱/木箱/石柱
+    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},
+    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
+    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
     cabinet:   {prop:'dgnChest', scale:2},
     crate:     {prop:'dgnBoxes', scale:2},
     plant:     {prop:'dgnColumn', scale:2},
     locker:    {prop:'dgnChestOpen', scale:2}
   };
-  THEME_FURN[5] = {   // 地牢
+  THEME_FURN[4] = {   // 森林：树/灌木/树桩/石头（按素材尺寸放大，否则 16px 树苗淹没在草地里）
+    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},   // 原木工作台
+    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
+    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
+    plant:     {prop:'forestTree1', scale:2},
+    sofa:      {prop:'forestBrush1', scale:2},
+    cabinet:   {prop:'forestStump', scale:2},
+    crate:     {prop:'forestRock1', scale:3},
+    boxstack:  {prop:'forestRock1', scale:3},
+    bench:     {prop:'forestRock2', scale:3},
+    shelf:     {prop:'forestTree2', scale:2},
+    lamp:      {prop:'forestFlowerR', scale:3}
+  };
+  THEME_FURN[5] = {   // 地牢：木桌 + 宝箱/木箱/石柱/骷髅
+    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},
+    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
+    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
     cabinet:   {prop:'dgnChest', scale:2},
     crate:     {prop:'dgnBoxes', scale:2},
     boxstack:  {prop:'dgnBoxes', scale:2},
     plant:     {prop:'dgnSkull', scale:2},
     locker:    {prop:'dgnChestOpen', scale:2},
-    vending:   {prop:'dgnColumn', scale:2}
+    vending:   {prop:'dgnColumn', scale:2},
+    shelf:     {prop:'dgnColumn', scale:2}
   };
-  THEME_FURN[6] = {   // 海盗船：宝箱/木箱/桅杆
+  THEME_FURN[6] = {   // 海盗船：木桌 + 宝箱/木箱/桅杆
+    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},
+    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
+    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
     cabinet:   {prop:'dgnChest', scale:2},
     crate:     {prop:'dgnBoxes', scale:2},
     plant:     {prop:'dgnColumn', scale:2}
   };
-  THEME_FURN[7] = {   // 赛博霓虹：天线/霓虹招牌/广告屏
+  THEME_FURN[7] = {   // 赛博霓虹：天线/霓虹招牌/广告屏/发光地台
     plant:     {prop:'antenna', scale:1},
     vending:   {prop:'bannerSmall', scale:2},
     tv:        {prop:'monitorFace', scale:3},
-    whiteboard:{prop:'bannerBig', scale:1}
-  };
-  THEME_FURN[5] = {
-    plant:     {sheet:'indoors',col:16,row:0,cw:1,ch:1,native:true}   // 盆栽（按 16px 原生绘制，勿放大）
-  };
-  // 注：旧的 F6 棒棒糖（candyPop）替换已取消 —— 6F 现在的主题是"财务·保险库"，
-  // 巨型棒棒糖与金库石墙互相打架。糖果素材仍留在 vendor 里，不再随运行时加载。
-  // ===== F7 活力运动：场地用真实球场材质（Kenney Sports Pack, CC0，64px 平块）=====
-  THEME_FURN[7]={
-    stage:     {sheet:'sports',col:0,row:0,cw:1,ch:1},
-    mat:       {sheet:'sports',col:0,row:0,cw:1,ch:1}
+    whiteboard:{prop:'bannerBig', scale:1},
+    shelf:     {prop:'hotelSign', scale:1},
+    lamp:      {prop:'cyberLight', scale:1},
+    cabinet:   {prop:'controlBox', scale:2},
+    // 旧健身层的遗留家具：7F 已改为赛博霓虹，跑步机/哑铃架/场地要换成机柜/天线/霓虹地台，
+    // 否则这些家具既不画出来、又保留碰撞，变成"撞空气"。
+    treadmill: {prop:'controlBox', scale:2},
+    rack:      {prop:'antenna', scale:1},
+    stage:     {prop:'neonFloorBase', scale:1, repeat:true},
+    mat:       {prop:'neonStripH', scale:1, repeat:true}
   };
   function furniture(g,f){
     if(f.architecturalPlaceholder)return true;

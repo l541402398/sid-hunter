@@ -201,10 +201,74 @@
       ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
     ]
   };
+  // ===== 放大后的「场景陈设」：按楼层世界观撒放真实素材 =====
+  // 与 DRESSING 的区别：DRESSING 是手工摆位（含容器/功能点），这一份是**纯装饰**，
+  // 由 clutter.js 在楼面空隙里按网格确定性撒放（不挡路、不覆盖容器/门点/出生点）。
+  // prop  = scene.js 已加载的单图素材键；w/h = 绘制后的像素尺寸（含整数倍放大）；
+  // scale = 允许的最大整数倍（drawSpecAt 会按 footprint 宽度再夹一次）。
+  const deco = (prop, w, h, scale, label, weight = 1) => ({ prop, w, h, scale, label, weight });
+  const THEME_CLUTTER = {
+    1: [   // 科幻实验室：机柜/天线/冷光
+      deco('controlBox', 64, 60, 2, '服务器机柜', 3),
+      deco('antenna', 44, 192, 2, '信号天线', 2),
+      deco('cyberLight', 110, 136, 2, '冷光灯柱', 1),
+      deco('monitorFace', 63, 54, 3, '监控屏', 2),
+      deco('neonHolo', 32, 32, 2, '全息地标', 2)
+    ],
+    2: [   // 竞技运动层：球场边的长凳/储物柜/器材（用普通家具类型，按默认办公素材绘制）
+      { type: 'bench', w: 120, h: 40, label: '场边长凳', weight: 3 },
+      { type: 'locker', w: 56, h: 96, label: '球员储物柜', weight: 2 },
+      { type: 'cooler', w: 40, h: 60, label: '饮水站', weight: 1 },
+      { type: 'crate', w: 56, h: 56, label: '器材箱', weight: 2 },
+      { type: 'shelf', w: 80, h: 90, label: '器材架', weight: 1 }
+    ],
+    3: [   // 魔幻城堡
+      deco('dgnChest', 48, 48, 3, '宝箱', 2),
+      deco('dgnBoxes', 32, 64, 2, '木箱堆', 2),
+      deco('dgnColumn', 32, 96, 2, '石柱', 2),
+      deco('dgnSkull', 32, 32, 2, '头骨', 1),
+      deco('dgnTorch1', 28, 46, 2, '火把', 1),
+      deco('dgnChestOpen', 48, 48, 3, '打开的宝箱', 1)
+    ],
+    4: [   // 幽深森林
+      deco('forestTree1', 132, 194, 2, '古树', 3),
+      deco('forestTree2', 64, 148, 2, '小树', 2),
+      deco('forestBrush1', 86, 80, 2, '灌木', 2),
+      deco('forestStump', 60, 48, 2, '树桩', 2),
+      deco('forestRock1', 44, 36, 4, '岩石', 2),
+      deco('forestRock2', 44, 36, 4, '碎石', 1),
+      deco('forestFlowerR', 20, 20, 4, '红花', 2),
+      deco('forestFlowerB', 20, 20, 4, '蓝花', 2)
+    ],
+    5: [   // 地牢回廊
+      deco('dgnChest', 48, 48, 3, '宝箱', 2),
+      deco('dgnBoxes', 32, 64, 2, '木箱堆', 2),
+      deco('dgnColumn', 32, 96, 2, '石柱', 2),
+      deco('dgnSkull', 32, 32, 2, '头骨', 2),
+      deco('dgnChestOpen', 48, 48, 3, '打开的宝箱', 1),
+      deco('dgnTorch1', 28, 46, 2, '火把', 2)
+    ],
+    6: [   // 海盗甲板
+      deco('dgnChest', 48, 48, 3, '宝箱', 2),
+      deco('dgnBoxes', 32, 64, 2, '货箱', 3),
+      deco('dgnColumn', 32, 96, 2, '桅杆', 1),
+      deco('dgnBox', 32, 64, 2, '木桶', 2)
+    ],
+    7: [   // 赛博霓虹
+      deco('antenna', 44, 192, 2, '信号天线', 2),
+      deco('cyberLight', 110, 136, 2, '霓虹灯柱', 2),
+      deco('bannerSmall', 26, 70, 2, '霓虹条幅', 2),
+      deco('bannerBig', 90, 60, 1, '巨型广告牌', 1),
+      deco('monitorFace', 63, 54, 3, '广告屏', 2),
+      deco('hotelSign', 68, 35, 1, '旅馆招牌', 1),
+      deco('controlBox', 64, 60, 2, '配电箱', 2),
+      deco('neonHolo', 32, 32, 2, '全息地标', 2)
+    ]
+  };
   // 把「别让它太空」补丁接到每层末尾。用追加而不是改写既有数组，
   // 让原有手工摆位保持可读、可回溯（谁加的、加在哪一层一目了然）。
   for (const key of Object.keys(DRESSING)) {
     if (Array.isArray(DRESSING[key])) DRESSING[key] = DRESSING[key].concat(filler(Number(key)), filler2(Number(key)));
   }
-  return { DRESSING };
+  return { DRESSING, THEME_CLUTTER };
 });
