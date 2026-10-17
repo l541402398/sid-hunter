@@ -529,6 +529,8 @@
   }
   // 逐 blocks 绘制：工位岛一行一块，逐块画，保证「画什么、撞什么」一致（此前只取 blocks[0] 会漏掉第二排）
   function drawSpec(g,spec,f){
+    // 场景陈设：碰撞只取树干宽，但绘制仍按整株视觉宽度（否则树会被压成 16px 树苗）。
+    if (f.clutter) return drawSpecAt(g, spec, f.x, f.w, baseY(f));
     const blocks=(f.blocks&&f.blocks.length)?f.blocks:[{x:f.x,y:f.y,w:f.w,h:f.h}];
     let any=false;
     for(const b of blocks)any=drawSpecAt(g,spec,b.x,b.w,b.y+b.h)||any;
@@ -570,9 +572,9 @@
     locker:    {prop:'dgnChestOpen', scale:2}
   };
   THEME_FURN[4] = {   // 森林：树/灌木/树桩/石头（按素材尺寸放大，否则 16px 树苗淹没在草地里）
-    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},   // 原木工作台
-    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
-    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
+    desk:      {prop:'forestStump', scale:2},   // 办公桌在森林里不合理：改成可搜的树桩台
+    table:     {prop:'forestStump', scale:2},
+    chair:     {prop:'forestRock2', scale:3},
     plant:     {prop:'forestTree1', scale:2},
     sofa:      {prop:'forestBrush1', scale:2},
     cabinet:   {prop:'forestStump', scale:2},

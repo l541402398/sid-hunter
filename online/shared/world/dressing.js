@@ -230,14 +230,14 @@
       deco('dgnTorch1', 28, 46, 2, '火把', 1),
       deco('dgnChestOpen', 48, 48, 3, '打开的宝箱', 1)
     ],
-    4: [   // 幽深森林
-      deco('forestTree1', 132, 194, 2, '古树', 3),
-      deco('forestTree2', 64, 148, 2, '小树', 2),
-      deco('forestBrush1', 86, 80, 2, '灌木', 2),
+    4: [   // 幽深森林：树要占多数，否则空地还是像草坪
+      deco('forestTree1', 132, 194, 2, '古树', 6),
+      deco('forestTree2', 64, 148, 2, '小树', 4),
+      deco('forestBrush1', 86, 80, 2, '灌木', 3),
       deco('forestStump', 60, 48, 2, '树桩', 2),
-      deco('forestRock1', 44, 36, 4, '岩石', 2),
+      deco('forestRock1', 44, 36, 4, '岩石', 1),
       deco('forestRock2', 44, 36, 4, '碎石', 1),
-      deco('forestFlowerR', 20, 20, 4, '红花', 2),
+      deco('forestFlowerR', 20, 20, 4, '红花', 1),
       deco('forestFlowerB', 20, 20, 4, '蓝花', 2)
     ],
     5: [   // 地牢回廊

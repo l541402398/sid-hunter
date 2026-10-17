@@ -73,17 +73,19 @@
           if (!inFloor(fid, bx, by) || !inFloor(fid, bx, by - 10)) continue;
           if (by < 350 || by > floor.height - 30) continue;
           // 视觉矩形（整棵树/霓虹牌）用于避免两件陈设叠在一起；
-          // 与既有家具只校验**基座**——树冠叠在桌子后面是正常的景深，不算穿模。
+          // 与既有家具只校验**树干/底座**——树冠叠在桌子后面是正常的景深，不算穿模。
           const visual = { x: left, y: top, w, h };
-          const base = { x: left, y: by - 22, w, h: 22 };
+          const footW = Math.min(w, 64);
+          const footLeft = Math.round(bx - footW / 2);
+          const base = { x: footLeft, y: by - 22, w: footW, h: 22 };
           if (occupied.some(q => rectHit(base, q, 2))) continue;
           if (placed.some(q => rectHit(visual, q, 8))) continue;
           // 不盖住房间门牌 / 电梯口 / 出生点。
           if (doors.some(d => Math.hypot(d.x - bx, d.y - by) < 110)) continue;
           if (portals.some(p => rectHit(visual, p, 70))) continue;
           if (spawns.some(s => Math.hypot(s.x - bx, s.y - by) < 60)) continue;
-          // 基座碰撞条：只有最南沿 16px，允许人从北侧/两侧绕过。
-          const foot = { x: left, y: by - 16, w, h: 16 };
+          // 基座碰撞条：只有最南沿 16px、树干宽度，允许人从两侧绕过。
+          const foot = { x: footLeft, y: by - 16, w: footW, h: 16 };
           const f = {
             id: `f${fid}:clutter:${made}`,
             floorId: fid,
