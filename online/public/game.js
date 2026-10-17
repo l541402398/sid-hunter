@@ -2125,21 +2125,24 @@
     }
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
   }
-  // 可搜容器的"脚下光圈"：半径固定 20×10 世界像素，跟着相机缩放但不跟着家具尺寸膨胀。
+  // 可搜容器的"脚下光圈"：大小跟素材里实际物体宽度走（不是整张 PNG，也不是整件家具矩形）。
   // ready = 呼吸椭圆 + 内圈；blocked/idle = 灰圈，仍能看出这里可以搜。
   function drawContainerMarker(f, tier) {
     const cx = f.x + f.w / 2, by = f.y + f.h;
+    const span = (SCENE && SCENE.visualWidth) ? SCENE.visualWidth(f) : f.w;
+    const rx = Math.max(8, Math.min(26, span / 2 + 4));
+    const ry = rx * 0.5;
     ctx.save();
     if (tier === 'ready') {
       const pulse = .55 + .4 * (0.5 + 0.5 * Math.sin(clock * 3.2));
       ctx.globalAlpha = pulse; ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.ellipse(cx, by - 2, 20, 10, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cx, by - 2, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = .45; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(cx, by - 2, 11, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cx, by - 2, rx * 0.55, ry * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
     } else {
       ctx.globalAlpha = tier === 'blocked' ? .5 : .16;
       ctx.strokeStyle = '#8b93a6'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(cx, by - 2, 16, 8, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(cx, by - 2, rx * 0.8, ry * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
   }

@@ -546,8 +546,12 @@
       const im=props[spec.prop];if(!im)return false;
       if(spec.repeat)return propRow(g,spec.prop,x,w,bottomY,spec.scale||1);
       const s=spec.native?1:Math.max(1,Math.min(spec.scale||2,Math.floor(w/Math.max(1,im.width))));
-      const pw=im.width*s, ph=im.height*s;
-      return prop(g,spec.prop,x+w/2-pw/2,bottomY-ph,pw,ph);
+      // 对齐"不透明物体"的底边中点，而不是整张 PNG 画布的底边中点：
+      // 素材四周有透明边时，否则会看起来浮空/偏移，碰撞和光圈也会对不上。
+      const b=(root.WORLD&&root.WORLD.SPRITE_BOUNDS&&root.WORLD.SPRITE_BOUNDS[spec.prop])||[im.width,im.height,0,0,im.width,im.height];
+      const dx=x+w/2-(b[4]*s)/2-b[2]*s;
+      const dy=bottomY-b[5]*s-b[3]*s;
+      return prop(g,spec.prop,Math.round(dx),Math.round(dy),im.width*s,im.height*s);
     }
     const cell=cellOf(spec.sheet).tile, cw=spec.cw||1, ch=spec.ch||1, bw=cw*cell, bh=ch*cell;
     if(spec.single){
@@ -575,82 +579,29 @@
   // 每层的差异由**地面材质 + 墙面构造 + 陈设小物 + 环境光**承担（见 floorStyles / THEMES）。
   // 仅保留少量"确实表达主题"的替换项（档案层的木文件柜、甜点层的棒棒糖、运动层的场地）。
   // ===== 第二轮：七层七世界观 —— 逐层主题陈设 =====
-  // 原则：**不把整层家具都换掉**（那会变成"同一栋楼换皮"），只替换"一眼认得出世界观"的那几类，
-  // 其余保持现代办公家具，形成"办公室被搬进了这个世界"的观感。
-  // 家具种类与楼层主题必须一一对应：5F 是地牢、7F 是赛博，不能沿用旧版本的"健身层"配置。
-  // 同一 type 的后者会覆盖前者，所以每层只在这一处定义，避免出现"地牢层盆栽变回办公绿植"。
-  THEME_FURN[1] = {   // 科幻实验室
-    cabinet:   {prop:'controlBox', scale:2},
-    vending:   {prop:'cyberLight', scale:2},
-    plant:     {prop:'antenna', scale:2},
-    shelf:     {prop:'controlBox', scale:2},
-    tv:        {prop:'monitorFace', scale:3}
-  };
-  // 2F 竞技运动：木长桌/木椅 + 真实球场材质（Kenney Sports Pack, CC0，64px 平块）
-  THEME_FURN[2] = {
-    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},   // 场边长桌（器材登记）
-    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
-    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
-    stage:     {sheet:'sports',col:0,row:0,cw:1,ch:1},
-    mat:       {sheet:'sports',col:0,row:0,cw:1,ch:1}
-  };
-  THEME_FURN[3] = {   // 魔幻城堡：木桌 + 宝箱/木箱/石柱
-    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},
-    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
-    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
-    cabinet:   {prop:'dgnChest', scale:2},
-    crate:     {prop:'dgnBoxes', scale:2},
-    plant:     {prop:'dgnColumn', scale:2},
-    locker:    {prop:'dgnChestOpen', scale:2}
-  };
-  THEME_FURN[4] = {   // 森林：树/灌木/树桩/石头（按素材尺寸放大，否则 16px 树苗淹没在草地里）
-    desk:      {prop:'forestStump', scale:2},   // 办公桌在森林里不合理：改成可搜的树桩台
-    table:     {prop:'forestStump', scale:2},
-    chair:     {prop:'forestRock2', scale:3},
-    plant:     {prop:'forestTree1', scale:2},
-    sofa:      {prop:'forestBrush1', scale:2},
-    cabinet:   {prop:'forestStump', scale:2},
-    crate:     {prop:'forestRock1', scale:3},
-    boxstack:  {prop:'forestRock1', scale:3},
-    bench:     {prop:'forestRock2', scale:3},
-    shelf:     {prop:'forestTree2', scale:2},
-    lamp:      {prop:'forestFlowerR', scale:3}
-  };
-  THEME_FURN[5] = {   // 地牢：木桌 + 宝箱/木箱/石柱/骷髅
-    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},
-    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
-    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
-    cabinet:   {prop:'dgnChest', scale:2},
-    crate:     {prop:'dgnBoxes', scale:2},
-    boxstack:  {prop:'dgnBoxes', scale:2},
-    plant:     {prop:'dgnSkull', scale:2},
-    locker:    {prop:'dgnChestOpen', scale:2},
-    vending:   {prop:'dgnColumn', scale:2},
-    shelf:     {prop:'dgnColumn', scale:2}
-  };
-  THEME_FURN[6] = {   // 海盗船：木桌 + 宝箱/木箱/桅杆
-    desk:      {sheet:'indoors',col:0,row:0,cw:3,ch:1},
-    table:     {sheet:'indoors',col:4,row:0,cw:2,ch:1},
-    chair:     {sheet:'indoors',col:0,row:2,cw:1,ch:1,single:true},
-    cabinet:   {prop:'dgnChest', scale:2},
-    crate:     {prop:'dgnBoxes', scale:2},
-    plant:     {prop:'dgnColumn', scale:2}
-  };
-  THEME_FURN[7] = {   // 赛博霓虹：天线/霓虹招牌/广告屏/发光地台
-    plant:     {prop:'antenna', scale:1},
-    vending:   {prop:'bannerSmall', scale:2},
-    tv:        {prop:'monitorFace', scale:3},
-    whiteboard:{prop:'bannerBig', scale:1},
-    shelf:     {prop:'hotelSign', scale:1},
-    lamp:      {prop:'cyberLight', scale:1},
-    cabinet:   {prop:'controlBox', scale:2},
-    // 旧健身层的遗留家具：7F 已改为赛博霓虹，跑步机/哑铃架/场地要换成机柜/天线/霓虹地台，
-    // 否则这些家具既不画出来、又保留碰撞，变成"撞空气"。
-    treadmill: {prop:'controlBox', scale:2},
-    rack:      {prop:'antenna', scale:1},
-    stage:     {prop:'neonFloorBase', scale:1, repeat:true},
-    mat:       {prop:'neonStripH', scale:1, repeat:true}
-  };
+  // 原则：**不把整层家具都换掉**（那会变成"同一栋楼换皮"），只替换"一眼认得出世界观"的那几类。
+  // 单图素材（prop）的映射放在 shared/world/dressing.js 的 THEME_PROP，服务端也读同一份：
+  //   · 客户端按它画主题家具；
+  //   · 服务端按素材不透明边界收窄碰撞盒（PNG 透明边不再算进碰撞）。
+  // 这里只额外补"图集(sheet)拼装"的桌椅/场地。
+  const THEME_PROP = (root.WORLD && root.WORLD.THEME_PROP) || {};
+  for (const fid of Object.keys(THEME_PROP)) {
+    THEME_FURN[fid] = THEME_FURN[fid] || {};
+    for (const type of Object.keys(THEME_PROP[fid])) THEME_FURN[fid][type] = THEME_PROP[fid][type];
+  }
+  const sheetDesk = { sheet: 'indoors', col: 0, row: 0, cw: 3, ch: 1 };
+  const sheetTable = { sheet: 'indoors', col: 4, row: 0, cw: 2, ch: 1 };
+  const sheetChair = { sheet: 'indoors', col: 0, row: 2, cw: 1, ch: 1, single: true };
+  THEME_FURN[2] = Object.assign({}, THEME_FURN[2], {   // 竞技运动：木长桌/木椅 + 真实球场材质
+    desk: sheetDesk, table: sheetTable, chair: sheetChair,
+    stage: { sheet: 'sports', col: 0, row: 0, cw: 1, ch: 1 },
+    mat: { sheet: 'sports', col: 0, row: 0, cw: 1, ch: 1 }
+  });
+  for (const fid of [3, 5, 6]) {   // 城堡/地牢/海盗：木桌木椅
+    THEME_FURN[fid] = Object.assign({}, THEME_FURN[fid], { desk: sheetDesk, table: sheetTable, chair: sheetChair });
+  }
+  THEME_FURN[4] = THEME_FURN[4] || {};
+
   function furniture(g,f){
     if(f.architecturalPlaceholder)return true;
     if(!stats.ready)return false;
@@ -1543,5 +1494,17 @@
       g.globalAlpha=.9;g.fillStyle='#e0fbff';g.fillRect(d.x-1,d.y-19-v*23,1,12);g.fillRect(d.x-1,d.y+5+v*23,1,12);g.restore();
     }
   }
-  root.SID_SCENE={ready,stats,floor,furniture,halls,tile,prop,propRow,wall,themeOf,roomFloor,roomWall,floorStyles,THEMES};
+  // 容器交互光圈/其它 UI 需要知道"图里实际物体"的宽度（不是整张 PNG）。
+  function visualWidth(f) {
+    const spec = themeSpec(f.floorId, f.type, f);
+    const B = (root.WORLD && root.WORLD.SPRITE_BOUNDS) || {};
+    let key = null, scale = 2;
+    if (f.prop && B[f.prop]) { key = f.prop; scale = f.propScale || 2; }
+    else if (spec && spec.prop && B[spec.prop]) { key = spec.prop; scale = spec.scale || 2; }
+    if (!key) return f.w;
+    const im = props[key]; if (!im) return f.w;
+    const s = Math.max(1, Math.min(scale, Math.floor(f.w / Math.max(1, im.width))));
+    return B[key][4] * s;
+  }
+  root.SID_SCENE={ready,stats,floor,furniture,halls,tile,prop,propRow,wall,themeOf,roomFloor,roomWall,floorStyles,THEMES,visualWidth};
 })(window);

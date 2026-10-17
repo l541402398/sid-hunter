@@ -13,7 +13,7 @@ const ONLINE_DIR = dirname(dirname(fileURLToPath(import.meta.url))); // online/
 // 顺序必须与 online/public/index.html / demo/index.html 的 <script> 顺序一致：
 // dressing.js 必须先于 floors.js（floors 建造时 concat 逐层陈设）；
 // rooms.js 依赖 floors.js（需要 floorById / floorCollides）；clutter.js 依赖 floors+rooms；loot.js 独立。
-export const WORLD_PART_FILES = ['config', 'geometry', 'furniture', 'dressing', 'floors', 'rooms', 'clutter', 'loot', 'sprite']
+export const WORLD_PART_FILES = ['config', 'geometry', 'furniture', 'dressing', 'sprite-bounds', 'floors', 'rooms', 'clutter', 'loot', 'sprite']
   .map(name => `shared/world/${name}.js`);
 export const WORLD_ENTRY_FILE = 'shared/world.js';
 

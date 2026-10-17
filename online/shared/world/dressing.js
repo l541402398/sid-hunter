@@ -265,10 +265,69 @@
       deco('neonHolo', 32, 32, 2, '全息地标', 2)
     ]
   };
+  // ===== 主题家具的"单图素材"映射（服务端与客户端共用）=====
+  // scene.js 用它画主题家具；floors.js 用它把碰撞盒收窄到素材里**实际物体**的宽度
+  // （PNG 画布有透明边，按整张图算碰撞会比肉眼大一圈）。
+  // 只收 {prop,scale[,repeat]} 这一类；图集(sheet)拼的桌椅仍在 scene.js 里配置。
+  const THEME_PROP = {
+    1: {
+      cabinet: { prop: 'controlBox', scale: 2 },
+      vending: { prop: 'cyberLight', scale: 2 },
+      plant: { prop: 'antenna', scale: 2 },
+      shelf: { prop: 'controlBox', scale: 2 },
+      tv: { prop: 'monitorFace', scale: 3 }
+    },
+    3: {
+      cabinet: { prop: 'dgnChest', scale: 2 },
+      crate: { prop: 'dgnBoxes', scale: 2 },
+      plant: { prop: 'dgnColumn', scale: 2 },
+      locker: { prop: 'dgnChestOpen', scale: 2 }
+    },
+    4: {
+      desk: { prop: 'forestStump', scale: 2 },
+      table: { prop: 'forestStump', scale: 2 },
+      chair: { prop: 'forestRock2', scale: 3 },
+      plant: { prop: 'forestTree1', scale: 2 },
+      sofa: { prop: 'forestBrush1', scale: 2 },
+      cabinet: { prop: 'forestStump', scale: 2 },
+      crate: { prop: 'forestRock1', scale: 3 },
+      boxstack: { prop: 'forestRock1', scale: 3 },
+      bench: { prop: 'forestRock2', scale: 3 },
+      shelf: { prop: 'forestTree2', scale: 2 },
+      lamp: { prop: 'forestFlowerR', scale: 3 }
+    },
+    5: {
+      cabinet: { prop: 'dgnChest', scale: 2 },
+      crate: { prop: 'dgnBoxes', scale: 2 },
+      boxstack: { prop: 'dgnBoxes', scale: 2 },
+      plant: { prop: 'dgnSkull', scale: 2 },
+      locker: { prop: 'dgnChestOpen', scale: 2 },
+      vending: { prop: 'dgnColumn', scale: 2 },
+      shelf: { prop: 'dgnColumn', scale: 2 }
+    },
+    6: {
+      cabinet: { prop: 'dgnChest', scale: 2 },
+      crate: { prop: 'dgnBoxes', scale: 2 },
+      plant: { prop: 'dgnColumn', scale: 2 }
+    },
+    7: {
+      plant: { prop: 'antenna', scale: 1 },
+      vending: { prop: 'bannerSmall', scale: 2 },
+      tv: { prop: 'monitorFace', scale: 3 },
+      whiteboard: { prop: 'bannerBig', scale: 1 },
+      shelf: { prop: 'hotelSign', scale: 1 },
+      lamp: { prop: 'cyberLight', scale: 1 },
+      cabinet: { prop: 'controlBox', scale: 2 },
+      treadmill: { prop: 'controlBox', scale: 2 },
+      rack: { prop: 'antenna', scale: 1 },
+      stage: { prop: 'neonFloorBase', scale: 1, repeat: true },
+      mat: { prop: 'neonStripH', scale: 1, repeat: true }
+    }
+  };
   // 把「别让它太空」补丁接到每层末尾。用追加而不是改写既有数组，
   // 让原有手工摆位保持可读、可回溯（谁加的、加在哪一层一目了然）。
   for (const key of Object.keys(DRESSING)) {
     if (Array.isArray(DRESSING[key])) DRESSING[key] = DRESSING[key].concat(filler(Number(key)), filler2(Number(key)));
   }
-  return { DRESSING, THEME_CLUTTER };
+  return { DRESSING, THEME_CLUTTER, THEME_PROP };
 });

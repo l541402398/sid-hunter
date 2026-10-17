@@ -3,7 +3,7 @@
 // 本文件是聚合器：子模块在 online/shared/world/*.js（浏览器需按序先加载它们），导出 window.WORLD / module.exports 保持不变。
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
-  const D = isNode ? Object.assign({}, require('./world/config.js'), require('./world/geometry.js'), require('./world/furniture.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/clutter.js'), require('./world/loot.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const D = isNode ? Object.assign({}, require('./world/config.js'), require('./world/geometry.js'), require('./world/furniture.js'), require('./world/dressing.js'), require('./world/sprite-bounds.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/clutter.js'), require('./world/loot.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
   const WORLD = factory(D);
   root.WORLD = WORLD;
   if (isNode) module.exports = WORLD;
@@ -15,6 +15,7 @@
   const { RARITY, RARITY_ORDER, ITEMS, PROFILES, profileKeyFor, profileFor, buildSearchPlan, describeSlot,
     revealDelayMs, SEARCH_CONFIG, EFFECTS, EFFECT_ORDER, SHOP_ITEMS, FLOOR_POOL_ADD, floorPoolFor, containerFloor,
     PASSIVE_KINDS, PASSIVE_ORDER, passiveOf, passiveTotals } = D;
+  const { THEME_PROP, SPRITE_BOUNDS } = D;
   // 房间门口清理（需求③）：把门口 64px 内的纯装饰家具移走，留出可走通道。
   // 只清装饰，**不动容器与 NPC**，避免把战利品/交互点清掉。
   (function pruneDoorClutter() {
@@ -55,6 +56,7 @@
     // 独立小房间（需求①）：每层 2 间可进入的独立空间，自带坐标、家具、容器与相机。
     ROOM_SIZES, ROOM_WALL_T: WALL_T, ROOM_DOOR_HALF: DOOR_HALF, ROOM_ENTER_PAD: ENTER_PAD,
     ROOM_SPECS, ROOM_LIST, ROOMS, roomById, roomsForFloor, roomBlockers, roomCollides, inRoom,
+    THEME_PROP, SPRITE_BOUNDS,
     roomBounds, roomCamera, roomInteractables, roomDoorNear,
     zoneContainers, zoneFurniture, zoneBlockers, zoneCollides, zoneBounds, zoneCamera,
     // 搜打撤式物品格搜索（需求③）：物品目录、稀有度、容器档案与确定性掷骰。

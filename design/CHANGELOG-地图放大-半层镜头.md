@@ -241,3 +241,31 @@
 
 - SLYNYRD Pixelblog 45（砖/墙/门）中文笔记：https://www.163.com/dy/article/KPDPFRB20526K8VB.html
 - 手机端战争迷雾的实现：https://www.gameres.com/826075.html
+
+## 十、素材碰撞/光圈按不透明像素修正（2026-10-18）
+
+### 10.1 根因
+
+碰撞盒一直按**家具矩形/整张 PNG 画布**计算；vendor 素材四周有透明边（例如 Antea chair 16×16 里
+实际只有 10×15 不透明），所以"肉眼看到的小物件"配了"整张图大小的碰撞/光圈"。
+
+### 10.2 修复
+
+- 新增 `shared/world/sprite-bounds.js`（自动生成，80 个素材的 `[w,h,bx,by,bw,bh]`）。
+- `dressing.js` 新增 `THEME_PROP`：服务端与客户端共用的主题单图映射（原先只在 scene.js）。
+- `floors.js` 的 `fitTheme()`：主题单图家具的碰撞改成**一条基座**——
+  宽度 = bbox 宽 × 整数缩放（且 ≤家具宽），深度 ≤24px，底边对齐；
+  4F 岩石容器 68→33、5F 宝箱 77→32、4F 树桩桌 116→60。
+- `scene.js` 的 `drawSpecAt()`：单图绘制锚点改为**不透明 bbox 的底边中点**，不再因透明边浮空/偏移。
+- `game.js` 的容器光圈：半径按 `SCENE.visualWidth()`（实际物体宽）计算，8–26px。
+- 加载顺序新增 `sprite-bounds.js`（world.js / index.html / demo / test-helper 同步）。
+
+### 10.3 验收
+
+- `rooms-loot-browser-test` PASS；`elevator-browser` PASS；`elevator-world/room`、hammer、npc、manager 全过。
+- 4F/5F 截图更新，岩石/宝箱的碰撞与光圈已按实际物体尺寸收窄。
+
+### 10.4 未覆盖
+
+- Antea 办公家具（chair/cabinet/plantBig 等）有透明边但走图集平铺/多件拼装，
+  碰撞仍按类型规则；如仍觉得偏大，下一步可按同样思路拆成多段碰撞。

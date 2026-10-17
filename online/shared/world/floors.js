@@ -2,12 +2,12 @@
 // 七层楼面数据、建造、查询与乘梯资格判定（浏览器与 Node 共用；由 online/shared/world.js 汇总为 window.WORLD）
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
-  const D = isNode ? Object.assign({}, require('./config.js'), require('./geometry.js'), require('./furniture.js'), require('./dressing.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const D = isNode ? Object.assign({}, require('./config.js'), require('./geometry.js'), require('./furniture.js'), require('./dressing.js'), require('./sprite-bounds.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
   const api = factory(D);
   if (isNode) module.exports = api;
   else Object.assign(root.SID_WORLD_PARTS = root.SID_WORLD_PARTS || {}, api);
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const { lineClear, collidesAt, coverFor, pointOccluded, facingVector, blocksFor, DOOR_HALF_PX_H, DOOR_HALF_PX_V, INTERACT_RANGE, DRESSING } = D;
+  const { lineClear, collidesAt, coverFor, pointOccluded, facingVector, blocksFor, DOOR_HALF_PX_H, DOOR_HALF_PX_V, INTERACT_RANGE, DRESSING, THEME_PROP, SPRITE_BOUNDS } = D;
   // ---------- 七层楼层数据（1–7F，两端与服务端同源） ----------
   // 逻辑视口基准高度：动态适配时统一缩放 s = 视区CSS高 / FLOOR_BASE_HEIGHT。
   // 世界坐标与屏幕坐标共用同一个 s，屏幕变宽=看到更多世界，绝不非等比拉伸。
@@ -423,6 +423,26 @@
       // 追加项与原始项走完全相同的建造逻辑（碰撞/足迹/容器登记），不引入第二条代码路径。
       const rows = spec.furniture.concat((DRESSING && DRESSING[spec.id]) || []);
       const originalCount = spec.furniture.length;
+      // 主题单图家具：碰撞盒按素材**不透明像素**的宽度/高度收窄（PNG 透明边不再算碰撞）。
+      const fitTheme = (f) => {
+        const fit = THEME_PROP && THEME_PROP[spec.id] && THEME_PROP[spec.id][f.type];
+        if (!fit || !fit.prop || fit.repeat) return;
+        const b = SPRITE_BOUNDS && SPRITE_BOUNDS[fit.prop];
+        if (!b) return;
+        const s = Math.max(1, Math.min(fit.scale || 1, Math.floor(f.w / Math.max(1, b[0]))));
+        const visW = Math.max(6, b[4] * s), visH = Math.max(6, b[5] * s);
+        // 主题家具一律用"脚下一条基座"，不再沿用 desk 工位岛那套大块碰撞：
+        // 宽度取素材实际宽度，深度最多 24px，底边对齐家具底边。
+        const baseW = Math.min(visW, f.w);
+        const depth = Math.min(24, Math.max(10, visH));
+        const base = {
+          x: Math.round(f.x + (f.w - baseW) / 2),
+          y: Math.round(f.y + f.h - depth),
+          w: Math.round(baseW), h: Math.round(depth)
+        };
+        f.blocks = [{ ...base }];
+        f.footprint = { ...base };
+      };
       const placedRects = [];
       const overlapArea = (a, b) => {
         const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
@@ -461,6 +481,7 @@
           footprint: { x: r.x, y: r.y + r.h - footHeight, w: r.w, h: footHeight }, depth: r.y + r.h };
         // 行走碰撞 = 单体底部足迹并集（R-DECOMP）；f.footprint 语义不变。
         f.blocks = blocksFor(f);
+        fitTheme(f);
         // Preserve the row and decorative ID, but an elevator hall is not a cabinet.
         if (label === '东侧电梯厅') { f.architecturalPlaceholder = true; f.blocks = []; f.footprint = null; f.w = 0; f.h = 0; }
         if (container) f.container = container;
@@ -486,6 +507,7 @@
           const footH = Math.max(10, Math.min(f.h, Math.round(f.h * 0.8)));
           f.footprint = { x: f.x, y: f.y + f.h - footH, w: f.w, h: footH };
           f.blocks = blocksFor(f);
+          fitTheme(f);
           f.depth = f.y + f.h;
         }
       }
