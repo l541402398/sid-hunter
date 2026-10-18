@@ -2,12 +2,12 @@
 // 七层楼面数据、建造、查询与乘梯资格判定（浏览器与 Node 共用；由 online/shared/world.js 汇总为 window.WORLD）
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
-  const D = isNode ? Object.assign({}, require('./config.js'), require('./geometry.js'), require('./furniture.js'), require('./dressing.js'), require('./sprite-bounds.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const D = isNode ? Object.assign({}, require('./config.js'), { TMJ: require('./tmj.js') }, require('./geometry.js'), require('./furniture.js'), require('./dressing.js'), require('./sprite-bounds.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
   const api = factory(D);
   if (isNode) module.exports = api;
   else Object.assign(root.SID_WORLD_PARTS = root.SID_WORLD_PARTS || {}, api);
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const { lineClear, collidesAt, coverFor, pointOccluded, facingVector, blocksFor, DOOR_HALF_PX_H, DOOR_HALF_PX_V, INTERACT_RANGE, DRESSING, THEME_PROP, SPRITE_BOUNDS } = D;
+  const { lineClear, collidesAt, coverFor, pointOccluded, facingVector, blocksFor, DOOR_HALF_PX_H, DOOR_HALF_PX_V, INTERACT_RANGE, DRESSING, THEME_PROP, SPRITE_BOUNDS, TMJ, BODY_HALF, FOOT_TOP, FOOT_BOTTOM } = D;
   // ---------- 七层楼层数据（1–7F，两端与服务端同源） ----------
   // 逻辑视口基准高度：动态适配时统一缩放 s = 视区CSS高 / FLOOR_BASE_HEIGHT。
   // 世界坐标与屏幕坐标共用同一个 s，屏幕变宽=看到更多世界，绝不非等比拉伸。
@@ -625,7 +625,7 @@
       // 3F/4F 原有的局部重排（把左门挪到桌南空带）随之取消：锚点不再落在桌面遮挡足迹内。
       // NPC：唯一迁移且保留原 ID，floorId 独立决定归属。
       for (const n of (spec.npcs || [])) {
-        const npc = { id: `npc-${n.slug}`,  name: n.name, x: nX(n.x), y: nY(n.y),
+        const npc = { id: `npc-${n.slug}`, slug: n.slug, name: n.name, x: nX(n.x), y: nY(n.y),
           dialogue: n.dialogue, cost: n.cost, floorId: spec.id };
         NPCS.push(npc);
         floor.npcs.push(npc);
@@ -633,9 +633,125 @@
       FLOORS[spec.id] = floor;
     }
   })();
+  // ===== TMJ 接管（SID_TMJ=1）=====
+  // 只替换「行走几何」相关数据：portal / hall / spawn / arrival / glassDoors；
+  // 家具、NPC、容器仍保留原数据用于渲染与交互，避免一次性重画整层。
+  // 重复调用安全：每层只应用一次；客户端在 TMJ 地图 fetch 完成后也会调用同一函数。
+  const NPC_TMJ_ZONE = { reception: '检疫闸口', archive: '藏书阁' };
+  // TMJ 接管后 NPC 不再用旧归一化坐标：放进对应功能区的最近可站格。
+  function placeNpcOnTMJ(npc, floorId) {
+    const map = TMJ.get(floorId);
+    if (!map || !map.zones || !map.zones.length) return;
+    const zone = map.zones.find(z => z.name === NPC_TMJ_ZONE[npc.slug]) || map.zones[0];
+    const T = map.tileWidth || 16;
+    const ts = T * FLOOR_SCALE;
+    const x0 = Math.max(0, Math.floor(zone.x / T));
+    const y0 = Math.max(0, Math.floor(zone.y / T));
+    const x1 = Math.min(map.width - 1, Math.ceil((zone.x + zone.w) / T) - 1);
+    const y1 = Math.min(map.height - 1, Math.ceil((zone.y + zone.h) / T) - 1);
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    let best = null;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const wx = (x + 0.5) * ts, wy = (y + 0.5) * ts;
+      if (TMJ.solidAt(floorId, wx, wy, FLOOR_SCALE)) continue;
+      const d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+      if (!best || d < best.d) best = { x, y, d };
+    }
+    if (best) { npc.x = (best.x + 0.5) * ts; npc.y = (best.y + 0.5) * ts; }
+  }
+
+  function placeContainerOnTMJ(f, floorId, placed, order) {
+    const map = TMJ.get(floorId);
+    if (!map || !f.container) return false;
+    const s = FLOOR_SCALE, ts = (map.tileWidth || 16) * s;
+    const zones = (map.zones || []).filter(z => z.name !== '东侧电梯厅');
+    if (!zones.length) return false;
+    const overlap = (a, b) => a.x < b.x + b.w + 4 && b.x < a.x + a.w + 4 && a.y < b.y + b.h + 4 && b.y < a.y + a.h + 4;
+    const fits = (x, y) => {
+      if (x < 0 || y < 0 || x + f.w > map.width * ts || y + f.h > map.height * ts) return false;
+      for (let i = 0; i <= 2; i++) for (let j = 0; j <= 2; j++) {
+        const px = x + f.w * i / 2, py = y + f.h * j / 2;
+        if (TMJ.solidAt(floorId, px, py, s)) return false;
+      }
+      return !placed.some(r => overlap({ x, y, w: f.w, h: f.h }, r));
+    };
+    const moveTo = (x, y) => {
+      const dx = x - f.x, dy = y - f.y;
+      f.x = x; f.y = y;
+      if (f.footprint) { f.footprint.x += dx; f.footprint.y += dy; }
+      if (Array.isArray(f.blocks)) for (const b of f.blocks) { b.x += dx; b.y += dy; }
+      f.depth = f.y + f.h;
+      placed.push({ x, y, w: f.w, h: f.h });
+      return true;
+    };
+    // 优先放进主题功能区；接待台固定回检疫闸口
+    const preferred = f.type === 'reception' ? zones.find(z => z.name === '检疫闸口') : null;
+    const orderZones = preferred ? [preferred, ...zones.filter(z => z !== preferred)] : zones;
+    for (let zi = 0; zi < orderZones.length; zi++) {
+      const zone = orderZones[(zi + (order || 0)) % orderZones.length];
+      const x0 = Math.max(0, Math.floor(zone.x / (map.tileWidth || 16)));
+      const y0 = Math.max(0, Math.floor(zone.y / (map.tileWidth || 16)));
+      const x1 = Math.min(map.width - 1, Math.ceil((zone.x + zone.w) / (map.tileWidth || 16)) - 1);
+      const y1 = Math.min(map.height - 1, Math.ceil((zone.y + zone.h) / (map.tileWidth || 16)) - 1);
+      for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+        const x = (tx + 0.5) * ts - f.w / 2;
+        const y = (ty + 0.5) * ts - f.h / 2;
+        if (fits(x, y)) return moveTo(x, y);
+      }
+    }
+    // 兜底：全图扫一遍，别让容器留在墙里
+    for (let ty = 0; ty < map.height; ty++) for (let tx = 0; tx < map.width; tx++) {
+      const x = (tx + 0.5) * ts - f.w / 2;
+      const y = (ty + 0.5) * ts - f.h / 2;
+      if (fits(x, y)) return moveTo(x, y);
+    }
+    return false;
+  }
+
+  function applyTMJLayout() {
+    if (!TMJ || !TMJ.isEnabled()) return 0;
+    let applied = 0;
+    for (const id of Object.keys(FLOORS)) {
+      const floor = FLOORS[id];
+      if (!floor || floor._tmjLayout || !TMJ.get(id)) continue;
+      const portals = TMJ.portals(id, FLOOR_SCALE);
+      if (portals.length) {
+        floor.portals = portals.map(p => ({
+          id: p.id, floorId: p.floorId, side: p.side, x: p.x, y: p.y, w: p.w, h: p.h,
+        }));
+        // TMJ 画面层需要厅地坪，否则电梯门/轿厢会浮在虚空；保留 portal.hall 给 SCENE.halls。
+        floor.halls = portals.map(p => ({ ...p.hall, side: p.side }));
+      }
+      // 出生点取整层可走格（按 TMJ spawn 距离排序），多人按 id 轮转，避免叠在同一个点上。
+      const cells = TMJ.spawnCells(id, FLOOR_SCALE);
+      if (cells.length) floor.spawnPoints = cells.slice(0, 1024).map(p => ({ x: p.x, y: p.y }));
+      floor.arrivalPoints = {
+        left: floor.spawnPoints.filter(p => p.x < FLOOR_W / 2).map(p => ({ ...p })),
+        right: floor.spawnPoints.filter(p => p.x > FLOOR_W / 2).map(p => ({ ...p })),
+      };
+      // TMJ 没有玻璃门层；保留旧门只会画出"能穿过却不能挡"的假门。
+      floor.glassDoors = [];
+      for (const npc of floor.npcs) placeNpcOnTMJ(npc, id);
+      const placedContainers = [];
+      let containerOrder = 0;
+      for (const f of floor.furniture) if (f.container) placeContainerOnTMJ(f, id, placedContainers, containerOrder++);
+      floor._safeSpawns = null;
+      floor._tmjLayout = true;
+      applied++;
+    }
+    return applied;
+  }
+  if (TMJ && TMJ.isEnabled()) applyTMJLayout();
   function floorById(id = 1) { const n = Number(id); return Number.isSafeInteger(n) ? FLOORS[n] || null : null; }
   function floorOptions() { return FLOOR_SPECS.map(f => ({ id: f.id, label: `${f.id}F`, name: f.name })); }
   function inHall(floorId, side, x, y) {
+    // TMJ 接管：电梯厅不是旧楼面数据的一部分，用 lift 周围生成的虚拟厅判定。
+    if (TMJ && TMJ.active(floorId)) {
+      const p = TMJ.portals(floorId, FLOOR_SCALE).find(q => q.side === side);
+      if (!p) return false;
+      const h = p.hall;
+      return x >= h.x && x <= h.x + h.w && y > h.y && y < h.y + h.h;
+    }
     const f = floorById(floorId), hall = f && f.halls.find(h => h.side === side);
     return !!hall && x > hall.x && x < hall.x + hall.w && y > hall.y && y < hall.y + hall.h;
   }
@@ -653,6 +769,8 @@
   function floorBlockers(floorId, doorStates) {
     const f = floorById(floorId);
     if (!f) return [];
+    // TMJ 接管时行走碰撞只看 collision 层；旧家具不再参与碰撞/遮挡，避免两套几何互相打架。
+    if (TMJ && TMJ.active(floorId)) return [];
     // 北侧墙带：楼板区域内 y<96 一律不可行走，避免人物"走上墙"；
     // 只覆盖 0..1440 的楼板，不碰两侧楼板外的电梯厅（他们在 x<0 / x>1440）。
     const wallBand = { id: `f${floorId}:wallband`, floorId, type: 'wallband', label: '',
@@ -683,6 +801,12 @@
   // 目标：任何出生点都不允许落在墙体/家具里 —— 否则玩家一进局就被卡住。
   function floorSpawns(floorId) {
     const f = floorById(floorId);
+    if (!f) return [];
+    // TMJ 接管：返回 collision 层 + 道具 footprint 都放得下身体盒的空地中心，按 TMJ spawn 排序。
+    if (TMJ && TMJ.active(floorId)) {
+      const cells = TMJ.spawnCells(floorId, FLOOR_SCALE).filter(p => !floorCollides(floorId, p.x, p.y));
+      if (cells.length) return cells.slice(0, 1024).map(p => ({ x: p.x, y: p.y }));
+    }
     if (!f._safeSpawns) {
       const blockers = f.furniture.filter(q => !q.architecturalPlaceholder).concat(f.walls, f.glassDoors || []);
       // 直接用 floorCollides 判定，保证与真实行走碰撞完全一致（自己重写一份容易漏掉门窗）。
@@ -734,6 +858,14 @@
     if (!floor) return null;
     const portal = floor.portals.find(p => p.side === side);
     if (!portal) return null;
+    // TMJ 接管：落点仍取门口正前方，但碰撞只问 collision 层，不再被旧家具的 footprint 否决。
+    if (TMJ && TMJ.active(floorId)) {
+      for (const [x, y] of [[portal.x, portal.y + 14], [portal.x, portal.y], [portal.x, portal.y - 14]]) {
+        if (floorCollides(floorId, x, y)) continue;
+        return { x, y };
+      }
+      return null;
+    }
     const blockers = floorBlockers(floorId);
     const candidates = [[portal.x, portal.y + 14], [portal.x, portal.y], [portal.x, portal.y - 14]];
     for (const [x, y] of candidates) {
@@ -746,7 +878,10 @@
   // 点是否在该层楼面内（多边形内），用于「轮廓外禁止行走」。
   function inFloor(floorId, x, y) {
     const f = floorById(floorId);
-    return !!f && (inMainFloor(f, x, y) || f.halls.some(h => x >= h.x && x <= h.x + h.w && y > h.y && y < h.y + h.h));
+    if (!f) return false;
+    // TMJ 接管：楼面范围以 90×25 地图为准；轮廓外由 solidAt 返回 true 兜底。
+    if (TMJ && TMJ.active(floorId)) return TMJ.inside(floorId, x, y, FLOOR_SCALE);
+    return inMainFloor(f, x, y) || f.halls.some(h => x >= h.x && x <= h.x + h.w && y > h.y && y < h.y + h.h);
   }
   function inMainFloor(floor, x, y) {
     const poly = floor.polygon;
@@ -759,11 +894,20 @@
   }
   // 该层可行走判定：楼面内 + 不撞家具/墙体。服务端权威移动使用它。
   function floorCollides(floorId, x, y, blockers) {
+    // TMJ 接管：身体盒四角落在 collision 层实心格即不可走；与 preview.html 的判定同源。
+    if (TMJ && TMJ.active(floorId)) {
+      return [[x - BODY_HALF, y - FOOT_BOTTOM], [x + BODY_HALF, y - FOOT_BOTTOM],
+        [x - BODY_HALF, y + FOOT_TOP], [x + BODY_HALF, y + FOOT_TOP]]
+        .some(([px, py]) => TMJ.solidAt(floorId, px, py, FLOOR_SCALE));
+    }
     if (!inFloor(floorId, x, y)) return true;
     return collidesAt(x, y, blockers || floorBlockers(floorId));
   }
   function floorBounds(floorId) {
     const f = floorById(floorId);
+    // TMJ 接管：bounds 与 90×25 地图等大，并向左右各外扩一个电梯厅（72 design px）。
+    // 电梯厅不在 tile 层里，由 TMJ.solidAt() 的虚拟厅放行；这里只负责相机/移动半径。
+    if (TMJ && TMJ.active(floorId)) return { minX: -72 * FLOOR_SCALE + 12, maxX: FLOOR_W + 72 * FLOOR_SCALE - 12, minY: 72, maxY: FLOOR_H - 24 };
     // 注意：minY 不能抬到墙带之下 —— 电梯厅在楼板外的 y≈32..128，抬 minY 会把整条西/东通道封死。
     // "不能上墙"改用一条只覆盖楼板区域的隐形墙带（见 floorBlockers）。
     return { minX: f.worldBounds.minX + 12, maxX: f.worldBounds.maxX - 12, minY: 72, maxY: f.height - 24 };
@@ -787,5 +931,8 @@
     if (!facingOk) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 E' };
     return { inReach: true, facingOk: true, allowed: true, reason: '' };
   }
-  return { FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess };
+  return { FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout };
 });
+
+
+

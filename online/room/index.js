@@ -202,9 +202,10 @@ function createRoom(options = {}) {
     return true;
   }
   // 出生点：按 index 轮转安全池，跳过不安全的候选；全不安全时退回池内指定点（仍来自安全池构造）。
+  // 200–300 人时用乘法步长打散，避免所有人都取“最靠近 spawn 的前 300 个点”。
   function spawnPointFor(floorId, index) {
     const pool = WORLD.floorSpawns(floorId);
-    const i = Math.abs(Math.floor(index)) % pool.length;
+    const i = (Math.abs(Math.floor(index)) * 2654435761) % pool.length;
     for (let k = 0; k < pool.length; k++) {
       const p = pool[(i + k) % pool.length];
       if (pointSafe(floorId, p.x, p.y)) return { x: p.x, y: p.y };
@@ -638,7 +639,7 @@ function createRoom(options = {}) {
         : undefined,
       badSlots: anonymousBadSlots(),
       logs: room.logs.slice(),
-      config: { chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs }
+      config: { chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs, tmj: !!(WORLD.TMJ && WORLD.TMJ.isEnabled()) }
     };
   }
   function privateSnapshot(playerId) {

@@ -25,6 +25,9 @@
   let zoneId = null, zoneName = '', zoneRoom = null, zoneRooms = [];
   const SCENE = window.SID_SCENE;
   const SID = window.SID;
+  // F1 碰撞调试层（js/render/tmj-debug.js）：只读 WORLD / WORLD.TMJ，不参与权威移动。
+  const TMJ_DEBUG = SID.tmjDebug;
+  const TMJ_VISUAL = SID.tmjVisual;
   // 搜打撤物品格面板（需求③）由 js/search/loot-grid.js 提供，这里只做别名与开关。
   const LOOT = SID.lootGrid;
   function closeLoot() { if (LOOT && LOOT.isOpen()) LOOT.close(true); }
@@ -358,6 +361,9 @@
   }
 
   async function boot() {
+    // F1 调试层先预取 7 层 TMJ，不阻塞登录/首帧；权威开关仍以服务端快照 config.tmj 为准。
+    if (TMJ_DEBUG) TMJ_DEBUG.load('/tiled');
+    if (TMJ_VISUAL) TMJ_VISUAL.load('/tiled');
     let cfg = { required: false, loginUrl: '' };
     try { cfg = await (await fetch('/api/auth/config')).json(); } catch { cfg = { required: false, loginUrl: '' }; }
     ssoRequired = !!cfg.required;
@@ -403,6 +409,8 @@
       rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
     }
     glassDoorStates = Object.fromEntries((s.glassDoors || []).map(d => [d.id, { open: d.open }]));
+    // TMJ 权威开关由服务端下发：关闭时完全走旧碰撞；打开时客户端同步 portal/spawn 布局供渲染侧使用。
+    if (TMJ_DEBUG && s.config && typeof s.config.tmj === 'boolean') TMJ_DEBUG.apply(s.config.tmj);
     serverTime = s.serverTime || Date.now();
     if (s.roundId) roundId = s.roundId;
     serverPerfBase = performance.now();
@@ -2923,6 +2931,78 @@
   // 家具与角色按深度自然叠在其前方；行走不受影响（MIN_Y 已把角色挡在墙根以南）。
   // 布局：10 个 144px 模块，第 3/6/9 模块为标语展示板（中央板显示本层名，两侧预留），其余为窗户。
   const BACK_WALL_H = 58, WALL_MODULE = 144;
+  // 旧容器 sprite 按类型缩视觉；交互 footprint 不变。
+  const CONTAINER_SCALE = { reception: 0.68, counter: 0.72, desk: 0.82, table: 0.82, cabinet: 0.8, shelf: 0.8, printer: 0.72, vending: 0.82, boxstack: 0.9, crate: 0.92, safe: 0.78, server: 0.78, cooler: 0.85 };
+  // TMJ 是 90×25 顶视地图，没有旧楼层的 320px 后墙带。这里补一条 58px 的紧凑墙带：
+  // 主题墙色 + 窗/玻璃光 + 中央楼层牌，让 3/4 角色仍像站在有墙的房间里。
+  function drawTMJWallBand(ctx, f) {
+    const w = WORLD.FLOOR_W || f.width || 2880;
+    const h = WORLD.WALL_BASE || BACK_WALL_H;
+    const t = SCENE && SCENE.themeOf ? SCENE.themeOf(f.id) : null;
+    const p = t && t.wall;
+    if (!p) { ctx.fillStyle = '#162231'; ctx.fillRect(0, 0, w, h); return; }
+    const glass = p.glass || ['#dff4ff', '#9fd2ff', '#f4fcff'];
+    ctx.fillStyle = p.base; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = p.trim; ctx.fillRect(0, 0, w, 3);
+    ctx.fillStyle = p.line; ctx.fillRect(0, 3, w, 2);
+    const modules = Math.max(1, Math.floor(w / 144));
+    for (let i = 0; i < modules; i++) {
+      const x = i * 144;
+      if (i === Math.floor(modules / 2)) {
+        const b = p.board || p;
+        ctx.fillStyle = b.frame; ctx.fillRect(x + 24, 8, 96, h - 18);
+        ctx.fillStyle = b.face; ctx.fillRect(x + 28, 12, 88, h - 26);
+        ctx.fillStyle = b.inner || b.face; ctx.fillRect(x + 32, 16, 80, h - 34);
+        ctx.fillStyle = b.text || p.trim;
+        ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText((f.name || '').replace(/^\d+F\s*·?\s*/, ''), x + 72, 16 + (h - 34) / 2);
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        continue;
+      }
+      const gx = x + 28, gy = 10, gw = 88, gh = h - 22;
+      const gr = ctx.createLinearGradient(0, gy, 0, gy + gh);
+      gr.addColorStop(0, glass[0]); gr.addColorStop(0.62, glass[1]); gr.addColorStop(1, glass[2]);
+      ctx.fillStyle = gr; ctx.fillRect(gx, gy, gw, gh);
+      ctx.fillStyle = p.frame;
+      ctx.fillRect(gx, gy, 3, gh); ctx.fillRect(gx + gw - 3, gy, 3, gh);
+      ctx.fillRect(gx, gy + Math.round(gh / 2), gw, 2);
+      // 窗光落到地面：很淡的一层，不盖住 props
+      ctx.globalAlpha = 0.08; ctx.fillStyle = glass[0];
+      ctx.fillRect(gx, h, gw, 96);
+      ctx.globalAlpha = 1;
+    }
+    // 逐主题墙带细节：只加低对比条纹/灯/藤，不改变窗和楼层牌的读法。
+    const style = t.style || '';
+    if (style === 'stadium') {
+      ctx.fillStyle = 'rgba(255,244,196,0.9)';
+      for (let x = 12; x < w; x += 72) ctx.fillRect(x, 4, 7, 3);
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillRect(0, 5, w, 1);
+    } else if (style === 'castle' || style === 'dungeon') {
+      ctx.fillStyle = p.line;
+      for (let x = 4; x < w; x += 144) ctx.fillRect(x, 2, 3, h - 10);
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.fillRect(0, h - 12, w, 2);
+    } else if (style === 'canopy') {
+      ctx.fillStyle = '#4f7f42';
+      for (let x = 10; x < w; x += 46) ctx.fillRect(x, 0, 2, 8 + ((x * 7) % 12));
+      ctx.fillStyle = 'rgba(210,255,160,0.16)';
+      ctx.fillRect(0, 0, w, 2);
+    } else if (style === 'ship') {
+      ctx.fillStyle = p.frame;
+      for (let x = 16; x < w; x += 72) { ctx.fillRect(x, 4, 2, 2); ctx.fillRect(x, h - 12, 2, 2); }
+      ctx.fillStyle = 'rgba(255,220,160,0.10)';
+      ctx.fillRect(0, h - 14, w, 2);
+    } else if (style === 'neon') {
+      ctx.fillStyle = '#ff5ad0'; ctx.fillRect(0, h - 14, w, 2);
+      ctx.fillStyle = '#3fd0e0'; ctx.fillRect(0, 6, w, 1);
+    } else if (style === 'scifi') {
+      ctx.fillStyle = 'rgba(127,227,255,0.22)';
+      for (let x = 0; x < w; x += 36) ctx.fillRect(x, 8, 18, 1);
+    }
+    ctx.fillStyle = p.skirt; ctx.fillRect(0, h - 7, w, 7);
+    ctx.fillStyle = p.foot; ctx.fillRect(0, h, w, 2);
+  }
   function drawBackWall(f) {
     const w = f.width, y1 = BACK_WALL_H, y0 = -56; // 向上延伸：相机纵向居中（camY<0）时墙面不露底
     // 墙面主体 + 上压线 + 踢脚线 + 墙根阴影
@@ -3056,6 +3136,8 @@
     const WALL_Y = WORLD.WALL_BASE || 58;   // 后墙墙带下沿：墙带以内属纯背景，家具需裁剪
     const f = WORLD.floorById(floorId);
     const currentRoom = zoneId ? WORLD.roomById(zoneId) : null;
+    const tmjMap = TMJ_VISUAL && WORLD.TMJ && WORLD.TMJ.isEnabled() ? WORLD.TMJ.get(floorId) : null;
+    const useTMJVisual = !!(tmjMap && TMJ_VISUAL.ready && !currentRoom);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, cssW, cssH);
@@ -3067,6 +3149,13 @@
         ctx.fillStyle = '#2b2333'; ctx.fillRect(0, 0, currentRoom.width, currentRoom.height);
       }
       drawRoomExit(currentRoom);
+    } else if (useTMJVisual) {
+      // TMJ 画面层：地面/墙/装饰/家具全部来自同一张 floorN.tmj，和权威碰撞一致。
+      if (!TMJ_VISUAL.drawFloor(ctx, tmjMap, floorId)) {
+        ctx.fillStyle = '#070a10'; ctx.fillRect(0, 0, WORLD.FLOOR_W || 2880, WORLD.FLOOR_H || 800);
+      }
+      // 补回旧 3/4 画面的后墙墙带（窗户/标语/踢脚线），否则纯顶视会很平。
+      drawTMJWallBand(ctx, f);
     } else {
       // 楼面：按轮廓多边形裁剪后铺 512 分块地板；轮廓外保持非楼面（不补平）。
       ctx.beginPath();
@@ -3092,12 +3181,20 @@
     if (!currentRoom) drawRoomDoors();
     const list = drawList();
     const near = (x, y, w, h, padx, pady) => x + w + padx > camX && x - padx < camX + viewW && y + h + pady > camY && y - (pady + 20) < camY + viewH;
+    const ws = WORLD.FLOOR_SCALE || 2;
+    const tmjProps = useTMJVisual ? TMJ_VISUAL.scene(tmjMap) : [];
     const scene = [
-      ...furniture.filter(f2 => near(f2.x, f2.y, f2.w, f2.h, 12, 12)).map(f2 => ({ depth: f2.depth, f: f2 })),
-      ...walls.filter(w => near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w })),
+      ...(useTMJVisual ? [] : furniture.filter(f2 => near(f2.x, f2.y, f2.w, f2.h, 12, 12)).map(f2 => ({ depth: f2.depth, f: f2 }))),
+      ...(useTMJVisual ? furniture.filter(f2 => f2.container && near(f2.x, f2.y, f2.w, f2.h, 12, 12) && f2.y + f2.h > (WORLD.WALL_BASE || 58)).map(f2 => ({ depth: f2.depth, f: f2 })) : []),
+      ...(useTMJVisual ? [] : walls.filter(w => near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w }))),
+      ...tmjProps.filter(p => near(p.x * ws, p.y * ws, p.w * ws, p.h * ws, 16, 16) && (p.y + p.h) * ws > (WORLD.WALL_BASE || 58)).map(p => ({ depth: (p.y + p.h) * ws, tmj: p })),
       ...list.filter(p => p.x > camX - 12 && p.x < camX + viewW + 12 && p.y > camY - 25 && p.y < camY + viewH + 30).map(p => ({ depth: p.y, p }))
     ].sort((a, b) => a.depth - b.depth || Number(!!b.f) - Number(!!a.f));
     for (const item of scene) {
+      if (item.tmj) {
+        TMJ_VISUAL.drawProp(ctx, item.tmj);
+        continue;
+      }
       if (item.f) {
         const f2 = item.f;
         if (f2.type === 'wall') {
@@ -3110,7 +3207,20 @@
         const clipWall = f2.y - 24 < WALL_Y;
         if (clipWall) { ctx.save(); ctx.beginPath(); ctx.rect(camX - 400, WALL_Y, viewW + 800, viewH + 600); ctx.clip(); }
         const pad = furniturePad(f2.type);
-        ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
+        // 旧容器 sprite 是按旧楼层家具尺寸烘的；搬到 TMJ 房间后大件会显得像巨型柜台。
+        // 只缩视觉、不缩交互 footprint，避免搜索点/碰撞跟着漂。
+        const cs = f2.container ? (CONTAINER_SCALE[f2.type] || ((f2.w > 90 || f2.h > 70) ? 0.78 : 1)) : 1;
+        const mirror = f2.container && ['desk', 'shelf', 'cabinet', 'table', 'printer'].includes(f2.type)
+          && (Math.round(f2.x / 64) + Math.round(f2.y / 64)) % 2 === 1 ? -1 : 1;
+        if (cs !== 1 || mirror !== 1) {
+          const cx = f2.x + f2.w / 2, cy = f2.y + f2.h / 2;
+          ctx.save();
+          ctx.translate(cx, cy); ctx.scale(cs * mirror, cs); ctx.translate(-cx, -cy);
+          ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
+          ctx.restore();
+        } else {
+          ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
+        }
         // 紧跟家具 sprite 之后画交互标记：深度更大的家具后画时会自然盖住，不穿透遮挡。
         // 用脚下的小椭圆光圈而不是整块家具矩形——放大后家具矩形可能很大，
         // 框住整张桌子/工位岛会让人误以为"搜索范围有这么大"。
@@ -3149,6 +3259,22 @@
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawFogOverlay();
+    // F1 碰撞调试层：在雾层之后、CSS 像素空间绘制，避免被世界缩放/暗角影响。
+    if (TMJ_DEBUG && TMJ_DEBUG.isVisible()) {
+      const selfP = selfPlayer();
+      const selfR = selfP ? renderMap.get(selfP.id) : null;
+      TMJ_DEBUG.draw(ctx, {
+        floorId, zoneId, cameraX, cameraY, viewW, viewH, scale, dpr, cssW, cssH,
+        selfId: selfId(),
+        selfX: selfR ? selfR.x : (selfP ? selfP.x : null),
+        selfY: selfR ? selfR.y : (selfP ? selfP.y : null),
+        players: players.map(p => {
+          const r = renderMap.get(p.id);
+          return { id: p.id, floorId: p.floorId, zoneId: p.zoneId || null, x: r ? r.x : p.x, y: r ? r.y : p.y };
+        }),
+        doorStates: glassDoorStates,
+      });
+    }
   }
   // 5F 战争迷雾：只留人物周围一小圈可见，其余压黑。半径与服务端裁剪共用 FLOOR_FOG。
   // 房间内（zoneId）不盖雾——那是独立空间，有自己的小镜头。
@@ -3380,6 +3506,12 @@
     showToast(msg);
   }
   document.addEventListener('keydown', e => {
+    // F1 碰撞调试层：任何时候都可开关，不改变输入/权威状态。
+    if (e.key === 'F1') {
+      e.preventDefault();
+      if (!e.repeat && TMJ_DEBUG) TMJ_DEBUG.toggle();
+      return;
+    }
     if ($('rules-view').open || $('reset-confirm').open) return;
     if (e.key === 'Escape') {
       // 电梯选层面板可被 Esc 取消（未提交任何请求）。
@@ -3467,6 +3599,16 @@
   // 视口尺寸变化（含全屏切换、窗口缩放、旋转）重建 backing 与统一缩放，自适应而不裁剪或拉伸。
   window.addEventListener('resize', () => resizeCanvas());
   window.addEventListener('orientationchange', () => resizeCanvas());
+  // TMJ 地图 fetch 完并应用布局后，重建当前楼层渲染缓存（portals/npcs 引用会变）。
+  window.addEventListener('tmj:layout', () => {
+    if (zoneId) return;
+    loadFloorLocal(floorId);
+    draw();
+  });
+  window.addEventListener('tmj:visual-ready', () => {
+    if (TMJ_VISUAL) TMJ_VISUAL.clear();
+    draw();
+  });
   if (window.ResizeObserver) { try { new ResizeObserver(() => resizeCanvas()).observe($('map-view')); } catch { } }
   resizeCanvas();
 
@@ -3527,3 +3669,9 @@
 
   boot();
 })();
+
+
+
+
+
+

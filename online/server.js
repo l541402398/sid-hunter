@@ -87,6 +87,7 @@ server.listen(PORT, HOST, () => {
   console.log(`本机访问: http://127.0.0.1:${PORT}`);
   console.log(`开发重置: ${DEV_ENABLED ? '启用（仅本机、已加入身份、同源Origin和CSRF）' : '关闭（需维护时以SID_DEV=1重启启用）'}；本机路径 http://127.0.0.1:${PORT}/`);
   console.log(`单点登录: ${SSO_REQUIRED ? '已启用，CAS 姓名直接进局；会话在本进程内存，重启后需重新登录' : '未启用（SID_TEST=1 或 SID_SSO=0），仍用昵称加入'}`);
+  console.log(`TMJ 碰撞: ${WORLD.TMJ && WORLD.TMJ.isEnabled() ? `ON（${WORLD.TMJ.count()} 层；F1 查看叠加层）` : 'OFF（旧家具矩形碰撞；F1 仍可对比 TMJ）'}`);
   for (const address of lan) console.log(`局域网访问: http://${address}:${PORT}`);
   console.log(`技能次数恢复周期: ${SKILL_CONFIG.chargeIntervalMs / 1000}s（正式版改 room.js SKILL_CONFIG.chargeIntervalMs 为 1200000）`);
   if (!lan.length) console.log('未检测到局域网 IPv4 地址，同事可能无法通过局域网访问。');

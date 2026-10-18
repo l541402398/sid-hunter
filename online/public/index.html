@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="styles.css">
 <!-- world 子模块必须按序先加载，最后 /shared/world.js 聚合为 window.WORLD -->
 <script src="/shared/world/config.js" defer></script>
+<script src="/shared/world/tmj.js" defer></script>
 <script src="/shared/world/geometry.js" defer></script>
 <script src="/shared/world/furniture.js" defer></script>
 <!-- dressing.js 必须先于 floors.js：floors.js 建造时会把逐层陈设 concat 进家具表 -->
@@ -25,6 +26,9 @@
 <script src="js/core/wheel.js" defer></script>
 <script src="js/core/text.js" defer></script>
 <script src="js/render/paint.js" defer></script>
+<!-- F1 碰撞调试层：只读 TMJ/旧碰撞，不参与权威移动；必须在 game.js 之前挂到 window.SID -->
+<script src="js/render/tmj-debug.js" defer></script>
+<script src="js/render/tmj-visual.js" defer></script>
 <!-- 需求③：搜打撤物品格（16×16 像素图标 + 逐格揭示面板），必须先于 game.js -->
 <script src="js/search/loot-icons.js" defer></script>
 <script src="js/search/loot-grid.js" defer></script>`n<!-- 小游戏：坦克对决（独立脚本，插件式挂载） -->`n<script src="js/minigame/tank-ui.js" defer></script>`n<script src="js/minigame/spire-ui.js" defer></script>
@@ -51,7 +55,7 @@
       <div class="exploration-hud" aria-label="就近互动"><p id="cover-status" hidden></p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty" hidden></p><div class="combat-hud"><button id="attack-button" type="button" hidden>J 攻击</button><p id="self-combat-state" class="self-combat-state" hidden aria-live="polite"></p><span class="combat-note" hidden></span></div></div>
       <!-- 第二轮：限时 buff 条（疾行 / 护体 / 专注），由服务端剩余毫秒驱动 -->
       <div id="buff-bar" class="buff-bar" hidden aria-live="polite"></div>
-      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看档案 <i>·</i> <kbd>E</kbd> 互动 / 乘梯 <i>·</i> <kbd>J</kbd> 攻击 / 幽灵吓人 <i>·</i> <kbd>K</kbd> 跳跃</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
+      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看档案 <i>·</i> <kbd>E</kbd> 互动 / 乘梯 <i>·</i> <kbd>J</kbd> 攻击 / 幽灵吓人 <i>·</i> <kbd>K</kbd> 跳跃 <i>·</i> <kbd>F1</kbd> 碰撞调试</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
       <div id="offline-banner" class="offline-banner" hidden></div>
       <!-- 需求①：进入独立小房间后的空间提示条（房间名 + 如何离开） -->
       <div id="zone-banner" class="zone-banner" hidden aria-live="polite">
@@ -128,3 +132,4 @@
 </div>
 </body>
 </html>
+

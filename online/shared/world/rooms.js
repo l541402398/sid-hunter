@@ -11,12 +11,12 @@
 // 与 floors.js 的约定一致：家具/墙用 0–1000 归一化书写，建造时换算成房间自己的像素尺寸。
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
-  const D = isNode ? Object.assign({}, require('./config.js'), require('./geometry.js'), require('./furniture.js'), require('./floors.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const D = isNode ? Object.assign({}, require('./config.js'), require('./geometry.js'), require('./furniture.js'), require('./floors.js'), { TMJ: require('./tmj.js') }) : Object.assign({}, root.SID_WORLD_PARTS || {});
   const api = factory(D);
   if (isNode) module.exports = api;
   else Object.assign(root.SID_WORLD_PARTS = root.SID_WORLD_PARTS || {}, api);
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const { blocksFor, floorById, floorCollides, floorBlockers, inFloor } = D;
+  const { blocksFor, floorById, floorCollides, floorBlockers, inFloor, TMJ } = D;
   // ---------- 房间尺寸（世界像素） ----------
   // 房间是独立空间，不随楼层放大：楼层放大是为了容纳更多人，房间再放大会变成"空荡的大厅"。
   // 进房后客户端会把镜头缩到整间屋子（见 game.js 的 applyViewport），所以小房间反而更有"进屋"感。
@@ -280,7 +280,18 @@
         if (ok(x, y)) return { x, y };
       }
     }
-    return null;
+    // 手绘 TMJ 布局与旧房间门点不再重合：全层找最近的可站立点，保证房间入口始终存在。
+    // 优先离已有房间门远一点，避免 6 个门挤在同一个角。
+    let best = null, bestD = Infinity;
+    for (let y = 104; y < floor.height - 24; y += 8) {
+      for (let x = 32; x < floor.width - 32; x += 8) {
+        if (!ok(x, y)) continue;
+        const crowd = ROOM_LIST.some(r => r.floorId === floorId && Math.hypot(r.door.x - x, r.door.y - y) < 90);
+        const d = Math.hypot(x - wanted[0], y - wanted[1]) + (crowd ? 5000 : 0);
+        if (d < bestD) { bestD = d; best = { x, y }; }
+      }
+    }
+    return best;
   }
 
   (function buildRooms() {
@@ -380,6 +391,55 @@
     return blocksFor(f);
   }
 
+  // 房间 → TMJ 主题功能区：门点不再用旧楼层坐标，而是落到对应功能区里的可走格。
+  const ROOM_TMJ_ZONE = {
+    1: { manager: '主控室', 'canteen-p': '低温实验舱', server1: '样本分析台', armory1: '应急冲洗', medbay1: '应急冲洗', cryo1: '低温实验舱' },
+    2: { meeting220: '检录更衣', 'rd-lead': '看台补给', physio2: '东侧电梯厅', equip2: '器材库', tactics2: '中央球场', referee2: '跑道直道' },
+    3: { review301: '王座厅', lab3: '炼金室', armory3: '宝库', library3: '藏书阁', dungeon3: '中央拱廊', chapel3: '东侧电梯厅' },
+    4: { archive4: '林间营地', ticket4: '溪流桥', camp4: '林间营地', herb4: '药草圃', tree4: '树屋', watch4: '古树祭坛' },
+    5: { dispatch5: '宝库', meeting5: '铁栅井', torture5: '刑讯室', crypt5: '水牢', alchemy5: '宝库', cell5: '牢房' },
+    6: { finance6: '船长室', meeting6: '货舱', galley6: '厨房', magazine6: '炮舱', crew6: '甲板', crow6: '东侧电梯厅' },
+    7: { board7: '天台酒吧', locker7: '霓虹街', clinic7: '义体诊所', market7: '黑市', bar7room: '天台酒吧', roof7: '全息塔广场' },
+  };
+  function applyTMJRoomDoors() {
+    if (!TMJ || !TMJ.isEnabled()) return 0;
+    let moved = 0;
+    const used = new Map();
+    for (const r of ROOM_LIST) {
+      const zoneName = (ROOM_TMJ_ZONE[r.floorId] || {})[r.slug];
+      const map = TMJ.get(r.floorId);
+      if (!zoneName || !map) continue;
+      const zone = (map.zones || []).find(z => z.name === zoneName);
+      if (!zone) continue;
+      const ts = (map.tileWidth || 16) * FLOOR_SCALE;
+      const zx0 = zone.x * FLOOR_SCALE, zy0 = zone.y * FLOOR_SCALE;
+      const zx1 = (zone.x + zone.w) * FLOOR_SCALE, zy1 = (zone.y + zone.h) * FLOOR_SCALE;
+      let best = null;
+      for (let y = Math.floor(zy0 / ts); y <= Math.ceil(zy1 / ts); y++) {
+        for (let x = Math.floor(zx0 / ts); x <= Math.ceil(zx1 / ts); x++) {
+          const wx = (x + 0.5) * ts, wy = (y + 0.5) * ts;
+          if (wx < zx0 || wx > zx1 || wy < zy0 || wy > zy1) continue;
+          if (TMJ.solidAt(r.floorId, wx, wy, FLOOR_SCALE)) continue;
+          if ((used.get(r.floorId) || []).some(u => Math.hypot(u.x - wx, u.y - wy) < 64)) continue;
+          const d = (wx - r.door.x) ** 2 + (wy - r.door.y) ** 2;
+          if (!best || d < best.d) best = { x: wx, y: wy, d };
+        }
+      }
+      if (!best) continue;
+      const door = { x: best.x, y: best.y };
+      r.door = door;
+      if (!used.has(r.floorId)) used.set(r.floorId, []);
+      used.get(r.floorId).push(door);
+      const room = ROOMS[r.id];
+      if (room) {
+        room.door = { ...door };
+        room.exteriorDoor = { x: door.x, y: door.y, radius: ENTER_PAD };
+      }
+      moved++;
+    }
+    return moved;
+  }
+
   function roomById(id) { return ROOMS[String(id)] || null; }
   function roomsForFloor(floorId) { return ROOM_LIST.filter(r => r.floorId === Number(floorId)).map(r => ({ ...r, door: { ...r.door } })); }
   function roomBlockers(id) {
@@ -472,6 +532,10 @@
     ROOM_SIZES, WALL_T, DOOR_HALF, ENTER_PAD, ROOM_SPECS, ROOM_LIST, ROOMS, ROOM_GEO,
     roomById, roomsForFloor, roomBlockers, roomCollides, inRoom, roomBounds, roomCamera,
     roomInteractables, roomDoorNear, zoneContainers, zoneFurniture, zoneBlockers, zoneCollides,
-    zoneBounds, zoneCamera, roomBlocksFor, ROOM_SELF_D
+    zoneBounds, zoneCamera, roomBlocksFor, ROOM_SELF_D, applyTMJRoomDoors
   };
 });
+
+
+
+

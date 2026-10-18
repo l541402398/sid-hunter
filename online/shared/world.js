@@ -3,15 +3,15 @@
 // 本文件是聚合器：子模块在 online/shared/world/*.js（浏览器需按序先加载它们），导出 window.WORLD / module.exports 保持不变。
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
-  const D = isNode ? Object.assign({}, require('./world/config.js'), require('./world/geometry.js'), require('./world/furniture.js'), require('./world/dressing.js'), require('./world/sprite-bounds.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/clutter.js'), require('./world/loot.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const D = isNode ? Object.assign({}, require('./world/config.js'), { TMJ: require('./world/tmj.js') }, require('./world/geometry.js'), require('./world/furniture.js'), require('./world/dressing.js'), require('./world/sprite-bounds.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/clutter.js'), require('./world/loot.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
   const WORLD = factory(D);
   root.WORLD = WORLD;
   if (isNode) module.exports = WORLD;
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const { WORLD_W, WORLD_H, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, ATTACK_ANIMATION_MS, drawCharacterBody } = D;
+  const { WORLD_W, WORLD_H, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout: applyTMJLayoutBase, ATTACK_ANIMATION_MS, drawCharacterBody, TMJ } = D;
   const { ROOM_SIZES, WALL_T, DOOR_HALF, ENTER_PAD, ROOM_SPECS, ROOM_LIST, ROOMS, roomById, roomsForFloor,
     roomBlockers, roomCollides, inRoom, roomBounds, roomCamera, roomInteractables, roomDoorNear,
-    zoneContainers, zoneFurniture, zoneBlockers, zoneCollides, zoneBounds, zoneCamera } = D;
+    zoneContainers, zoneFurniture, zoneBlockers, zoneCollides, zoneBounds, zoneCamera, applyTMJRoomDoors } = D;
   const { RARITY, RARITY_ORDER, ITEMS, PROFILES, profileKeyFor, profileFor, buildSearchPlan, describeSlot,
     revealDelayMs, SEARCH_CONFIG, EFFECTS, EFFECT_ORDER, SHOP_ITEMS, FLOOR_POOL_ADD, floorPoolFor, containerFloor,
     PASSIVE_KINDS, PASSIVE_ORDER, passiveOf, passiveTotals } = D;
@@ -36,6 +36,12 @@
       fl._safeSpawns = null; // 家具变了，出生点重新净化
     }
   })();
+  function applyTMJLayout() {
+    const n = applyTMJLayoutBase();
+    if (typeof applyTMJRoomDoors === 'function') applyTMJRoomDoors();
+    return n;
+  }
+  if (TMJ && TMJ.isEnabled()) applyTMJLayout();
   const WORLD = {
     WORLD_W, WORLD_H, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_X, MAX_X, MIN_Y, MAX_Y,
     // 后墙墙带高度（世界像素）：墙带覆盖楼面北侧 y<WALL_BASE 的区域，属纯背景，不参与碰撞。
@@ -52,7 +58,9 @@
     floorOptions, inHall, advanceGlassDoors, cameraBounds,
     floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorNpcs, floorContainers,
     FLOOR_COUNT: FLOOR_SPECS.length,
-    inFloor, floorCollides, floorBounds,
+    inFloor, floorCollides, floorBounds, applyTMJLayout,
+    // TMJ 地图运行时：碰撞层、出生点与电梯标记。默认关闭，SID_TMJ=1 时接管行走碰撞。
+    TMJ,
     // 独立小房间（需求①）：每层 2 间可进入的独立空间，自带坐标、家具、容器与相机。
     ROOM_SIZES, ROOM_WALL_T: WALL_T, ROOM_DOOR_HALF: DOOR_HALF, ROOM_ENTER_PAD: ENTER_PAD,
     ROOM_SPECS, ROOM_LIST, ROOMS, roomById, roomsForFloor, roomBlockers, roomCollides, inRoom,
@@ -68,3 +76,4 @@
   };
   return WORLD;
 });
+

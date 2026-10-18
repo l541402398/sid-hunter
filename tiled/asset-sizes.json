@@ -1,0 +1,194 @@
+{
+ "desk": [
+  32,
+  32
+ ],
+ "desk2": [
+  32,
+  32
+ ],
+ "tableSmall": [
+  16,
+  16
+ ],
+ "tableRound": [
+  32,
+  32
+ ],
+ "chair": [
+  16,
+  16
+ ],
+ "sofaSmall": [
+  32,
+  32
+ ],
+ "sofa": [
+  32,
+  32
+ ],
+ "plantSmall": [
+  16,
+  16
+ ],
+ "plantBig": [
+  32,
+  32
+ ],
+ "shelf": [
+  16,
+  16
+ ],
+ "shelfTall": [
+  32,
+  32
+ ],
+ "cabinetTall": [
+  32,
+  32
+ ],
+ "cabinetWide": [
+  32,
+  32
+ ],
+ "water": [
+  32,
+  32
+ ],
+ "vending": [
+  32,
+  32
+ ],
+ "board": [
+  16,
+  16
+ ],
+ "printer": [
+  16,
+  16
+ ],
+ "bin": [
+  16,
+  16
+ ],
+ "sportsGoalA": [
+  64,
+  64
+ ],
+ "sportsGoalB": [
+  64,
+  64
+ ],
+ "sportsGoalC": [
+  64,
+  64
+ ],
+ "dgnChest": [
+  16,
+  16
+ ],
+ "dgnChestOpen": [
+  16,
+  16
+ ],
+ "dgnBox": [
+  16,
+  32
+ ],
+ "dgnBoxes": [
+  16,
+  32
+ ],
+ "dgnColumn": [
+  16,
+  48
+ ],
+ "dgnSkull": [
+  16,
+  16
+ ],
+ "dgnTorch1": [
+  14,
+  23
+ ],
+ "dgnFlagRed": [
+  16,
+  16
+ ],
+ "dgnFlagBlue": [
+  16,
+  16
+ ],
+ "forestTree1": [
+  66,
+  97
+ ],
+ "forestTree2": [
+  32,
+  74
+ ],
+ "forestBrush1": [
+  43,
+  40
+ ],
+ "forestStump": [
+  30,
+  24
+ ],
+ "forestRock1": [
+  11,
+  9
+ ],
+ "forestRock2": [
+  11,
+  9
+ ],
+ "forestFlowerR": [
+  5,
+  5
+ ],
+ "forestFlowerB": [
+  5,
+  5
+ ],
+ "controlBox": [
+  32,
+  30
+ ],
+ "monitorFace": [
+  21,
+  18
+ ],
+ "cyberLight": [
+  55,
+  68
+ ],
+ "antenna": [
+  22,
+  96
+ ],
+ "hotelSign": [
+  68,
+  35
+ ],
+ "bannerSmall": [
+  13,
+  35
+ ],
+ "bannerBig": [
+  90,
+  60
+ ],
+ "bannerArrow": [
+  16,
+  34
+ ],
+ "neonHolo": [
+  16,
+  16
+ ],
+ "lootMap": [
+  30,
+  32
+ ]
+}
