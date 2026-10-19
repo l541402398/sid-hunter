@@ -134,7 +134,7 @@ function createManager({ room, passcode, now = Date.now }) {
         lastResult: last
           ? { ...last, finishReasonText: finishReasonText(last.finishReason), ranked: !!last.ranking }
           : null,
-        teams: room.room.players.map(p => ({ id: p.id, name: p.name, alive: p.alive, score: p.score }))
+        teams: room.room.players.map(p => ({ id: p.id, name: p.name, alive: p.alive, score: p.score, points: (p.achievements && p.achievements.points) || 0 }))
       }
     };
   }

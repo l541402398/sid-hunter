@@ -50,3 +50,9 @@
 
 
 /* ---------- 自适应全屏：HUD 移入游戏界面内部，地图视区占满剩余空间 ---------- */
+
+/* 双榜切换：筹码榜 / 成就榜 */
+.ranking-tabs{display:flex;gap:6px;margin:0 0 10px}
+.ranking-tabs button{flex:1;padding:6px 8px;font-size:11px;border:1px solid #2d3a4a;background:#0f1722;color:#8ba3bd;border-radius:7px;cursor:pointer}
+.ranking-tabs button.active{border-color:#5aa9f2;background:#132437;color:#cfe6ff}
+

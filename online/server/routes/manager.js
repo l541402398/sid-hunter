@@ -1,6 +1,7 @@
 'use strict';
 // server 路由：管理控制台入口与 /api/manager/*（独立授权码，不走 CAS）。
 const { send, readBody, staticServe, managerSessionOf, managerReply, isJsonRequest } = require('../http-util.js');
+const { featureList, sanitizeFeatures } = require('../features.js');
 
 async function handle(ctx) {
   const { req, res, url, pathname, ROOM, MANAGER, resetTokens, WORLD, openStream } = ctx;
@@ -26,6 +27,17 @@ async function handle(ctx) {
       const gate = MANAGER.sessionFor(req, token);
       if (gate.status !== 200) return managerReply(res, gate);
       return managerReply(res, MANAGER.state());
+    }
+    // 功能开关：GET 读当前配置，POST 覆盖（见 server/features.js）。
+    if (action === 'features') {
+      const gate = MANAGER.sessionFor(req, token);
+      if (gate.status !== 200) return managerReply(res, gate);
+      if (req.method === 'GET') return managerReply(res, { status: 200, body: { ok: true, features: featureList(ROOM.room.features) } });
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });
+      const body = await readBody(req);
+      ROOM.room.features = sanitizeFeatures(body && body.features, ROOM.room.features);
+      return managerReply(res, { status: 200, body: { ok: true, features: featureList(ROOM.room.features) } });
     }
     if (action === 'reset') {
       if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });

@@ -14,8 +14,13 @@
   const _objD = d => Math.min(24, Math.max(6, d));                     // R-CLIP
   // 逐类型「单体自深」(m × 13.33px/m)；缺省用 rect 深
   const FURN_SELF_D = {
-    desk: 9.3, table: 24, counter: 8.7, cabinet: 6.7, reception: 10.7, sofa: 12,
-    plant: 10.7, treadmill: 9.3, rack: 6.7, seat: 6.7, mat: 24, stage: 24
+    // 用户反馈"能走进物品里边"：可见家具的碰撞至少 24px（= _objD 上限），
+    // 只有挂墙/平铺件（电视、白板、落地灯、地垫）保持薄带，避免变成空气墙。
+    desk: 24, table: 24, counter: 24, cabinet: 24, reception: 24, sofa: 24,
+    plant: 18, treadmill: 24, rack: 24, seat: 24, mat: 24, stage: 24,
+    shelf: 24, whiteboard: 4, tv: 4, server: 24, safe: 24, crate: 24, locker: 24,
+    bench: 24, chair: 24, lamp: 4, cooler: 24, vending: 24, printer: 24, boxstack: 24,
+    arcade: 24
   };
   // 工位分支的单一真源：'island'（连排/双面岛，C>=2）| 'workSingle'（工位型单桌）| 'roomSingle'（房号竖放单桌）。
   // blocksFor 与渲染（drawWorkstation）都以它为唯一判据，避免"房号单桌被画成工位岛"。

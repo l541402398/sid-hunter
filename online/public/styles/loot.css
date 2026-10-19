@@ -1,0 +1,192 @@
+/* 需求③：搜打撤式物品格面板 + 需求①：房间空间提示条。
+   由 styles.css 按序 @import；像素硬边、稀有度描边、逐格翻牌。 */
+
+/* ---------- 独立空间提示条 ---------- */
+.zone-banner{position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;
+  padding:7px 14px;border:1px solid #6c8fb5;border-radius:8px;background:#0b1726e8;z-index:6;
+  font-size:11px;color:#cfe2f5;box-shadow:0 6px 20px #0008;max-width:min(660px,92%);flex-wrap:wrap;justify-content:center}
+.zone-banner[hidden]{display:none}
+.zone-banner-tag{padding:2px 7px;border-radius:4px;background:#1d3a5c;color:#8fd0ff;font-size:10px;letter-spacing:.14em}
+.zone-banner strong{color:#ffe3a3;font-size:13px;letter-spacing:.04em}
+.zone-banner-hint{color:#8ba3bd;font-size:10px}
+.zone-banner kbd{padding:1px 5px;border:1px solid #4d6b8c;border-radius:3px;background:#16263a;font-size:10px}
+
+/* ---------- 第二轮：道具背包 / 商店 / buff 条 ---------- */
+.buff-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:56px;display:flex;gap:6px;z-index:5;flex-wrap:wrap;justify-content:center;pointer-events:none}
+.buff-bar[hidden]{display:none}
+.buff-chip{padding:3px 9px;border-radius:999px;font-size:10px;font-family:ui-monospace,SFMono-Regular,monospace;
+  border:1px solid #3a4d63;background:#0b1626e6;color:#cfe2f5;box-shadow:0 4px 12px #0007}
+.buff-chip.speed{border-color:#3f8f5f;color:#a7e6bd}
+.buff-chip.shield{border-color:#3f7bd6;color:#bfe0ff}
+.buff-chip.focus{border-color:#c9a227;color:#ffe3a3}
+.bag-block{margin:10px 0;padding:9px 10px;border:1px solid #435975;border-radius:8px;background:#101c2b}
+.bag-items{display:flex;flex-direction:column;gap:6px;max-height:216px;overflow:auto}
+.bag-item{display:flex;align-items:center;gap:8px;padding:6px 7px;border:1px solid #33465e;border-radius:7px;background:#0d1725}
+.bag-item.shop{background:#141c22}
+.bag-icon{width:26px;height:26px;image-rendering:pixelated;flex:none}
+.bag-meta{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
+.bag-meta strong{font-size:11px;color:#e6eef8;font-weight:600;overflow-wrap:anywhere}
+.bag-meta span{font-size:9.5px;color:#8ba3bd;line-height:1.5;overflow-wrap:anywhere}
+.bag-actions{display:flex;gap:5px;flex:none}
+.bag-actions button{min-height:28px;padding:0 9px;font-size:10.5px;border:1px solid #6d5940;border-radius:6px;background:#2a2418;color:#ffe3a3;cursor:pointer}
+.bag-actions button.sell{border-color:#3f5c7a;background:#16222e;color:#9fc4e8}
+.bag-actions button:hover:not(:disabled){filter:brightness(1.18)}
+.bag-actions button:disabled{opacity:.45;cursor:not-allowed}
+
+/* ---------- 物品格面板 ---------- */
+.loot-panel{position:absolute;right:12px;top:12px;width:352px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);
+  display:flex;flex-direction:column;gap:9px;padding:15px;z-index:24;
+  border:1px solid #9d8156;border-radius:10px;background:#0c1626f2;color:#e9e4da;
+  box-shadow:0 18px 46px #000a, inset 0 1px 0 #ffffff10}
+.loot-panel[hidden]{display:none}
+.loot-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex:none}
+.loot-head small{display:block;font-size:9px;letter-spacing:.16em;color:#8ea6c2}
+.loot-head h2{margin:2px 0 0;font-size:15px;color:#ffe3a3;line-height:1.35;overflow-wrap:anywhere}
+.loot-x{flex:none;width:30px;height:30px;border:1px solid #4d617b;border-radius:7px;background:#16263a;color:#cfe0f2;font-size:16px;line-height:1;cursor:pointer}
+.loot-x:hover{background:#20344d}
+.loot-meta{margin:0;font-size:10px;color:#8299b3;line-height:1.6}
+
+.loot-progress{flex:none;height:6px;border:1px solid #35506e;border-radius:4px;background:#0a1422;overflow:hidden}
+.loot-progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,#3f7bd6,#54c9d6);transition:width .22s linear}
+
+/* 物品格：列数由 --cols 决定（服务端给 3 或 4 列） */
+.loot-grid{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:7px;overflow:auto;min-height:0;padding:1px}
+.loot-grid[hidden]{display:none}
+.loot-cell{position:relative;aspect-ratio:1/1;border:1px solid #33465e;border-radius:8px;
+  background:linear-gradient(180deg,#142132,#0e1927);display:flex;align-items:center;justify-content:center;
+  box-shadow:inset 0 0 0 1px #ffffff08;overflow:hidden}
+.loot-cell-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:100%;height:100%;padding:4px}
+.loot-q{font-size:17px;font-weight:700;color:#4f657f;font-family:ui-monospace,SFMono-Regular,monospace}
+.loot-cell.is-hidden{background:repeating-linear-gradient(135deg,#111d2c 0 7px,#0e1826 7px 14px)}
+.loot-cell.is-hidden::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 35%,#ffffff12 50%,transparent 65%);
+  transform:translateX(-120%);animation:loot-sheen 2.6s ease-in-out infinite}
+@keyframes loot-sheen{0%,55%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+.loot-cell.is-revealing{animation:loot-flip .26s ease-out}
+@keyframes loot-flip{0%{transform:scale(.82) rotateY(38deg);opacity:.35}100%{transform:scale(1) rotateY(0);opacity:1}}
+.loot-icon{width:34px;height:34px;image-rendering:pixelated;display:block}
+.loot-name{font-size:9.5px;line-height:1.2;color:#c9d8e8;text-align:center;overflow-wrap:anywhere;max-width:100%}
+.loot-badge{font-size:9px;font-family:ui-monospace,SFMono-Regular,monospace;color:#ffe08a}
+.loot-cell.is-empty{opacity:.42}
+.loot-cell.is-empty .loot-name{color:#7b8ea4}
+
+/* 稀有度：一格一色描边 + 底色微光 */
+.loot-cell.r-common{border-color:#4a5c72}
+.loot-cell.r-uncommon{border-color:#3f8f5f;box-shadow:inset 0 0 14px #4aa56430}
+.loot-cell.r-rare{border-color:#3f7bd6;box-shadow:inset 0 0 16px #3f7bd640}
+.loot-cell.r-epic{border-color:#8a6ad0;box-shadow:inset 0 0 18px #8a6ad050}
+.loot-cell.r-legendary{border-color:#e0a83a;box-shadow:inset 0 0 20px #e0a83a60}
+.loot-cell.r-epic .loot-name{color:#dcc8ff}
+.loot-cell.r-legendary .loot-name{color:#ffe3a3}
+
+.loot-status{margin:0;font-size:11px;line-height:1.7;color:#e9c877;min-height:18px}
+.loot-summary{margin:0;padding:9px 10px;border:1px solid #4d617b;border-radius:8px;background:#122035;font-size:11px;line-height:1.7}
+.loot-summary[hidden]{display:none}
+.loot-summary-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.loot-summary-head strong{color:#ffe3a3;font-size:12px}
+.loot-sum-chip{color:#ffe08a;font-family:ui-monospace,monospace}
+.loot-sum-clue{color:#8fc4ff;font-family:ui-monospace,monospace}
+.loot-sum-items{display:flex;flex-wrap:wrap;gap:5px}
+.loot-sum-item{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border:1px solid #3a4d63;border-radius:999px;color:#c9d8e8;font-size:10px}
+.loot-sum-item .dot{width:5px;height:5px;border-radius:50%;background:#8d99a8}
+.loot-sum-item.r-uncommon .dot{background:#6fce8a}
+.loot-sum-item.r-rare .dot{background:#5aa9f2}
+.loot-sum-item.r-epic .dot{background:#b579f2}
+.loot-sum-item.r-legendary .dot{background:#f2b544}
+.loot-sum-empty{color:#8299b3;font-size:10px}
+.loot-actions{display:flex;gap:8px;flex:none}
+.loot-actions button{flex:1;min-height:40px;border:1px solid #6d5940;border-radius:8px;background:#2a2418;color:#ffe3a3;font-size:12px;cursor:pointer}
+.loot-actions button:hover:not(:disabled){background:#3a311f}
+.loot-actions button:disabled{opacity:.5;cursor:not-allowed}
+.loot-actions #loot-take{background:#173226;border-color:#3f8f5f;color:#a7e6bd}
+.loot-actions #loot-take.is-ready{animation:loot-ready 1.6s ease-in-out infinite}
+@keyframes loot-ready{0%,100%{box-shadow:0 0 0 0 #4aa56400}50%{box-shadow:0 0 0 3px #4aa56455}}
+
+@media(max-width:850px){
+  .loot-panel{width:300px;right:8px;top:8px;padding:12px}
+  .loot-name{font-size:9px}
+  .loot-icon{width:28px;height:28px}
+  .zone-banner{gap:6px;padding:5px 10px;font-size:10px}
+  .zone-banner-hint{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  .loot-cell.is-hidden::after{animation:none}
+  .loot-cell.is-revealing{animation:none}
+  .loot-actions #loot-take.is-ready{animation:none}
+}
+
+/* ---------- 小游戏：坦克对决面板 ---------- */
+.minigame-toggle{position:absolute;right:12px;bottom:64px;z-index:6;padding:8px 12px;font-size:12px;
+  border:1px solid #3f5c7a;border-radius:8px;background:#0d1725e6;color:#9fc4e8;cursor:pointer}
+.minigame-toggle:hover{background:#16263a}
+.minigame-panel{position:absolute;right:12px;top:12px;width:340px;max-width:calc(100% - 24px);z-index:26;
+  padding:15px;border:1px solid #3f5c7a;border-radius:10px;background:#0b1626f2;color:#e9e4da;box-shadow:0 18px 46px #000a}
+.minigame-panel[hidden]{display:none}
+.mg-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px}
+.mg-head small{font-size:9px;letter-spacing:.16em;color:#8ea6c2}
+.mg-head h2{margin:2px 0 0;font-size:15px;color:#bfe0ff}
+.mg-close{width:30px;height:30px;border:1px solid #4d617b;border-radius:7px;background:#16263a;color:#cfe0f2;font-size:16px;cursor:pointer}
+.mg-note{font-size:11px;color:#8ba3bd;line-height:1.7;margin:0 0 8px}
+.mg-foe{display:block;width:100%;margin:6px 0;padding:9px;font-size:12px;border:1px solid #3f5c7a;border-radius:8px;background:#132437;color:#cfe6ff;cursor:pointer}
+.mg-board{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 10px}
+.mg-side{display:flex;flex-direction:column;gap:2px;font-size:12px;flex:1}
+.mg-side.foe{text-align:right;align-items:flex-end}
+.mg-side small{color:#8ba3bd;font-size:10px}
+.mg-hp{font-family:ui-monospace,monospace;letter-spacing:1px;color:#7fe3ff}
+.mg-ammo{font-size:10px;color:#ffd76a}
+.mg-vs{text-align:center;font-size:11px;color:#8ba3bd}
+.mg-status{font-size:11px;color:#e9c877;min-height:16px;margin:4px 0}
+.mg-log{max-height:96px;overflow:auto;margin:4px 0 8px;padding-left:18px;font-size:10px;color:#9fb6cf;line-height:1.7}
+.mg-actions{display:flex;gap:6px}
+.mg-actions button{flex:1;min-height:38px;border:1px solid #3f5c7a;border-radius:8px;background:#132437;color:#cfe6ff;font-size:12px;cursor:pointer}
+.mg-actions button:hover{background:#1c3350}
+
+/* ---------- 背包：画面正中的矩形网格仓库 ---------- */
+.exploration.bag-mode{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(760px,94vw);
+  max-height:min(76vh,640px);overflow:auto;z-index:34;box-shadow:0 24px 70px #000c}
+.bag-wrap{display:flex;gap:12px;align-items:flex-start;margin-top:8px}
+.bag-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:1;min-width:0}
+.bag-cell{position:relative;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
+  border:1px solid #3a4d63;border-radius:8px;background:#101a28;cursor:pointer;padding:6px}
+.bag-cell:hover{border-color:#5aa9f2;background:#152337}
+.bag-cell.active{border-color:#ffd76a;box-shadow:0 0 0 1px #ffd76a55 inset}
+.bag-cell canvas{width:34px;height:34px;image-rendering:pixelated}
+.bag-count{position:absolute;right:4px;bottom:2px;font-size:10px;color:#cfe6ff;font-family:ui-monospace,monospace}
+.bag-rarity{position:absolute;left:0;right:0;bottom:0;height:3px;border-radius:0 0 8px 8px}
+.bag-rarity.r-common{background:#6b7c8f}.bag-rarity.r-uncommon{background:#5ad8a0}
+.bag-rarity.r-rare{background:#5aa9f2}.bag-rarity.r-epic{background:#c07af2}
+.bag-rarity.r-legendary{background:#ffd76a}
+.bag-detail{width:220px;flex:0 0 220px;border:1px solid #3a4d63;border-radius:9px;background:#0c1522;padding:10px}
+.bag-detail[hidden]{display:none}
+.bag-detail-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.bag-detail-head strong{display:block;font-size:13px;color:#e9f3ff}
+.bag-detail-head small{color:#8ba3bd;font-size:10px}
+.bag-detail-head .icon-button{margin-left:auto}
+.bag-detail-desc{font-size:11px;line-height:1.7;color:#9fb6cf;margin:4px 0 8px}
+.bag-detail .bag-actions{display:flex;gap:6px}
+.bag-detail .bag-actions button{flex:1;min-height:30px;border:1px solid #3f5c7a;border-radius:7px;background:#132437;color:#cfe6ff;font-size:11px;cursor:pointer}
+
+/* 物品详情：图标固定 28px，标题单行省略，避免撑破侧栏 */
+.bag-detail-head canvas{width:28px;height:28px;flex:0 0 28px;image-rendering:pixelated}
+.bag-detail-head>div{min-width:0;flex:1}
+.bag-detail-head strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- 卡牌对决 ---------- */
+.spire-toggle{right:120px}
+.spire-panel{width:420px}
+.spire-board{display:grid;gap:6px;margin-bottom:10px;font-size:12px}
+.spire-enemy{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #6b3a4a;border-radius:8px;background:#1b1016}
+.spire-enemy strong{color:#ffb3c1;font-size:13px}
+.spire-enemy small{color:#a98a95;font-size:10px}
+.spire-hp{margin-left:auto;font-family:ui-monospace,monospace;color:#ff9aa8}
+.spire-tag{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid #7a4a5a;color:#ffc2cf}
+.spire-self{display:flex;flex-wrap:wrap;gap:10px;color:#9fb6cf;font-size:11px}
+.spire-hand{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}
+.spire-card{position:relative;display:flex;flex-direction:column;gap:2px;padding:8px 8px 6px;text-align:left;
+  border:1px solid #3f4f6a;border-radius:8px;background:#101a28;color:#dfe9f6;cursor:pointer}
+.spire-card:hover{border-color:#5aa9f2;background:#152337}
+.spire-card.costly{opacity:.45;cursor:not-allowed}
+.spire-card strong{font-size:12px}
+.spire-card small{font-size:10px;color:#8ba3bd;line-height:1.4}
+.spire-card .cost{position:absolute;right:6px;top:4px;font-size:10px;color:#ffd76a;font-family:ui-monospace,monospace}
+.spire-card.type-attack{border-color:#6b3a3a}
+.spire-card.type-block{border-color:#3a5a6b}

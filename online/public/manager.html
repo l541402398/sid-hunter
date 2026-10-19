@@ -98,5 +98,170 @@
 </dialog>
 
 <div class="manager-toast" id="manager-toast" role="status" aria-live="polite" hidden></div>
+<section class="manager-action" id="manager-features-card" hidden aria-labelledby="manager-features-title">
+  <div class="manager-section-head">
+    <div><small class="eyebrow">MINIGAMES</small><h2 id="manager-features-title">小游戏开放配置</h2></div>
+  </div>
+  <p class="manager-action-note">开关只控制小游戏的开放，不影响搜索 / 背包 / 商店 / 房间等基础系统。玩家端会立刻生效（下一次快照）。</p>
+  <div id="manager-features-list" class="manager-features-list"></div>
+  <div class="manager-features-actions">
+    <button id="manager-features-save" type="button">保存配置</button>
+    <span id="manager-features-status" class="manager-action-note" role="status" aria-live="polite"></span>
+  </div>
+  <div class="manager-features-presets">
+    <small>一键预设：</small>
+    <button type="button" data-preset="day1">第 1 天 · 只有猜拳</button>
+    <button type="button" data-preset="day2">第 2 天 · 加卡牌</button>
+    <button type="button" data-preset="day3">第 3 天 · 加坦克</button>
+    <button type="button" data-preset="all">全开</button>
+  </div>
+</section>
+<style>
+.manager-features-list{display:grid;gap:8px;margin:12px 0}
+.manager-feature-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid #2d3a4a;border-radius:8px;background:#0f1722}
+.manager-feature-row label{display:flex;align-items:center;gap:8px;flex:1;cursor:pointer}
+.manager-feature-row input{width:18px;height:18px;accent-color:#5aa9f2}
+.manager-feature-row small{color:#8ba3bd}
+.manager-feature-row .tag{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid #3a4d63;color:#9fb6cf}
+.manager-feature-row .tag.ready{border-color:#3f8f5f;color:#a7e6bd}
+.manager-features-actions{display:flex;align-items:center;gap:10px;margin-top:10px}
+.manager-features-presets{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.manager-features-presets button{padding:5px 10px;font-size:11px}
+</style>
+<script>
+(function () {
+  var PRESETS = {
+    day1: { rps: true, spire: false, tank: false, parkour: false },
+    day2: { rps: true, spire: true, tank: false, parkour: false },
+    day3: { rps: true, spire: true, tank: true, parkour: false },
+    all:  { rps: true, spire: true, tank: true, parkour: true }
+  };
+  var listEl = document.getElementById('manager-features-list');
+  var card = document.getElementById('manager-features-card');
+  var statusEl = document.getElementById('manager-features-status');
+  var saveBtn = document.getElementById('manager-features-save');
+  var loaded = false;
+
+  function say(text) { if (statusEl) statusEl.textContent = text; }
+  function current() {
+    var out = {};
+    var boxes = listEl.querySelectorAll('input[data-key]');
+    for (var i = 0; i < boxes.length; i++) out[boxes[i].dataset.key] = !!boxes[i].checked;
+    return out;
+  }
+  function render(features) {
+    listEl.textContent = '';
+    (features || []).forEach(function (f) {
+      var row = document.createElement('div');
+      row.className = 'manager-feature-row';
+      var label = document.createElement('label');
+      var box = document.createElement('input');
+      box.type = 'checkbox'; box.checked = !!f.enabled; box.dataset.key = f.key;
+      var text = document.createElement('span');
+      text.textContent = f.label + '（' + (f.players || '') + '）';
+      label.appendChild(box); label.appendChild(text);
+      var desc = document.createElement('small');
+      desc.textContent = f.desc || '';
+      var tag = document.createElement('span');
+      tag.className = 'tag' + (f.implemented ? ' ready' : '');
+      tag.textContent = f.implemented ? '已可玩' : '待实现';
+      row.appendChild(label); row.appendChild(desc); row.appendChild(tag);
+      listEl.appendChild(row);
+    });
+  }
+  async function load() {
+    var res = await fetch('/api/manager/features', { credentials: 'same-origin', cache: 'no-store' });
+    if (!res.ok) return;
+    var data = await res.json();
+    if (data && data.features) { render(data.features); loaded = true; }
+  }
+  async function save(features) {
+    var res = await fetch('/api/manager/features', {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ features: features })
+    });
+    var data = await res.json().catch(function () { return {}; });
+    if (res.ok && data.ok) { render(data.features); say('已保存，玩家端下一次快照生效'); }
+    else say((data && data.error) || '保存失败');
+  }
+  saveBtn.addEventListener('click', function () { save(current()); });
+  var presets = card.querySelectorAll('[data-preset]');
+  for (var i = 0; i < presets.length; i++) {
+    presets[i].addEventListener('click', function (e) {
+      var p = PRESETS[e.currentTarget.dataset.preset];
+      if (p) { save(p); }
+    });
+  }
+  // 登录后才显示：轮询 #manager-app 的 hidden 状态
+  var timer = setInterval(function () {
+    var app = document.getElementById('manager-app');
+    if (!app || app.hidden) return;
+    card.hidden = false;
+    if (!loaded) { loaded = true; load(); }
+    clearInterval(timer);
+  }, 400);
+})();
+</script>
+<section class="manager-action" id="manager-achievement-card" hidden aria-labelledby="manager-achievement-title">
+  <div class="manager-section-head">
+    <div><small class="eyebrow">ACHIEVEMENTS</small><h2 id="manager-achievement-title">成就榜</h2></div>
+    <span class="manager-chip">按成就点排序</span>
+  </div>
+  <p class="manager-action-note">猜拳、淘汰、玩小游戏、搜索都会累积成就点；与筹码榜并列展示。</p>
+  <ol id="manager-achievement-list" class="manager-achievement-list"></ol>
+</section>
+<style>
+.manager-achievement-list{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:6px}
+.manager-achievement-list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #2d3a4a;border-radius:8px;background:#0f1722;font-size:12px}
+.manager-achievement-list .rank{width:26px;color:#8ba3bd;font-family:ui-monospace,monospace}
+.manager-achievement-list .name{flex:1;color:#dbe7f4}
+.manager-achievement-list .pts{color:#ffe3a3;font-family:ui-monospace,monospace}
+</style>
+<script>
+(function () {
+  var card = document.getElementById('manager-achievement-card');
+  var list = document.getElementById('manager-achievement-list');
+  var started = false, timer = 0;
+  function paint(rows) {
+    if (!list) return;
+    list.textContent = '';
+    if (!rows || !rows.length) {
+      var li0 = document.createElement('li');
+      li0.textContent = '本局还没有成就点数据。';
+      list.appendChild(li0);
+      return;
+    }
+    rows.forEach(function (r, i) {
+      var li = document.createElement('li');
+      var rank = document.createElement('span'); rank.className = 'rank'; rank.textContent = '#' + (r.rank || i + 1);
+      var name = document.createElement('span'); name.className = 'name'; name.textContent = r.name || '';
+      var pts = document.createElement('span'); pts.className = 'pts'; pts.textContent = (r.points || 0) + ' 分';
+      li.appendChild(rank); li.appendChild(name); li.appendChild(pts);
+      list.appendChild(li);
+    });
+  }
+  async function refresh() {
+    try {
+      var res = await fetch('/api/manager/state', { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) return;
+      var data = await res.json();
+      var rows = (data.lastResult && data.lastResult.rankingAchievement) || (data.lastResult && data.lastResult.achievementTop) || [];
+      if (!rows.length) {
+        var teams = (data.teams || []).slice().sort(function (a, b) { return (b.points || 0) - (a.points || 0); }).slice(0, 10);
+        rows = teams.map(function (p, i) { return { rank: i + 1, name: p.name, points: p.points || 0 }; });
+      }
+      paint(rows);
+    } catch (e) { /* 保持上一次渲染 */ }
+  }
+  var boot = setInterval(function () {
+    var app = document.getElementById('manager-app');
+    if (!app || app.hidden) return;
+    card.hidden = false;
+    if (!started) { started = true; refresh(); timer = setInterval(refresh, 5000); }
+    clearInterval(boot);
+  }, 500);
+})();
+</script>
 </body>
 </html>

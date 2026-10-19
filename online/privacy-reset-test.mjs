@@ -124,7 +124,8 @@ try{
  const pubSnap=await request(live,'/api/state',{token});
  assert.ok(pubSnap.players.every(p=>typeof p.score==='number'),'公开投影含 score');
  assert.ok(pubSnap.players.every(p=>!('hp' in p)&&!('faction' in p)&&!('skills' in p)),'公开投影不得泄露血量/阵营/技能');
- assert.deepEqual(Object.keys(pubSnap.rules).sort(),['endRemainingPlayers','endsAt','timeLimitMs']);
+ // rules 新增 speed（移动速度随地图缩放下发），参与形状断言。
+assert.deepEqual(Object.keys(pubSnap.rules).sort(),['endRemainingPlayers','endsAt','speed','timeLimitMs']);
  assert.equal(pubSnap.finishReason,'host');assert.equal(pubSnap.ranking,null);
  const repeated=await request(live,'/api/host/finish',options);assert.equal(repeated.status,200);assert.deepEqual(await roomEvidence(live,token),after);
  const skill=await request(live,'/api/skill',{method:'POST',token,body:{commandId:'finish-frozen',skill:'probe',targetId:1}});assert.equal(skill.ok,false);assert.match(skill.error,/冻结/);

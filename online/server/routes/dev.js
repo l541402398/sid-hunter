@@ -68,7 +68,14 @@ async function handle(ctx) {
       if (!target) return send(res, 404, { ok: false, error: 'player not found' });
       if (Number.isFinite(Number(body.chips))) target.exploration.chips = Math.max(0, Number(body.chips));
       if (Number.isFinite(Number(body.score))) target.score = Math.max(0, Number(body.score));
-      return send(res, 200, { ok: true, playerId: target.id, chips: target.exploration.chips, score: target.score });
+      // 第二轮：给指定玩家塞道具，便于端到端验证"使用/出售/购买"闭环。
+      if (typeof body.item === 'string' && WORLD.LOOT.ITEMS[body.item]) {
+        const n = Math.max(1, Math.min(20, Math.floor(Number(body.count) || 1)));
+        target.exploration.items = target.exploration.items || {};
+        target.exploration.items[body.item] = (target.exploration.items[body.item] || 0) + n;
+      }
+      return send(res, 200, { ok: true, playerId: target.id, chips: target.exploration.chips, score: target.score,
+        items: target.exploration.items || {} });
     }
     if (action === 'sessions') {
       return send(res, 200, { ok: true, sessions: [...ROOM.room.sessions].map(([sessionId, playerId]) => ({ sessionId, playerId })) });
@@ -76,7 +83,21 @@ async function handle(ctx) {
     if (action === 'streams') {
       return send(res, 200, { ok: true, count: ROOM.streams.size, entries: [...ROOM.streams].map(([playerId, e]) => ({ playerId, lastAck: e.lastAck, ago: Date.now() - e.lastAck, destroyed: e.res.destroyed })) });
     }
-    if (action === 'place') {
+    // 小游戏测试钩子：直接改开关 / 代指定玩家出招（仅 SID_TEST=1）。
+    if (action === 'features') {
+      if (!body || typeof body !== 'object') return send(res, 400, { ok: false, error: 'body required' });
+      const { sanitizeFeatures } = require('../features.js');
+      ROOM.room.features = sanitizeFeatures(body.features, ROOM.room.features);
+      return send(res, 200, { ok: true, features: ROOM.room.features });
+    }
+    if (action === 'minigame-act') {
+      const target = ROOM.find(Number(body.playerId));
+      if (!target) return send(res, 404, { ok: false, error: 'player not found' });
+      const sessionId = [...ROOM.room.sessions.entries()].find(([, pid]) => pid === target.id);
+      if (!sessionId) return send(res, 404, { ok: false, error: 'session not found' });
+      const result = ROOM.actMinigame(sessionId[0], { action: body.action });
+      return send(res, 200, result);
+    }    if (action === 'place') {
       const owner = body.playerId === undefined || body.playerId === null
         ? currentPlayer(req, url)
         : ROOM.find(Number(body.playerId));
@@ -88,13 +109,25 @@ async function handle(ctx) {
       }
       if (Number.isFinite(Number(body.x))) owner.x = Number(body.x);
       if (Number.isFinite(Number(body.y))) owner.y = Number(body.y);
-      return send(res, 200, { ok: true, playerId: owner.id, x: owner.x, y: owner.y, floorId: owner.floorId });
+      // zoneId 可选（仅 SID_TEST=1）：让自测能把角色直接放进某间独立房间或拉回走廊。
+      // null / '' 表示楼层公共空间。
+      if (body.zoneId !== undefined) {
+        const z = body.zoneId === null || body.zoneId === '' ? null : WORLD.roomById(String(body.zoneId));
+        if (body.zoneId !== null && body.zoneId !== '' && !z) return send(res, 400, { ok: false, error: 'room not found' });
+        owner.zoneId = z ? z.id : null;
+        owner.floorRevision += 1;
+      }
+      return send(res, 200, { ok: true, playerId: owner.id, x: owner.x, y: owner.y, floorId: owner.floorId, zoneId: owner.zoneId || null });
     }
     if (action === 'state') {
       return send(res, 200, {
         ok: true,
         // npc / hasSession 供自测断言 NPC 不可被会话认领；真实会话令牌不下发。
-        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills, npc: !!p.npc, hasSession: !!p.sessionId, score: p.score })),
+        players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, floorId: p.floorId, zoneId: p.zoneId || null, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills, npc: !!p.npc, hasSession: !!p.sessionId, score: p.score,
+          items: p.exploration.items || {},
+          buffs: p.buffs || null,
+          // 仅 SID_TEST=1：把私密探索状态一并暴露给自测，用于验证"搜打撤"记账确实落在服务端。
+          exploration: { chips: p.exploration.chips, searched: p.exploration.searched.slice(), backpack: (p.exploration.backpack || []).slice(), clues: p.exploration.clues.length } })),
         finished: ROOM.room.finished,
         finishReason: ROOM.room.finishReason || null,
         ranking: ROOM.room.ranking,

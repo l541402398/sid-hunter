@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>TMJ 预览 / F1 调试</title>
+<style>
+  html,body{margin:0;height:100%;background:#0c0f14;color:#dbe6f2;font:12px/1.5 Consolas,monospace}
+  #wrap{width:min(1728px,100vw);margin:8px auto}
+  canvas{display:block;width:100%;image-rendering:pixelated;background:#05070b;border:1px solid #2a3442;border-radius:6px}
+  #hud{position:fixed;left:10px;top:10px;background:#0d1728e8;border:1px solid #3b5470;border-radius:8px;padding:8px 11px;white-space:pre;pointer-events:none;font-size:11px}
+  #help{position:fixed;right:10px;bottom:10px;background:#0d1728e8;border:1px solid #3b5470;border-radius:8px;padding:7px 10px;font-size:11px;color:#9fb6cf}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="1728" height="400"></canvas></div>
+<div id="hud">加载中…</div>
+<div id="help">WASD 移动 · E 乘梯 · F1 碰撞调试 · 电梯厅在楼板外（左右各 144px）</div>
+<script src="../online/shared/world/tmj.js"></script>
+<script>
+(async function () {
+  const T = window.SID_WORLD_PARTS.TMJ;
+  const c = document.getElementById('c'), g = c.getContext('2d');
+  const hud = document.getElementById('hud');
+  g.imageSmoothingEnabled = false;
+  const OFF = 144; // 左侧电梯厅宽度，画布原点向右偏移
+  const qs = new URLSearchParams(location.search);
+  const clean = qs.has('clean');
+  if (clean) {
+    hud.style.display = 'none';
+    document.getElementById('help').style.display = 'none';
+    document.getElementById('wrap').style.margin = '0';
+    document.getElementById('wrap').style.width = '1728px';
+    document.body.style.margin = '0';
+  }
+  // 容忍从 Markdown 复制来的尾部 ** 等噪声：floor=1** 也按 1 处理
+  const floorNum = parseInt(qs.get('floor') || '1', 10);
+  let floor = Number.isFinite(floorNum) && floorNum >= 1 && floorNum <= 7 ? floorNum : 1;
+  let map = null, pal = null, me = null, debug = false;
+  let assetFiles = null, assetImgs = {}, assetLoading = null;
+  const ASSET_BASE = '/assets/vendor/';
+  const keys = new Set();
+
+  function roleOf(name, fallback) { return pal[name] || fallback; }
+
+  function loadImg(src) {
+    return new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error('asset ' + src));
+      im.src = src;
+    });
+  }
+  async function ensureAssets() {
+    if (!assetLoading) assetLoading = (async () => {
+      try {
+        const r = await fetch('/tiled/asset-files.json', { cache: 'no-store' });
+        assetFiles = r.ok ? await r.json() : { files: {}, scale: {} };
+      } catch { assetFiles = { files: {}, scale: {} }; }
+    })();
+    await assetLoading;
+  }
+  async function ensurePropImages(list) {
+    await ensureAssets();
+    const needed = [...new Set(list.map((p) => p.prop).filter(Boolean))];
+    await Promise.all(needed.map(async (k) => {
+      if (Object.prototype.hasOwnProperty.call(assetImgs, k)) return;
+      const path = assetFiles && assetFiles.files && assetFiles.files[k];
+      if (!path) { assetImgs[k] = null; return; }
+      try { assetImgs[k] = await loadImg(ASSET_BASE + path); }
+      catch { assetImgs[k] = null; }
+    }));
+  }
+
+  async function load(id) {
+    const res = await fetch('/tiled/floor' + id + '.tmj', { cache: 'no-store' });
+    if (!res.ok) throw new Error('TMJ ' + res.status);
+    const json = await res.json();
+    T.install(id, json);
+    T.enable(true);
+    map = T.get(id);
+    pal = Object.fromEntries(['ink','void','wallShadow','wall','wallTop','floorShadow','floor','floorLight','accent1','accent2','warm','paper']
+      .map((r, i) => [r, map.palette[i]]));
+    const sp = T.spawnPoint(id, 1);
+    me = sp ? { x: sp.x, y: sp.y, r: 5 } : { x: 72, y: 56, r: 5 };
+    floor = id;
+    await ensurePropImages(map.props);
+  }
+
+  addEventListener('keydown', (e) => {
+    if (e.key === 'F1') { debug = !debug; e.preventDefault(); }
+    keys.add(e.key.toLowerCase());
+    if (e.key.toLowerCase() === 'e') tryLift();
+  });
+  addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+  function blocked(x, y) {
+    const pad = me.r;
+    return [[x - pad, y - pad], [x + pad, y - pad], [x - pad, y + pad], [x + pad, y + pad]]
+      .some(([px, py]) => T.solidAt(floor, px, py, 1));
+  }
+  function tryLift() {
+    const lift = T.portals(floor, 1).find((l) => Math.hypot(l.x + l.w / 2 - me.x, l.y + l.h / 2 - me.y) < 44);
+    if (!lift) return;
+    load(lift.targetFloor).catch((err) => { hud.textContent = err.message; });
+  }
+  function step(dt) {
+    const s = 110 * dt;
+    let dx = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
+    let dy = (keys.has('s') || keys.has('arrowdown') ? 1 : 0) - (keys.has('w') || keys.has('arrowup') ? 1 : 0);
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = me.x + dx / len * s;
+    if (!blocked(nx, me.y) && nx > -OFF + 6 && nx < 1440 + OFF - 6) me.x = nx;
+    const ny = me.y + dy / len * s;
+    if (!blocked(me.x, ny) && ny > 70 && ny < 380) me.y = ny;
+  }
+
+  function drawHall() {
+    g.save();
+    for (const p of T.portals(floor, 1)) {
+      const h = p.hall;
+      g.fillStyle = roleOf('floorShadow', '#111');
+      g.fillRect(h.x + OFF, h.y, h.w, h.h);
+      g.strokeStyle = roleOf('wallTop', '#555');
+      g.lineWidth = 1;
+      g.strokeRect(h.x + OFF + 0.5, h.y + 0.5, h.w - 1, h.h - 1);
+      g.fillStyle = roleOf('paper', '#fff');
+      g.font = '9px sans-serif';
+      g.fillText(p.side === 'left' ? '西电梯厅' : '东电梯厅', h.x + OFF + 6, h.y + 12);
+    }
+    g.restore();
+  }
+
+  function drawZones() {
+    g.save();
+    g.font = '8px sans-serif';
+    for (const z of map.zones) {
+      const x = z.x + OFF, y = z.y;
+      g.strokeStyle = roleOf('paper', '#fff') + '66';
+      g.setLineDash([4, 4]);
+      g.strokeRect(x + 1.5, y + 1.5, z.w - 3, z.h - 3);
+      g.setLineDash([]);
+      g.fillStyle = roleOf('paper', '#fff');
+      g.globalAlpha = 0.72;
+      g.fillText(z.name, x + 4, y + 11);
+      g.globalAlpha = 1;
+    }
+    g.restore();
+  }
+
+  function drawProps() {
+    for (const p of map.props) {
+      const x = p.x + OFF, y = p.y;
+      const im = p.prop ? assetImgs[p.prop] : null;
+      if (im) {
+        const s = p.propScale || 1;
+        const w = im.width * s, h = im.height * s;
+        const dx = x + p.w / 2 - w / 2;
+        const dy = y + p.h - h;
+        g.drawImage(im, Math.round(dx), Math.round(dy), w, h);
+        if (p.landmark) {
+          g.strokeStyle = roleOf('warm', '#fff');
+          g.lineWidth = 1;
+          g.strokeRect(dx + 0.5, dy + 0.5, w - 1, h - 1);
+        }
+        if (debug && p.solid) {
+          g.strokeStyle = '#ffb15a';
+          g.lineWidth = 1;
+          g.strokeRect(x + 0.5, y + 0.5, p.w - 1, p.h - 1);
+        }
+        continue;
+      }
+      // 没有素材键/素材加载失败：保留 blockout 回退
+      g.fillStyle = roleOf(p.role, '#888');
+      g.globalAlpha = p.solid ? 0.92 : 0.55;
+      g.fillRect(x, y, p.w, p.h);
+      g.globalAlpha = 1;
+      g.strokeStyle = roleOf('ink', '#000');
+      g.lineWidth = 1;
+      g.strokeRect(x + 0.5, y + 0.5, p.w - 1, p.h - 1);
+      if (p.landmark) {
+        g.strokeStyle = roleOf('warm', '#fff');
+        g.lineWidth = 2;
+        g.strokeRect(x + 1, y + 1, p.w - 2, p.h - 2);
+      }
+      if (p.w >= 20 && p.h >= 10) {
+        g.fillStyle = roleOf('paper', '#fff');
+        g.font = '7px sans-serif';
+        g.fillText(p.label, x + 2, y + Math.min(p.h - 3, 9));
+      }
+    }
+  }
+
+  function draw() {
+    g.clearRect(0, 0, c.width, c.height);
+    g.fillStyle = roleOf('void', '#05070b');
+    g.fillRect(0, 0, c.width, c.height);
+    drawHall();
+
+    // 地面 / 墙 / 装饰
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        const i = y * map.width + x;
+        const walk = !!map.ground[i];
+        const px = x * 16 + OFF, py = y * 16;
+        if (walk) {
+          g.fillStyle = roleOf('floor', '#222');
+          g.fillRect(px, py, 16, 16);
+          if (map.decor[i] === 3) {
+            g.fillStyle = roleOf('accent1', '#888');
+            g.globalAlpha = 0.34;
+            g.fillRect(px, py, 16, 16);
+            g.globalAlpha = 1;
+          }
+          if (map.objects[i] === 4) {
+            g.fillStyle = roleOf('accent2', '#888');
+            g.globalAlpha = 0.55;
+            g.fillRect(px + 4, py + 5, 8, 6);
+            g.globalAlpha = 1;
+          }
+        } else {
+          // 墙用 wallTop 作为顶面，底部压 wall 侧壁 + 临地面 1px 描边，平面图才读得清
+          g.fillStyle = roleOf('wallTop', '#555');
+          g.fillRect(px, py, 16, 16);
+          g.fillStyle = roleOf('wall', '#333');
+          g.fillRect(px, py + 13, 16, 3);
+          g.fillStyle = roleOf('ink', '#000');
+          if (x > 0 && map.ground[i - 1]) g.fillRect(px, py, 1, 16);
+          if (x < map.width - 1 && map.ground[i + 1]) g.fillRect(px + 15, py, 1, 16);
+          if (y > 0 && map.ground[i - map.width]) g.fillRect(px, py, 16, 1);
+          if (y < map.height - 1 && map.ground[i + map.width]) g.fillRect(px, py + 15, 16, 1);
+        }
+      }
+    }
+
+    drawZones();
+    drawProps();
+
+    // 电梯 + 出生点
+    for (const p of T.portals(floor, 1)) {
+      g.strokeStyle = roleOf('warm', '#ff0');
+      g.lineWidth = 2;
+      g.strokeRect(p.x + OFF + 1, p.y + 1, p.w - 2, p.h - 2);
+      g.fillStyle = roleOf('warm', '#ff0');
+      g.font = '8px sans-serif';
+      g.fillText(p.side + '→' + p.targetFloor, p.x + OFF + 2, p.y - 3);
+    }
+    const sp = T.spawnPoint(floor, 1);
+    if (sp) {
+      g.fillStyle = roleOf('accent1', '#0ff');
+      g.beginPath(); g.arc(sp.x + OFF, sp.y, 4, 0, Math.PI * 2); g.fill();
+    }
+
+    // 玩家
+    g.fillStyle = roleOf('paper', '#fff');
+    g.fillRect(me.x + OFF - 4, me.y - 4, 8, 8);
+    g.strokeStyle = roleOf('ink', '#000');
+    g.strokeRect(me.x + OFF - 4.5, me.y - 4.5, 9, 9);
+
+    if (debug) {
+      g.save();
+      g.globalAlpha = 0.28;
+      g.fillStyle = '#ff4040';
+      for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) {
+        if (map.collision[y * map.width + x]) g.fillRect(x * 16 + OFF, y * 16, 16, 16);
+      }
+      g.globalAlpha = 1;
+      g.strokeStyle = '#ff9f43';
+      g.lineWidth = 1;
+      for (const p of map.props) if (p.solid) g.strokeRect(p.x + OFF + 0.5, p.y + 0.5, p.w - 1, p.h - 1);
+      g.strokeStyle = '#3fe0ff';
+      g.strokeRect(me.x + OFF - me.r, me.y - me.r, me.r * 2, me.r * 2);
+      g.globalAlpha = 0.12;
+      g.strokeStyle = '#ffffff';
+      for (let x = 0; x <= map.width; x += 4) { g.beginPath(); g.moveTo(x * 16 + OFF, 0); g.lineTo(x * 16 + OFF, 400); g.stroke(); }
+      for (let y = 0; y <= map.height; y += 4) { g.beginPath(); g.moveTo(OFF, y * 16); g.lineTo(1440 + OFF, y * 16); g.stroke(); }
+      g.restore();
+    }
+
+    hud.textContent = `floor ${floor}  ${map.theme}   格子 ${map.width}×${map.height} @16px\n` +
+      `玩家 ${Math.round(me.x)},${Math.round(me.y)}   F1 碰撞 ${debug ? 'ON' : 'OFF'}   props ${map.props.length}  zones ${map.zones.length}\n` +
+      `source ${map.source}   palette ${map.palette.length} 色   v room-assets`;
+  }
+
+  let last = performance.now();
+  (function frame(now) {
+    if (map) {
+      step(Math.min(.05, (now - last) / 1000));
+      draw();
+    }
+    last = now;
+    requestAnimationFrame(frame);
+  })(last);
+
+  try { await load(floor); } catch (e) { hud.textContent = e.message; }
+})();
+</script>
+</body>
+</html>
+

@@ -4,7 +4,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { performance } = require('node:perf_hooks');
-const { PORT, PUBLIC_DIR, ALLOWED_EXT, DEV_ENABLED } = require('./config.js');
+const { PORT, PUBLIC_DIR, TILED_DIR, ALLOWED_EXT, DEV_ENABLED } = require('./config.js');
+// 地图放大倍数：浏览器必须与服务端同源，否则客户端会按 1440 宽画、服务端按 2880 判碰撞。
+// 做法：静态托管 shared/world/config.js 时在文件头注入 window.__SID_FLOOR_SCALE__。
+const { FLOOR_SCALE } = require('../shared/world/config.js');
 // shared/ 源码树在 online/ 下（本文件在 online/server/，所以上一级）
 const SHARED_DIR = path.join(__dirname, '..', 'shared');
 
@@ -91,20 +94,26 @@ function isLoopback(req) {
 }
 
 function staticServe(req, res, pathname) {
-  // Only public/ is hosted, plus read-only access to the shared/ source tree (world/scene 子模块)：
-  // 让客户端与服务端字面加载同一份地图/几何真源。其余路径不可达。
+  // public/ 托管；shared/ 源码树只读（两端共用地图真源）；tiled/ 只读（TMJ 运行时 + F1 调试）。
+  // 其余路径不可达。
   const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   if (relative.includes('..') || path.isAbsolute(relative)) return send(res, 403, { error: 'forbidden' });
   const isShared = relative === 'shared' || relative.startsWith('shared/');
-  const base = isShared ? SHARED_DIR : PUBLIC_DIR;
-  const target = path.join(base, isShared ? relative.slice('shared/'.length) : relative);
+  const isTiled = relative === 'tiled' || relative.startsWith('tiled/');
+  const base = isShared ? SHARED_DIR : isTiled ? TILED_DIR : PUBLIC_DIR;
+  const sub = isShared ? relative.slice('shared/'.length) : isTiled ? relative.slice('tiled/'.length) : relative;
+  const target = path.join(base, sub);
   if (!target.startsWith(base)) return send(res, 403, { error: 'forbidden' });
   if (!ALLOWED_EXT.has(path.extname(target).toLowerCase())) return send(res, 404, { error: 'not found' });
   fs.readFile(target, (error, data) => {
     if (error) return send(res, 404, { error: 'not found' });
-    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }[path.extname(target)] || 'application/octet-stream';
+    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.tmj': 'application/json; charset=utf-8', '.tsj': 'application/json; charset=utf-8', '.json': 'application/json; charset=utf-8' }[path.extname(target)] || 'application/octet-stream';
+    // 与浏览器共享地图倍数（见文件头注释）；只改这一份响应，磁盘源码保持原样。
+    const body = relative === 'shared/world/config.js'
+      ? Buffer.from(`window.__SID_FLOOR_SCALE__=${FLOOR_SCALE};\n` + data.toString('utf8'), 'utf8')
+      : data;
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
-    res.end(data);
+    res.end(body);
   });
 }
 
@@ -123,3 +132,4 @@ module.exports = {
   everyMs, trustedDevRequest, lanAddresses, send, parseCookies, readBody,
   isLoopbackAddress, isLoopback, staticServe, managerSessionOf, managerReply, isJsonRequest
 };
+

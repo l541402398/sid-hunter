@@ -11,3 +11,5 @@
 @import url("styles/games.css");
 @import url("styles/ranking.css");
 @import url("styles/shellmap.css");
+/* 需求①/③：独立空间提示条 + 搜打撤物品格面板（新增分区统一追加在末尾） */
+@import url("styles/loot.css");

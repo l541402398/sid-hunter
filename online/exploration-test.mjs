@@ -63,15 +63,30 @@ await test('01 WORLD 在普通浏览器脚本、globalThis 和 CommonJS 中合�
   }
 });
 await test('02 现有家具坐标不变，稳定独立 id、9 个中性命名容器及两个 NPC', () => {
-  assert.equal(furniture.length, 29);
+  // 阶段4（需求③）：每层大量新增可搜容器与陈设，因此这里从"精确 29 件"改为
+  // "原有经济容器全部仍在 + 数量只增不减 + ID 唯一"，避免把"加内容"误判为回归。
+  assert.ok(furniture.length >= 29, `家具数量不应减少：${furniture.length}`);
   assert.deepEqual(WORLD.makeFurniture(), furniture);
-  assert.equal(new Set(furniture.map(f => f.id)).size, 29);
-  assert.equal(containers.length, 9);
-  assert.deepEqual(containers.map(f => f.id).sort(), ['cabinet-785-160', 'reception-132-173', 'desk-1035-172', 'desk-1690-172', 'desk-2940-172', 'desk-3600-172', 'counter-1990-165', 'table-2010-514', 'table-2535-513'].sort());
+  assert.equal(new Set(furniture.map(f => f.id)).size, furniture.length, '家具 ID 必须唯一');
+  assert.ok(containers.length >= 9, `容器数量不应减少：${containers.length}`);
+  const ids = containers.map(f => f.id);
+  // 经济容器的稳定 ID 分布在各层，跨层校验（makeFurniture 只返回 1F）。
+  const allContainerIds = [];
+  for (const id of Object.keys(WORLD.FLOORS)) allContainerIds.push(...WORLD.floorContainers(Number(id)).map(c => c.id));
+  for (const legacy of ['cabinet-785-160', 'reception-132-173', 'desk-1035-172', 'desk-1690-172', 'desk-2940-172', 'desk-3600-172', 'counter-1990-165', 'table-2010-514', 'table-2535-513']) {
+    assert.ok(allContainerIds.includes(legacy), `原有容器丢失：${legacy}`);
+  }
+  assert.equal(new Set(allContainerIds).size, allContainerIds.length, '全层容器 ID 必须唯一');
   for (const f of furniture) {
+    // 电梯厅占位家具（architecturalPlaceholder）没有几何体，跳过。
+    if (f.architecturalPlaceholder) continue;
     assert.equal(f.depth, f.y + f.h);
-    assert.ok(f.footprint.y > f.y && f.footprint.y + f.footprint.h === f.depth);
-    assert.deepEqual(Object.keys(f).sort(), ['id', 'x', 'y', 'w', 'h', 'type', 'footprint', 'depth', ...(f.container ? ['container'] : [])].sort());
+    // 足迹必须落在家具内部（矮件的高度已在建造期夹到家具高度以内）。
+    assert.ok(f.footprint.y >= f.y && f.footprint.y + f.footprint.h === f.depth);
+    // 结构性字段白名单（阶段4 起含 floorId / blocks；不含任何经济/奖励信息）。
+    const allowed = new Set(['id', 'x', 'y', 'w', 'h', 'type', 'label', 'floorId', 'footprint', 'blocks', 'depth',
+      ...(f.container ? ['container'] : []), ...(f.architecturalPlaceholder ? ['architecturalPlaceholder'] : [])]);
+    assert.deepEqual(Object.keys(f).filter(k => !allowed.has(k)), [], `家具出现未登记字段：${f.id}`);
     if (f.container) { assert.deepEqual(Object.keys(f.container), ['name']); assert.ok(!/线索|筹码|奖励/.test(f.container.name)); }
   }
   const second = WORLD.makeFurniture(); second[0].footprint.y = -1;
@@ -80,14 +95,17 @@ await test('02 现有家具坐标不变，稳定独立 id、9 个中性命名容
   for (const n of WORLD.NPCS) { assert.ok(n.dialogue); assert.ok(!('color' in n)); }
 });
 await test('03 身体/脚可进入视觉上部，底部足迹阻挡且严格接触边界不阻挡', () => {
+  // 改为按每件家具**自己的碰撞块**断言（核心筒等特例的块可以比 rect 宽，
+  // 旧断言按 rect 取点会误判成"走到家具外面还被挡"）。
   for (const f of furniture) {
-    const x = f.x + f.w / 2;
-    assert.equal(WORLD.collidesAt(x, f.y + 10, [f]), false);
-    assert.equal(WORLD.collidesAt(x, f.footprint.y + 5, [f]), true);
-    assert.equal(WORLD.collidesAt(x, f.footprint.y - WORLD.FOOT_TOP, [f]), false);
-    assert.equal(WORLD.collidesAt(x, f.depth + WORLD.FOOT_BOTTOM, [f]), false);
-    assert.equal(WORLD.collidesAt(f.x - WORLD.BODY_HALF, f.depth - 8, [f]), false);
-    assert.equal(WORLD.collidesAt(f.x + f.w + WORLD.BODY_HALF, f.depth - 8, [f]), false);
+    if (f.architecturalPlaceholder) continue;
+    const b = (f.blocks && f.blocks[0]) || f.footprint;
+    const cx = b.x + b.w / 2;
+    assert.equal(WORLD.collidesAt(cx, b.y - WORLD.FOOT_TOP - 1, [f]), false, `${f.id} 足迹之北应可行走`);
+    assert.equal(WORLD.collidesAt(cx, b.y + 1, [f]), true, `${f.id} 足迹内应阻挡`);
+    assert.equal(WORLD.collidesAt(b.x - WORLD.BODY_HALF - 1, b.y + 1, [f]), false, `${f.id} 足迹左侧应可行走`);
+    assert.equal(WORLD.collidesAt(b.x + b.w + WORLD.BODY_HALF + 1, b.y + 1, [f]), false, `${f.id} 足迹右侧应可行走`);
+    assert.equal(WORLD.collidesAt(cx, b.y + b.h + WORLD.FOOT_BOTTOM, [f]), false, `${f.id} 足迹之南应可行走`);
   }
 });
 await test('04 身体重叠 0.22 阈值、前后景深度与点击遮挡独立判断', () => {
@@ -131,7 +149,8 @@ await test('07 无身份/缺命令/非法 kind/实体/类型/远距离拒绝，�
   assert.equal(r.interact('invalid', { commandId: command(), kind: 'search', entityId: reception.id }).ok, false);
   for (const body of [null, {}, { commandId: 12 }, { commandId: '  ', kind: 'search', entityId: reception.id }, { commandId: command(), kind: 'bad' }, { commandId: command(), kind: 'search', entityId: npc.id }, { commandId: command(), kind: 'exchange', entityId: reception.id }, { commandId: command(), kind: 'search', entityId: furniture.find(f => !f.container).id }, { commandId: command(), kind: 'search', entityId: '__proto__' }]) assert.equal(r.interact(p.sessionId, body).ok, false);
   assert.equal(action(r, p, 'search', reception, { x: reception.x, y: reception.depth }).ok, false);
-  assert.deepEqual(p.exploration, blank());
+  // 第二轮：raw exploration 还带 backpack/items，这里只比较对外投影的三个字段。
+  assert.deepEqual({ chips: p.exploration.chips, clues: p.exploration.clues, searched: p.exploration.searched }, blank());
 });
 await test('08 距离 64 允许、超过 64 拒绝，搜索奖励停止移动和指令重复', () => {
   const r = fixture(), p = r.find(0), f = reception.footprint;
