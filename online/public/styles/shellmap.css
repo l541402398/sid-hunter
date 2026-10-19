@@ -38,6 +38,9 @@ dialog.center-dialog .skill-row{display:grid;grid-template-columns:repeat(2,minm
 dialog.center-dialog .skill-row button,dialog.center-dialog .confirm-box button{min-height:44px}
 dialog.center-dialog .skill-info{line-height:1.7;font-size:11px}
 dialog.exploration .exploration-body{overflow:visible}
+/* 合并适配：feature 分支的 .exploration.bag-mode 是为旧的非 dialog 侧栏面板做的绝对定位；
+   dev 的 exploration 已是居中 dialog，两套定位叠加会把弹窗顶偏 27px，这里显式恢复 dialog 居中。 */
+dialog.exploration.bag-mode{left:0;top:0;right:0;bottom:0;transform:none;margin:auto;height:fit-content;max-height:calc(100dvh - 32px)}
 dialog.bad-pool-dialog{width:min(720px,calc(100vw - 32px))}
 dialog.bad-pool-dialog .bad-slots{padding:6px 0 12px}
 dialog.bad-pool-dialog .bad-note{padding:0}

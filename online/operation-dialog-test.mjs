@@ -23,17 +23,33 @@ try{
  const api=async(path,token,body)=>{const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(token?{'X-Sid-Session':token}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(5000)});return{...await r.json(),status:r.status};};
  const self=await api('/api/join',null,{nickname:'弹窗测试甲'}),other=await api('/api/join',null,{nickname:'弹窗测试乙'});
  const snapshot=()=>api('/api/state',self.sessionToken);
+ // 合并适配：feature 分支把「容器搜寻」改为搜打撤物品格面板（由 rooms-loot-browser-test 覆盖），
+ // 中央私密弹窗现在只承载 NPC 兑换与线索背包；这里改在接待员 NPC 旁验证弹窗居中与输入冻结。
  let near;
- for(const c of W.floorContainers(1)){
+ // 合并后地图 2x，移动速度 144→240 px/s：用例先按住→再按 E 的间隙会多漂一段，
+ // 因此夹具取在 NPC 左侧，并校验「向右漂移 0–48px 的每个落点」NPC 都仍是最近可交互对象。
+ const dominant=(f,p,npc)=>{const d=W.distanceToEntity(p,npc);
+  if(W.floorCollides(f,p.x,p.y))return false;
+  if(!W.floorPortals(f).every(q=>W.distanceToEntity(p,q)>90))return false;
+  if(!W.floorContainers(f).every(c=>W.distanceToEntity(p,c)>d+10))return false;
+  return W.floorNpcs(f).every(n=>n.id===npc.id||W.distanceToEntity(p,n)>d);};
+ for(let f=1;f<=7&&!near;f++)for(const npc of W.floorNpcs(f)){
   if(near)break;
-  for(let y=c.y-40;y<c.y+c.h+48&&!near;y+=8)for(let x=c.x-40;x<c.x+c.w+48;x+=8){
-   const p={x,y,floorId:1,spriteFacing:'front'};
-   if(!W.floorCollides(1,x,y)&&W.distanceToEntity(p,c)<40&&W.floorPortals(1).every(q=>W.distanceToEntity(p,q)>90)&&W.floorNpcs(1).every(q=>W.distanceToEntity(p,q)>80)){near={x,y,container:c.id};break;}
+  for(let x=npc.x-72;x<npc.x-16&&!near;x+=2)for(let y=npc.y-16;y<=npc.y+16;y+=2){
+   const base={x,y,floorId:f},d=W.distanceToEntity(base,npc);
+   if(!(d>24&&d<58))continue;
+   if(!dominant(f,base,npc))continue;
+   let driftOk=true;
+   for(let dx=8;dx<=48;dx+=8){const q={x:x+dx,y,floorId:f};
+    if(W.distanceToEntity(q,npc)>60||!dominant(f,q,npc)){driftOk=false;break;}}
+   if(driftOk)near={x,y,floorId:f,npc:npc.id};
   }
  }
- assert.ok(near,'valid container fixture');
- await api('/api/test/place',null,{playerId:self.playerId,floorId:1,x:near.x,y:near.y});
- await api('/api/test/place',null,{playerId:other.playerId,floorId:1,x:800,y:400});
+ assert.ok(near,'valid npc fixture');
+ await api('/api/test/place',null,{playerId:self.playerId,floorId:near.floorId,x:near.x,y:near.y});
+ // NPC 兑换需要筹码（真实玩家从 0 起步），用测试钩子注入，保证 #exploration-action 可点。
+ await api('/api/test/resources',null,{playerId:self.playerId,chips:9});
+ await api('/api/test/place',null,{playerId:other.playerId,floorId:near.floorId,x:800,y:400});
  profile=await mkdtemp(join(tmpdir(),'sid-operation-dialog-'));
  chrome=spawn(process.env.SID_CHROME||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--no-sandbox','--no-first-run','--no-default-browser-check',`--remote-debugging-port=${debug}`,'--remote-debugging-address=127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore'});
  let page;await until(async()=>{try{page=(await(await fetch(`http://127.0.0.1:${debug}/json/list`)).json()).find(p=>p.type==='page');return !!page;}catch{return false;}},'Chrome');
@@ -58,7 +74,7 @@ try{
   assert.ok(await ev("document.querySelectorAll('#bad-slots .bad-slot').length===1"));await tap('Escape','Escape',27);
   assert.equal(await ev("document.getElementById('bad-toggle').getAttribute('aria-expanded')"),'false');
  });
- await test('按E搜寻打开中央弹窗，开窗时停止已按住的移动',async()=>{
+ await test('按E与NPC交谈打开中央弹窗，开窗时停止已按住的移动',async()=>{
   await ev("document.getElementById('office').focus()");await send('Page.bringToFront');
   await down('ArrowRight','ArrowRight',39);await pause(60);
   await tap('e','KeyE',69);await until(()=>ev("document.getElementById('exploration').open"),'E dialog');
@@ -75,7 +91,7 @@ try{
   assert.equal(await ev("window.calls.filter(c=>c.url==='/api/action'||c.url==='/api/attack').length"),count);
   assert.deepEqual(after.players.find(p=>p.id===self.playerId).x,before.players.find(p=>p.id===self.playerId).x);
  });
- await test('搜寻正常结算，关闭清私密DOM且不会自动恢复原按键',async()=>{
+ await test('兑换正常结算，关闭清私密DOM且不会自动恢复原按键',async()=>{
   assert.equal(await ev("document.getElementById('exploration-action').disabled"),false);
   await click('#exploration-action');await until(()=>ev("window.calls.some(c=>c.url==='/api/interact'&&c.result.ok)"),'search settled');
   await click('#exploration-close');assert.equal(await ev("document.getElementById('exploration').childElementCount"),0);
