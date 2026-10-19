@@ -5,8 +5,9 @@ const WORLD = require('../shared/world.js');
 const SKILL_CONFIG = {
   chargeIntervalMs: 90_000, // 正式版改为 1_200_000（20 分钟）
   maxCharges: 2,
-  probeCooldownMs: 8_000,
-  actionCooldownMs: 12_000
+  // 身份技能只受储存次数限制，不再设置两次使用之间的短冷却。
+  probeCooldownMs: 0,
+  actionCooldownMs: 0
 };
 
 // 奖励仅保存在服务端，共享地图不暴露容器内容。

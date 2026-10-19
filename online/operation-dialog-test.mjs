@@ -67,8 +67,9 @@ try{
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('sid_session_token',${JSON.stringify(self.sessionToken)});window.calls=[];const raw=window.fetch;window.fetch=async function(url,options){const r=await raw(url,options);if(['/api/input','/api/action','/api/attack','/api/skill','/api/interact'].includes(String(url)))window.calls.push({url:String(url),body:options?.body,result:await r.clone().json()});return r;};`});
  await send('Page.navigate',{url:base+'/'});await until(()=>ev("document.readyState==='complete'&&document.getElementById('join-page').hidden&&document.getElementById('roster-count').textContent==='2'"),'game joined');
- await test('坏人线索入口紧邻玩家名单，只有一个入口，匿名池居中',async()=>{
-  assert.equal(await ev("document.getElementById('roster-toggle').nextElementSibling.id"),'bad-toggle');
+ await test('坏人线索入口位于公共日志下方且唯一，匿名池居中',async()=>{
+  assert.equal(await ev("document.getElementById('logs').contains(document.getElementById('bad-toggle'))"),true);
+  assert.ok(await ev("document.getElementById('bad-toggle').getBoundingClientRect().top>=document.getElementById('log-items').getBoundingClientRect().bottom"));
   assert.equal(await ev("document.querySelectorAll('#bad-toggle').length"),1);
   await click('#bad-toggle');await centered('bad-pool-dialog');
   assert.ok(await ev("document.querySelectorAll('#bad-slots .bad-slot').length===1"));await tap('Escape','Escape',27);
@@ -101,7 +102,7 @@ try{
   if(await ev("document.getElementById('roster').hidden"))await click('#roster-toggle');
   await click(`[data-player="${other.playerId}"]`);await click('#private-gate');await centered('private-dialog');
  };
- await test('私密操作独立居中且四技能初始可见，无需滚动侧档案',async()=>{
+ await test('私密操作独立居中且坏人四技能初始可见，无需滚动侧档案',async()=>{
   await openPrivate();assert.equal(await ev("document.getElementById('target').contains(document.getElementById('private-content'))"),false);
   assert.equal(await ev("document.querySelectorAll('#private-content [data-skill]').length"),4);
   assert.ok(await ev("[...document.querySelectorAll('#private-content [data-skill]')].every(e=>{const r=e.getBoundingClientRect();return r.y>=0&&r.bottom<=innerHeight;})"));
@@ -113,7 +114,7 @@ try{
   await tap('Escape','Escape',27);assert.equal(await ev("document.getElementById('private-content').childElementCount"),0);
   assert.equal(await ev("document.getElementById('private-gate').getAttribute('aria-expanded')"),'false');
   await click('#private-gate');assert.equal(await ev("document.querySelector('#sid-input')"),null);
-  await click('#probe');await click('#confirm');await until(()=>ev("window.calls.some(c=>c.url==='/api/skill'&&c.result.ok)"),'skill settled');
+  await click('#spy');await click('#confirm');await until(()=>ev("window.calls.some(c=>c.url==='/api/skill'&&c.result.ok)"),'skill settled');
   await click('#private-close');
  });
  for(const [width,height] of [[853,480],[390,844]])await test(`视口${width}x${height}私密技能和确认按钮可见`,async()=>{

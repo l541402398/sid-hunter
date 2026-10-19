@@ -48,7 +48,7 @@
         <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span></div>
       </div>
       <div class="toolbar" aria-label="公共功能">
-        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="bad-toggle" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog">坏人线索 <span id="bad-toggle-label">展开＋</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking">排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
+        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking">排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
         <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint">点击开闭 · 眼睛独立显示</span><span class="score-chip" title="我的分数">分数 <b id="score-value">0</b></span><button id="clue-bag" aria-label="打开或关闭私密线索背包" aria-controls="exploration" aria-expanded="false">线索背包</button><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false">我的信息</button></div>
       </div>
     </div>
@@ -124,6 +124,7 @@
     <div class="panel-heading"><div><small>OFFICE FEED</small><h2 id="logs-title">公共日志</h2></div><span class="log-total"><b id="log-count">0</b> 条</span></div>
     <p class="panel-note">时间倒序 · 仅公开变化，不公布操作者</p>
     <ol id="log-items" tabindex="0" aria-label="公共日志记录"></ol>
+    <div class="log-clues-entry"><button id="bad-toggle" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog"><span>坏人线索</span><span id="bad-toggle-label">展开＋</span></button><p>发现线索，锁定隐藏的猎手</p></div>
   </aside>
   </div>
   <dialog id="exploration" class="center-dialog exploration" aria-label="私密探索与线索背包"></dialog>

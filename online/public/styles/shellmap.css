@@ -36,6 +36,18 @@ dialog.center-dialog .icon-button{min-width:44px;min-height:44px;flex:none}
 dialog.center-dialog .private-block{border:0;padding-top:0;margin-top:0}
 dialog.center-dialog .skill-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 dialog.center-dialog .skill-row button,dialog.center-dialog .confirm-box button{min-height:44px}
+dialog.private-dialog{width:min(540px,calc(100vw - 32px))}
+.private-skill{min-width:0;display:flex;flex-direction:column;gap:5px}
+.private-skill button{width:100%;padding:8px 6px;font-size:12px;line-height:1.5;white-space:normal}
+.private-skill .skill-effect{font-size:11px;line-height:1.6;color:#b5c5d8;margin:0 2px 5px}
+.private-resources{margin-top:10px;color:#9fb2c9;font-size:11px}
+.private-resources summary{cursor:pointer}
+/* 按技能类型配色：双方探查/指认蓝色，坏人额外刺探/击杀红色。 */
+dialog.private-dialog .skill-blue{background:linear-gradient(180deg,#245b91,#1a416c);border-color:#609bda;color:#eff7ff}
+dialog.private-dialog .skill-blue:hover:not(:disabled){background:#2d6ba6;border-color:#9ac9ff}
+dialog.private-dialog .skill-red{background:linear-gradient(180deg,#a33545,#782736);border-color:#df6a7b;color:#fff1f3}
+dialog.private-dialog .skill-red:hover:not(:disabled){background:#b64053;border-color:#ffa1b0}
+@media(min-width:700px) and (max-height:600px){dialog.private-dialog{width:min(780px,calc(100vw - 32px))}dialog.private-dialog .skill-row{grid-template-columns:repeat(4,minmax(0,1fr))}dialog.private-dialog>.panel-heading{padding:4px 0}dialog.private-dialog .panel-note{margin:4px 0}.private-skill .skill-effect{font-size:10px}}
 dialog.center-dialog .skill-info{line-height:1.7;font-size:11px}
 dialog.exploration .exploration-body{overflow:visible}
 /* 合并适配：feature 分支的 .exploration.bag-mode 是为旧的非 dialog 侧栏面板做的绝对定位；

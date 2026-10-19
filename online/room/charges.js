@@ -18,7 +18,8 @@
   function consume(skill, t) {
     if (skill.chargesRemaining >= skill.maxCharges) skill.nextChargeAt = t + skill.chargeIntervalMs;
     skill.chargesRemaining = Math.max(0, skill.chargesRemaining - 1);
-    skill.cooldownUntil = t + skill.cooldownMs;
+    // 保留兼容字段，但不存在短CD；恢复时间仅由 nextChargeAt 决定。
+    skill.cooldownUntil = 0;
   }
   // 冻结前先把已经赚到的恢复结算掉，再固定 skillsFrozenAt；重复调用以第一次为准。
   function freeze(player, t, finished) {

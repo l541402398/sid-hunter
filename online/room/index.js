@@ -297,7 +297,7 @@ function createRoom(options = {}) {
       traitPublic: { saying: false, food: false, sport: false },
       sid: makeSidState(),
       faction,
-      hp: faction === 'bad' ? 2 : 1,
+      hp: faction === 'bad' ? 3 : 1,
       alive: true,
       score: 0,
       x: spawn.x,
@@ -861,9 +861,9 @@ function createRoom(options = {}) {
   }
   function doKill(actor, target, submitted, t) {
     const sid = normalizeSid(submitted);
-    if (!sid) return { ok: false, error: '格式错误：必须是三段，每段3位字母或数字。不消耗、不进入冷却。', formatError: true };
+    if (!sid) return { ok: false, error: '格式错误：必须是三段，每段3位字母或数字。不消耗次数。', formatError: true };
     if (sid !== target.sid.segments.join('-')) {
-      return { ok: true, kind: 'kill', resultText: 'S-ID不匹配：目标未淘汰，进入冷却。', targetId: target.id };
+      return { ok: true, kind: 'kill', resultText: 'S-ID不匹配：目标未淘汰，消耗1次击杀。', targetId: target.id };
     }
     award(actor, 'kill');
     gainAchievement(actor, 'kill');
@@ -893,11 +893,11 @@ function createRoom(options = {}) {
     if (room.processed.has(commandId)) return reject('该指令已结算过');
     const kind = body.skill === 'action' ? (actor.faction === 'bad' ? 'kill' : 'accuse') : body.skill;
     if (!['probe', 'accuse', 'spy', 'kill'].includes(kind)) return reject('未知技能');
+    const allowed = actor.faction === 'bad' ? ['probe', 'accuse', 'spy', 'kill'] : ['probe', 'accuse'];
     const skill = actor.skills[kind];
-    if (!skill) return reject('无权使用该技能');
+    if (!allowed.includes(kind) || !skill) return reject('无权使用该技能');
     syncCharges(actor, t);
     if (skill.chargesRemaining <= 0) return reject(`${kind === 'probe' ? '探查' : '该技能'}次数用尽，等待恢复`);
-    if (t < skill.cooldownUntil) return reject(`${kind === 'probe' ? '探查' : '该技能'}冷却中`);
     const target = find(Number(body.targetId));
     if (!target || target.id === actor.id) return reject('目标无效');
     if (!target.alive) return reject('已淘汰目标不可操作');
@@ -912,7 +912,9 @@ function createRoom(options = {}) {
       if (kind === 'probe') award(actor, 'probe');
       else if (kind === 'spy') award(actor, 'spy');
     }
-    return resolved;
+    // 立即回传本人的最新技能资源，连续使用无需等待下一帧SSE。
+    return { ...resolved, serverTime: t, skills: Object.fromEntries(
+      Object.entries(actor.skills).map(([id, state]) => [id, { ...state }])) };
   }
   function explorationProjection(p) {
     // 私密探索投影保持既有三字段形状（chips/clues/searched）不变 —— 多个既有测试按此结构做深比较。

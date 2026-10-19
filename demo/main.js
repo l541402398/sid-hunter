@@ -192,7 +192,7 @@
     players = names.map((name,i) => ({
       id:i,name,floorId:1,x:0,y:0,
       role:[3,7,12,18].includes(i)?'bad':'good',alive:i!==19,
-      hp:[3,7,18].includes(i)?2:1,
+      hp:[3,7,12,18].includes(i)?3:1,
       sid:[`${String.fromCharCode(65+i)}${(i*3+7)%10}${String.fromCharCode(67+i%20)}`,`${(i*2+9)%10}${String.fromCharCode(75+i%14)}${(i+2)%10}`,`${(i+3)%10}${String.fromCharCode(77+i%12)}${(i*7+8)%10}`],
       sidPublic:[true,false,false],
       colors:Object.fromEntries(Object.entries(palettes).map(([k,options],j)=>[k,options[(i+j)%options.length]])),
@@ -213,7 +213,7 @@
       p.floorId = fid; p.x = ok ? cx : base.x; p.y = ok ? cy : base.y;
     });
     loadFloorLocal(1);
-    self = players[0]; self.role=mode; self.hp=mode==='bad'?2:1; self.score=0;
+    self = players[0]; self.role=mode; self.hp=mode==='bad'?3:1; self.score=0;
     players[5].traitPublic={saying:true,food:true,sport:true};
     players[5].sidPublic=[true,true,true];
     logs=[{time:stamp(),text:'办公室已就绪：20位模拟玩家，分布七层，19位存活。'}];
@@ -435,7 +435,7 @@
     $('mode-good').onclick=()=>changeMode('good');$('mode-bad').onclick=()=>changeMode('bad');
     $('reset').onclick=()=>{if(myHeld)reset(self.role);};
   }
-  function changeMode(mode) {if(!myHeld)return;clearPrivate();self.role=mode;self.hp=mode==='bad'?2:1;renderMine();}
+  function changeMode(mode) {if(!myHeld)return;clearPrivate();self.role=mode;self.hp=mode==='bad'?3:1;renderMine();}
   function closeExploration() {
     exploration=null;explorationResult='';
     $('exploration').replaceChildren();$('exploration').hidden=true;

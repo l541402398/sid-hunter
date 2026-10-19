@@ -406,7 +406,7 @@
     if (!s || s.type !== 'snapshot') return;
     snapshotGen++;
     if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) {
-      sessionGeneration++; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel(); closeGames();
+      sessionGeneration++; skillFlight = null; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel(); closeGames();
       // 身份切换：清空猜拳本地乐观状态与队列，隔离旧响应生成。
       rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
       rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
@@ -641,12 +641,27 @@
   }
   // ---------- 私密操作（点击展开，不再依赖 Shift） ----------
   function holding() { return privateOpen; }
-  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - serverTime) / 1000));
+  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - serverNow()) / 1000));
   const skillNames = { probe: '探查', accuse: '指认', spy: '刺探', kill: '击杀' };
+  const skillEffects = {
+    probe: '随机公开目标一条未公开的隐藏属性。',
+    accuse: '指认坏人扣1血；指认错误公开自己一段SID。',
+    spy: '公开目标一段未公开的SID。',
+    kill: '输入目标完整SID，精确匹配即淘汰目标。'
+  };
+  let skillFlight = null;
+  function skillButtonText(id, skill) {
+    const base = `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges}`;
+    if (skill.chargesRemaining > 0) return base;
+    if (finished || !me?.alive) return `${base} · 已冻结`;
+    if (!skill.nextChargeAt) return `${base} · 等待恢复`;
+    const remaining = secondsLeft(skill.nextChargeAt);
+    return `${base} · ${remaining > 0 ? `${remaining}s 后 +1` : '等待恢复确认'}`;
+  }
   function availableSkills() {
-    // Old running servers may still have action. Keep reading them until a planned restart.
     if (!me) return [];
-    return Object.keys(me.skills).filter(id => skillNames[id]);
+    const allowed = me.faction === 'bad' ? ['probe', 'accuse', 'spy', 'kill'] : ['probe', 'accuse'];
+    return allowed.filter(id => me.skills[id]);
   }
   function hasUnknown(p, id) {
     return id === 'probe' ? Object.keys(traitNames).some(k => p.traits[k] === MASK)
@@ -654,16 +669,16 @@
   }
   function canTarget(p) { return !!(p && me && p.id !== me.id && p.alive && me.alive && !finished); }
   function skillStatus(id, skill) {
-    const cooldown = secondsLeft(skill.cooldownUntil);
-    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${cooldown ? `冷却 ${cooldown}s` : '就绪'} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '储存已满'}`;
+    const state = finished || !me?.alive ? '已冻结' : skill.chargesRemaining > 0 ? '可连续使用' : '等待恢复';
+    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${state} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '储存已满'}`;
   }
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
     $('private-dialog-target').textContent = `目标：${p.name}`;
     const ids = availableSkills();
-    host.innerHTML = `<div class="private-block"><p class="private-title">${me.faction === 'good' ? '好人' : '坏人'}技能 · 私密操作已展开</p><div class="skill-row">${ids.map(id => `<button id="${id}" data-skill="${id}" class="${id === 'probe' || id === 'spy' ? 'investigate' : id}">${skillNames[id]}</button>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能冷却与恢复说明</summary><p id="skill-info" class="skill-info"></p></details></div>`;
-    for (const id of ids) $(id).onclick = () => { if (!holding()) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
+    host.innerHTML = `<div class="private-block"><p class="private-title">${me.faction === 'good' ? '好人' : '坏人'}技能 · 私密操作已展开</p><div class="skill-row">${ids.map(id => `<div class="private-skill"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'probe' || id === 'accuse' ? 'skill-blue' : 'skill-red'}">${skillNames[id]}</button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看次数恢复说明</summary><p id="skill-info" class="skill-info"></p></details></div>`;
+    for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
   function updateSkillStatus() {
@@ -675,34 +690,52 @@
       + (me.legacy ? '；运行中服务仍是旧技能版本，四技能需主持人安排重启后生效。' : '');
     for (const id of ids) {
       const skill = me.skills[id], button = $(id);
-      if (button) { button.textContent = `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges}`;
-        button.disabled = !canTarget(p) || skill.chargesRemaining <= 0 || secondsLeft(skill.cooldownUntil) > 0 || !hasUnknown(p, id); }
+      if (button) {
+        const label = skillFlight?.kind === id ? '正在提交…' : skillButtonText(id, skill);
+        if (button.textContent !== label) button.textContent = label;
+        button.disabled = !!skillFlight || !canTarget(p) || skill.chargesRemaining <= 0 || !hasUnknown(p, id);
+      }
+    }
+    const confirm = $('confirm');
+    if (confirm && pending) {
+      const skill = me.skills[pending.kind];
+      confirm.disabled = !!skillFlight || !skill || skill.chargesRemaining <= 0 || !canTarget(p) || !hasUnknown(p, pending.kind);
     }
   }
   function renderConfirmation() {
     const host = $('confirm-host'); if (!host || !me) return; host.replaceChildren();
     if (!holding() || !pending) return;
     const k = pending.kind;
-    host.innerHTML = `<div class="confirm-box"><p>${k === 'probe' ? '公开目标一项未知隐藏属性，消耗一次探查。' : k === 'spy' ? '公开目标一段未知S-ID，消耗一次刺探。' : k === 'accuse' ? '确认指认该目标？有效提交后进入冷却；错指认会公开自己一段S-ID。' : '手动输入目标完整S-ID。示例格式：K8Q-2T9-6R4（仅示例）；严格大写精确匹配，不自动填入。可自由输入或粘贴。'}</p>${k === 'kill' ? '<input id="sid-input" aria-label="输入目标完整S-ID" autocomplete="off" spellcheck="false" placeholder="XXX-XXX-XXX" maxlength="11">' : ''}<button id="confirm">确认${skillNames[k]}</button> <button id="cancel">取消</button></div>`;
+    host.innerHTML = `<div class="confirm-box"><p>${k === 'probe' ? '公开目标一项未知隐藏属性，消耗一次探查。' : k === 'spy' ? '公开目标一段未知S-ID，消耗一次刺探。' : k === 'accuse' ? '确认指认该目标？消耗1次；错指认会公开自己一段S-ID。' : '手动输入目标完整S-ID。示例格式：K8Q-2T9-6R4（仅示例）；严格大写精确匹配，不自动填入。可自由输入或粘贴。'}</p>${k === 'kill' ? '<input id="sid-input" aria-label="输入目标完整S-ID" autocomplete="off" spellcheck="false" placeholder="XXX-XXX-XXX" maxlength="11">' : ''}<button id="confirm" class="${k === 'probe' || k === 'accuse' ? 'skill-blue' : 'skill-red'}">确认${skillNames[k]}</button> <button id="cancel">取消</button></div>`;
     $('confirm').onclick = () => commit($('sid-input') ? $('sid-input').value : '');
     $('cancel').onclick = () => { pending = null; renderConfirmation(); };
+    updateSkillStatus();
   }
   function renderResult() { const r = $('result-host'); if (r) r.innerHTML = holding() && privateResult ? `<p class="private-result">${escapeText(privateResult)}</p>` : ''; }
   async function commit(input) {
-    if (!holding() || !pending || !me || pending.target !== selectedId) return false;
+    if (skillFlight || !holding() || !pending || !me || pending.target !== selectedId) return false;
     const p = selected(); if (!p) return false;
     const requested = pending.kind;
     const skill = me.legacy ? (requested === 'spy' ? 'probe' : requested === 'accuse' || requested === 'kill' ? 'action' : requested) : requested;
     const body = { commandId: commandId(), skill, targetId: p.id };
     if (pending.kind === 'kill') body.sid = String(input || '');
     const generation = privateGeneration, session = sessionGeneration;
+    const request = { kind: requested };
+    skillFlight = request; updateSkillStatus();
     const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，结果未确认' }));
-    if (session !== sessionGeneration || generation !== privateGeneration || !holding()) return false;
-    privateResult = result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
+    if (skillFlight === request) skillFlight = null;
+    // 只采纳不早于当前快照的资源响应；不乐观增加次数，也不覆盖新会话。
+    if (session === sessionGeneration && result.skills && Number(result.serverTime) >= serverTime && me) {
+      me = { ...me, skills: result.skills };
+    }
+    if (session !== sessionGeneration || generation !== privateGeneration || !holding()) { updateSkillStatus(); return false; }
+    privateResult = !result.ok && /冷却中/.test(result.error || '')
+      ? '当前后台仍在执行旧版技能冷却规则，需要手动重启服务后生效（仅刷新页面无效）。本次未自动重试。'
+      : result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
     pending = null;
     renderConfirmation(); renderResult(); updateSkillStatus();
     lastTargetSig = '';
-    return true;
+    return !!result.ok;
   }
   // Personal privacy choices are ephemeral: opening is always fully masked.
   function closeMine(returnFocus = false) {
@@ -759,7 +792,7 @@
     } catch { /* Older backend, denied, or network failure: fail closed. */ }
   }
   function resetToJoin() {
-    sessionGeneration++; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
+    sessionGeneration++; skillFlight = null; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
     if (stream) { stream.close(); stream = null; }
     closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); closeBadPool(); hideFinish(); keys.clear(); lastIntent = '';
     combatResult = ''; gamesResult = '';
@@ -3357,7 +3390,7 @@
     $('floor-indicator').textContent = `${floorId}F`;
     // 需求①：空间提示条 / 坐标随 zone 变化（房间内显示房间名）。
     syncZoneBanner();
-    const tick = Math.floor(serverTime / 1000);
+    const tick = Math.floor(serverNow() / 1000);
     if (tick !== lastSkillTick) {
       lastSkillTick = tick;
       if (holding()) updateSkillStatus();
