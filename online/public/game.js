@@ -1160,6 +1160,9 @@
     if (wasOpen) { keys.clear(); sendIntent(false); }
     if ($('exploration').open) $('exploration').close();
     $('exploration').replaceChildren();
+    // 合并适配：dev 把 exploration 改成 <dialog> 后用 .close() 关闭，不再有 hidden 语义；
+    // feature 分支的面板契约（含 exploration/rooms-loot 浏览器用例）仍读 .hidden，这里同步保持。
+    $('exploration').hidden = true;
     $('clue-bag').setAttribute('aria-expanded', 'false');
   }
   function openExploration(kind, id = null) {
@@ -1189,7 +1192,8 @@
     // 远处容器/NPC 仍可打开面板查看，但按钮禁用并给出「靠近」提示。
     if (kind !== 'backpack' && entityDistance(entity) > WORLD.INTERACT_RANGE) showToast('距离太远，请靠近后再互动（64 像素以内）');
     syncExploration();
-    host.showModal(); host.scrollTop = 0;
+    // hidden 与 dialog.open 同步（见 closeExploration 的合并适配说明）。
+    host.hidden = false; host.showModal(); host.scrollTop = 0;
   }
   function syncExploration() {
     if (!explorationPanel || !me) return;
