@@ -1,456 +1,138 @@
 'use strict';
-/* S-ID 管理控制台前端：授权码登录、当前对局状态、上局结算排名、开始下一局。
-   原生 ES2020，无依赖、无构建；所有动态文本一律走 textContent，不用 innerHTML 拼接数据。 */
+// 统一管理：所有修改均经管理员会话、同源与CSRF校验；不保存授权码，不自动重试写操作。
 (() => {
-  const CSRF_KEY = 'sidManagerCsrf';
-  const POLL_MS = 5000;
-  const TOAST_MS = 3600;
-
-  const $ = (id) => document.getElementById(id);
-
-  const el = {
-    loginCard: $('manager-login-card'),
-    loginForm: $('manager-login-form'),
-    loginButton: $('manager-login'),
-    code: $('manager-code'),
-    loginError: $('manager-login-error'),
-    app: $('manager-app'),
-    logout: $('manager-logout'),
-    stateDot: $('manager-state-dot'),
-    stateText: $('manager-state'),
-    alive: $('manager-alive'),
-    players: $('manager-players'),
-    teams: $('manager-teams'),
-    resultReason: $('manager-result-reason'),
-    resultMeta: $('manager-result-meta'),
-    ranking: $('manager-ranking'),
-    start: $('manager-start'),
-    actionNote: $('manager-action-note'),
-    confirm: $('manager-confirm'),
-    confirmCancel: $('manager-confirm-cancel'),
-    confirmAccept: $('manager-confirm-accept'),
-    toast: $('manager-toast'),
-    tick: $('manager-tick'),
+  const $=id=>document.getElementById(id);
+  let authed=false,csrf='',busy=false,loading=false,initialized=false,templates={},history=[],featuresLoaded=false;
+  let templateSource='development'; // 仅记录表单值来源，不是运行模式。
+  let clueStats=null,currentActivity=null,draftSlots=[],exportBusy=false;
+  const uid=()=>globalThis.crypto?.randomUUID?.()||'op_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
+  const formatTime=t=>t?new Date(t).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'—';
+  function renderSlots(){
+    const root=$('schedule-slots');root.replaceChildren();
+    for(const s of draftSlots){
+      const row=document.createElement('div');row.className='admin-slot-row';
+      for(const [key,caption,type] of [['label','场次名称','text'],['startTime','开始','time'],['endTime','结束','time']]){
+        const label=document.createElement('label');label.append(document.createTextNode(caption));const input=document.createElement('input');input.type=type;input.value=s[key];input.required=true;if(type==='text')input.maxLength=40;
+        input.oninput=()=>{s[key]=input.value;};label.append(input);row.append(label);
+      }
+      const del=document.createElement('button');del.type='button';del.textContent='移除';del.disabled=draftSlots.length===1;del.onclick=()=>{draftSlots=draftSlots.filter(v=>v!==s);renderSlots();};row.append(del);root.append(row);
+    }
+  }
+  $('schedule-add').onclick=()=>{if(draftSlots.length>=12)return;draftSlots.push({id:uid().slice(0,48),label:'新增场次',startTime:'14:00',endTime:'17:00'});renderSlots();};
+  async function api(path,body) {
+    const r=await fetch('/api/manager/'+path,{method:body===undefined?'GET':'POST',credentials:'same-origin',cache:'no-store',
+      headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify({...body,csrfToken:csrf})});
+    const data=await r.json();
+    if(r.status===401&&path!=='login'){showLogin();throw Error('管理会话已过期，请重新登录');}
+    if(!r.ok||data.ok===false)throw Error(data.error||'操作失败');
+    return data;
+  }
+  function showLogin(){authed=false;csrf='';initialized=false;featuresLoaded=false;$('manager-app').hidden=true;$('manager-login-card').hidden=false;$('manager-code').value='';}
+  function showApp(){$('manager-app').hidden=false;$('manager-login-card').hidden=true;authed=true;}
+  function fill(config){templateSource=config.template;draftSlots=(config.slots||[{id:'daily',label:'每日场',startTime:config.startTime,endTime:config.endTime}]).map(s=>({...s}));renderSlots();
+    $('config-minutes').value=Math.floor(config.chargeIntervalMs/60000);$('config-seconds').value=config.chargeIntervalMs/1000%60;
+    $('clue-minutes').value=Math.floor(config.clueIntervalMs/60000);$('clue-seconds').value=config.clueIntervalMs/1000%60;
+    $('clue-percent').value=config.cluePercent;$('clue-min').value=config.clueMin;$('clue-max').value=config.clueMax;
+    if(typeof config.enabled==='boolean')$('config-enabled').checked=config.enabled;
+    previewClues();
+  }
+  function form(){const min=Number($('config-minutes').value),sec=Number($('config-seconds').value);
+    if(!Number.isInteger(min)||!Number.isInteger(sec)||min<0||sec<0||sec>59)throw Error('请输入有效的分钟和秒');
+    const cm=Number($('clue-minutes').value),cs=Number($('clue-seconds').value),percent=Number($('clue-percent').value),low=Number($('clue-min').value),high=Number($('clue-max').value);
+    if(!Number.isInteger(cm)||!Number.isInteger(cs)||cm<0||cs<0||cs>59||(cm*60+cs)<1||(cm*60+cs)>86400)throw Error('公布间隔需为1秒至24小时，秒数0–59');
+    if(!Number.isFinite(percent)||percent<=0||percent>100||!Number.isSafeInteger(low)||!Number.isSafeInteger(high)||low<1||high<low||high>1000)throw Error('线索比例需大于0且不超过100%，条数为1–1000且最高不小于最低');
+    return{template:templateSource,slots:draftSlots.map(s=>({...s})),chargeIntervalMs:(min*60+sec)*1000,enabled:$('config-enabled').checked,
+      clueIntervalMs:(cm*60+cs)*1000,cluePercent:percent,clueMin:low,clueMax:high};}
+  function previewClues(){
+    if(!clueStats){$('clue-preview').textContent='等待载入当前存活坏人数；预览不保存设置。';return;}
+    try{const c=form();const n=clueStats.aliveBad;const count=n?Math.min(c.clueMax,Math.max(c.clueMin,Math.ceil(n*c.cluePercent/100)),clueStats.remaining):0;
+      $('clue-preview').textContent=`表单预览（未保存）：当前存活坏人 ${n} 人，剩余可公布 ${clueStats.remaining} 项，按当前填写设置下一轮预计 ${count} 条。`;
+    }catch(e){$('clue-preview').textContent=e.message;}
+  }
+  for(const id of ['clue-minutes','clue-seconds','clue-percent','clue-min','clue-max'])$(id).oninput=previewClues;
+  function table(id,rows,total=false){const host=$(id);host.replaceChildren();
+    for(const p of rows){const tr=document.createElement('tr');for(const value of [p.rank,p.name,p.score,total?p.sessions:(p.alive?'存活':'淘汰')]){const td=document.createElement('td');td.textContent=String(value??'—');tr.append(td);}host.append(tr);}
+    if(!rows.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='暂无已归档成绩';tr.append(td);host.append(tr);}
+  }
+  function renderSession(){
+    const selected=history.find(d=>d.roundId===$('history-session').value);
+    table('session-ranking',selected?.ranking||[]);
+    $('scores-export').disabled=exportBusy||!selected;
+  }
+  $('scores-export').onclick=async()=>{
+    if(exportBusy||!authed)return;
+    const roundId=$('history-session').value;if(!history.some(r=>r.roundId===roundId))return;
+    exportBusy=true;$('scores-export').disabled=true;$('scores-export').textContent='正在导出…';
+    const message=$('scores-export-message');message.textContent='正在生成已归档成绩工作簿…';
+    let objectUrl=null,link=null;
+    try{
+      const response=await fetch('/api/manager/export-scores?roundId='+encodeURIComponent(roundId),{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok){let error={};try{error=await response.json();}catch{}
+        if(response.status===401)showLogin();throw Error(error.error||'导出失败，请确认管理员会话和所选场次');}
+      if(!response.headers.get('Content-Type')?.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))throw Error('后台未返回Excel文件，请确认已升级新版服务');
+      const blob=await response.blob();if(!blob.size)throw Error('导出文件为空');
+      const disposition=response.headers.get('Content-Disposition')||'';
+      const filename=disposition.match(/filename="([a-zA-Z0-9_.-]+\.xlsx)"/)?.[1]||'S-ID-scores.xlsx';
+      objectUrl=URL.createObjectURL(blob);link=document.createElement('a');link.href=objectUrl;link.download=filename;
+      document.body.append(link);link.click();message.textContent='Excel已生成并发起下载，请在浏览器下载记录查看。';
+    }catch(e){message.textContent=e.message+'；未自动重试。';}
+    finally{if(link)link.remove();if(objectUrl)setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);exportBusy=false;$('scores-export').textContent='导出成绩 Excel';renderSession();}
   };
-
-  let authed = false;
-  let pollTimer = null;
-  let stateInFlight = false;
-  let toastTimer = null;
-  let lastStateSig = '';
-  let confirmOpen = false;
-
-  /* ---------- 工具 ---------- */
-
-  function finishReasonText(reason) {
-    return reason === 'aliveFloor' ? '存活人数已淘汰至剩余 100 人'
-      : reason === 'badWiped' ? '坏人全灭'
-        : reason === 'timeUp' ? '时间到（2 小时）'
-          : reason === 'host' ? '主持人结束了游戏'
-            : typeof reason === 'string' && reason ? '游戏已结束' : '游戏已结束（原因未知）';
-  }
-
-  function pad2(n) { return String(n).padStart(2, '0'); }
-
-  function formatTime(ts) {
-    const n = Number(ts);
-    if (!Number.isFinite(n) || n <= 0) return '—';
-    const d = new Date(n);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
-      + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
-  }
-
-  function dash(value) { return value === null || value === undefined || value === '' ? '—' : value; }
-
-  function scoreText(score) {
-    if (score === null || score === undefined || score === '') return '—';
-    const n = Number(score);
-    return Number.isFinite(n) ? String(n) : '—';
-  }
-
-  function factionText(faction) {
-    return faction === 'good' ? '好人' : faction === 'bad' ? '坏人' : '—';
-  }
-
-  function aliveText(alive) {
-    return alive === true ? '存活' : alive === false ? '淘汰' : '—';
-  }
-
-  function apiErrorText(data, res, fallback) {
-    if (data && typeof data.error === 'string' && data.error) {
-      if (res.status === 429 && Number.isFinite(Number(data.retryAfterMs))) {
-        const secs = Math.max(1, Math.ceil(Number(data.retryAfterMs) / 1000));
-        return data.error + '（约 ' + secs + ' 秒后可重试）';
-      }
-      return data.error;
+  async function load(){if(!authed||loading)return;loading=true;try{
+    const data=await api('state'),a=data.activity;
+    if(!a)throw Error('后台仍是旧版，请手动重启服务后使用管理员配置');
+    currentActivity=a;templates=a.templates;$('manager-state').textContent=a.status;$('manager-counts').textContent=`玩家 ${data.current.playerCount} · 存活 ${data.current.aliveCount} · 日期 ${a.day||'尚未开局'}`;
+    $('manager-storage').textContent=a.error|| (a.storageReady?'存档已启用 · 每场成绩独立保存，总分累加':'存档未启用，不能开启场次');
+    $('current-session').textContent=a.session?`${a.session.label} · ${a.active?(a.paused?'已暂停':'进行中'):'已结算'} · 开始 ${formatTime(a.session.startedAt)} · 原定结束 ${formatTime(a.session.endsAt)}`:'当前无场次。可保存自动安排，或手动开测试场。';
+    $('session-pause').hidden=!!a.paused;$('session-pause').disabled=!a.active;
+    $('session-resume').hidden=!a.paused;$('session-resume').disabled=!a.active;
+    $('session-finish').disabled=!a.active;$('session-start').disabled=!!a.active;
+    $('schedule-effective').textContent=a.scheduleEffective==='tomorrow'?'已保存的新安排明天生效；今日仍使用原安排，本场结束时间不变。':'当前显示的已保存安排可用于今日。今天开过场后再改安排，将从次日生效。';
+    clueStats=a.cluePublication||null;
+    if(!initialized){fill(a.config);initialized=true;}
+    previewClues();
+    const due=clueStats?.nextAt?new Date(clueStats.nextAt).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}):'今日无待执行公布（未开启、已结束或已超过当日截止时间）';
+    $('clue-live').textContent=clueStats?`已生效设置：按当前人数下轮预计 ${clueStats.count} 条；下次公布：${due}；上轮实际公布 ${clueStats.lastCount||0} 条。`:'当前后台未支持定时系统公布，请维护重启新版后台。';
+    if(clueStats?.paused)$('clue-live').textContent=`线索计时已暂停，剩余约 ${Math.ceil((clueStats.remainingMs||0)/1000)} 秒，继续本场后接着计时。`;
+    const selected=$('history-session').value;history=a.history||[];
+    const signature=history.map(d=>d.roundId).join(',');
+    if($('history-session').dataset.signature!==signature){$('history-session').dataset.signature=signature;$('history-session').replaceChildren();
+      for(const item of history){const opt=document.createElement('option');opt.value=item.roundId;opt.textContent=`${item.day} · ${item.label} · ${formatTime(item.startedAt)}`;$('history-session').append(opt);}
+      $('history-session').value=history.some(d=>d.roundId===selected)?selected:(history[0]?.roundId||'');
     }
-    if (res.status === 401) return '授权码错误';
-    if (res.status === 429) return '尝试过于频繁，请稍后再试';
-    if (res.status >= 500) return '服务端错误，请稍后重试';
-    return fallback;
+    renderSession();table('daily-ranking',a.dailyRanking||[],true);table('total-ranking',a.totalRanking||[],true);
+    if(!featuresLoaded){const f=await api('features');$('manager-features-list').replaceChildren();for(const item of f.features||[]){const label=document.createElement('label');label.className='admin-switch';const box=document.createElement('input');box.type='checkbox';box.dataset.feature=item.key;box.checked=!!item.enabled;label.append(box,document.createTextNode(item.label));$('manager-features-list').append(label);}featuresLoaded=true;}
+    $('manager-tick').textContent='最近刷新 '+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
+  }catch(e){$('manager-storage').textContent=e.message;}finally{loading=false;}}
+  async function mutate(path,body,messageId){if(busy)return;busy=true;const host=$(messageId);host.textContent='正在保存…';try{const data=await api(path,body);host.textContent='操作成功';await load();return data;}catch(e){host.textContent=e.message+'；未自动重试，请先核对当前状态。';}finally{busy=false;}}
+  async function save(config){
+    if(!confirm('确认保存设置？不会暂停或结算当前场。今天已开过场则时段/自动开局修改从明天生效；若今天尚未开场且处于启用时段，可能立即开局。技能周期下轮生效，线索间隔修改重新计时。'))return;
+    const result=await mutate('config',{config,confirm:true},'config-message');if(result){fill(result.config);$('config-message').textContent=result.message||'设置已保存，当前场未结束。';}
   }
-
-  async function api(path, options) {
-    const res = await fetch(path, Object.assign({ credentials: 'same-origin', cache: 'no-store' }, options || {}));
-    let data = null;
-    let text = '';
-    try { text = await res.text(); } catch (_) { text = ''; }
-    if (text) { try { data = JSON.parse(text); } catch (_) { data = null; } }
-    return { res: res, data: data };
+  for(const name of ['development','production'])$('template-'+name).onclick=()=>{
+    const preset=templates[name];
+    if(!preset){$('config-message').textContent='模板尚未载入，请稍后再试';return;}
+    // 模板只填时间与恢复周期；即便服务端模板带enabled字段，也不能修改启闭草稿。
+    const enabled=$('config-enabled').checked;
+    fill({...preset,enabled});
+    $('config-message').textContent=`已填入${name==='development'?'开发':'生产'}模板，尚未生效；点击「保存设置」后才会应用。`;
+  };
+  $('settings-form').onsubmit=e=>{e.preventDefault();try{save(form());}catch(err){$('config-message').textContent=err.message;}};
+  // 场次操作绝不提交表单草稿；使用已展示的场次版本，迟到指令不能误结算新场。
+  async function control(action){
+    if(busy||!currentActivity)return;
+    const descriptions={pause:'暂停当前场？技能恢复和线索计时一起暂停，但结束时间不顺延。',resume:'继续当前场？恢复剩余计时，原定截止时间不变。',finish:'立即结算当前场并计入总分？本场不可继续；后续场次安排不变。',start:'确认手动开新场？身份/资源重新分配，旧场成绩保留，本场也会计入总分；不会保存设置草稿。'};
+    const expectedRoundId=currentActivity.currentRoundId;
+    if(!confirm(descriptions[action]))return;
+    await mutate('control',{action,expectedRoundId,confirm:true,commandId:uid(),minutes:Number($('manual-minutes').value),label:$('manual-label').value},'session-message');
   }
-
-  function storeCsrf(token) {
-    try { if (typeof token === 'string' && token) sessionStorage.setItem(CSRF_KEY, token); } catch (_) { /* 隐私模式忽略 */ }
-  }
-  function readCsrf() {
-    try { return sessionStorage.getItem(CSRF_KEY) || ''; } catch (_) { return ''; }
-  }
-  function clearCsrf() {
-    try { sessionStorage.removeItem(CSRF_KEY); } catch (_) { /* 忽略 */ }
-  }
-
-  function setBusy(button, busy, busyText) {
-    if (!button) return;
-    if (busy) {
-      if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
-      button.disabled = true;
-      if (busyText) button.textContent = busyText;
-    } else {
-      button.disabled = false;
-      if (busyText === undefined && button.dataset.idleText) button.textContent = button.dataset.idleText;
-    }
-  }
-
-  function toast(message, kind) {
-    if (!el.toast || !message) return;
-    el.toast.textContent = message;
-    el.toast.className = 'manager-toast' + (kind === 'ok' ? ' is-ok' : kind === 'error' ? ' is-error' : '');
-    el.toast.hidden = false;
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { el.toast.hidden = true; }, TOAST_MS);
-  }
-
-  function tick(text) { if (el.tick) el.tick.textContent = text; }
-
-  /* ---------- 视图切换 ---------- */
-
-  function showLogin() {
-    if (el.loginCard) el.loginCard.hidden = false;
-    if (el.app) el.app.hidden = true;
-  }
-
-  function showApp() {
-    if (el.loginCard) el.loginCard.hidden = true;
-    if (el.app) el.app.hidden = false;
-    if (el.loginError) el.loginError.textContent = '';
-  }
-
-  function setLoginError(message) {
-    if (el.loginError) el.loginError.textContent = message || '';
-  }
-
-  function stopPolling() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
-
-  function startPolling() {
-    stopPolling();
-    pollTimer = setInterval(() => { loadState(); }, POLL_MS);
-  }
-
-  function resetToLogin(message) {
-    authed = false;
-    stopPolling();
-    clearCsrf();
-    lastStateSig = '';
-    showLogin();
-    if (message) setLoginError(message);
-    tick('每 5 秒自动刷新');
-  }
-
-  function handleExpired() {
-    resetToLogin('登录状态已失效，请重新输入授权码');
-    toast('登录状态已失效，请重新登录', 'error');
-  }
-
-  /* ---------- 渲染：当前对局状态 ---------- */
-
-  function renderTeams(teams) {
-    if (!el.teams) return;
-    el.teams.replaceChildren();
-    if (!Array.isArray(teams) || !teams.length) { el.teams.hidden = true; return; }
-    const MAX_CHIPS = 12;
-    for (const team of teams.slice(0, MAX_CHIPS)) {
-      if (!team || typeof team !== 'object') continue;
-      const chip = document.createElement('span');
-      chip.className = 'manager-team';
-      const name = document.createElement('span');
-      name.textContent = typeof team.name === 'string' && team.name ? team.name : dash(team.id);
-      const alive = document.createElement('strong');
-      alive.textContent = team.alive === true ? '存活' : team.alive === false ? '淘汰' : '存活 —';
-      const score = document.createElement('strong');
-      score.textContent = scoreText(team.score) + ' 分';
-      chip.append(name, alive, score);
-      el.teams.appendChild(chip);
-    }
-    if (teams.length > MAX_CHIPS) {
-      const more = document.createElement('span');
-      more.className = 'manager-team manager-team-more';
-      more.textContent = '另有 ' + (teams.length - MAX_CHIPS) + ' 人';
-      el.teams.appendChild(more);
-    }
-    el.teams.hidden = false;
-  }
-
-  function renderState(data) {
-    const current = (data && data.current && typeof data.current === 'object') ? data.current : {};
-    const finished = current.finished === true;
-    if (el.stateText) el.stateText.textContent = finished ? '已结束 · ' + finishReasonText(current.finishReason) : '进行中';
-    if (el.stateDot) el.stateDot.className = 'dot ' + (finished ? 'gray' : 'green');
-    if (el.alive) el.alive.textContent = current.aliveCount === null || current.aliveCount === undefined ? '—' : String(current.aliveCount);
-    if (el.players) el.players.textContent = current.playerCount === null || current.playerCount === undefined ? '—' : String(current.playerCount);
-    renderTeams(data && data.teams);
-    renderResult(data ? data.lastResult : null);
-  }
-
-  /* ---------- 渲染：上局结算排名 ---------- */
-
-  function emptyRow(message) {
-    const tr = document.createElement('tr');
-    const td = document.createElement('td');
-    td.className = 'manager-table-empty';
-    td.colSpan = 5;
-    td.textContent = message;
-    tr.appendChild(td);
-    return tr;
-  }
-
-  function cell(text, className) {
-    const td = document.createElement('td');
-    if (className) td.className = className;
-    td.textContent = text;
-    return td;
-  }
-
-  function buildRow(entry, index, unranked) {
-    const item = (entry && typeof entry === 'object') ? entry : {};
-    const rank = unranked ? '✓' : (item.rank === null || item.rank === undefined ? String(index + 1) : String(item.rank));
-    const name = typeof item.name === 'string' && item.name ? item.name : '玩家';
-    const tr = document.createElement('tr');
-    tr.appendChild(cell(rank, 'manager-col-rank'));
-    tr.appendChild(cell(name, 'manager-col-name'));
-    tr.appendChild(cell(scoreText(item.score), 'manager-col-score'));
-    tr.appendChild(cell(aliveText(item.alive), 'manager-col-alive'
-      + (item.alive === true ? ' is-alive' : item.alive === false ? ' is-out' : '')));
-    tr.appendChild(cell(factionText(item.faction), 'manager-col-faction'));
-    return tr;
-  }
-
-  function renderResult(last) {
-    if (!el.ranking) return;
-    el.ranking.replaceChildren();
-
-    if (!last || typeof last !== 'object') {
-      if (el.resultReason) el.resultReason.textContent = '本局尚未结束，暂无排名';
-      if (el.resultMeta) el.resultMeta.textContent = '';
-      el.ranking.appendChild(emptyRow('本局尚未结束，暂无排名。'));
-      return;
-    }
-
-    const ranked = last.ranked !== false;
-    const reason = finishReasonText(last.finishReason);
-    if (el.resultReason) {
-      el.resultReason.textContent = ranked
-        ? '结束方式：' + reason
-        : '结束方式：' + reason + ' · 该结束方式不按分数排名，仅列出存活玩家';
-    }
-
-    const meta = [];
-    if (last.finishedAt !== null && last.finishedAt !== undefined && last.finishedAt !== '') meta.push('结束时间 ' + formatTime(last.finishedAt));
-    if (last.playerCount !== null && last.playerCount !== undefined && last.playerCount !== '') meta.push('结算人数 ' + last.playerCount);
-    if (el.resultMeta) el.resultMeta.textContent = meta.join(' · ');
-
-    let rows = Array.isArray(last.ranking) ? last.ranking.filter((e) => e && typeof e === 'object') : [];
-    if (!ranked) {
-      rows = rows.length
-        ? rows.filter((e) => e.alive !== false)
-        // 兼容服务端在 ranking=null 时额外给出的存活名单快照（契约外的可选字段）。
-        : (Array.isArray(last.survivors) ? last.survivors.filter((e) => e && typeof e === 'object') : []);
-    }
-
-    if (!rows.length) {
-      el.ranking.appendChild(emptyRow(ranked ? '暂无排名数据。' : '没有存活玩家。'));
-      return;
-    }
-    rows.forEach((entry, index) => el.ranking.appendChild(buildRow(entry, index, !ranked)));
-  }
-
-  /* ---------- 数据加载 ---------- */
-
-  async function loadState() {
-    if (!authed || stateInFlight) return;
-    stateInFlight = true;
-    try {
-      const { res, data } = await api('/api/manager/state');
-      if (res.status === 401) { handleExpired(); return; }
-      if (!res.ok || !data || typeof data !== 'object') { tick('状态刷新失败（HTTP ' + res.status + '）'); return; }
-      const sig = JSON.stringify([data.current, data.lastResult, data.teams]);
-      if (sig !== lastStateSig) { lastStateSig = sig; renderState(data); }
-      tick('最近刷新 ' + formatTime(Date.now()));
-    } catch (_) {
-      tick('网络异常，稍后自动重试');
-    } finally {
-      stateInFlight = false;
-    }
-  }
-
-  async function checkSession() {
-    try {
-      const { res, data } = await api('/api/manager/session');
-      if (res.ok && data && typeof data === 'object' && data.authed === true) {
-        storeCsrf(data.csrfToken);
-        authed = true;
-        showApp();
-        startPolling();
-        await loadState();
-        return;
-      }
-      showLogin();
-      if (!res.ok && res.status !== 401) setLoginError('会话校验失败（HTTP ' + res.status + '）');
-    } catch (_) {
-      showLogin();
-      setLoginError('无法连接服务端，请检查网络后重试');
-    }
-  }
-
-  async function ensureCsrf() {
-    const stored = readCsrf();
-    if (stored) return stored;
-    try {
-      const { res, data } = await api('/api/manager/session');
-      if (res.ok && data && typeof data === 'object' && data.authed === true) {
-        storeCsrf(data.csrfToken);
-        return readCsrf();
-      }
-    } catch (_) { /* 交给调用方处理 */ }
-    return '';
-  }
-
-  /* ---------- 交互 ---------- */
-
-  async function handleLogin(event) {
-    if (event) event.preventDefault();
-    const code = el.code ? el.code.value : '';
-    if (!code) { setLoginError('请输入管理员授权码'); if (el.code) el.code.focus(); return; }
-    setLoginError('');
-    setBusy(el.loginButton, true, '验证中…');
-    try {
-      const { res, data } = await api('/api/manager/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code }),
-      });
-      if (res.ok && data && data.ok === true && typeof data.csrfToken === 'string' && data.csrfToken) {
-        storeCsrf(data.csrfToken);
-        if (el.code) el.code.value = '';
-        authed = true;
-        showApp();
-        lastStateSig = '';
-        startPolling();
-        await loadState();
-        toast('已进入管理控制台', 'ok');
-      } else {
-        setLoginError(apiErrorText(data, res, '登录失败，请稍后重试'));
-      }
-    } catch (_) {
-      setLoginError('网络异常，请稍后重试');
-    } finally {
-      setBusy(el.loginButton, false);
-    }
-  }
-
-  async function handleLogout() {
-    stopPolling();
-    try {
-      await api('/api/manager/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    } catch (_) { /* 即使请求失败也回到登录卡片 */ }
-    resetToLogin('');
-    if (el.code) el.code.value = '';
-    toast('已退出控制台', 'ok');
-  }
-
-  function openConfirm() {
-    if (!el.confirm || confirmOpen) return;
-    confirmOpen = true;
-    if (typeof el.confirm.showModal === 'function') {
-      try { el.confirm.showModal(); return; } catch (_) { /* 回退到 open 属性 */ }
-    }
-    el.confirm.setAttribute('open', '');
-  }
-
-  function closeConfirm() {
-    if (!el.confirm) return;
-    confirmOpen = false;
-    if (typeof el.confirm.close === 'function') {
-      try { el.confirm.close(); return; } catch (_) { /* 回退 */ }
-    }
-    el.confirm.removeAttribute('open');
-  }
-
-  async function handleReset() {
-    closeConfirm();
-    setBusy(el.start, true, '正在重开…');
-    if (el.actionNote) el.actionNote.textContent = '正在清空本局并开始下一局…';
-    try {
-      const csrf = await ensureCsrf();
-      if (!csrf) { handleExpired(); return; }
-      const { res, data } = await api('/api/manager/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true, csrfToken: csrf }),
-      });
-      if (res.status === 401) { handleExpired(); return; }
-      if (res.ok && data && data.ok === true && data.reset === true) {
-        // 重开后排名的 id 已不属于新局，必须用响应里的 lastResult 渲染。
-        lastStateSig = '';
-        renderState({
-          current: { finished: false, finishReason: null, aliveCount: 0, playerCount: 0, startedAt: data.startedAt || null },
-          lastResult: data.lastResult === undefined ? null : data.lastResult,
-          teams: [],
-        });
-        toast('已开始下一局，所有人需要重新输入昵称加入', 'ok');
-        await loadState();
-      } else {
-        toast(apiErrorText(data, res, '重开失败，请稍后重试'), 'error');
-      }
-    } catch (_) {
-      toast('网络异常，重开失败，请稍后重试', 'error');
-    } finally {
-      setBusy(el.start, false);
-      if (el.actionNote) el.actionNote.textContent = '重开会清空本局全部数据，操作前会再次确认。';
-    }
-  }
-
-  /* ---------- 绑定与启动 ---------- */
-
-  if (el.loginForm) el.loginForm.addEventListener('submit', handleLogin);
-  else if (el.loginButton) el.loginButton.addEventListener('click', handleLogin);
-  if (el.logout) el.logout.addEventListener('click', handleLogout);
-  if (el.start) el.start.addEventListener('click', openConfirm);
-  if (el.confirmCancel) el.confirmCancel.addEventListener('click', closeConfirm);
-  if (el.confirmAccept) el.confirmAccept.addEventListener('click', handleReset);
-  if (el.confirm) {
-    el.confirm.addEventListener('cancel', (event) => { event.preventDefault(); closeConfirm(); });
-    el.confirm.addEventListener('click', (event) => {
-      // 点击 ::backdrop（事件目标为 dialog 自身且落在卡片外）时关闭。
-      if (event.target === el.confirm) closeConfirm();
-    });
-  }
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && authed) loadState();
-  });
-
-  showLogin();
-  checkSession();
+  $('session-pause').onclick=()=>control('pause');$('session-resume').onclick=()=>control('resume');
+  $('session-finish').onclick=()=>control('finish');$('session-start').onclick=()=>control('start');
+  for(const faction of ['good','bad'])$('npc-'+faction).onclick=()=>mutate('npc',{faction,count:Number($('npc-count').value),floorId:Number($('npc-floor').value)},'npc-message');
+  $('history-session').onchange=renderSession;
+  $('manager-features-save').onclick=()=>{const features={};for(const box of document.querySelectorAll('[data-feature]'))features[box.dataset.feature]=box.checked;mutate('features',{features},'features-message');};
+  $('manager-login-form').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;try{const data=await api('login',{code:$('manager-code').value});csrf=data.csrfToken;$('manager-code').value='';$('manager-login-error').textContent='';showApp();await load();}catch(err){$('manager-login-error').textContent=err.message;$('manager-code').value='';}finally{busy=false;}};
+  $('manager-logout').onclick=async()=>{try{await api('logout',{});}finally{showLogin();}};
+  api('session').then(data=>{if(data.authed){csrf=data.csrfToken;showApp();load();}else showLogin();}).catch(()=>showLogin());
+  setInterval(()=>{if(authed&&!document.hidden)load();},5000);
 })();

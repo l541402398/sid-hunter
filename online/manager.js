@@ -42,7 +42,7 @@ function clientIp(req) {
   return isLoopback && forwarded ? forwarded : (direct || 'unknown');
 }
 
-function createManager({ room, passcode, now = Date.now }) {
+function createManager({ room, passcode, now = Date.now, activity = null }) {
   const code = typeof passcode === 'string' && passcode.length ? passcode : '091256';
   const sessions = new Map(); // token -> { csrfToken, createdAt, lastSeenAt }
   const attempts = new Map(); // ip -> { failures, lastFailureAt, blockedUntil }
@@ -123,6 +123,7 @@ function createManager({ room, passcode, now = Date.now }) {
       status: 200,
       body: {
         ok: true,
+        activity: activity ? activity.state() : null,
         current: {
           finished: room.room.finished,
           finishReason: room.room.finishReason || null,
@@ -145,6 +146,7 @@ function createManager({ room, passcode, now = Date.now }) {
     if (!session) return { status: 401, body: { ok: false, error: '管理会话已失效，请重新输入授权码' } };
     if (!safeEqual(body && body.csrfToken, session.csrfToken)) return { status: 403, body: { ok: false, error: '管理凭证无效' } };
     if (!body || body.confirm !== true) return { status: 400, body: { ok: false, error: '开新局需要二次确认' } };
+    if (activity) return { status: 409, body: { ok: false, error: '旧清空接口已停用；请先结算本场，再通过手动开新场建立独立存档' } };
     room.reset();
     const last = room.lastResultSummary();
     return {
@@ -157,12 +159,39 @@ function createManager({ room, passcode, now = Date.now }) {
       }
     };
   }
+  function mutationGate(req, token, body) {
+    const gate = sessionFor(req, token);
+    if (gate.status !== 200) return gate;
+    if (!safeEqual(body && body.csrfToken, gate.session.csrfToken)) return { status: 403, body: { ok: false, error: '管理凭证无效' } };
+    let origin;
+    try { origin = new URL(req.headers.origin || ''); } catch { return {status:403,body:{ok:false,error:'管理操作需要同源Origin'}}; }
+    if (origin.host !== req.headers.host || !['http:','https:'].includes(origin.protocol)) return {status:403,body:{ok:false,error:'管理操作来源不匹配'}};
+    return {status:200};
+  }
+  function configure(req, token, body) {
+    const gate=mutationGate(req,token,body);if(gate.status!==200)return gate;
+    if(!activity)return{status:503,body:{ok:false,error:'管理员日程未启用'}};
+    if(body.confirm!==true)return{status:400,body:{ok:false,error:'保存设置需要确认'}};
+    const result=activity.saveConfig(body.config);return{status:result.ok?200:400,body:result};
+  }
+  function control(req, token, body) {
+    const gate=mutationGate(req,token,body);if(gate.status!==200)return gate;
+    if(!activity)return{status:503,body:{ok:false,error:'场次管理尚未启用'}};
+    if(body.confirm!==true)return{status:400,body:{ok:false,error:'场次操作需要确认'}};
+    const result=activity.control(body);return{status:result.ok?200:409,body:result};
+  }
+  function npc(req, token, body) {
+    const gate=mutationGate(req,token,body);if(gate.status!==200)return gate;
+    if(!activity)return{status:503,body:{ok:false,error:'管理员日程未启用'}};
+    const result=activity.addNpc(body);return{status:result.ok?200:400,body:result};
+  }
   function logout(token) {
     if (token) sessions.delete(token);
     return { status: 200, body: { ok: true }, cookie: `${MANAGER_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0` };
   }
   function close() { clearInterval(sweeper); }
-  return { login, sessionProbe, sessionFor, state, reset, logout, close, code, cookieName: MANAGER_COOKIE };
+  return { login, sessionProbe, sessionFor, mutationGate, configure, control, npc, state, reset, logout, close, code, cookieName: MANAGER_COOKIE,
+    persist: () => activity ? activity.persist() : true };
 }
 
 module.exports = { createManager, MANAGER_COOKIE, finishReasonText, clientIp, safeEqual };

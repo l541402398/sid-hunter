@@ -25,7 +25,9 @@ function createStore(options = {}) {
       reason: process.env.SID_TEST === '1' ? 'SID_TEST=1（测试隔离，不落盘）' : 'SID_DB=0',
       saveRound() { }, savePlayers() { }, loadLastRound() { return null; },
       saveSnapshot() { return false; }, loadSnapshot() { return null; }, clearSnapshot() { return false; },
-      saveFeatures() { return false; }, loadFeatures() { return null; }, close() { }
+      saveFeatures() { return false; }, loadFeatures() { return null; },
+      loadAdmin() { return null; }, saveAdmin() { return false; },
+      archiveDay() { return false; }, loadDays() { return []; }, archiveSession() { return false; }, loadSessions() { return []; }, close() { }
     };
   }
 
@@ -36,6 +38,15 @@ function createStore(options = {}) {
     db = new DatabaseSync(file);
     db.exec(`
       PRAGMA journal_mode = WAL;
+      CREATE TABLE IF NOT EXISTS admin_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1), state_json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS session_results (
+        round_id TEXT PRIMARY KEY, day TEXT NOT NULL, result_json TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS daily_results (
+        day TEXT PRIMARY KEY, round_id TEXT NOT NULL, result_json TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS rounds (
         round_id TEXT PRIMARY KEY,
         finished_at INTEGER NOT NULL,
@@ -217,10 +228,64 @@ function createStore(options = {}) {
     }
   }
 
+  function loadAdmin() {
+    if (!state.enabled) return null;
+    const row = db.prepare('SELECT state_json FROM admin_state WHERE id=1').get();
+    return row ? JSON.parse(row.state_json) : null;
+  }
+  function saveAdmin(value) {
+    if (!state.enabled) return false;
+    try {
+      db.prepare('INSERT INTO admin_state(id,state_json) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET state_json=excluded.state_json').run(JSON.stringify(value));
+      return true;
+    } catch (error) { state.error = String(error.message || error); return false; }
+  }
+  // 每日结果不可覆盖，事务内同时记录控制状态，防止重复结算/重启累加。
+  function archiveDay(result, control) {
+    if (!state.enabled) return false;
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      const old = db.prepare('SELECT round_id FROM daily_results WHERE day=?').get(result.day);
+      if (old && old.round_id !== result.roundId) throw new Error('该日期已经结算，不能覆盖');
+      db.prepare('INSERT OR IGNORE INTO daily_results(day,round_id,result_json) VALUES(?,?,?)')
+        .run(result.day, result.roundId, JSON.stringify(result));
+      if (!saveAdmin(control)) throw new Error('保存管理状态失败');
+      db.exec('COMMIT'); return true;
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { }
+      state.error = String(error.message || error); return false;
+    }
+  }
+  function loadDays() {
+    if (!state.enabled) return [];
+    return db.prepare('SELECT result_json FROM daily_results ORDER BY day DESC').all().map(r => JSON.parse(r.result_json));
+  }
+  // 场次按round_id幂等，不再以日期为唯一键；旧daily_results只读兼容，不删除不覆盖。
+  function archiveSession(result, control) {
+    if (!state.enabled) return false;
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      db.prepare('INSERT OR IGNORE INTO session_results(round_id,day,result_json) VALUES(?,?,?)')
+        .run(result.roundId, result.day, JSON.stringify(result));
+      if (!saveAdmin(control)) throw new Error('保存场次控制状态失败');
+      db.exec('COMMIT'); return true;
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { }
+      state.error = String(error.message || error); return false;
+    }
+  }
+  function loadSessions() {
+    if (!state.enabled) return [];
+    const recent = db.prepare('SELECT result_json FROM session_results').all().map(r => JSON.parse(r.result_json));
+    const seen = new Set(recent.map(r=>r.roundId));
+    return [...recent,...loadDays().filter(r=>!seen.has(r.roundId)).map(r=>({...r,label:r.label||'历史每日场',source:r.source||'legacy'}))]
+      .sort((a,b)=>b.startedAt-a.startedAt || b.finishedAt-a.finishedAt);
+  }
   function close() { try { if (db) db.close(); } catch { /* ignore */ } }
 
   return { ...state, enabled: state.enabled, file, error: state.error,
     saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures,
+    loadAdmin, saveAdmin, archiveDay, loadDays, archiveSession, loadSessions,
     close, reason: state.error || 'ok' };
 }
 

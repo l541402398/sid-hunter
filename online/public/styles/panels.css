@@ -29,7 +29,15 @@ h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
 .logs ol{list-style:none;padding:0;margin:0;overflow:auto;flex:1 1 auto;min-height:0}
 .logs li{border-left:1px solid #3b536e;margin-left:3px;padding:0 0 18px 14px;position:relative}
 .logs li:before{content:'';position:absolute;width:5px;height:5px;border-radius:50%;background:#60a5fa;left:-3px;top:5px;box-shadow:0 0 8px #60a5fa80}
-.logs li.log-mine p{color:#bcd8f5}
+.logs li.log-mine{border-left:2px solid #65d9ef;background:linear-gradient(90deg,#65d9ef14,transparent);border-radius:0 7px 7px 0}
+.logs li.log-mine p{color:#91e9f7;font-weight:600}
+.logs li.log-mine:before{background:#65d9ef;box-shadow:0 0 8px #65d9ef80}
+.logs .log-event-tag{display:inline-block;font-size:10px;line-height:1.5;padding:1px 6px;margin:0 0 5px;border:1px solid currentColor;border-radius:4px;color:#91e9f7}
+.logs li.log-system-clue{border-left:2px solid #ffd65a;background:linear-gradient(90deg,#ffd65a1c,transparent);border-radius:0 7px 7px 0}
+.logs li.log-system-clue p{color:#ffe078;font-weight:700}
+.logs li.log-system-clue time{color:#c9ac58}
+.logs li.log-system-clue .log-event-tag{color:#ffe078;font-weight:700}
+.logs li.log-system-clue:before{background:#ffd65a;box-shadow:0 0 10px #ffd65a80}
 .logs time{display:block;font:10px ui-monospace,monospace;color:#8199b5;margin-bottom:5px}
 .logs li p{font-size:12px;line-height:1.7}
 .target{right:14px;top:62px;width:288px;padding:17px;max-height:calc(100% - 114px);overflow:auto;z-index:9;display:block}

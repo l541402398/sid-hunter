@@ -1,4 +1,5 @@
 /* 页面骨架：shell / topbar / toolbar / stage / 世界标签 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
+.availability-banner{flex:none;background:#432e22;color:#ffe0ad;padding:10px 16px;border-bottom:1px solid #936b40;font-size:12px;line-height:1.6}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-thumb{background:#41546d;border-radius:6px}
 ::-webkit-scrollbar-track{background:transparent}

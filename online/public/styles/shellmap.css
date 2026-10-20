@@ -38,7 +38,10 @@ dialog.center-dialog .skill-row{display:grid;grid-template-columns:repeat(2,minm
 dialog.center-dialog .skill-row button,dialog.center-dialog .confirm-box button{min-height:44px}
 dialog.private-dialog{width:min(540px,calc(100vw - 32px))}
 .private-skill{min-width:0;display:flex;flex-direction:column;gap:5px}
-.private-skill button{width:100%;padding:8px 6px;font-size:12px;line-height:1.5;white-space:normal}
+.private-skill button{width:100%;padding:10px 6px;line-height:1.5;white-space:normal;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.private-skill .skill-button-label{display:block;font-size:16px;font-weight:600;line-height:1.5}
+.private-skill .skill-button-timer{display:block;font-size:11px;font-weight:400;line-height:1.4;font-variant-numeric:tabular-nums;letter-spacing:.4px}
+.private-skill .skill-button-timer[hidden]{display:none}
 .private-skill .skill-effect{font-size:11px;line-height:1.6;color:#b5c5d8;margin:0 2px 5px}
 .private-resources{margin-top:10px;color:#9fb2c9;font-size:11px}
 .private-resources summary{cursor:pointer}

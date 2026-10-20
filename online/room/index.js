@@ -38,6 +38,7 @@ function createRoom(options = {}) {
     // 功能开关：管理页可随时开关（见 server/features.js）。默认全开，未配置时行为与以前一致。
     features: sanitizeFeatures(options && options.features, defaultFeatures()),
     players: [],
+    chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs,
     // 卡牌对决（spire）：每人一局，单人闯三关，不占用坦克的双人对局表。
     spireBattles: new Map(),
     logs: [],
@@ -67,7 +68,13 @@ function createRoom(options = {}) {
   if (options && options.restore) {
     const r = options.restore;
     if (Array.isArray(r.players) && r.players.length) {
-      room.players = r.players.filter(p => p && !p.npc);
+      room.players = r.players.filter(p => p && (!p.npc || r.includeNpcs));
+      if (r.includeNpcs) {
+        room.finished = !!r.finished; room.finishReason = r.finishReason || '';
+        room.lastResult = r.lastResult || null; room.ranking = r.ranking || null;
+        room.logs = Array.isArray(r.logs) ? r.logs : []; room.eliminateEvents = Number(r.eliminateEvents) || 0;
+        room.pausedAt = Number(r.pausedAt) || 0;
+      }
       if (Number.isFinite(r.startedAt)) room.startedAt = r.startedAt;
       if (typeof r.roundId === 'string' && r.roundId) room.roundId = r.roundId;
       for (const entry of (Array.isArray(r.sessions) ? r.sessions : [])) {
@@ -75,7 +82,7 @@ function createRoom(options = {}) {
       }
       for (const p of room.players) {
         // 重启后一律视为离线：等浏览器带着会话令牌重连时再置回在线。
-        p.online = false;
+        p.online = !!p.npc;
         p.lastSeen = 0;
         p.sessionId = p.sessionId || null;
         if (!room.pending.has(p.id)) room.pending.set(p.id, []);
@@ -119,14 +126,14 @@ function createRoom(options = {}) {
   const countOfflineHit = (p, kind) => digest.count(p, kind);
   const prepareReconnect = p => digest.prepareReconnect(p);
   const consumeCharge = (skill, t) => charges.consume(skill, t);
-  function syncCharges(player, t) { return charges.sync(player, t, room.finished); }
-  function freezeSkills(player, t) { return charges.freeze(player, t, room.finished); }
+  function syncCharges(player, t) { return charges.sync(player, room.pausedAt ? Math.min(t,room.pausedAt) : t, room.finished); }
+  function freezeSkills(player, t) { return charges.freeze(player, room.pausedAt ? Math.min(t,room.pausedAt) : t, room.finished); }
   function freezeRoom(t) {
     if (room.finished) return;
-    for (const player of room.players) charges.freeze(player, t, room.finished);
+    for (const player of room.players) freezeSkills(player, t);
     room.finished = true;
   }
-  const log = text => events.log(text);
+  const log = (text, metadata) => events.log(text, metadata);
   const queueEvent = (playerId, event) => events.queue(playerId, event);
   const projectEvent = event => events.project(event);
 
@@ -249,8 +256,16 @@ function createRoom(options = {}) {
     return Object.fromEntries(ids.map(id => [id, {
       chargesRemaining: SKILL_CONFIG.maxCharges, maxCharges: SKILL_CONFIG.maxCharges,
       cooldownMs: ['probe', 'spy'].includes(id) ? SKILL_CONFIG.probeCooldownMs : SKILL_CONFIG.actionCooldownMs,
-      cooldownUntil: 0, chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs, nextChargeAt: 0
+      cooldownUntil: 0, chargeIntervalMs: room.chargeIntervalMs, nextChargeAt: 0
     }]));
+  }
+  function setChargeInterval(ms) {
+    if (!Number.isSafeInteger(ms) || ms < 1000 || ms > 86400000) throw Error('技能恢复时间无效');
+    room.chargeIntervalMs = ms;
+    for (const p of room.players) for (const skill of Object.values(p.skills || {})) {
+      skill.chargeIntervalMs = ms; skill.cooldownMs = 0; skill.cooldownUntil = 0;
+      // 已经开始的本次倒计时保留，新周期使用管理员配置，避免凭改配置凭空加次数。
+    }
   }
   function makeSidState() {
     return { segments: randomSid(), revealed: [false, false, false] };
@@ -336,7 +351,7 @@ function createRoom(options = {}) {
     registerBadSlot(player);
     room.sessions.set(sessionId, id);
     room.pending.set(id, []);
-    log(`${player.name}加入了办公室。`);
+    log(`${player.name}加入了办公室。`, { subjectPlayerId: player.id });
     // Reconnect token: headless/embedded webviews do not always persist the HttpOnly
     // cookie across a browser restart, so the page keeps this in sessionStorage and
     // replays it as a header. Identity is still never claimable by nickname.
@@ -357,7 +372,8 @@ function createRoom(options = {}) {
     }
     return { x: clampX(near.x), y: clampY(near.y) };
   }
-  function spawnNpc(count, near) {
+  function spawnNpc(count, near, faction = 'good') {
+    if (!['good','bad'].includes(faction)) throw Error('NPC身份无效');
     const n = Math.max(1, Math.min(5, Math.floor(Number(count) || 1)));
     const floorId = near && WORLD.floorById(near.floorId) ? near.floorId : 1;
     const made = [];
@@ -366,7 +382,10 @@ function createRoom(options = {}) {
     const id = room.players.reduce((m, q) => Math.max(m, Number(q.id) || 0), -1) + 1;
       const raw = 'NPC·' + pick(NAME_POOL);
       const name = room.players.some(p => p.name === raw) ? uniqueName(raw) : raw;
-      const spot = npcSpot(near || { x: 430, y: 340 }, i, floorId);
+      const anchor = near && Number.isFinite(near.x) && Number.isFinite(near.y) ? near : spawnPointFor(floorId,id);
+      const candidate = npcSpot(anchor, i, floorId);
+      const spot = Number.isFinite(candidate.x) && Number.isFinite(candidate.y) && !collides(candidate.x,candidate.y,floorId)
+        ? candidate : spawnPointFor(floorId,id);
       const player = {
         id,
         name,
@@ -375,8 +394,8 @@ function createRoom(options = {}) {
         traits: randomTraits(),
         traitPublic: { saying: false, food: false, sport: false },
         sid: makeSidState(),
-        faction: 'good', // NPC 恒为好人，永不当坏人
-        hp: 1,
+        faction,
+        hp: faction === 'bad' ? 3 : 1,
         alive: true,
         score: 0,
         x: spot.x,
@@ -401,9 +420,10 @@ function createRoom(options = {}) {
         hammerCooldownUntil: 0, lastSwingAt: 0, lastHitAt: 0,
         frightUntil: 0, scareCooldownUntil: 0, scareAt: 0, frightAt: 0,
         skillsFrozenAt: null,
-        skills: makeSkills('good')
+        skills: makeSkills(faction)
       };
       room.players.push(player);
+      badPool.register(player);
       room.pending.set(id, []);
       // 完整 S-ID 只回给这台本机授权会话，不进公共投影、不写公共日志。
       made.push({ id: player.id, name: player.name, sid: player.sid.segments.join('-'), x: player.x, y: player.y });
@@ -440,7 +460,7 @@ function createRoom(options = {}) {
     const intent = { up: !!input.up, down: !!input.down, left: !!input.left, right: !!input.right };
     if (!Object.values(intent).some(Boolean)) { p.input = intent; return true; }
     // 幽灵（已淘汰）仍可移动，但只有存活者才受硬控锁定（dev 分支并入）。
-    if (room.finished || !p.online) return;
+    if (room.finished || room.accessClosed || !p.online) return;
     if (p.alive && movementLocked(p, now())) {
       p.input = { up: false, down: false, left: false, right: false };
       return;
@@ -452,6 +472,7 @@ function createRoom(options = {}) {
     return true;
   }
   function step(dt) {
+    if (room.accessClosed) return;
     const t = now();
     checkFinish(t);
     syncRoom(t);
@@ -587,6 +608,9 @@ function createRoom(options = {}) {
       serverTime: now(),
       roundId: room.roundId,
       finished: room.finished,
+      availability: room.accessClosed || '',
+      pausedAt: room.pausedAt || 0,
+      daily: room.daily || null,
       finishReason: room.finishReason || null,
       ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
       rankingAchievement: room.rankingAchievement ? room.rankingAchievement.map(r => ({ ...r })) : null,
@@ -639,7 +663,7 @@ function createRoom(options = {}) {
         : undefined,
       badSlots: anonymousBadSlots(),
       logs: room.logs.slice(),
-      config: { chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs, tmj: !!(WORLD.TMJ && WORLD.TMJ.isEnabled()) }
+      config: { chargeIntervalMs: room.chargeIntervalMs, tmj: !!(WORLD.TMJ && WORLD.TMJ.isEnabled()) }
     };
   }
   function privateSnapshot(playerId) {
@@ -818,7 +842,7 @@ function createRoom(options = {}) {
       if (index < 0) return reject('该目标没有未公开的S-ID段，不消耗次数');
       target.sid.revealed[index] = true;
       queueEvent(target.id, { type: 'revealedSegment', segmentIndex: index });
-      log(`${target.name}的S-ID已公开：${publicProjection(target).sid}。`);
+      log(`${target.name}的S-ID已公开：${publicProjection(target).sid}。`, { subjectPlayerId: target.id });
       return { ok: true, kind: 'spy', resultText: `刺探完成：第${index + 1}段S-ID为 ${target.sid.segments[index]}。`, targetId: target.id };
     }
   }
@@ -829,11 +853,11 @@ function createRoom(options = {}) {
     target.traitPublic[key] = true;
     badPool.invalidate(); // 匿名池缓存随已公开属性失效
     queueEvent(target.id, { type: 'revealedTrait', traitName: WORLD.TRAIT_NAMES[key], traitValue: target.traits[key] });
-    log(`${target.name}的${WORLD.TRAIT_NAMES[key]}已公开：${target.traits[key]}。`);
+    log(`${target.name}的${WORLD.TRAIT_NAMES[key]}已公开：${target.traits[key]}。`, { subjectPlayerId: target.id });
     return { ok: true, kind: 'probe', resultText: `探查完成：${WORLD.TRAIT_NAMES[key]}为「${target.traits[key]}」。`, targetId: target.id };
   }
   function doAccuse(actor, target, t) {
-    log(`${target.name}被指认一次。`);
+    log(`${target.name}被指认一次。`, { subjectPlayerId: target.id });
     if (target.faction === 'bad') {
       award(actor, 'accuseHit');
       target.hp -= 1;
@@ -846,7 +870,7 @@ function createRoom(options = {}) {
       badPool.invalidate(); // 匿名池缓存随存活状态失效
       room.eliminateEvents += 1;
       queueEvent(target.id, { type: 'eliminated' });
-      log(`${target.name}已淘汰。`);
+      log(`${target.name}已淘汰。`, { subjectPlayerId: target.id });
       return { ok: true, kind: 'accuse', resultText: '指认命中：目标已淘汰。', targetId: target.id };
     }
     const index = actor.sid.revealed.findIndex(x => !x);
@@ -876,7 +900,7 @@ function createRoom(options = {}) {
     badPool.invalidate(); // 匿名池缓存随存活状态失效
     room.eliminateEvents += 1;
     queueEvent(target.id, { type: 'eliminated' });
-    log(`${target.name}已淘汰。`);
+    log(`${target.name}已淘汰。`, { subjectPlayerId: target.id });
     checkFinish();
     return { ok: true, kind: 'kill', resultText: 'S-ID完全匹配：目标已淘汰。', targetId: target.id };
   }
@@ -1139,6 +1163,7 @@ function createRoom(options = {}) {
   // 邀请阶段仅在超时取消，选择阶段到 deadline 才同步结算一次（即便双方都已选也不提前结算）。
   function syncRoom(t) {
     checkFinish(t, false);
+    if (room.pausedAt && !room.finished) return;
     // 搜索会话按时间过期：玩家中途关页面时，容器不会永久卡在"搜到一半"的状态。
     expireSearchSessions(t);
     if (room.finished) {
@@ -1815,6 +1840,8 @@ function createRoom(options = {}) {
   // 开新局：清空本局全部玩家与身份凭证，所有人必须重新加入。room.lastResult 故意不清，
   // 管理页在重开后仍要能看到上一局排名。
   function reset() {
+    room.pausedAt = 0;
+    minigames.reset(); room.spireBattles.clear();
     room.players = [];
     room.logs = [];
     room.eliminateEvents = 0;
@@ -1850,7 +1877,15 @@ function createRoom(options = {}) {
   }
   return {
     room, streams, now, join, setOffline, setIntent, step, useSkill, interact, play, attack, floorChange, ack,
-    performAction, spawnNpc, prepareReconnect,
+    performAction, spawnNpc, prepareReconnect, setChargeInterval,
+    publishSystemClue: (playerId, group, field) => badPool.publish(playerId, group, field),
+    systemCluePreview: config => badPool.preview(config),
+    publishSystemClueBatch: count => {
+      const picked = badPool.publishBatch(count);
+      for (const message of badPool.publicationMessages(picked)) log(message, { type: 'systemClue' });
+      return picked;
+    },
+    invalidateSystemClues: () => badPool.invalidate(),
     // 需求① / ③：独立房间进出与物品格搜索（服务端权威入口）。
     enterZone, exitZone, searchStart, searchReveal, searchTake, zoneInfo,
     // 第二轮：道具经济（使用 / 出售 / 购买）。

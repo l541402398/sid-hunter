@@ -201,7 +201,9 @@
   let rulesInfo = null, finishReason = '', rankingList = null, achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
   // serverTime 只在快照到达时更新；本地用单调时钟插值，避免计时与动画在快照间隙抖动/闪烁。
   function serverNow() { return serverTime + (performance.now() - serverPerfBase); }
+  let gameClosed = '', gamePausedAt = 0;
   function selfDisabled() {
+    if (gameClosed) return true;
     if (!me || !me.combat) return false;
     const t = serverNow();
     return t < (me.combat.stunUntil || 0) || t < (me.combat.freezeUntil || 0);
@@ -247,7 +249,7 @@
     return !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open;
   }
   function sendIntent(force) {
-    if (operationModalOpen()) keys.clear();
+    if (operationModalOpen() || gameClosed) keys.clear();
     const sig = ['KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyS', 'ArrowDown', 'KeyD', 'ArrowRight'].map(c => keys.has(c) ? 1 : 0).join('');
     if (!force && sig === lastIntent) return;
     lastIntent = sig;
@@ -296,7 +298,6 @@
     localStorage.setItem('sid_session_token', r.sessionToken);
     const host = (r.lan && r.lan[0]) || location.hostname || '127.0.0.1';
     localStorage.setItem('sid_lan', `http://${host}:${r.port || location.port || 8787}`);
-    $('lan-address').textContent = localStorage.getItem('sid_lan');
     $('join-page').hidden = true;
     const snapshot = await api('/api/state', null, 'GET').catch(() => null);
     if (snapshot) applySnapshot(snapshot);
@@ -375,8 +376,6 @@
     ssoLogoutUrl = cfg.logoutUrl || '';
     if (!ssoRequired) {
       sessionToken = localStorage.getItem('sid_session_token');
-      const storedLan = localStorage.getItem('sid_lan');
-      if (storedLan) $('lan-address').textContent = storedLan;
       const s = await api('/api/state', null, 'GET').catch(() => ({}));
       if (s && s.me && s.me.id !== undefined) { applySnapshot(s); $('join-page').hidden = true; openStream(); loadCapabilities(); }
       else { localStorage.removeItem('sid_session_token'); sessionToken = null; $('join-page').hidden = false; }
@@ -392,8 +391,6 @@
     if (!user) { requestAnimationFrame(frame); return; }
     showUser(user);
     sessionToken = localStorage.getItem('sid_session_token');
-    const storedLan = localStorage.getItem('sid_lan');
-    if (storedLan) $('lan-address').textContent = storedLan;
     const s = await api('/api/state', null, 'GET').catch(() => ({}));
     if (s && s.auth === false) { requestAnimationFrame(frame); return; }
     if (s && s.me && s.me.id !== undefined) { applySnapshot(s); $('join-page').hidden = true; openStream(); loadCapabilities(); }
@@ -419,6 +416,11 @@
     if (s.roundId) roundId = s.roundId;
     serverPerfBase = performance.now();
     finished = !!s.finished;
+    gameClosed = s.availability || '';
+    gamePausedAt = Number(s.pausedAt) || 0;
+    $('game-availability').hidden = !gameClosed;
+    $('game-availability').textContent = gameClosed;
+    if (gameClosed && keys.size) { keys.clear(); sendIntent(false); }
     if (s.rules) rulesInfo = s.rules;
     rankingList = Array.isArray(s.ranking) ? s.ranking : null;
     achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
@@ -559,8 +561,17 @@
     $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的公开信息</p>';
     bindRows($('roster-items'));
   }
+  function logHighlightClass(entry) {
+    if (entry.type === 'systemClue') return 'log-system-clue';
+    if (!me) return '';
+    if (Number.isSafeInteger(entry.subjectPlayerId)) return entry.subjectPlayerId === me.id ? 'log-mine' : '';
+    // 旧后台没有结构化目标，仅识别以完整姓名开头的常见公开事件，避免姓名片段误命中。
+    const ownLegacy = typeof entry.text === 'string' && ['加入了办公室。', '被指认一次。', '已淘汰。', '的S-ID已公开：', ...Object.values(traitNames).map(name => `的${name}已公开：`)]
+      .some(suffix => entry.text.startsWith(me.name + suffix));
+    return ownLegacy ? 'log-mine' : '';
+  }
   function renderLogs() {
-    const mine = me ? me.name : null;
+    const mine = me ? [me.id, me.name] : null;
     $('log-count').textContent = logs.length;
     // 常驻栏只在公开日志或本人标记变化时更新，避免20Hz刷新打断阅读与滚动。
     const sig = JSON.stringify([mine, logs]);
@@ -569,7 +580,10 @@
     const list = $('log-items');
     const scrollTop = list.scrollTop;
     // 涉及自己的条目仅对自己高亮：不新增任何信息，只是把已有的公开条目标出来。
-    list.innerHTML = logs.length ? logs.map(l => `<li${mine && l.text.includes(mine) ? ' class="log-mine"' : ''}><time>${escapeText(l.time)}</time><p>${escapeText(l.text).replace(/[A-Z0-9*]{3}-[A-Z0-9*]{3}-[A-Z0-9*]{3}/g, sidHTML)}</p></li>`).join('') : '<li class="log-empty"><p>暂无公共事件</p></li>';
+    list.innerHTML = logs.length ? logs.map(l => {
+      const highlight = logHighlightClass(l);
+      return `<li${highlight ? ` class="${highlight}"` : ''}><time>${escapeText(l.time)}</time>${highlight === 'log-mine' ? '<span class="log-event-tag">与你有关</span>' : highlight === 'log-system-clue' ? '<span class="log-event-tag">系统线索</span>' : ''}<p>${escapeText(l.text).replace(/[A-Z0-9*]{3}-[A-Z0-9*]{3}-[A-Z0-9*]{3}/g, sidHTML)}</p></li>`;
+    }).join('') : '<li class="log-empty"><p>暂无公共事件</p></li>';
     list.scrollTop = scrollTop;
   }
   function renderPublic() {
@@ -641,7 +655,7 @@
   }
   // ---------- 私密操作（点击展开，不再依赖 Shift） ----------
   function holding() { return privateOpen; }
-  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - serverNow()) / 1000));
+  const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - (gamePausedAt || serverNow())) / 1000));
   const skillNames = { probe: '探查', accuse: '指认', spy: '刺探', kill: '击杀' };
   const skillEffects = {
     probe: '随机公开目标一条未公开的隐藏属性。',
@@ -650,13 +664,14 @@
     kill: '输入目标完整SID，精确匹配即淘汰目标。'
   };
   let skillFlight = null;
+  const skillRecoveryTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
   function skillButtonText(id, skill) {
     const base = `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges}`;
     if (skill.chargesRemaining > 0) return base;
-    if (finished || !me?.alive) return `${base} · 已冻结`;
-    if (!skill.nextChargeAt) return `${base} · 等待恢复`;
+    if (finished || !me?.alive) return `${base}\n已冻结`;
+    if (!skill.nextChargeAt) return `${base}\n等待恢复`;
     const remaining = secondsLeft(skill.nextChargeAt);
-    return `${base} · ${remaining > 0 ? `${remaining}s 后 +1` : '等待恢复确认'}`;
+    return `${base}\n${remaining > 0 ? skillRecoveryTime(remaining) : '等待恢复确认'}`;
   }
   function availableSkills() {
     if (!me) return [];
@@ -667,7 +682,7 @@
     return id === 'probe' ? Object.keys(traitNames).some(k => p.traits[k] === MASK)
       : id === 'spy' ? String(p.sid).split('-').includes(MASK) : true;
   }
-  function canTarget(p) { return !!(p && me && p.id !== me.id && p.alive && me.alive && !finished); }
+  function canTarget(p) { return !!(p && me && p.id !== me.id && p.alive && me.alive && !finished && !gameClosed); }
   function skillStatus(id, skill) {
     const state = finished || !me?.alive ? '已冻结' : skill.chargesRemaining > 0 ? '可连续使用' : '等待恢复';
     return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${state} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '储存已满'}`;
@@ -677,7 +692,7 @@
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
     $('private-dialog-target').textContent = `目标：${p.name}`;
     const ids = availableSkills();
-    host.innerHTML = `<div class="private-block"><p class="private-title">${me.faction === 'good' ? '好人' : '坏人'}技能 · 私密操作已展开</p><div class="skill-row">${ids.map(id => `<div class="private-skill"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'probe' || id === 'accuse' ? 'skill-blue' : 'skill-red'}">${skillNames[id]}</button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看次数恢复说明</summary><p id="skill-info" class="skill-info"></p></details></div>`;
+    host.innerHTML = `<div class="private-block"><p class="private-title">${me.faction === 'good' ? '好人' : '坏人'}技能 · 私密操作已展开</p><div class="skill-row">${ids.map(id => `<div class="private-skill"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'probe' || id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看次数恢复说明</summary><p id="skill-info" class="skill-info"></p></details></div>`;
     for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
@@ -691,8 +706,12 @@
     for (const id of ids) {
       const skill = me.skills[id], button = $(id);
       if (button) {
-        const label = skillFlight?.kind === id ? '正在提交…' : skillButtonText(id, skill);
-        if (button.textContent !== label) button.textContent = label;
+        const [label, recovery = ''] = skillButtonText(id, skill).split('\n');
+        const caption = skillFlight?.kind === id ? '正在提交…' : recovery;
+        const nameSlot = $(`${id}-label`), timerSlot = $(`${id}-timer`);
+        if (nameSlot.textContent !== label) nameSlot.textContent = label;
+        if (timerSlot.textContent !== caption) timerSlot.textContent = caption;
+        timerSlot.hidden = !caption;
         button.disabled = !!skillFlight || !canTarget(p) || skill.chargesRemaining <= 0 || !hasUnknown(p, id);
       }
     }
@@ -780,17 +799,8 @@
       if (details.innerHTML !== html) details.innerHTML = html;
     }
   }
-  async function loadCapabilities() {
-    devCsrf = null; $('dev-reset').hidden = true; $('dev-npc').hidden = true; $('dev-management').hidden = true;
-    const expectedSession = sessionToken;
-    try {
-      const cap = await api('/api/dev/capabilities', null, 'GET');
-      if (expectedSession !== sessionToken || !me) return;
-      if (cap.status === 200 && cap.canReset === true && typeof cap.csrfToken === 'string' && cap.csrfToken) {
-        devCsrf = cap.csrfToken; $('dev-npc').hidden = false; $('dev-reset').hidden = false; $('dev-management').hidden = false;
-      }
-    } catch { /* Older backend, denied, or network failure: fail closed. */ }
-  }
+  // 管理员独立登录 /manager；玩家页面不再探测本机开发权限。
+  function loadCapabilities() {}
   function resetToJoin() {
     sessionGeneration++; skillFlight = null; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
     if (stream) { stream.close(); stream = null; }
@@ -813,7 +823,6 @@
     $('target').replaceChildren(); $('target').hidden = true;
     $('candidates').replaceChildren(); $('candidates').hidden = true;
     $('offline-summary').replaceChildren(); $('offline-summary').hidden = true;
-    $('dev-reset').hidden = true; $('dev-npc').hidden = true; $('dev-management').hidden = true; closeResetDialog(false);
     if ($('rules-view').open) closeRules();
     renderPublic(); renderRoster(); renderLogs(); updateOfflineUI(); updateExplorationHUD();
     syncGames(); updateCombatHUD(); updateScoreDisplay(); syncTimeLeft();
@@ -832,54 +841,6 @@
       $('nickname').focus({ preventScroll: true });
     }
   }
-  const resetDialog = $('reset-confirm');
-  function closeResetDialog(returnFocus = true) {
-    if (!resetDialog.open) return;
-    resetDialog.close();
-    if (returnFocus && !$('dev-reset').hidden) $('dev-reset').focus({ preventScroll: true });
-  }
-  // 开发用 NPC：新增而非清空，所以不套二次确认弹窗。完整 S-ID 只在这里出现（本机开发可见）。
-  $('dev-npc').onclick = async () => {
-    if (!devCsrf || npcBusy) return;
-    npcBusy = true; $('dev-npc').disabled = true;
-    const csrfToken = devCsrf;
-    try {
-      const result = await api('/api/dev/npc', { count: 1, csrfToken });
-      const npc = result && result.npcs && result.npcs[0];
-      if (result && result.status === 200 && result.ok && npc) showToast(`已加入好人NPC：${npc.name} · SID ${npc.sid}`);
-      else { devCsrf = null; $('dev-npc').hidden = true; showToast((result && result.error) || '添加NPC失败或结果未确认。'); }
-    } catch { devCsrf = null; $('dev-npc').hidden = true; showToast('添加NPC结果未确认；请勿重复操作。'); }
-    finally { npcBusy = false; $('dev-npc').disabled = false; }
-  };
-  $('dev-reset').onclick = () => {
-    if (resetBusy || !devCsrf) return;
-    clearAllInput();
-    resetDialog.showModal(); $('reset-cancel').focus({ preventScroll: true });
-  };
-  $('reset-cancel').onclick = () => closeResetDialog();
-  resetDialog.addEventListener('cancel', e => { e.preventDefault(); closeResetDialog(); });
-  resetDialog.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeResetDialog(); }
-    if (e.key === 'Tab') {
-      const first = $('reset-cancel'), last = $('reset-accept');
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    }
-  });
-  window.addEventListener('blur', () => closeResetDialog(false));
-  document.addEventListener('visibilitychange', () => { if (document.hidden) closeResetDialog(false); });
-  $('reset-accept').onclick = async () => {
-    if (!resetDialog.open || resetBusy || !devCsrf) return;
-    resetBusy = true; $('dev-reset').disabled = true; $('reset-accept').disabled = true;
-    closeResetDialog(false);
-    const csrfToken = devCsrf;
-    try {
-      const result = await api('/api/host/reset', { confirm: true, csrfToken });
-      if (result.status === 200 && result.ok && result.reset) resetToJoin();
-      else { devCsrf = null; $('dev-reset').hidden = true; $('dev-management').hidden = true; showToast('重置失败或结果未确认；未自动重试。'); }
-    } catch { devCsrf = null; $('dev-reset').hidden = true; $('dev-management').hidden = true; showToast('重置结果未确认；请勿重复操作。'); }
-    finally { resetBusy = false; $('dev-reset').disabled = false; $('reset-accept').disabled = false; }
-  };
 
   // ---------- 私密探索：权威奖励只读 me.exploration，不进入公开档案 ----------
   function explorationState() { return me?.exploration || { chips: 0, clues: [], searched: [] }; }
@@ -3502,20 +3463,26 @@
     } else if (!badSlots.length) {
       fragment.append(text('p', '暂无坏人', 'bad-empty'));
     } else {
-      for (const slot of badSlots) {
+      // 仅将匿名卡片的展示序号连续化，不按玩家id或加入顺序重新排序。
+      for (const [index, slot] of badSlots.entries()) {
         const card = document.createElement('article');
         card.className = slot.alive ? 'bad-slot' : 'bad-slot is-out';
         const head = document.createElement('header');
-        head.append(text('strong', slot.label), text('span', slot.alive ? '存活' : '已淘汰', 'bad-status'));
+        head.append(text('strong', `坏人${String(index + 1).padStart(2, '0')}`), text('span', slot.alive ? '存活' : '已淘汰', 'bad-status'));
         card.append(head);
         let known = 0;
-        for (const [key, label] of Object.entries(traitNames)) {
-          const value = slot.traits && typeof slot.traits[key] === 'string' ? slot.traits[key] : MASK;
-          if (value !== MASK) known++;
-          const row = document.createElement('p'); row.className = 'bad-clue';
-          row.append(text('span', label), text('strong', value)); card.append(row);
+        // 只消费新版系统公布记录；旧服务slot.traits来自玩家探查，不可兼容回退。
+        for (const [group, heading, fields] of [['colors', '外观属性', fieldNames], ['traits', '隐藏属性', traitNames]]) {
+          card.append(text('h4', heading, 'bad-clue-heading'));
+          for (const [key, label] of Object.entries(fields)) {
+            const published = slot.systemClues?.[group];
+            const value = published && Object.hasOwn(published, key) && typeof published[key] === 'string' ? published[key] : MASK;
+            if (value !== MASK) known++;
+            const row = document.createElement('p'); row.className = 'bad-clue';
+            row.append(text('span', label), text('strong', value)); card.append(row);
+          }
         }
-        if (!known) card.append(text('p', '暂无线索', 'bad-empty'));
+        if (!known) card.append(text('p', '系统暂未公布线索', 'bad-empty'));
         fragment.append(card);
       }
     }
@@ -3563,7 +3530,7 @@
   // 同一条中文原因只弹一次，避免按住键时刷屏。
   const actionToast = { text: '' };
   async function sendAction(kind) {
-    if (!me || finished || operationModalOpen()) return;
+    if (!me || finished || gameClosed || operationModalOpen()) return;
     const r = await api('/api/action', { kind }).catch(() => ({ ok: false, status: 0 }));
     if (r.ok || r.auth === false) { actionToast.text = ''; return; }
     if (r.status !== 401 && r.status !== 0) return; // 冷却 / 空中 / 硬控 / 已结束：静默
@@ -3579,7 +3546,7 @@
       if (!e.repeat && TMJ_DEBUG) TMJ_DEBUG.toggle();
       return;
     }
-    if ($('rules-view').open || $('reset-confirm').open) return;
+    if ($('rules-view').open) return;
     if (operationModalOpen()) {
       if (e.key === 'Escape') {
         e.preventDefault();

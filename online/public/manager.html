@@ -1,267 +1,30 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark">
-<meta name="robots" content="noindex,nofollow">
-<title>S-ID 管理控制台</title>
-<link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="manager.css">
-<script src="manager.js" defer></script>
-</head>
-<body>
-<main class="manager-shell">
-
-  <!-- 未登录：授权码登录卡片（默认可见，会话校验通过后切换为控制台） -->
-  <section class="manager-login" id="manager-login-card" aria-labelledby="manager-login-title">
-    <small class="eyebrow">MANAGER ACCESS</small>
-    <h2 id="manager-login-title">S-ID 管理控制台</h2>
-    <p class="manager-login-note">查看当前对局状态与上局结算排名，并可重新开始下一局。</p>
-    <form id="manager-login-form" novalidate>
-      <label class="sr-only" for="manager-code">管理员授权码</label>
-      <input id="manager-code" name="code" type="password" inputmode="numeric" autocomplete="current-password"
-             placeholder="请输入管理员授权码" aria-describedby="manager-login-error" required>
-      <button id="manager-login" type="submit">进入控制台</button>
-    </form>
-    <p id="manager-login-error" class="manager-login-error" role="alert" aria-live="polite"></p>
-    <p class="manager-foot">S-ID 年终生存战 · 服务端权威结算</p>
-  </section>
-
-  <!-- 已登录：控制台 -->
-  <section class="manager-app" id="manager-app" hidden aria-label="管理控制台">
-    <header class="manager-bar">
-      <div class="manager-brand">
-        <span class="brand-mark">S<span>·</span>ID</span>
-        <div>
-          <small class="eyebrow">MANAGER CONSOLE</small>
-          <h1>S-ID 管理控制台</h1>
-        </div>
-      </div>
-      <button id="manager-logout" type="button">退出</button>
-    </header>
-
-    <div class="manager-status" aria-live="polite">
-      <span class="manager-chip"><i class="dot gray" id="manager-state-dot"></i><span id="manager-state">载入中…</span></span>
-      <span class="manager-chip">存活 <b id="manager-alive">—</b></span>
-      <span class="manager-chip">玩家 <b id="manager-players">—</b></span>
-      <div class="manager-teams" id="manager-teams" hidden></div>
-    </div>
-
-    <section class="manager-result" aria-labelledby="manager-result-title">
-      <div class="manager-section-head">
-        <div><small class="eyebrow">LAST MATCH</small><h2 id="manager-result-title">上局结算</h2></div>
-      </div>
-      <p id="manager-result-reason" class="manager-result-reason">正在载入…</p>
-      <p id="manager-result-meta" class="manager-result-meta"></p>
-      <div class="manager-table-wrap" role="region" aria-label="上局排名表格，可横向滚动" tabindex="0">
-        <table class="manager-table">
-          <caption class="sr-only">上局排名：名次、玩家、分数、存活、阵营</caption>
-          <thead>
-            <tr>
-              <th scope="col">名次</th>
-              <th scope="col">玩家</th>
-              <th scope="col">分数</th>
-              <th scope="col">存活</th>
-              <th scope="col">阵营</th>
-            </tr>
-          </thead>
-          <tbody id="manager-ranking"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="manager-action">
-      <button id="manager-start" type="button">开始下一局</button>
-      <p id="manager-action-note" class="manager-action-note">重开会清空本局全部数据，操作前会再次确认。</p>
-    </section>
-
-    <p class="manager-foot">
-      <span id="manager-tick">每 5 秒自动刷新</span> · 授权码由服务端校验，不会保存在页面中
-    </p>
-  </section>
-
-</main>
-
-<!-- 二次确认弹窗 -->
-<dialog id="manager-confirm" class="manager-confirm" aria-labelledby="manager-confirm-title">
-  <h2 id="manager-confirm-title">确认开始下一局？</h2>
-  <p class="manager-warn">⚠ 将清空全部玩家与身份凭证，所有人需要重新输入昵称加入</p>
-  <ul class="manager-confirm-list">
-    <li>当前对局的存活、分数与日志会被清空</li>
-    <li>所有玩家需重新输入昵称加入新对局</li>
-    <li>上局结算排名仍会保留展示</li>
-  </ul>
-  <div class="manager-confirm-actions">
-    <button id="manager-confirm-cancel" type="button">取消</button>
-    <button id="manager-confirm-accept" type="button" class="manager-danger">确认重开</button>
-  </div>
-</dialog>
-
-<div class="manager-toast" id="manager-toast" role="status" aria-live="polite" hidden></div>
-<section class="manager-action" id="manager-features-card" hidden aria-labelledby="manager-features-title">
-  <div class="manager-section-head">
-    <div><small class="eyebrow">MINIGAMES</small><h2 id="manager-features-title">小游戏开放配置</h2></div>
-  </div>
-  <p class="manager-action-note">开关只控制小游戏的开放，不影响搜索 / 背包 / 商店 / 房间等基础系统。玩家端会立刻生效（下一次快照）。</p>
-  <div id="manager-features-list" class="manager-features-list"></div>
-  <div class="manager-features-actions">
-    <button id="manager-features-save" type="button">保存配置</button>
-    <span id="manager-features-status" class="manager-action-note" role="status" aria-live="polite"></span>
-  </div>
-  <div class="manager-features-presets">
-    <small>一键预设：</small>
-    <button type="button" data-preset="day1">第 1 天 · 只有猜拳</button>
-    <button type="button" data-preset="day2">第 2 天 · 加卡牌</button>
-    <button type="button" data-preset="day3">第 3 天 · 加坦克</button>
-    <button type="button" data-preset="all">全开</button>
-  </div>
-</section>
-<style>
-.manager-features-list{display:grid;gap:8px;margin:12px 0}
-.manager-feature-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid #2d3a4a;border-radius:8px;background:#0f1722}
-.manager-feature-row label{display:flex;align-items:center;gap:8px;flex:1;cursor:pointer}
-.manager-feature-row input{width:18px;height:18px;accent-color:#5aa9f2}
-.manager-feature-row small{color:#8ba3bd}
-.manager-feature-row .tag{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid #3a4d63;color:#9fb6cf}
-.manager-feature-row .tag.ready{border-color:#3f8f5f;color:#a7e6bd}
-.manager-features-actions{display:flex;align-items:center;gap:10px;margin-top:10px}
-.manager-features-presets{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
-.manager-features-presets button{padding:5px 10px;font-size:11px}
-</style>
-<script>
-(function () {
-  var PRESETS = {
-    day1: { rps: true, spire: false, tank: false, parkour: false },
-    day2: { rps: true, spire: true, tank: false, parkour: false },
-    day3: { rps: true, spire: true, tank: true, parkour: false },
-    all:  { rps: true, spire: true, tank: true, parkour: true }
-  };
-  var listEl = document.getElementById('manager-features-list');
-  var card = document.getElementById('manager-features-card');
-  var statusEl = document.getElementById('manager-features-status');
-  var saveBtn = document.getElementById('manager-features-save');
-  var loaded = false;
-
-  function say(text) { if (statusEl) statusEl.textContent = text; }
-  function current() {
-    var out = {};
-    var boxes = listEl.querySelectorAll('input[data-key]');
-    for (var i = 0; i < boxes.length; i++) out[boxes[i].dataset.key] = !!boxes[i].checked;
-    return out;
-  }
-  function render(features) {
-    listEl.textContent = '';
-    (features || []).forEach(function (f) {
-      var row = document.createElement('div');
-      row.className = 'manager-feature-row';
-      var label = document.createElement('label');
-      var box = document.createElement('input');
-      box.type = 'checkbox'; box.checked = !!f.enabled; box.dataset.key = f.key;
-      var text = document.createElement('span');
-      text.textContent = f.label + '（' + (f.players || '') + '）';
-      label.appendChild(box); label.appendChild(text);
-      var desc = document.createElement('small');
-      desc.textContent = f.desc || '';
-      var tag = document.createElement('span');
-      tag.className = 'tag' + (f.implemented ? ' ready' : '');
-      tag.textContent = f.implemented ? '已可玩' : '待实现';
-      row.appendChild(label); row.appendChild(desc); row.appendChild(tag);
-      listEl.appendChild(row);
-    });
-  }
-  async function load() {
-    var res = await fetch('/api/manager/features', { credentials: 'same-origin', cache: 'no-store' });
-    if (!res.ok) return;
-    var data = await res.json();
-    if (data && data.features) { render(data.features); loaded = true; }
-  }
-  async function save(features) {
-    var res = await fetch('/api/manager/features', {
-      method: 'POST', credentials: 'same-origin', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ features: features })
-    });
-    var data = await res.json().catch(function () { return {}; });
-    if (res.ok && data.ok) { render(data.features); say('已保存，玩家端下一次快照生效'); }
-    else say((data && data.error) || '保存失败');
-  }
-  saveBtn.addEventListener('click', function () { save(current()); });
-  var presets = card.querySelectorAll('[data-preset]');
-  for (var i = 0; i < presets.length; i++) {
-    presets[i].addEventListener('click', function (e) {
-      var p = PRESETS[e.currentTarget.dataset.preset];
-      if (p) { save(p); }
-    });
-  }
-  // 登录后才显示：轮询 #manager-app 的 hidden 状态
-  var timer = setInterval(function () {
-    var app = document.getElementById('manager-app');
-    if (!app || app.hidden) return;
-    card.hidden = false;
-    if (!loaded) { loaded = true; load(); }
-    clearInterval(timer);
-  }, 400);
-})();
-</script>
-<section class="manager-action" id="manager-achievement-card" hidden aria-labelledby="manager-achievement-title">
-  <div class="manager-section-head">
-    <div><small class="eyebrow">ACHIEVEMENTS</small><h2 id="manager-achievement-title">成就榜</h2></div>
-    <span class="manager-chip">按成就点排序</span>
-  </div>
-  <p class="manager-action-note">猜拳、淘汰、玩小游戏、搜索都会累积成就点；与筹码榜并列展示。</p>
-  <ol id="manager-achievement-list" class="manager-achievement-list"></ol>
-</section>
-<style>
-.manager-achievement-list{list-style:none;padding:0;margin:10px 0 0;display:grid;gap:6px}
-.manager-achievement-list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #2d3a4a;border-radius:8px;background:#0f1722;font-size:12px}
-.manager-achievement-list .rank{width:26px;color:#8ba3bd;font-family:ui-monospace,monospace}
-.manager-achievement-list .name{flex:1;color:#dbe7f4}
-.manager-achievement-list .pts{color:#ffe3a3;font-family:ui-monospace,monospace}
-</style>
-<script>
-(function () {
-  var card = document.getElementById('manager-achievement-card');
-  var list = document.getElementById('manager-achievement-list');
-  var started = false, timer = 0;
-  function paint(rows) {
-    if (!list) return;
-    list.textContent = '';
-    if (!rows || !rows.length) {
-      var li0 = document.createElement('li');
-      li0.textContent = '本局还没有成就点数据。';
-      list.appendChild(li0);
-      return;
-    }
-    rows.forEach(function (r, i) {
-      var li = document.createElement('li');
-      var rank = document.createElement('span'); rank.className = 'rank'; rank.textContent = '#' + (r.rank || i + 1);
-      var name = document.createElement('span'); name.className = 'name'; name.textContent = r.name || '';
-      var pts = document.createElement('span'); pts.className = 'pts'; pts.textContent = (r.points || 0) + ' 分';
-      li.appendChild(rank); li.appendChild(name); li.appendChild(pts);
-      list.appendChild(li);
-    });
-  }
-  async function refresh() {
-    try {
-      var res = await fetch('/api/manager/state', { credentials: 'same-origin', cache: 'no-store' });
-      if (!res.ok) return;
-      var data = await res.json();
-      var rows = (data.lastResult && data.lastResult.rankingAchievement) || (data.lastResult && data.lastResult.achievementTop) || [];
-      if (!rows.length) {
-        var teams = (data.teams || []).slice().sort(function (a, b) { return (b.points || 0) - (a.points || 0); }).slice(0, 10);
-        rows = teams.map(function (p, i) { return { rank: i + 1, name: p.name, points: p.points || 0 }; });
-      }
-      paint(rows);
-    } catch (e) { /* 保持上一次渲染 */ }
-  }
-  var boot = setInterval(function () {
-    var app = document.getElementById('manager-app');
-    if (!app || app.hidden) return;
-    card.hidden = false;
-    if (!started) { started = true; refresh(); timer = setInterval(refresh, 5000); }
-    clearInterval(boot);
-  }, 500);
-})();
-</script>
-</body>
-</html>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>S-ID 管理员面板</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/manager.css"><script src="/manager.js" defer></script></head>
+<body><main class="manager-shell">
+<section id="manager-login-card" class="manager-login"><small class="eyebrow">S-ID / ADMINISTRATOR</small><h1>管理员面板</h1><p class="manager-login-note">统一配置每日开放、技能恢复、NPC 与每日成绩。普通玩家无需管理员授权码。</p><form id="manager-login-form"><label for="manager-code">管理员授权码</label><input id="manager-code" type="password" autocomplete="current-password" required><button type="submit" id="manager-login">登录</button></form><p id="manager-login-error" role="alert"></p></section>
+<section id="manager-app" hidden>
+<header class="manager-bar"><div><small class="eyebrow">DAILY OPERATIONS / 北京时间 UTC+8</small><h1>游戏管理</h1></div><button id="manager-logout">退出管理</button></header>
+<div class="manager-status"><strong id="manager-state">载入中</strong><span id="manager-counts"></span></div><p id="manager-storage" role="status"></p>
+<details class="manager-result manager-module" id="module-session" open><summary><h2>① 当前场次</h2><span class="module-toggle-hint" aria-hidden="true"></span></summary><div class="manager-module-body"><p id="current-session" class="manager-action-note">载入场次状态…</p><p class="manager-action-note">每场独立分配身份、血量和资源，独立结算。暂停不清数据、不累计技能恢复和线索时间；仍按本场原定结束时间结算。</p><div class="manager-confirm-actions"><button type="button" id="session-pause">暂停本场</button><button type="button" id="session-resume" hidden>继续本场</button><button type="button" id="session-finish" class="manager-danger">立即结算本场</button></div><p id="session-message" role="status"></p><details><summary>测试：手动开新场（每次独立计分）</summary><div class="admin-fields"><label>场次名称<input type="text" id="manual-label" maxlength="40" value="手动测试场"></label><label>时长（分钟）<input type="number" id="manual-minutes" min="1" max="720" step="1" value="30"></label></div><button type="button" id="session-start">手动开新场</button><p class="manager-action-note">当前场先结算，才能开新场。会重置身份与资源，但保留所有旧场成绩；本场积分也计入总分。手动场与重叠的自动场不重复开启。手动开场不保存下方设置草稿。</p></details></div></details>
+<details class="manager-result manager-module" id="module-settings" open><summary><h2>② 场次安排与玩法设置</h2><span class="module-toggle-hint" aria-hidden="true"></span></summary><div class="manager-module-body"><p class="manager-action-note">正常每天一场，也可添加上午场、下午场等多个不重叠时段。模板只填入表单，保存后才生效。</p>
+<form id="settings-form"><div class="admin-fields">
+<div class="admin-template-fill"><span>快捷填入（不立即生效）</span><div class="manager-confirm-actions"><button type="button" id="template-development">填入开发模板</button><button type="button" id="template-production">填入生产模板</button></div><p class="manager-action-note">开发：09:00–17:00、技能恢复1分30秒、线索每2分钟；生产：09:00–17:00、技能恢复20分钟、线索每30分钟。线索默认按存活坏人的20%，每轮最低1条、最高5条。填入后可继续修改，点击「保存设置」才生效，不改变当前启用状态。</p></div>
+<div class="admin-slot-editor"><h3>每天自动开局的场次（北京时间）</h3><div id="schedule-slots"></div><button type="button" id="schedule-add">＋ 添加每日场次</button><p id="schedule-effective" class="manager-action-note"></p></div>
+<fieldset><legend>所有身份技能统一次数恢复时间</legend><label>分钟<input type="number" id="config-minutes" min="0" max="1440" step="1" required></label><label>秒<input type="number" id="config-seconds" min="0" max="59" step="1" required></label></fieldset>
+<fieldset><legend>系统线索公布间隔</legend><label>分钟<input type="number" id="clue-minutes" min="0" max="1440" step="1" required></label><label>秒<input type="number" id="clue-seconds" min="0" max="59" step="1" required></label></fieldset>
+<label>每轮公布比例（存活坏人数 × %，向上取整）<input type="number" id="clue-percent" min="0.01" max="100" step="0.01" required></label>
+<label>每轮最低条数<input type="number" id="clue-min" min="1" max="1000" step="1" required></label><label>每轮最高条数<input type="number" id="clue-max" min="1" max="1000" step="1" required></label>
+<label class="admin-switch"><input type="checkbox" id="config-enabled">每天按以上安排自动开局</label></div>
+<p class="manager-action-note">线索只抽存活坏人的4项外观＋3项私人属性，玩家探查不影响抽取池。每轮优先不同坏人，字段不重复；不足时按实际剩余公布，无存活坏人则不公布。包括用于测试的存活坏人NPC。</p>
+<p id="clue-preview" class="manager-action-note" role="status"></p><p id="clue-live" class="manager-action-note" role="status"></p>
+<p class="manager-action-note">首次开启满一个间隔后公布。修改公布间隔，保存后从当前时刻重新计时；只修改比例或条数不会推迟下一轮。服务停顿恢复最多补一轮，不连续补发历史批次。</p>
+<p class="manager-action-note">有次数可连续使用，不设额外短冷却。修改恢复周期不重置当前已开始的倒计时，下个恢复周期使用新值。挥锤等趣味动作冷却不变。</p>
+<p class="manager-action-note"><strong>保存只修改设置，不暂停、不结束本场。</strong>今天已经开过场：修改场次时段或自动开局开关从明天生效，今天未开始的原安排仍保留。今天尚未开过场：保存后可立即应用，若当前在开放时段内会开局。临时停止用上方「暂停本场」，提前结束用「立即结算本场」。</p>
+<button type="submit" id="config-save">保存设置</button><span id="config-message" role="status"></span></form>
+</div></details>
+<details class="manager-result manager-module" id="module-npc" open><summary><h2>添加 NPC</h2><span class="module-toggle-hint" aria-hidden="true"></span></summary><div class="manager-module-body"><p class="manager-action-note">NPC 永久在线、不会主动施技，计入存活与结束判断；坏人 NPC 为 3 血。NPC 留在当日记录，不参与每日／总积分排名。</p><div class="admin-fields"><label>数量<input type="number" id="npc-count" value="1" min="1" max="5" step="1"></label><label>楼层<select id="npc-floor"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option></select></label></div><div class="manager-confirm-actions"><button id="npc-good">添加好人 NPC</button><button id="npc-bad" class="manager-danger">添加坏人 NPC</button></div><p id="npc-message" role="status"></p></div></details>
+<details class="manager-result manager-module" id="module-scores" open><summary><h2>③ 场次成绩与累计总分</h2><span class="module-toggle-hint" aria-hidden="true"></span></summary><div class="manager-module-body"><p class="manager-action-note">每场独立存档，测试场同样计入总分；同一天多场不会互相覆盖。正式活动按CAS员工身份汇总，昵称试玩按同一浏览器私密凭证汇总，不按重名合并。</p><div class="score-export-bar"><label>查看已结算场次<select id="history-session"></select></label><button id="scores-export" type="button" disabled>导出成绩 Excel</button></div><p class="manager-action-note">导出 .xlsx：所选场次成绩、今日合计、累计总分及全部已结算场次明细。不含正在进行的场次、NPC、身份属性或登录凭证。</p><p id="scores-export-message" role="status"></p><div class="manager-table-wrap"><table class="manager-table"><thead><tr><th>名次</th><th>玩家</th><th>本场积分</th><th>状态</th></tr></thead><tbody id="session-ranking"></tbody></table></div><h3>今日合计（已结算场次）</h3><div class="manager-table-wrap"><table class="manager-table"><thead><tr><th>名次</th><th>玩家</th><th>今日积分</th><th>参与场数</th></tr></thead><tbody id="daily-ranking"></tbody></table></div><h3>累计总分（全部已结算场次）</h3><div class="manager-table-wrap"><table class="manager-table"><thead><tr><th>名次</th><th>玩家</th><th>累计积分</th><th>参与场数</th></tr></thead><tbody id="total-ranking"></tbody></table></div></div></details>
+<details class="manager-result manager-module" id="module-minigames" open><summary><h2>小游戏开放配置</h2><span class="module-toggle-hint" aria-hidden="true"></span></summary><div class="manager-module-body"><div id="manager-features-list"></div><button id="manager-features-save">保存小游戏配置</button><p id="features-message" role="status"></p></div></details>
+<p class="manager-foot" id="manager-tick">每5秒刷新状态，不覆盖未保存表单。</p>
+</section></main><div class="manager-toast" id="manager-toast" hidden role="status"></div></body></html>

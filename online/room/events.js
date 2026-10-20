@@ -2,8 +2,12 @@
 // room 子模块：公共日志、私密事件队列与投影（自带逻辑，通过注入的 room/now/uuid 工作）。
 function createEvents({ room, now, randomUUID }) {
     function localTime(ms) { return new Date(ms).toLocaleTimeString('zh-CN', { hour12: false }); }
-    function log(text) {
-      room.logs.unshift({ time: localTime(now()), text });
+    function log(text, metadata = {}) {
+      const entry = { time: localTime(now()), text };
+      if (metadata.type === 'systemClue') entry.type = 'systemClue';
+      // 仅能标记公开消息所指向的目标，不允许记录匿名操作的施技者。
+      if (entry.type !== 'systemClue' && Number.isSafeInteger(metadata.subjectPlayerId)) entry.subjectPlayerId = metadata.subjectPlayerId;
+      room.logs.unshift(entry);
       if (room.logs.length > 80) room.logs.pop();
     }
     function queue(playerId, event) {

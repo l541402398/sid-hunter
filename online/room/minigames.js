@@ -105,6 +105,7 @@ function createMinigames({ room, now, find, gainAchievement }) {
 
   // 超时：把没出招的一方按"装填"补上，避免一局卡死。
   function tick() {
+    if (room.finished || room.accessClosed) return;
     const t = now();
     for (const m of matches.values()) {
       if (m.finished) continue;
@@ -137,7 +138,7 @@ function createMinigames({ room, now, find, gainAchievement }) {
     };
   }
 
-  return { start, act, tick, quit, matchOf, project, TANK, list: enabledGames };
+  return { start, act, tick, quit, matchOf, project, TANK, list: enabledGames, reset: () => matches.clear() };
 }
 
 module.exports = { createMinigames, TANK };

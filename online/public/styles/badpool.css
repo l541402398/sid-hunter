@@ -12,6 +12,7 @@
 @media(max-width:560px){.bad-slots{gap:6px}.bad-slot{padding:8px}.bad-slot header{flex-wrap:wrap}.bad-clue{flex-direction:column;gap:0}.bad-clue strong{text-align:left}}
 .bad-slot{min-width:0;background:#18273d;border:1px solid #8e7755;border-radius:8px;padding:12px;font-size:13px;overflow-wrap:anywhere}
 .bad-slot header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}.bad-slot header strong{font-size:14px}.bad-status{font-size:12px;color:#c6b48e}
+.bad-slot .bad-clue-heading{font-size:11px;font-weight:500;color:#cbb68f;margin:12px 0 5px;padding-top:8px;border-top:1px solid #ffffff12}
 .bad-slot.is-out{background:#202936;border-color:#68717d}.bad-slot.is-out .bad-status{color:#b8c2ce}
 .bad-clue{display:flex;justify-content:space-between;gap:12px;line-height:1.8}.bad-clue span{color:#9cabbf;flex-shrink:0}.bad-clue strong{font-weight:500;text-align:right;min-width:0}
 .bad-empty,.bad-note{font-size:12px;color:#a4b1c4;line-height:1.8}.bad-note{padding:0 16px 12px}.bad-empty{grid-column:1/-1}

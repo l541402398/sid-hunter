@@ -3,6 +3,14 @@
 const { send, readBody, lanAddresses } = require('../http-util.js');
 const { newSid, sessionOf, setSessionCookie, currentPlayer } = require('../auth.js');
 const { PORT, SSO_REQUIRED } = require('../config.js');
+const { randomBytes } = require('node:crypto');
+function guestKey(req, res) {
+  const token=String(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('sid_participant='))?.slice(16);
+  const key=/^[a-f0-9]{48}$/.test(token||'')?token:randomBytes(24).toString('hex');
+  const existing=res.getHeader('Set-Cookie');
+  res.setHeader('Set-Cookie',[...(Array.isArray(existing)?existing:existing?[existing]:[]),`sid_participant=${key}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`]);
+  return key;
+}
 
 async function handle(ctx) {
   const { req, res, url, pathname, ROOM, MANAGER, resetTokens, WORLD, openStream } = ctx;
@@ -23,6 +31,7 @@ async function handle(ctx) {
       const result = ROOM.join(sid, body.nickname);
       if (result.error) return send(res, 409, { error: result.error });
       setSessionCookie(res, sid);
+      result.player.participantKey = result.player.participantKey || guestKey(req,res);
       return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, lan: lanAddresses(), port: PORT });
     }
     const user = req.ssoUser;

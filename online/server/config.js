@@ -14,10 +14,7 @@ const DEV_ENABLED = process.env.SID_DEV === '1';
 // SID_SSO=0 供局域网试玩/回归显式关闭门禁（不改变任何玩法与权限判定以外的行为）。
 const SSO_REQUIRED = process.env.SID_TEST !== '1' && process.env.SID_SSO !== '0';
 const MANAGER_CODE = process.env.SID_MANAGER_CODE || '091256';
-// 多日长局：活动会持续好几天，默认 7 天（SID_DURATION_MS 可覆盖；SID_TEST=1 时不覆盖共享的短时限）。
-const DURATION_MS = Number(process.env.SID_DURATION_MS) > 0
-  ? Number(process.env.SID_DURATION_MS)
-  : (process.env.SID_TEST === '1' ? 0 : 7 * 24 * 60 * 60 * 1000);
+// 游戏时段与恢复周期统一由管理员配置，不再读取 SID_DURATION_MS。
 
-module.exports = { PORT, HOST, PUBLIC_DIR, TILED_DIR, TICK_MS, ALLOWED_EXT, DEV_ENABLED, SSO_REQUIRED, MANAGER_CODE, DURATION_MS };
+module.exports = { PORT, HOST, PUBLIC_DIR, TILED_DIR, TICK_MS, ALLOWED_EXT, DEV_ENABLED, SSO_REQUIRED, MANAGER_CODE };
 
