@@ -500,6 +500,8 @@
 
   // ---------- 名单 / 日志 / 目标档案 ----------
   function portrait(p) {
+    const image = window.SID?.characterSprites?.portrait(p);
+    if (image) return `<img class="portrait" src="${image}" alt="" aria-hidden="true">`;
     const c = p.colors;
     const hi = Math.max(0, palettes.hair.findIndex(o => o[0] === c.hair[0]));
     const skin = SKIN[hi], hair = c.hair[1], style = hi % 4;
@@ -593,6 +595,10 @@
     $('roster-count').textContent = players.length;
     renderRoster(); renderLogs();
   }
+  window.addEventListener('sid-character-assets-ready', () => {
+    lastRosterSig = ''; lastTargetSig = '';
+    renderRoster(); if (selected()) renderTarget();
+  });
   function selected() { return selectedId === null ? null : players.find(p => p.id === selectedId) || null; }
   function syncTarget() {
     const p = selected();
@@ -2827,7 +2833,7 @@
     const offsets = [[-7, -1], [1, -4], [7, -1]];
     for (let i = 0; i < n; i++) {
       const r = Math.max(1, Math.round(4 * k));
-      const cx = x + offsets[i][0], cy = yb - 49 + offsets[i][1] - Math.round(2 * k);
+      const cx = x + offsets[i][0], cy = yb - (window.SID?.characterSprites?.status === 'ready' ? 76 : 49) + offsets[i][1] - Math.round(2 * k);
       rect(cx - r - 1, cy - r - 1, r * 2 + 3, r * 2 + 3, '#2a1a1c');
       rect(cx - r, cy - r, r * 2 + 1, r * 2 + 1, '#e08a7a');
       rect(cx - r + 1, cy - r + 1, Math.max(1, r), 1, '#f2b6a8');
@@ -2838,8 +2844,14 @@
     if (!p.alive) { ghostSprite(p); return; }
     const x = Math.round(p.x), meId = selfId();
     const ph = p.walk * .13;
-    const bob = p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7);
+    const newShape = window.SID?.characterSprites?.status === 'ready';
+    // 新版人物的起伏由渲染层统一下发（走路按步频、站立按呼吸）；旧画法沿用原地呼吸。
+    // 头顶特效/选中框跟着同一个偏移，避免身体动了特效留在原处。
+    const bob = newShape
+      ? (window.SID.characterSprites.bodyBob?.(p, clock) || 0)
+      : (p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7));
     const yb = Math.round(p.y) + bob;
+    const effectY = yb - (newShape ? 24 : 0);
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
     const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
     // dev 分支并入：跳跃只在画面上把整身抬高（地面坐标不参与），镜头外由 visible 兜一层。
@@ -2851,14 +2863,14 @@
     if (z) ctx.translate(0, -z);
     // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
     if (p.freezeUntil && p.freezeUntil > now) {
-      ctx.globalAlpha = .4 * a; rect(x - 13, yb - 55, 26, 62, '#bfe8ff');
+      ctx.globalAlpha = .4 * a; rect(x - 13, effectY - 55, 26, newShape ? 86 : 62, '#bfe8ff');
       ctx.globalAlpha = .55 * a; ctx.strokeStyle = '#e8f7ff'; ctx.lineWidth = 1;
-      ctx.strokeRect(x - 13.5, yb - 55.5, 27, 63); ctx.globalAlpha = 1;
+      ctx.strokeRect(x - 13.5, effectY - 55.5, 27, newShape ? 87 : 63); ctx.globalAlpha = 1;
     }
     if (p.stunUntil && p.stunUntil > now) {
       for (let i = 0; i < 3; i++) {
         const ang = clock * 3 + i * (Math.PI * 2 / 3);
-        stunStar(x + Math.cos(ang) * 9, yb - 59 + Math.round(Math.sin(ang) * 3));
+        stunStar(x + Math.cos(ang) * 9, effectY - 59 + Math.round(Math.sin(ang) * 3));
       }
     }
     // 被家具/墙体遮挡时（含自己）隐藏脚下指示与选中框，避免把位置信息透出去。
@@ -2866,20 +2878,20 @@
     if (!p.npc && p.id === meId && p.id !== selectedId && !covered) {
       // 自己只保留头顶小箭头，不绘制脚底蓝圈；地面影子由角色身体函数绘制。
       const off = Math.round(Math.sin(clock * 2.6) * 1.5);
-      rect(x - 3, yb - 60 + off, 6, 3, '#9ed4ff'); rect(x - 2, yb - 57 + off, 4, 2, '#9ed4ff');
+      rect(x - 3, effectY - 60 + off, 6, 3, '#9ed4ff'); rect(x - 2, effectY - 57 + off, 4, 2, '#9ed4ff');
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
     }
     if (!p.npc && !covered && p.id === selectedId) {
       ctx.globalAlpha = (.55 + .3 * Math.sin(clock * 4.2)) * a;
-      ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 2; ctx.strokeRect(x - 20.5, yb - 52.5, 41, 58);
+      ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 2; ctx.strokeRect(x - 20.5, effectY - 52.5, 41, newShape ? 82 : 58);
       ctx.globalAlpha = a; ctx.lineWidth = 1;
       const b = '#cfeeff';
-      rect(x - 21, yb - 53, 9, 2, b); rect(x - 21, yb - 53, 2, 7, b);
-      rect(x + 13, yb - 53, 8, 2, b); rect(x + 19, yb - 53, 2, 7, b);
+      rect(x - 21, effectY - 53, 9, 2, b); rect(x - 21, effectY - 53, 2, 7, b);
+      rect(x + 13, effectY - 53, 8, 2, b); rect(x + 19, effectY - 53, 2, 7, b);
       rect(x - 21, yb + 3, 9, 2, b); rect(x - 21, yb - 2, 2, 7, b);
       rect(x + 13, yb + 3, 8, 2, b); rect(x + 19, yb - 2, 2, 7, b);
       const off = Math.round(Math.sin(clock * 3.4) * 2);
-      rect(x - 4, yb - 61 + off, 8, 3, '#8fd0ff'); rect(x - 3, yb - 59 + off, 6, 2, '#8fd0ff'); rect(x - 2, yb - 57 + off, 4, 2, '#8fd0ff');
+      rect(x - 4, effectY - 61 + off, 8, 3, '#8fd0ff'); rect(x - 3, effectY - 59 + off, 6, 2, '#8fd0ff'); rect(x - 2, effectY - 57 + off, 4, 2, '#8fd0ff');
       ctx.globalAlpha = 1;
     }
     if (seen) {
@@ -3396,7 +3408,7 @@
     const list = drawList();
     makeLabels(list);
     const atLabel = l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h && !WORLD.pointOccluded(x, y, l.p, occluders);
-    const atBody = p => Math.abs(x - p.x) <= 21 && y >= p.y - 53 && y <= p.y + 8 && !WORLD.pointOccluded(x, y, p, occluders);
+    const atBody = p => Math.abs(x - p.x) <= (window.SID?.characterSprites?.status === 'ready' ? 26 : 21) && y >= p.y - (window.SID?.characterSprites?.status === 'ready' ? 79 : 53) && y <= p.y + 8 && !WORLD.pointOccluded(x, y, p, occluders);
     const labelHits = labels.filter(l => !l.p.npc && atLabel(l));
     const bodyHits = list.filter(p => !p.npc && atBody(p)).map(p => p.id);
     const hits = [...new Set([...labelHits.flatMap(l => l.ids), ...bodyHits])];

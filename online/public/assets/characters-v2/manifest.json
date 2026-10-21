@@ -1,0 +1,48 @@
+{
+  "version": 2,
+  "cell": {
+    "width": 64,
+    "height": 112
+  },
+  "anchor": {
+    "x": 32,
+    "y": 104
+  },
+  "directions": [
+    "front",
+    "left",
+    "right",
+    "back"
+  ],
+  "columns": [
+    "idle",
+    "walk00",
+    "walk01",
+    "walk02",
+    "walk03",
+    "walk04",
+    "walk05"
+  ],
+  "parts": [
+    "hair",
+    "top",
+    "pants",
+    "shoes"
+  ],
+  "drawScale": 0.8,
+  "styleSelection": "hairPaletteIndex % 2; never player id, name, SID, faction or skill data",
+  "maskCounts": {
+    "male": {
+      "hair": 7126,
+      "top": 13212,
+      "pants": 13151,
+      "shoes": 3022
+    },
+    "female": {
+      "hair": 10080,
+      "top": 12337,
+      "pants": 13948,
+      "shoes": 3122
+    }
+  }
+}

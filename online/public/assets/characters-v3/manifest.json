@@ -1,0 +1,120 @@
+{
+  "version": 3,
+  "cell": {
+    "width": 64,
+    "height": 112
+  },
+  "anchor": {
+    "x": 32,
+    "y": 104
+  },
+  "directions": [
+    "front",
+    "left",
+    "right",
+    "back"
+  ],
+  "columns": [
+    "idle",
+    "walk00",
+    "walk01",
+    "walk02",
+    "walk03",
+    "walk04",
+    "walk05"
+  ],
+  "parts": [
+    "hair",
+    "top",
+    "pants",
+    "shoes"
+  ],
+  "drawScale": 0.8,
+  "styleSelection": "hairPaletteIndex % 2; never player id, name, SID, faction or skill data",
+  "shading": {
+    "tones": {
+      "shadow": 0.8,
+      "base": 1.0,
+      "light": 1.16
+    },
+    "baseTone": 190.0,
+    "maxGray": 222,
+    "note": "三档平涂；轮廓边收口到主体档，无纯白高光；外扩1px描边"
+  },
+  "build": {
+    "male": {
+      "outline": [
+        39,
+        39,
+        40
+      ],
+      "ring": 7518,
+      "rim": 7632,
+      "hair": {
+        "ref": 53.7,
+        "lo": 0.806,
+        "hi": 1.16,
+        "maxGray": 220,
+        "rim": 1148
+      },
+      "top": {
+        "ref": 140.2,
+        "lo": 0.873,
+        "hi": 1.05,
+        "maxGray": 200,
+        "rim": 797
+      },
+      "pants": {
+        "ref": 39.7,
+        "lo": 0.839,
+        "hi": 1.057,
+        "maxGray": 201,
+        "rim": 1933
+      },
+      "shoes": {
+        "ref": 167.6,
+        "lo": 0.74,
+        "hi": 1.16,
+        "maxGray": 220,
+        "rim": 989
+      }
+    },
+    "female": {
+      "outline": [
+        42,
+        41,
+        41
+      ],
+      "ring": 7591,
+      "rim": 7685,
+      "hair": {
+        "ref": 56.9,
+        "lo": 0.919,
+        "hi": 1.053,
+        "maxGray": 200,
+        "rim": 1288
+      },
+      "top": {
+        "ref": 140.6,
+        "lo": 0.87,
+        "hi": 1.05,
+        "maxGray": 200,
+        "rim": 570
+      },
+      "pants": {
+        "ref": 40.3,
+        "lo": 0.839,
+        "hi": 1.067,
+        "maxGray": 203,
+        "rim": 2142
+      },
+      "shoes": {
+        "ref": 172.8,
+        "lo": 0.74,
+        "hi": 1.16,
+        "maxGray": 220,
+        "rim": 963
+      }
+    }
+  }
+}

@@ -100,6 +100,17 @@
     rect(x - 11, Math.round(p.y) - 1, 22, 4, '#0f0a12');
     g.globalAlpha = a;
     if (z) g.translate(0, -z);
+    const newCharacters = typeof window !== 'undefined' ? window.SID?.characterSprites : null;
+    // clock 供新版人物做行走/呼吸起伏；地面影子仍在脚底，不随起伏移动。
+    if (newCharacters?.drawBody(g, p, direction, clock)) {
+      // 地面锚点/跳跃/在线透明度仍由本函数控制；挥锤沿用原权威动作时间。
+      if (attacking) {
+        // 身体随步频起伏时，手臂与木锤必须跟着同一偏移，否则会与肩部脱开。
+        const lift = typeof newCharacters.bodyBob === 'function' ? newCharacters.bodyBob(p, clock) : 0;
+        g.save();g.translate(0,-17+lift);drawAttack();g.restore();
+      }
+      g.restore();return;
+    }
     if (direction === 'left' || direction === 'right') {
       // 以右侧面为基准逐块镜像，远侧肢体先画、近侧后画，两个步行相位相反。
       const sideRect = (sx, sy, w, h, color) => rect(x + (direction === 'left' ? -sx - w : sx), yb + sy, w, h, color);

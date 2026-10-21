@@ -1,0 +1,155 @@
+{
+  "version": 4,
+  "style": "星露谷风 Q版卡通（头身比约1:2.5、厚描边、平涂）",
+  "cell": {
+    "width": 64,
+    "height": 112
+  },
+  "anchor": {
+    "x": 32,
+    "y": 104
+  },
+  "bodyHeight": 96,
+  "directions": [
+    "front",
+    "left",
+    "right",
+    "back"
+  ],
+  "columns": [
+    "idle",
+    "walk00",
+    "walk01",
+    "walk02",
+    "walk03",
+    "walk04",
+    "walk05"
+  ],
+  "parts": [
+    "hair",
+    "top",
+    "pants",
+    "shoes"
+  ],
+  "drawScale": 0.8,
+  "styleSelection": "hairPaletteIndex % 2; never player id, name, SID, faction or skill data",
+  "shading": {
+    "tones": "三档平涂",
+    "maxGray": 222,
+    "note": "轮廓边收口到主体档，无纯白高光"
+  },
+  "build": {
+    "male": {
+      "refs": {
+        "hair": [
+          240,
+          207,
+          102
+        ],
+        "top": [
+          58,
+          103,
+          188
+        ],
+        "pants": [
+          53,
+          51,
+          60
+        ],
+        "shoes": [
+          44,
+          35,
+          43
+        ],
+        "skin": [
+          249,
+          211,
+          183
+        ]
+      },
+      "counts": {
+        "hair": 25389,
+        "top": 12929,
+        "pants": 9663,
+        "shoes": 4970
+      },
+      "outline": 18249,
+      "bbox": {
+        "front": [
+          10,
+          8,
+          54,
+          103
+        ],
+        "side": [
+          8,
+          8,
+          50,
+          103
+        ],
+        "back": [
+          11,
+          8,
+          55,
+          103
+        ]
+      }
+    },
+    "female": {
+      "refs": {
+        "hair": [
+          121,
+          73,
+          61
+        ],
+        "top": [
+          102,
+          128,
+          153
+        ],
+        "pants": [
+          42,
+          31,
+          41
+        ],
+        "shoes": [
+          42,
+          31,
+          41
+        ],
+        "skin": [
+          250,
+          214,
+          186
+        ]
+      },
+      "counts": {
+        "hair": 29904,
+        "top": 10976,
+        "pants": 6852,
+        "shoes": 1384
+      },
+      "outline": 18631,
+      "bbox": {
+        "front": [
+          8,
+          8,
+          54,
+          103
+        ],
+        "side": [
+          7,
+          8,
+          50,
+          103
+        ],
+        "back": [
+          8,
+          8,
+          54,
+          103
+        ]
+      }
+    }
+  }
+}
