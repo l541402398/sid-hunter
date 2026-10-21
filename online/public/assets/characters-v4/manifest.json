@@ -68,10 +68,10 @@
         ]
       },
       "counts": {
-        "hair": 25389,
-        "top": 12929,
-        "pants": 9663,
-        "shoes": 4970
+        "hair": 28532,
+        "top": 11914,
+        "pants": 8975,
+        "shoes": 4825
       },
       "outline": 18249,
       "bbox": {
@@ -93,7 +93,8 @@
           55,
           103
         ]
-      }
+      },
+      "hairLineSpecks": 70
     },
     "female": {
       "refs": {
@@ -124,10 +125,10 @@
         ]
       },
       "counts": {
-        "hair": 29904,
-        "top": 10976,
-        "pants": 6852,
-        "shoes": 1384
+        "hair": 30765,
+        "top": 10982,
+        "pants": 6788,
+        "shoes": 1370
       },
       "outline": 18631,
       "bbox": {
@@ -149,7 +150,8 @@
           54,
           103
         ]
-      }
+      },
+      "hairLineSpecks": 0
     }
   }
 }
