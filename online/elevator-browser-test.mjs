@@ -31,7 +31,7 @@ try{
  for(const width of [1440,768,390]){
    await send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:width===390?2:1,mobile:false});
    await ev(`(async()=>{const p=WORLD.floorPortal(1,'left');await fetch('/api/test/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:window.__liftPlayer,floorId:1,x:p.x,y:p.y})});})()`);
-   await pause(150);await send('Input.dispatchKeyEvent',{type:'keyDown',key:'e',code:'KeyE',windowsVirtualKeyCode:69});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'e',code:'KeyE',windowsVirtualKeyCode:69});
+   await pause(150);await send('Input.dispatchKeyEvent',{type:'keyDown',key:'k',code:'KeyK',windowsVirtualKeyCode:75});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'k',code:'KeyK',windowsVirtualKeyCode:75});
    await wait(()=>ev("!document.querySelector('#elevator-picker').hidden"));
    const layout=await ev(`(()=>{const panel=document.querySelector('.elevator-card').getBoundingClientRect();return [...document.querySelectorAll('[data-floor-id]')].map(b=>{const r=b.getBoundingClientRect();return{id:+b.dataset.floorId,inside:r.left>=panel.left&&r.right<=panel.right,centerHit:document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===b||b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))};});})()`);
    assert.ok(layout.every(b=>b.inside&&b.centerHit),JSON.stringify(layout));await shot(`engine-picker-${width}.png`);

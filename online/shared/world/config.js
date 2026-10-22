@@ -38,13 +38,10 @@
   const FIELD_NAMES = { hair: '头发颜色', top: '上衣颜色', pants: '裤子颜色', shoes: '鞋颜色' };
   const TRAIT_NAMES = { saying: '口头禅', food: '爱吃的食物', sport: '喜欢的运动' };
   const MASK = '***';
-  // 肢体互动（跳跃 / 锤子）的唯一数值来源：服务端判定与客户端渲染都读这里，避免两端漂移。
+  // 肢体互动（锤子）的唯一数值来源：服务端判定与客户端渲染都读这里，避免两端漂移。
   // 这些数值不参与任何玩法结算：不扣血、不公开 S-ID、不消耗技能次数、不写公共日志。
+  // 注：jump 动作已下线，原 jumpMs / jumpHeight / jumpDodgeFrom / jumpDodgeTo 一并移除。
   const ACTION = {
-    jumpMs: 520,          // 一次跳跃的总时长
-    jumpHeight: 16,       // 抛物线顶点高度（像素）
-    jumpDodgeFrom: 0.18,  // 腾空可躲锤的进度起点
-    jumpDodgeTo: 0.82,    // 腾空可躲锤的进度终点
     hammerRange: 58,      // 锤子作用半径（地面坐标欧氏距离）
     hammerCooldownMs: 1000, // J 挥锤 / 幽灵吓人共用 1 秒冷却
     frightMs: 750,        // 受惊锁地图动作，不封身份技能

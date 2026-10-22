@@ -137,24 +137,9 @@ function createRoom(options = {}) {
   const queueEvent = (playerId, event) => events.queue(playerId, event);
   const projectEvent = event => events.project(event);
 
-  // ========== dev 分支并入：肢体互动纯函数（跳跃 / 挥锤 / 幽灵吓人） ==========
+  // ========== dev 分支并入：肢体互动纯函数（挥锤 / 幽灵吓人） ==========
   // 全部是纯函数或只写表播字段：不扣血、不公开 S-ID、不消耗技能次数、不写公共日志。
   const A = WORLD.ACTION;
-  function jumpProgress(p, t) {
-    if (!p || !p.jumpStartedAt) return 0;
-    const k = (t - p.jumpStartedAt) / A.jumpMs;
-    if (k <= 0 || k >= 1) return 0;
-    return k;
-  }
-  function heightOf(p, t) {
-    const k = jumpProgress(p, t);
-    if (!k) return 0;
-    return Math.round(4 * A.jumpHeight * k * (1 - k));
-  }
-  function airborne(p, t) {
-    const k = jumpProgress(p, t);
-    return k >= A.jumpDodgeFrom && k <= A.jumpDodgeTo;
-  }
   function expireBumps(p, t) {
     if (!p.bumps.length) { p.bumpMax = 0; return; }
     p.bumps = p.bumps.filter(b => b.expiresAt > t);
@@ -372,7 +357,6 @@ function createRoom(options = {}) {
       games: { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
       combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
       // 肢体互动状态（dev 分支并入）：纯表播字段，不参与血量 / S-ID / 技能 / 淘汰结算。
-      jumpStartedAt: 0,
       stunUntil: 0,
       bumps: [],
       bumpMax: 0,
@@ -455,7 +439,7 @@ function createRoom(options = {}) {
         achievements: { points: 0, byKind: {} },
         games: { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
         combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
-        jumpStartedAt: 0, stunUntil: 0, bumps: [], bumpMax: 0,
+        stunUntil: 0, bumps: [], bumpMax: 0,
         hammerCooldownUntil: 0, lastSwingAt: 0, lastHitAt: 0,
         frightUntil: 0, scareCooldownUntil: 0, scareAt: 0, frightAt: 0,
         skillsFrozenAt: null,
@@ -576,7 +560,6 @@ function createRoom(options = {}) {
       stunUntil: Math.max(p.combat.stunUntil || 0, p.stunUntil || 0),
       freezeUntil: p.combat.freezeUntil,
       visible: seen,
-      z: seen && p.alive ? heightOf(p, t) : 0,
       bumps: seen ? Math.min(p.bumps.length, A.maxBumps) : 0,
       bumpUntil: seen ? p.bumpMax : 0,
       swingAt: seen ? p.lastSwingAt : 0,
@@ -722,16 +705,17 @@ function createRoom(options = {}) {
     // dev 分支并入：离线受击摘要按 epoch + summary id 确认，旧 ACK 永不清掉新摘要。
     return digest.ack(playerId, ids, interaction, room.pending);
   }
-  // 肢体互动（dev 分支并入）：跳跃 / 挥锤 / 幽灵吓人。服务端权威，客户端只提交 kind。
+  // 肢体互动（dev 分支并入）：挥锤 / 幽灵吓人。服务端权威，客户端只提交 kind。
   // 与技能系统完全隔离：不扣血、不公开 S-ID、不消耗技能次数、不写公共日志。
   // 与主分支的 J 攻击并存：两者都写同一把硬控锁（看门狗取 max），命中判定各自独立。
+  // 注：jump 动作已下线，'jump' 不再是合法 kind（会被「未知动作」拒绝）。
   function performAction(id, kind) {
     const t = now();
     if (room.finished) return reject('本局已结束，动作已冻结');
     const actor = find(Number(id));
     if (!actor) return reject('身份无效，请重新加入');
     if (actor.npc) return reject('NPC 不能主动行动');
-    if (!['jump', 'hammer', 'scare'].includes(kind)) return reject('未知动作');
+    if (!['hammer', 'scare'].includes(kind)) return reject('未知动作');
     if (!actor.alive) {
       if (kind !== 'scare') return reject('幽灵只能吓人');
       if (t < actor.scareCooldownUntil) return reject('吓人冷却中');
@@ -751,12 +735,6 @@ function createRoom(options = {}) {
     }
     if (kind === 'scare') return reject('只有幽灵能吓人');
     if (t < actor.stunUntil || t < actor.frightUntil) return reject('你还被敲晕着');
-    const k = actor.jumpStartedAt ? (t - actor.jumpStartedAt) / A.jumpMs : 1;
-    if (k >= 0 && k < 1) return reject('你还在空中');
-    if (kind === 'jump') {
-      actor.jumpStartedAt = t;
-      return { ok: true, kind: 'jump' };
-    }
     if (t < actor.hammerCooldownUntil) return reject('锤子还没抡回来');
     // 无论是否命中都进冷却：空挥同样要等锤子抡回来。
     actor.hammerCooldownUntil = t + A.hammerCooldownMs;
@@ -766,7 +744,6 @@ function createRoom(options = {}) {
       if (q.id === actor.id || !q.alive || q.floorId !== actor.floorId) continue;
       const dist = Math.hypot(q.x - actor.x, q.y - actor.y);
       if (dist > A.hammerRange || dist >= bestDist) continue;
-      if (airborne(q, t)) continue; // 腾空窗口内的人躲开了这一锤
       best = q; bestDist = dist;
     }
     if (!best) return { ok: true, kind: 'hammer', targetId: null, hit: false };

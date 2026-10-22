@@ -1,5 +1,5 @@
 'use strict';
-// 跳跃 / 锤子肢体互动的真实 HTTP 自测。
+// 锤子肢体互动的真实 HTTP 自测。（跳跃已下线，相关用例连同 z 字段一并移除）
 // 只用 Node 内置 fetch + child_process，不装任何依赖。
 // 起的是临时测试服务（SID_TEST=1 / PORT=8899 / HOST=127.0.0.1），不碰 8787 上正在跑的服务。
 import { spawn } from 'node:child_process';
@@ -82,6 +82,13 @@ try {
   const ta = ja.data.sessionToken, tb = jb.data.sessionToken;
   const idA = ja.data.playerId, idB = jb.data.playerId;
 
+  // ---------- 0b. 跳跃已下线：jump 动作返回 400 且带中文原因（不是崩溃） ----------
+  const jumpOff = await action(ta, 'jump');
+  check('跳跃下线后 jump 动作被拒（400 + 未知动作，未崩溃）', jumpOff.status === 400 && jumpOff.data.ok === false && jumpOff.data.error === '未知动作',
+    `${jumpOff.status} ${JSON.stringify(jumpOff.data)}`);
+  const stillAlive = await pub(ta);
+  check('非法 jump 请求后服务仍正常（玩家仍在）', stillAlive.players.some(p => p.id === idA), JSON.stringify(stillAlive.players.map(p => p.id)));
+
   // ---------- 1. 相邻摆位 + A 挥锤命中 ----------
   await place(idA, 300, 300);
   await place(idB, 330, 300);
@@ -112,8 +119,6 @@ try {
   // ---------- 4. 晕眩期间不能挥锤 ----------
   const bHammer = await action(tb, 'hammer');
   check('晕眩期间 B 主动挥锤被拒绝', bHammer.status === 400 && bHammer.data.error === '你还被敲晕着', JSON.stringify(bHammer.data));
-  const bJump = await action(tb, 'jump');
-  check('晕眩期间 B 主动跳跃被拒绝', bJump.status === 400 && bJump.data.error === '你还被敲晕着', JSON.stringify(bJump.data));
   await input(tb, { right: false });
 
   // ---------- 5. 晕眩到期后恢复移动 ----------
@@ -136,30 +141,17 @@ try {
   check('远距离挥锤 hit=false 且无目标', far.status === 200 && far.data.ok && far.data.hit === false && far.data.targetId === null, JSON.stringify(far.data));
   check('远距离挥锤没人被晕', bFar.stunUntil === of(farBefore.players, idB).stunUntil, `stunUntil=${bFar.stunUntil}`);
 
-  // ---------- 7. 腾空闪避 ----------
+  // ---------- 7. 近距离命中（腾空闪避随跳跃一并下线：不再有躲锤窗口）----------
   await advance(1400); // 再清一次 A 的冷却
   await place(idA, 300, 300);
   await place(idB, 330, 300);
-  const jr = await action(tb, 'jump');
-  check('B 起跳成功', jr.status === 200 && jr.data.ok, JSON.stringify(jr.data));
-  const dbl = await action(tb, 'jump');
-  check('空中二段跳被拒绝', dbl.status === 400 && dbl.data.error === '你还在空中', JSON.stringify(dbl.data));
-  await advance(260); // 跳跃进度 ≈0.5，落在 jumpDodgeFrom..jumpDodgeTo 窗口内
-  const midAir = await pub(ta);
-  const bAir = of(midAir.players, idB);
-  check('跳跃中 B 的 z>0', bAir.z > 0, `z=${bAir.z}`);
-  const stunBeforeDodge = bAir.stunUntil, bumpsBeforeDodge = bAir.bumps;
-  const dodge = await action(ta, 'hammer');
-  const afterDodge = await pub(ta);
-  const bDodge = of(afterDodge.players, idB);
-  check('腾空窗口内 A 挥锤不命中（hit=false）', dodge.status === 200 && dodge.data.hit === false, JSON.stringify(dodge.data));
-  check('腾空者没有被击晕（stunUntil 未变）', bDodge.stunUntil === stunBeforeDodge, `${stunBeforeDodge} → ${bDodge.stunUntil}`);
-  check('腾空者没有新增肿包', bDodge.bumps === bumpsBeforeDodge, `${bumpsBeforeDodge} → ${bDodge.bumps}`);
-
-  // ---------- 8. 超过 jumpMs 后 z 回到 0 ----------
-  await advance(400);
-  const landed = await pub(ta);
-  check('超过 jumpMs 后 z 回到 0', of(landed.players, idB).z === 0, `z=${of(landed.players, idB).z}`);
+  const beforeClose = await pub(ta);
+  const bBeforeClose = of(beforeClose.players, idB);
+  const close = await action(ta, 'hammer');
+  const bClose = of((await pub(ta)).players, idB);
+  check('相邻目标必定被命中（hit=true）', close.status === 200 && close.data.hit === true, JSON.stringify(close.data));
+  check('被敲者进入晕眩（stunUntil 晚于服务端时间）', bClose.stunUntil > beforeClose.serverTime, `${bBeforeClose.stunUntil} → ${bClose.stunUntil}`);
+  check('被敲者新增肿包', bClose.bumps > bBeforeClose.bumps, `${bBeforeClose.bumps} → ${bClose.bumps}`);
 
   // ---------- 9. 落地后能被正常敲中（躲窗口之外）----------
   await advance(1400);
@@ -190,7 +182,7 @@ try {
   // lastAttack*、freezeUntil）；这些是 main 的公开战斗状态，不属于锤戏裁剪字段。
   // 阶段4（需求①）：新增 zoneId —— 独立小房间的公开空间键，客户端据此只渲染同一空间里的人；
   // 它和 floorId 同级，是地图公开信息，不含任何身份/血量/筹码数据。
-  const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt', 'frightUntil', 'scareAt', 'frightAt',
+  const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt', 'frightUntil', 'scareAt', 'frightAt',
     'score', 'floorId', 'spriteFacing', 'facing', 'lastAttackAt', 'lastAttackFacing', 'lastAttackDirection', 'freezeUntil',
     'zoneId']);
   const extra = sa.data.players.flatMap(p => Object.keys(p).filter(k => !allowed.has(k)));
@@ -216,10 +208,10 @@ try {
     `swingAt=${aByA.swingAt} hitAt=${bByA.hitAt} bumps=${bByA.bumps}`);
   // 合并适配：stunUntil 在 main 分支是公开战斗状态（不随镜头裁剪），故这里只校验 dev 的锤戏字段归零。
   check('屏幕外第三人 C 看到的锤戏字段全为 0',
-    aByC.swingAt === 0 && bByC.hitAt === 0 && bByC.bumps === 0 && bByC.bumpUntil === 0 && bByC.z === 0 && bByC.visible === false,
-    `A.swingAt=${aByC.swingAt} B.hitAt=${bByC.hitAt} B.bumps=${bByC.bumps} B.bumpUntil=${bByC.bumpUntil} B.visible=${bByC.visible} B.z=${bByC.z}`);
+    aByC.swingAt === 0 && bByC.hitAt === 0 && bByC.bumps === 0 && bByC.bumpUntil === 0 && bByC.visible === false,
+    `A.swingAt=${aByC.swingAt} B.hitAt=${bByC.hitAt} B.bumps=${bByC.bumps} B.bumpUntil=${bByC.bumpUntil} B.visible=${bByC.visible}`);
   check('裁剪后字段仍然存在（只是归零，不是消失）',
-    ['z', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt'].every(k => k in bByC),
+    ['stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt'].every(k => k in bByC),
     Object.keys(bByC).join(','));
   check('屏幕外第三人看不到 C 之外的被击晕者（A 视角下 C 无锤戏信息）',
     cByA.bumps === 0 && cByA.swingAt === 0 && cByA.hitAt === 0,
@@ -227,21 +219,12 @@ try {
   check('当事人始终看得见自己的状态（B 视角下 B 自己）', bByB.stunUntil > 0 && bByB.bumps > 0 && bByB.hitAt > 0,
     `stunUntil=${bByB.stunUntil} bumps=${bByB.bumps} hitAt=${bByB.hitAt}`);
 
-  // 屏幕外的跳跃高度恒为 0
-  await advance(1400);
-  const jc2 = await action(tc, 'jump');
-  await advance(100); // C 仍在空中（进度≈0.19，落在腾空窗口内）
-  const zSelf = of((await pub(tc)).players, idC).z;
-  const zByA = of((await pub(ta)).players, idC).z;
-  check('自己看得到自己在空中（C 视角 z>0）', jc2.data.ok && zSelf > 0, `z=${zSelf}`);
-  check('屏幕外的人 z 恒为 0（A 视角看 C）', zByA === 0, `z=${zByA}`);
-
   // 走近后立刻拿到真实值
   await place(idC, 360, 320, 1); // 回到 1F，与 A/B 同层：立刻拿到真实值
   const nearC = await pub(tc), nearA = await pub(ta);
   check('C 走近后立刻看到真实的锤戏字段', of(nearC.players, idB).bumps > 0 && of(nearC.players, idA).swingAt > 0,
     `B.bumps=${of(nearC.players, idB).bumps} A.swingAt=${of(nearC.players, idA).swingAt}`);
-  check('走近后 A 也能看到 C 的真实高度', of(nearA.players, idC).z > 0, `C.z=${of(nearA.players, idC).z}`);
+  check('走近后 C 自己也立刻可见（visible=true）', of(nearA.players, idC).visible === true, `C.visible=${of(nearA.players, idC).visible}`);
   // 走远后重新归零
   await place(idC, 300, 300, 2);
   const farC = await pub(tc);

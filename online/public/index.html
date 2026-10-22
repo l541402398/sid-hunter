@@ -56,18 +56,18 @@
       </div>
     </div>
     <div class="map-view" id="map-view">
-      <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，K 跳跃，J 攻击（幽灵 J 吓人），点击角色或公开标签选择目标。点击容器或NPC，或按E打开近距离互动；Esc关闭私密面板。"></canvas>
+      <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，J 敲，K 与场景交互（幽灵 J 吓人），点击角色或公开标签选择目标。点击容器或NPC，或按K打开近距离互动；Esc关闭私密面板。"></canvas>
       <div class="world-chip" hidden><span class="live-square"></span><span id="zone-name">接待区</span><small>七层楼面 / 电梯连通</small></div>
-      <div class="exploration-hud" aria-label="就近互动"><p id="cover-status" hidden></p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty" hidden></p><div class="combat-hud"><button id="attack-button" type="button" hidden>J 攻击</button><p id="self-combat-state" class="self-combat-state" hidden aria-live="polite"></p><span class="combat-note" hidden></span></div></div>
+      <div class="exploration-hud" aria-label="就近互动"><p id="cover-status" hidden></p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty" hidden></p><div class="combat-hud"><button id="attack-button" type="button" hidden>J 敲</button><p id="self-combat-state" class="self-combat-state" hidden aria-live="polite"></p><span class="combat-note" hidden></span></div></div>
       <!-- 第二轮：限时 buff 条（疾行 / 护体 / 专注），由服务端剩余毫秒驱动 -->
       <div id="buff-bar" class="buff-bar" hidden aria-live="polite"></div>
-      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看档案 <i>·</i> <kbd>E</kbd> 互动 / 乘梯 <i>·</i> <kbd>J</kbd> 攻击 / 幽灵吓人 <i>·</i> <kbd>K</kbd> 跳跃 <i>·</i> <kbd>F1</kbd> 碰撞调试</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
+      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看档案 <i>·</i> <kbd>J</kbd> 敲 / 幽灵吓人 <i>·</i> <kbd>K</kbd> 交互 / 乘梯 / 进房间 <i>·</i> <kbd>B</kbd> 背包 <i>·</i> <kbd>F1</kbd> 碰撞调试</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
       <div id="offline-banner" class="offline-banner" hidden></div>
       <!-- 需求①：进入独立小房间后的空间提示条（房间名 + 如何离开） -->
       <div id="zone-banner" class="zone-banner" hidden aria-live="polite">
         <span class="zone-banner-tag">独立空间</span>
         <strong id="zone-banner-name"></strong>
-        <span class="zone-banner-hint">走到门口按 <kbd>E</kbd> 离开 · 退出后回到进入位置</span>
+        <span class="zone-banner-hint">走到门口按 <kbd>K</kbd> 离开 · 退出后回到进入位置</span>
       </div>
       <!-- 需求③：容器物品格面板（逐格揭示 + 全部拾取） -->
       <section id="loot" class="loot-panel" hidden role="dialog" aria-modal="false" aria-labelledby="loot-title">

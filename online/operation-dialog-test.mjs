@@ -26,7 +26,7 @@ try{
  // 合并适配：feature 分支把「容器搜寻」改为搜打撤物品格面板（由 rooms-loot-browser-test 覆盖），
  // 中央私密弹窗现在只承载 NPC 兑换与线索背包；这里改在接待员 NPC 旁验证弹窗居中与输入冻结。
  let near;
- // 合并后地图 2x，移动速度 144→240 px/s：用例先按住→再按 E 的间隙会多漂一段，
+ // 合并后地图 2x，移动速度 144→240 px/s：用例先按住→再按 K（原 E）的间隙会多漂一段，
  // 因此夹具取在 NPC 左侧，并校验「向右漂移 0–48px 的每个落点」NPC 都仍是最近可交互对象。
  const dominant=(f,p,npc)=>{const d=W.distanceToEntity(p,npc);
   if(W.floorCollides(f,p.x,p.y))return false;
@@ -75,22 +75,29 @@ try{
   assert.ok(await ev("document.querySelectorAll('#bad-slots .bad-slot').length===1"));await tap('Escape','Escape',27);
   assert.equal(await ev("document.getElementById('bad-toggle').getAttribute('aria-expanded')"),'false');
  });
- await test('按E与NPC交谈打开中央弹窗，开窗时停止已按住的移动',async()=>{
+ await test('按K与NPC交谈打开中央弹窗，开窗时停止已按住的移动',async()=>{
   await ev("document.getElementById('office').focus()");await send('Page.bringToFront');
   await down('ArrowRight','ArrowRight',39);await pause(60);
-  await tap('e','KeyE',69);await until(()=>ev("document.getElementById('exploration').open"),'E dialog');
+  await tap('k','KeyK',75);await until(()=>ev("document.getElementById('exploration').open"),'K dialog');
   await centered('exploration');await until(()=>ev("window.calls.some(c=>c.url==='/api/input'&&JSON.parse(c.body).right===false)"));
   await pause(120);const a=await snapshot();await pause(220);const b=await snapshot();
   const pa=a.players.find(p=>p.id===self.playerId),pb=b.players.find(p=>p.id===self.playerId);
   assert.deepEqual([pb.x,pb.y],[pa.x,pa.y]);await up('ArrowRight','ArrowRight',39);
  });
- await test('搜寻窗口内WASD方向键JK不发送动作、位置保持不动',async()=>{
+ // K 现在是「场景交互」键（原 E 的语义），J 是敲击。面板打开时两者都必须被吞键列表挡住：
+ // 既不能发出 /api/action / /api/attack，也不能穿透成「关掉当前面板 / 打开别的面板」。
+ await test('搜寻窗口内WASD方向键JK不发送动作、位置保持不动，且 K 不穿透开关交互面板',async()=>{
   const count=await ev("window.calls.filter(c=>c.url==='/api/action'||c.url==='/api/attack').length");
+  const interactCount=await ev("window.calls.filter(c=>c.url==='/api/interact').length");
+  assert.equal(await ev("document.getElementById('exploration').open"),true);
   const before=await snapshot();
   for(const [key,code,vk] of [['w','KeyW',87],['ArrowLeft','ArrowLeft',37],['j','KeyJ',74],['k','KeyK',75]])await tap(key,code,vk);
   await pause(180);const after=await snapshot();
   assert.equal(await ev("window.calls.filter(c=>c.url==='/api/action'||c.url==='/api/attack').length"),count);
   assert.deepEqual(after.players.find(p=>p.id===self.playerId).x,before.players.find(p=>p.id===self.playerId).x);
+  // 新增（K=交互后）：这一串按键不得触发任何交互上行，NPC 面板必须仍然开着。
+  assert.equal(await ev("window.calls.filter(c=>c.url==='/api/interact').length"),interactCount,'面板内的 J/K 不应产生交互上行');
+  assert.equal(await ev("document.getElementById('exploration').open"),true,'K 是交互键：面板打开时必须被吞掉，不得穿透关闭/改开面板');
  });
  await test('兑换正常结算，关闭清私密DOM且不会自动恢复原按键',async()=>{
   assert.equal(await ev("document.getElementById('exploration-action').disabled"),false);

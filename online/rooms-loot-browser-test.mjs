@@ -2,10 +2,10 @@
 //
 // 覆盖点：
 //  1) 七层每层家具密度（"楼太空旷"）与容器数量
-//  2) 从楼层门口按 E 进入房间：服务端 zoneId 变化、房间内景渲染、空间提示条出现
+//  2) 从楼层门口按 K 进入房间：服务端 zoneId 变化、房间内景渲染、空间提示条出现
 //  3) 房间内家具/容器是独立加载的（楼层容器列表里没有房间容器）
 //  4) 容器 → 物品格面板 → 开始搜索 → 逐格揭示（服务端节流）→ 全部拾取 → 服务端记账
-//  5) 走到门口按 E 离开：zoneId 归零、站位还原到进入位置
+//  5) 走到门口按 K 离开：zoneId 归零、站位还原到进入位置
 //  6) 全程无未捕获异常；七层主题各截一张图作为美术证据
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -105,17 +105,17 @@ try {
   await click('#mg-close');
   assert.ok(/没有开放的小游戏/.test(mgClosed), '坦克默认关闭时应提示无可用小游戏，实际：' + mgClosed);
 
-  // ---------- 1.4 楼层游戏机：站到机器旁按 E 应进入跨楼层大厅 ----------
+  // ---------- 1.4 楼层游戏机：站到机器旁按 K 应进入跨楼层大厅 ----------
   const cab = await ev("(function(){const f=WORLD.floorFurniture(1).find(x=>x.type==='arcade');return {x:f.x+f.w/2,y:f.y+f.h/2+16};})()");
   await ev("fetch('/api/test/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:" + meId + ",floorId:1,x:" + cab.x + ",y:" + cab.y + "})})");
   await pause(420);
-  await key('KeyE', 'e');
+  await key('KeyK', 'k');
   await pause(800);
   const cabState = await ev("({open:!document.querySelector('#minigame-panel').hidden, text:document.querySelector('#mg-pick').textContent, mode:window.SID&&SID.minigame?SID.minigame.mode:''})");
   await shot('arcade-lobby.png');
   await click('#mg-close');
   evidence.push({ cabState });
-  assert.ok(cabState.open, '靠近游戏机按 E 应打开小游戏面板：' + JSON.stringify(cabState));
+  assert.ok(cabState.open, '靠近游戏机按 K 应打开小游戏面板：' + JSON.stringify(cabState));
   assert.equal(cabState.mode, 'arcade', '应进入跨楼层（arcade）模式');
   // ---------- 1.45 卡牌对决：开一局、出一张牌、结束回合 ----------
   await ev("fetch('/api/test/features',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({features:{spire:true}})})");
@@ -169,7 +169,7 @@ try {
   await ev(`fetch('/api/test/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:${meId},floorId:2,x:${doorPos.x},y:${doorPos.y}})})`);
   await wait(() => ev("document.querySelector('#floor-indicator').textContent==='2F'"));
   await pause(250);
-  await key('KeyE', 'e');
+  await key('KeyK', 'k');
   await wait(() => ev("!document.querySelector('#zone-banner').hidden"));
   const inZone = (await state()).players.find(p => p.id === meId);
   assert.equal(inZone.zoneId, room.id, '服务端应记录进入房间');
@@ -187,7 +187,7 @@ try {
   const container = await ev(`(function(){const r=WORLD.roomById(${JSON.stringify(room.id)});const c=r.containers[0];return {id:c.id,name:c.container.name,x:c.x+c.w/2,y:c.y+c.h+26};})()`);
   await ev(`fetch('/api/test/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:${meId},x:${container.x},y:${container.y}})})`);
   await pause(400);
-  await key('KeyE', 'e');
+  await key('KeyK', 'k');
   await wait(() => ev("!document.querySelector('#loot').hidden"));
   const gridHiddenBefore = await ev("document.querySelector('#loot-grid').hidden");
   assert.equal(gridHiddenBefore, true, '未开始搜索前不显示格子');
@@ -223,7 +223,7 @@ try {
   // ---------- 4. 走到门口离开房间：位置还原 ----------
   await ev(`fetch('/api/test/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:${meId},x:${roomInfo.exit.x},y:${roomInfo.exit.y}})})`);
   await pause(350);
-  await key('KeyE', 'e');
+  await key('KeyK', 'k');
   await wait(() => ev("document.querySelector('#zone-banner').hidden"));
   const outZone = (await state()).players.find(p => p.id === meId);
   assert.equal(outZone.zoneId, null, '离开后服务端 zoneId 应为 null');
@@ -272,7 +272,7 @@ try {
   await ev(`fetch('/api/test/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:${meId},floorId:5,zoneId:null,x:${dungeonContainer.x},y:${dungeonContainer.y}})})`);
   await wait(() => ev("document.querySelector('#floor-indicator').textContent==='5F'"));
   await pause(420);
-  await key('KeyE', 'e');
+  await key('KeyK', 'k');
   await wait(() => ev("!document.querySelector('#loot').hidden"));
   await click('#loot-start');
   await wait(() => ev(`(()=>{const all=document.querySelectorAll('#loot-grid .loot-cell');return all.length>0&&[...all].every(c=>!c.classList.contains('is-hidden'));})()`), 400);
@@ -286,12 +286,12 @@ try {
   const dRoom = await ev(`(function(){const r=WORLD.roomById(${JSON.stringify(dungeonRoom.id)});return {door:{x:r.door.x,y:r.door.y},name:r.name};})()`);
   await ev(`fetch('/api/test/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({playerId:${meId},floorId:5,zoneId:null,x:${dRoom.door.x},y:${dRoom.door.y}})})`);
   await pause(400);
-  await key('KeyE', 'e');
+  await key('KeyK', 'k');
   await wait(() => ev("!document.querySelector('#zone-banner').hidden"));
   await pause(320);
   await shot('room-5f-dungeon.png');
   evidence.push({ dungeonRoom: dRoom.name });
-  await key('KeyE', 'e');   // 已在门口，直接退出
+  await key('KeyK', 'k');   // 已在门口，直接退出
   await wait(() => ev("document.querySelector('#zone-banner').hidden"));
 
   // ---------- 5.5 双榜：筹码榜 / 成就榜 ----------

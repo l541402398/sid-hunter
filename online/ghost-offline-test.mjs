@@ -87,7 +87,6 @@ try {
   const b1 = WORLD.floorBounds(1);
   await place(g, b1.maxX - 1, 300); await input(g, { right: true }); await wait(150); await input(g, {});
   check('幽灵仍受楼层边界约束', own(await state(g), g).x === b1.maxX);
-  check('幽灵不可jump', (await action(g, 'jump')).status === 400);
   check('幽灵不可hammer', (await action(g, 'hammer')).status === 400);
   check('幽灵不可使用身份技能', (await skill(g, 'probe', b)).status === 400);
   check('存活者不可scare', (await action(a, 'scare')).status === 400);
@@ -103,7 +102,7 @@ try {
   check('scare不扣血、不公开SID、不改资格', snapshot.me.hp === 1 && snapshot.me.alive && own(snapshot,b).sid === '***-***-***');
   await input(b,{right:true}); await wait(180);
   check('受惊期间位置锁定', own(await state(b),b).x === 330);
-  check('受惊期间禁止K跳/J锤', (await action(b,'jump')).status === 400 && (await action(b,'hammer')).status === 400);
+  check('受惊期间禁止J锤', (await action(b,'hammer')).status === 400);
   check('受惊期间仍能probe', (await skill(b,'probe',c)).ok);
   // 合并适配：main 的输入协议在硬控期间会清空意图，到期必须重新输入（dev 旧版是保留意图）。
   await advance(800); await wait(100); await input(b,{right:true}); await wait(150);
@@ -130,7 +129,7 @@ try {
   // Real stream shutdown + offline attacks. Drain/close all older streams first.
   sb.close(); await wait(100);
   check('真实SSE断线将本人置offline', !own(await state(b),b).online);
-  await input(b,{}); await action(b,'jump');
+  await input(b,{});
   check('input/action不抢先置online', !own(await state(b),b).online);
   await advance(1100); await place(a,300,300); await place(g,340,300); await place(b,330,300);
   const beforeLogs = JSON.stringify((await state(a)).logs);
@@ -180,7 +179,7 @@ try {
   const frozen = own(await state(g),g); await input(g,{right:true}); await wait(150);
   check('finished幽灵不能移动', own(await state(g),g).x === frozen.x);
   check('finished幽灵不能scare', (await action(g,'scare')).status === 400);
-  check('finished活人jump/hammer冻结', (await action(a,'jump')).status === 400 && (await action(a,'hammer')).status === 400);
+  check('finished活人hammer冻结', (await action(a,'hammer')).status === 400);
   check('finished身份技能冻结', (await skill(a,'probe',c)).status === 400);
   await advance(16000);
   check('finished仍可安全过期肿包且不复活', own(await state(a),npc).bumps === 0 && !own(await state(g),g).alive);
@@ -355,7 +354,22 @@ try {
   const html=readFileSync(new URL('./public/index.html',import.meta.url),'utf8')
     + readdirSync(markupDir).sort().map(f=>readFileSync(new URL(f,markupDir),'utf8')).join('\n');
   const client=readFileSync(new URL('./public/game.js',import.meta.url),'utf8');
-  check('静态键位契约：K跳且无Space游戏跳跃绑定', client.includes("e.code === 'KeyK'") && !client.includes("e.code === 'Space' ? 'jump'") && !html.includes('空格跳') && !html.includes('空格 跳'));
+  // K 场景交互（原 E）/ J 敲（幽灵 J 吓人）；跳跃已下线，客户端不再提交 'jump' 动作。
+  check('静态键位契约：无 jump 动作且 K/J 各走其路',
+    !client.includes("sendAction('jump')") && !client.includes("'jump'"),
+    client.includes('jump') ? '客户端仍残留 jump 引用' : 'ok');
+  check('静态键位契约：K 走场景交互', client.includes("e.code === 'KeyK'") && client.includes('interactNearest();'));
+  check('静态键位契约：J 走 attack / 幽灵 scare',
+    client.includes("e.code === 'KeyJ'") && client.includes("sendAction('scare')") && client.includes('attack();'));
+  // 允许的残留只有「模态打开时吞掉 WASD/J/K/E」那一段（一个 swallow 列表 + 一个关闭面板分支）。
+  check('静态键位契约：E 不再绑定任何交互（仅保留模态段吞键引用）',
+    !client.includes("if (e.code === 'KeyE') {") && (client.match(/KeyE/g) || []).length === 2,
+    `KeyE 出现次数=${(client.match(/KeyE/g) || []).length}`);
+  // 「按 Esc」里的 E 不算（"按 E" 需排除 Esc），只看真正面向玩家的 E 键提示。
+  check('静态键位契约：键位提示全为 K/J/B，不含 E 与跳跃文案',
+    !html.includes('<kbd>E</kbd>') && !/按 ?E(?!sc)/.test(html) && !html.includes('按E')
+    && !html.includes('跳跃') && !client.includes('跳跃') && !html.includes('空格跳') && !html.includes('空格 跳'),
+    'index.html + 全部 markup 模块');
   check('静态规则：保留Survivor id用户拼写与4/3属性标题', html.includes('Survivor id（幸存者id）') && html.includes('4项外观属性，3项隐藏属性'));
   check('静态规则：正式3血/30分钟保护明确尚未生效', html.includes('试玩实现：坏人初始2血') && html.includes('尚未在当前试玩生效'));
   // 合并适配：main 的规则页把探查 / 指认合并为共用卡（共 4 张身份技能卡），措辞为「不代表你的身份」。

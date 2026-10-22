@@ -54,9 +54,9 @@ async function handle(ctx) {
     if (ROOM.setIntent(player.id, body) === false) return send(res, 400, { ok: false, error: '对局或楼层版本不一致，请重新同步' });
     return send(res, 200, { ok: true });
   }
-  // 肢体互动（跳跃 / 挥锤）：只提交 kind，命中、击晕、冷却全部由服务端判定。
+  // 肢体互动（挥锤 / 幽灵吓人）：只提交 kind，命中、击晕、冷却全部由服务端判定。
   // 刻意不做 commandId 去重：/api/skill 需要它是因为技能会消耗次数（重放会导致重复扣次），
-  // 而本通道不消耗任何资源，写入的全是绝对时间戳，重复请求被冷却 / 腾空检查挡成空操作。
+  // 而本通道不消耗任何资源，写入的全是绝对时间戳，重复请求被冷却 / 硬控检查挡成空操作。
   if (pathname === '/api/ack' && req.method === 'POST') {
     const body = await readBody(req);
     const player = currentPlayer(req, url);

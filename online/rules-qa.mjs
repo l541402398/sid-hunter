@@ -18,7 +18,7 @@ const files=['room.js','server.js','shared/world.js','public/game.js','public/in
   ...MODULE_FILES.map(f => f.replace(/^online\//, ''))];
 const hashes=async()=>Object.fromEntries(await Promise.all(files.map(async f=>[f,createHash('sha256').update(await readFile(join(root,f))).digest('hex')])));
 const beforeHashes=await hashes();
-// 合并适配：合并 dev 分支的规则文案（Survivor id 术语、2 血试玩说明、K 跳跃 / 幽灵 / 匿名坏人线索池）
+// 合并适配：合并 dev 分支的规则文案（Survivor id 术语、2 血试玩说明、K 交互 / 幽灵 / 匿名坏人线索池）
 // 后 index.html 已变化，这里更新冻结哈希；其余断言仍逐条校验规则页内容。
 // 合并适配：dev 528fd9e 的右侧常驻日志栏重排了 index.html（移除 #log-toggle、日志移入 .game-layout），
 // 合入 feature_dev_floor 后重新冻结哈希；其余断言逐条校验规则页与私有投影。

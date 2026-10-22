@@ -132,10 +132,10 @@ try {
     const r = await api('/api/interact', { commandId: commandId(), kind: 'search', entityId: 'reception-132-173' }); assert.equal(r.data.ok, false);
     assert.equal((await state()).me.exploration.chips, 0); await click('#exploration-close'); await assertDestroyed();
   });
-  await test('online 真实 /api/input 靠近、键盘 E 打开接待台、20Hz 按钮稳定、搜寻 +3 且重复防领', async () => {
+  await test('online 真实 /api/input 靠近、键盘 K 打开接待台、20Hz 按钮稳定、搜寻 +3 且重复防领', async () => {
     const path = await moveTo(220, 275);
-    await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
-    await waitFor('E 路径打开接待台', async () => ev(`document.querySelector('#exploration h2')?.textContent==='接待台'`));
+    await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75);
+    await waitFor('K 路径打开接待台', async () => ev(`document.querySelector('#exploration h2')?.textContent==='接待台'`));
     const stability = await sampleStable('#exploration-action');
     await click('#exploration-action', async () => {
       await ev('window.__qaHeld=document.querySelector("#exploration-action");window.__qaHeldStart=__qaSSE.length');
@@ -191,7 +191,7 @@ try {
     assert.equal(await ev(`document.querySelector('#exploration').hidden`), true); await click('#clue-bag'); assert.equal(await ev(`document.querySelectorAll('.clue-card').length`), 1);
     const timings = await ev(`(()=>{const a=__qaSSE.slice(1),d=a.slice(1).map((x,i)=>x-a[i]).sort((x,y)=>x-y);return {snapshots:a.length,observedHz:(a.length-1)*1000/(a.at(-1)-a[0]),p50Ms:d[Math.floor(d.length*.5)],p95Ms:d[Math.floor(d.length*.95)]}})()`);
     assert.ok(timings.observedHz >= 15 && timings.observedHz <= 25, JSON.stringify(timings)); await screenshot(screenshotPath); await click('#exploration-close');
-    await moveTo(220, 275); await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69); await waitFor('刷新后已搜状态', async () => ev(`document.querySelector('#exploration-state')?.textContent.includes('已搜寻')`)); assert.equal(await ev(`document.querySelector('#exploration-action').disabled`), true);
+    await moveTo(220, 275); await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75); await waitFor('刷新后已搜状态', async () => ev(`document.querySelector('#exploration-state')?.textContent.includes('已搜寻')`)); assert.equal(await ev(`document.querySelector('#exploration-action').disabled`), true);
     return { timings, persistedIdentity: id, persistedExploration: true };
   });
   await test('online 20Hz 目标频率专项：真实 SSE 到达率至少 18Hz（允许 10% 调度偏差）', async () => {
@@ -202,10 +202,10 @@ try {
   await test('online 全流程无 JavaScript 异常或 console.error', async () => { assert.deepEqual(runtimeErrors, []); assert.deepEqual(consoleErrors, []); });
 
   await open(demoURL + '?test', `!!window.__sidTest`);
-  await test('demo file:// 真实 load、远距点击容器拒绝、键盘 E 与真实 DOM 搜寻 +3 重复防领', async () => {
+  await test('demo file:// 真实 load、远距点击容器拒绝、键盘 K 与真实 DOM 搜寻 +3 重复防领', async () => {
     await ev('__sidTest.reset()'); await canvasClick(210, 201);
     assert.equal(await ev(`document.querySelector('#exploration').hidden`), true); assert.match(await ev(`document.querySelector('#copy-toast').textContent`), /靠近/);
-    await setPosition(220, 275); await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
+    await setPosition(220, 275); await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75);
     assert.equal(await ev(`document.querySelector('#exploration h2').textContent`), '接待台');
     await click('#exploration-action'); assert.equal((await demoSnapshot()).exploration.chips, 3); assert.equal(await ev(`document.querySelector('#exploration-action').disabled`), true);
     await click('#exploration-action'); assert.equal((await demoSnapshot()).exploration.chips, 3); await click('#exploration-close');
@@ -241,13 +241,13 @@ try {
     return { cabinetFootprintTop: 210, safePosition: { x: 832, y: 205 }, behindBodyChangedChannels: changed(behind.cabinet, baseline.cabinet), visibleHeadChangedChannels: changed(behind.head, baseline.head), foregroundBodyChangedChannels: changed(front.front, baseline.front), cyanCount, pixelSource: '原生 CDP Runtime 读取真实 Canvas getImageData；截图由 Page.captureScreenshot 生成' };
   });
   await test('demo 真实 DOM reset 清空筹码、线索、已搜、私密面板，容器可重新搜寻', async () => {
-    await setPosition(220, 275); await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69); await click('#exploration-action'); assert.equal((await demoSnapshot()).exploration.chips, 3);
+    await setPosition(220, 275); await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75); await click('#exploration-action'); assert.equal((await demoSnapshot()).exploration.chips, 3);
     await click('#exploration-close'); await setPosition(565, 285); await canvasClick(520 - (await demoSnapshot()).cameraX, 262); await click('#exploration-action');
     assert.equal((await demoSnapshot()).exploration.clues.length, 1); await click('#exploration-close');
     await ev(`document.querySelector('#my-info').focus()`); await send('Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
     await click('#reset'); await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
     const e = (await demoSnapshot()).exploration; assert.equal(e.chips, 0); assert.deepEqual(e.clues, []); assert.deepEqual(e.searched, []); assert.equal(e.panel, null); await assertDestroyed();
-    await setPosition(220, 275); await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69); assert.equal(await ev(`document.querySelector('#exploration-action').disabled`), false);
+    await setPosition(220, 275); await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75); assert.equal(await ev(`document.querySelector('#exploration-action').disabled`), false);
   });
   await test('demo 普通 URL 不存在 ?test 权威诊断接口，普通玩法 DOM 容器与背包可用', async () => {
     await open(demoURL, `!!window.WORLD&&!!document.querySelector('#clue-bag')`); assert.equal(await ev('typeof window.__sidTest'), 'undefined'); assert.equal(await ev('location.search'), '');

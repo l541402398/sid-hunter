@@ -165,7 +165,7 @@ await test('离线/结束不移动或转身；幽灵（dev 合并语义）可移
     r.setIntent(1, {}); assert.deepEqual(p.input, blank);
   }
   // 合并适配：dev 分支把淘汰者变成可穿家具、可吓人的幽灵，因此「已淘汰」不再冻结移动；
-  // 这里改为断言幽灵确实能移动，同时仍不能攻击 / 跳跃 / 挥锤 / 使用身份技能。
+  // 这里改为断言幽灵确实能移动，同时仍不能攻击 / 挥锤 / 使用身份技能（跳跃已下线，jump 也不再是合法动作）。
   const r = fixture(), p = r.find(1);
   p.x = 500; p.y = 350; p.walk = 0; // 层内安全点：fixture 的 1600 超出 1F 可行走范围，会被边界钳住
   move(r, 1, { left: true }); const saved = position(p);
@@ -174,7 +174,9 @@ await test('离线/结束不移动或转身；幽灵（dev 合并语义）可移
   move(r, 1, { right: true });
   assert.notDeepEqual(position(p), saved);
   assert.equal(r.attack(p.sessionId, { commandId: nonce() }).ok, false);
+  // 跳跃已下线：'jump' 不再是合法 kind，必须被稳稳拒绝且不抛错。
   assert.equal(r.performAction(p.id, 'jump').ok, false);
+  assert.equal(r.performAction(p.id, 'jump').error, '未知动作');
   assert.equal(r.performAction(p.id, 'hammer').ok, false);
   assert.equal(r.useSkill(p.sessionId, { commandId: nonce(), skill: 'probe', targetId: r.find(0).id }).ok, false);
   r.setIntent(1, {}); assert.deepEqual(p.input, blank);

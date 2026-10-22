@@ -82,10 +82,6 @@ test('任何公开配色都不会画出接近纯白的边缘（白边回归）',
     assert.ok(Math.max(...seen)<400,'固定层白色过多，可能是素材残留背景');
   }
 });
-test('共享WORLD绘制真实接新版分支，旧Node/加载失败仍有旧画法，跳跃影子保留',()=>{global.window={SID:{characterSprites:renderer}};const calls=[];const g={globalAlpha:1,imageSmoothingEnabled:true,save(){calls.push('save');},restore(){calls.push('restore');},translate(x,y){calls.push(['translate',x,y]);},fillRect(...args){calls.push(['rect',...args]);},drawImage(...args){calls.push(['image',...args]);}};
- WORLD.drawCharacterBody(g,p,1,null,null,10);assert.equal(calls.filter(x=>Array.isArray(x)&&x[0]==='image').length,5);assert.ok(calls.some(x=>Array.isArray(x)&&x[0]==='translate'&&x[2]===-10));assert.equal(calls.filter(x=>Array.isArray(x)&&x[0]==='rect').length,1);delete global.window;
- calls.length=0;WORLD.drawCharacterBody(g,p,1);assert.equal(calls.filter(x=>Array.isArray(x)&&x[0]==='image').length,0);assert.ok(calls.filter(x=>Array.isArray(x)&&x[0]==='rect').length>20);
-});
 const failed=createCharacterRenderer({...env,console:{warn(){}},Image:class{set src(v){queueMicrotask(()=>this.onerror());}}});assert.equal(await failed.load(),false);test('素材加载失败不抛异常，保留旧画法而非人物消失',()=>{assert.equal(failed.status,'error');assert.equal(failed.drawBody({},p),false);});
 test('真实页面加载顺序与头像接入，未修改服务器玩法/身份规则',()=>{const html=fs.readFileSync(path.join(ROOT,'public/index.html'),'utf8'),game=fs.readFileSync(path.join(ROOT,'public/game.js'),'utf8');assert.ok(html.indexOf('js/render/characters.js')>html.indexOf('/shared/world.js'));assert.ok(html.indexOf('js/render/characters.js')<html.indexOf('src="game.js"'));assert.ok(game.includes('characterSprites?.portrait(p)'));assert.ok(game.includes('sid-character-assets-ready'));});
 console.log(`人物接入轻量检查 ${passed} PASS；未启动HTTP或Chrome。`);

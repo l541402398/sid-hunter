@@ -6,7 +6,7 @@
 //     → games.rpsResult 权威揭示(self/opponent choice + win/lose/draw/delta) → 缺选/离线/取消全取消无扣 → 5s 冷却。
 //   - 旧 mechanics-browser-test.mjs 的「原 guess 流程」基于旧协议(choice 写进 invite、即时结算)，与升级后不兼容；
 //     本套件是其替代验收。
-//   - 最终入口决定：联机 games-toggle「互动小游戏」入口与全局玩家列表邀请【已移除】；唯一入口为「靠近角色按 E
+//   - 最终入口决定：联机 games-toggle「互动小游戏」入口与全局玩家列表邀请【已移除】；唯一入口为「靠近角色按 K
 //     弹交互菜单 / 点击 target 角色」出现的「邀请猜拳」项。故本套件断言 #games-toggle 不存在、toolbar 无
 //     『互动小游戏』文案，且不再按保留旧入口测试。其他 NPC 转盘玩法不在本套件范围。
 //
@@ -60,7 +60,7 @@ const CFG = {
   // —— 以下为「猜拳升级」新增 UI 的 selectors 需求。值保持 'TODO' 表示待 main 确认。
   // 每个条目后注释为该 selector 验收时的作用。
   rps: {
-    // 入口（唯一）：靠近角色按 E 弹交互菜单，或点击目标角色，出现「邀请猜拳」项。games-toggle 入口已移除。
+    // 入口（唯一）：靠近角色按 K 弹交互菜单，或点击目标角色，出现「邀请猜拳」项。games-toggle 入口已移除。
     inviteEntry: 'TODO',            // 发起邀请的触发入口（E 交互菜单项 / 点击 target 出现的按钮）
     // games-toggle「互动小游戏」入口已按最终决定【移除】：仅用于断言其不存在（应为 null/隐藏）且 toolbar 无『互动小游戏』文案。
     gamesToggle: '#games-toggle',   // 仅用于断言“已移除”，不再作为可点击入口
@@ -213,7 +213,7 @@ async function joinReal(ctx, nickname) {
 
 // ============================ PLAN 模式：校验 harness + 输出计划/需求 ============================
 const PLAN = [
-  { id: 'RPS-01', title: '入口：仅近角色 E 交互菜单 / 点击 target 发起；games-toggle 已移除', checks: ['在 64px 内按 E 弹交互菜单或点击目标角色，出现「邀请猜拳」项（唯一入口）', '断言 #games-toggle 不存在且 toolbar 不含『互动小游戏』文案（原入口已移除，不再测试保留旧入口）'], requires: ['rps.inviteEntry'] },
+  { id: 'RPS-01', title: '入口：仅近角色 E 交互菜单 / 点击 target 发起；games-toggle 已移除', checks: ['在 64px 内按 K 弹交互菜单或点击目标角色，出现「邀请猜拳」项（唯一入口）', '断言 #games-toggle 不存在且 toolbar 不含『互动小游戏』文案（原入口已移除，不再测试保留旧入口）'], requires: ['rps.inviteEntry'] },
   { id: 'RPS-02', title: '邀请：发起后出现邀请确认弹窗，对手端出现同意/拒绝', checks: ['发起方进入等待（invited 30s）', '对手端自动弹出邀请确认弹窗(rpsInvite SSE)', '弹窗含同意/拒绝', '服务端 pending.role 正确(from/to)'], requires: ['rps.invitePopup', 'rps.inviteAccept', 'rps.inviteReject', 'api.play(rpsInvite 无 choice)', 'projection.pendingFields'] },
   { id: 'RPS-03', title: '同意：双方进入 selecting，deadline 相同（实等 10s 验证同步）', checks: ['accept 后双方 startedAt/deadline 一致', '真实等待一次 ~10s，deadline 末段双方仍一致（不伪通过 advance）', 'deadline 文案双方一致'], requires: ['projection.pendingFields(startedAt/deadline)', 'rps.deadlineLabel', 'SELECTING_MS=10000'] },
   { id: 'RPS-04', title: '选择 + 改选：双方可改；自己 SVG data-choice 立即变化；对手 deadline 前不显示', checks: ['点击 rock/paper/scissors 立即更新 ownChoice', '可反复改选且 revision 递增', '对手侧 SVG 在 deadline 前不显示对方 choice', 'rpsChoose{challengeId,choice,revision} 双方可用'], requires: ['rps.choiceRock', 'rps.choicePaper', 'rps.choiceScissors', 'rps.selfHand', 'rps.opponentHand', 'api.play(rpsChoose)'] },

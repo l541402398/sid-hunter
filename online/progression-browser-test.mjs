@@ -103,7 +103,7 @@ const wheelSample = () => ev(`(()=>{const c=document.querySelector('#wheel-canva
 const wheelCostText = () => ev(`document.querySelector('#wheel-cost').textContent`);
 const overlays = () => ev(`({wheel:!document.querySelector('#wheel-overlay').hidden,finish:!document.querySelector('#finish-overlay').hidden,ranking:!document.querySelector('#ranking').hidden})`);
 async function openNpcPanel() {
-  // 直接点「附近互动」NPC 按钮：openExploration 会先关闭已有面板，避免 E 键在面板已开时反而关闭。
+  // 直接点「附近互动」NPC 按钮：openExploration 会先关闭已有面板，避免 K 键在面板已开时反而关闭。
   await waitFor('附近 NPC 按钮', async () => ev(`(()=>{const b=document.querySelector('#nearby-items [data-entity="npc-reception"]');return !!b&&!b.hidden;})()`));
   await click('#nearby-items [data-entity="npc-reception"]');
   try {
@@ -390,7 +390,7 @@ try {
     await ev('__sidTest.reset()');
     await setPosition(220, 275); await ev(`__sidTest.interact('search','reception-132-173')`);
     await setPosition(520, 340);
-    await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
+    await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75);
     assert.equal(await ev(`document.querySelector('#exploration h2').textContent`), '接待员小禾');
     await click('#exploration-wheel');
     assert.equal(await ev(`document.querySelector('#wheel-overlay').hidden`), false);
@@ -411,7 +411,7 @@ try {
 
   await test('demo 15 像素与结算：好人盘含线索券蓝；forceFinish(badWiped) 覆盖层/#finish-reason/#finish-ranking；aliveFloor 展示存活者', async () => {
     await ev('__sidTest.reset()'); await setPosition(520, 340);
-    await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
+    await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75);
     await click('#exploration-wheel');
     const px = await waitFor('好人盘像素', async () => { const p = await wheelSample(); return p.blue > 200 ? p : false; });
     assert.ok(px.blue > 200, `好人盘应出现线索券蓝扇区，实测 ${JSON.stringify(px)}`);

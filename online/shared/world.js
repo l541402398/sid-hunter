@@ -71,7 +71,7 @@
     LOOT: { RARITY, RARITY_ORDER, ITEMS, PROFILES, profileKeyFor, profileFor, buildSearchPlan, describeSlot,
       revealDelayMs, SEARCH_CONFIG, EFFECTS, EFFECT_ORDER, SHOP_ITEMS, FLOOR_POOL_ADD, floorPoolFor, containerFloor,
       PASSIVE_KINDS, PASSIVE_ORDER, passiveOf, passiveTotals },
-    // 肢体互动（跳跃 / 锤子）共享数值表：服务端判定与客户端渲染同源。
+    // 肢体互动（锤子）共享数值表：服务端判定与客户端渲染同源。
     ACTION
   };
   return WORLD;

@@ -190,8 +190,8 @@ try {
     const ready = await waitMetric('ready 亮青蓝', async () => { const cam = await browserCamX(); return sampleRegion(band.x, band.y, band.w, band.h, cam); }, m => m.cyan > 0);
     assert.ok(ready.cyan > 0, `接待台 64px 内应出现亮青蓝描边，实测 ${JSON.stringify(ready)}`);
     // UI 搜寻该容器（真实 DOM）
-    await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
-    await waitFor('E 打开接待台', async () => ev(`document.querySelector('#exploration h2')?.textContent==='接待台'`));
+    await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75);
+    await waitFor('K 打开接待台', async () => ev(`document.querySelector('#exploration h2')?.textContent==='接待台'`));
     await click('#exploration-action');
     await waitFor('接待台已搜', async () => { const s = await state(); return s.me.exploration.searched.includes(reception.id) && s.me.exploration.chips === 3; });
     const blocked = await waitMetric('blocked 灰描边', async () => { const cam = await browserCamX(); return sampleRegion(band.x, band.y, band.w, band.h, cam); }, m => m.grey > 0);
@@ -248,7 +248,7 @@ try {
 
   await test('联机 04 转盘覆盖层：打开、10 格、首次免费、可重复、chips 与 prize 一致、转动期间按钮禁用', async () => {
     await moveTo(520, 340);
-    await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
+    await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75);
     await waitFor('NPC 面板出现转盘', async () => ev(`!!document.querySelector('#exploration-wheel')&&document.querySelector('#exploration h2').textContent==='接待员小禾'`));
     // 本轮规则：转盘不再“用一次即禁用”，而是打开覆盖层且可重复转动。
     assert.equal(await ev(`document.querySelector('#exploration-wheel').disabled`), false, '转盘按钮应可用于打开覆盖层');
@@ -423,10 +423,10 @@ try {
   await test('联机 07 20Hz 快照下按钮身份稳定（#exploration-wheel）且旧互动小游戏入口已移除', async () => {
     await moveTo(520, 340);
     await ev(`(()=>{const c=document.querySelector('#exploration-close');if(c)c.click();})()`);
-    await ev(`document.querySelector('#office').focus()`); await key('e', 'KeyE', 69);
+    await ev(`document.querySelector('#office').focus()`); await key('k', 'KeyK', 75);
     await waitFor('NPC 面板转盘存在', async () => ev(`document.querySelector('#exploration h2')?.textContent==='接待员小禾'&&!!document.querySelector('#exploration-wheel')`));
     const wheel = await sampleStable('#exploration-wheel', 24);
-    // 猜拳已改为「靠近角色按 E / 点击角色 → 交互菜单 → 邀请猜拳」，工具栏「互动小游戏」入口已移除。
+    // 猜拳已改为「靠近角色按 K / 点击角色 → 交互菜单 → 邀请猜拳」，工具栏「互动小游戏」入口已移除。
     // 注意 #games 面板本身仍被猜拳对战复用（由 target 面板的邀请按钮打开），只有入口被移除。
     const removed = await ev(`JSON.stringify({toggle:!!document.querySelector('#games-toggle'),label:/互动小游戏/.test(document.querySelector('.toolbar-left')?.textContent||'')})`);
     assert.deepEqual(JSON.parse(removed), { toggle: false, label: false }, `旧互动小游戏入口应已移除，实测 ${removed}`);

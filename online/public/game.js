@@ -9,7 +9,8 @@
   const fieldNames = WORLD.FIELD_NAMES, traitNames = WORLD.TRAIT_NAMES, MASK = WORLD.MASK;
   const palettes = WORLD.PALETTES, zones = WORLD.ZONES;
   // 肢体互动常量与服务端共用同一份 world.js；渲染层只读，不自行判定命中或击晕。
-  const ACTION = WORLD.ACTION || { jumpMs: 520, jumpHeight: 16, jumpDodgeFrom: 0.18, jumpDodgeTo: 0.82, hammerRange: 58, hammerCooldownMs: 1000, frightMs: 750, stunMs: 750, bumpMs: 15000, maxBumps: 3 };
+  // 注：jump 动作已下线，原 jumpMs / jumpHeight / jumpDodgeFrom / jumpDodgeTo 一并移除。
+  const ACTION = WORLD.ACTION || { hammerRange: 58, hammerCooldownMs: 1000, frightMs: 750, stunMs: 750, bumpMs: 15000, maxBumps: 3 };
   // 方案 B（放大地图后的镜头）：视野宽度固定为「半层」，高度按地图视区比例自适应。
   // 放大 2× 后 FLOOR_W=2880，CAMERA_W=1440 → 一屏正好看半层；3:2 视区时高度为 960。
   // 这比固定世界高度更稳：窗口变宽只增加可看的横向范围，不会把人物越放越大。
@@ -635,11 +636,17 @@
     $('candidates').hidden = true; $('candidates').replaceChildren();
     lastTargetSig = ''; renderTarget(); renderRoster();
   }
+  // 目标公开档案的组织信息：合约区 + 交付组。显示在原“存活 · 公开档案”的位置；
+  // 没有员工档案（昵称试玩/NPC）时退回原来的存活/淘汰文案。
+  function targetOrgLine(p) {
+    return [p.dept, p.deliveryGroup].filter(Boolean).map(escapeText).join(' · ');
+  }
   function renderTarget() {
     const p = selected();
     if (!p) { clearPrivate(); $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
-    const status = p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作';
+    const orgLine = targetOrgLine(p);
+    const status = orgLine || (p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作');
     $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><button id="target-invite-minigame" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>小游戏</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">中央操作窗 · 展开期间请注意周围视线 · 切出页面自动隐藏</p>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     const minigameBtn = $('target-invite-minigame');
@@ -863,12 +870,12 @@
     const list = [...containers.map(entity => ({ kind: 'container', id: entity.id, entity })),
       ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity }))];
     // 需求①：楼层上的房间门 / 房间内的出口也进入「就近互动」候选，
-    // 这样 E 键与 HUD 只需一套排序逻辑，不需要给门单独开一条输入路径。
+    // 这样 K 键与 HUD 只需一套排序逻辑，不需要给门单独开一条输入路径。
     const door = roomDoorCandidate();
     if (door) list.push({ kind: 'door', id: door.room.id, entity: { x: door.room.door.x, y: door.room.door.y, name: door.room.name, room: door.room } });
     const exit = roomExitCandidate();
     if (exit) list.push({ kind: 'exit', id: exit.id, entity: { x: exit.exit.x, y: exit.exit.y, name: exit.name, room: exit } });
-    // 楼层游戏机：靠近按 E 直接进小游戏大厅（可跨楼层匹配）。
+    // 楼层游戏机：靠近按 K 直接进小游戏大厅（可跨楼层匹配）。
     for (const cab of furniture) {
       if (cab.type !== 'arcade') continue;
       list.push({ kind: 'arcade', id: cab.id, entity: { x: cab.x + cab.w / 2, y: cab.y + cab.h / 2, name: cab.label || '游戏机' } });
@@ -891,7 +898,7 @@
     return best ? { portal: best, access: bestAccess } : null;
   }
   // ---------- 需求①：房间门（进入 / 离开）----------
-  // 门是楼层与房间之间唯一的连接：门外按 E 进入，房间内走到门口按 E 离开。
+  // 门是楼层与房间之间唯一的连接：门外按 K 进入，房间内走到门口按 K 离开。
   // 位置还原由服务端保证（zoneReturn），客户端只提交意图。
   function roomDoorCandidate() {
     const self = selfPlayer();
@@ -1140,7 +1147,7 @@
       if (d < eD) { eD = d; eBest = { kind: item.kind, id: item.id }; }
     }
     // 电梯门不进入这套「就近取最近」的仲裁：它由 elevatorTarget() 单独处理（必须先于玩家/容器），
-    // 否则玩家只要靠近门就会在未面向门时也能乘梯，与「面对电梯按 E」冲突。
+    // 否则玩家只要靠近门就会在未面向门时也能乘梯，与「面对电梯按 K」冲突。
     const candidates = [];
     if (pBest) candidates.push({ d: pD, hit: pBest });
     if (eBest) candidates.push({ d: eD, hit: eBest });
@@ -1557,10 +1564,10 @@
     $('nearby-empty').textContent = !me ? '加入后靠近容器或 NPC'
       : finished ? '游戏已结束，探索已冻结'
         : !me.alive ? '已淘汰，无法探索'
-          : zoneId ? '靠近容器搜索 · 走到门口按 E 离开房间'
-            : '靠近容器 / NPC / 房间门，按 E 互动（64 像素）';
+          : zoneId ? '靠近容器搜索 · 走到门口按 K 离开房间'
+            : '靠近容器 / NPC / 房间门，按 K 互动（64 像素）';
   }
-  // 就近列表点击与 E 键共用同一套分流逻辑（门 → 容器 → NPC → 玩家档案）。
+  // 就近列表点击与 K 键共用同一套分流逻辑（门 → 容器 → NPC → 玩家档案）。
   function activateNearby(kind, id) {
     if (kind === 'door') { const r = WORLD.roomById(id); if (r) enterRoom(r.id, r.name); return; }
     if (kind === 'exit') { const r = WORLD.roomById(id); if (r) leaveRoom(r.name); return; }
@@ -1804,7 +1811,7 @@
     } catch { if (same()) { gamesResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showToast(gamesResult); } }
     finally { if (gamesFlight === request) gamesFlight = null; if (same()) { syncGames(); updateScoreDisplay(); } }
   }
-  // ---------- J 互动：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
+  // ---------- J 敲：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
   async function attack() {
     if (operationModalOpen()) return;
     if (combatFlight || !me || !me.alive || finished || selfDisabled() || rpsNow() < (me.combat?.attackUntil || 0)) return;
@@ -1838,7 +1845,7 @@
     const cooldown = combat ? Math.max(0, Math.ceil(((combat.attackUntil || 0) - now) / 1000)) : 0;
     if (button) {
       button.disabled = !me || !me.alive || finished || selfDisabled() || !!interactionFlight || !!combatFlight || !!gamesFlight || cooldown > 0;
-      button.textContent = cooldown > 0 ? `J · 互动 · 冷却 ${cooldown}s` : 'J · 互动';
+      button.textContent = cooldown > 0 ? `J · 敲 · 冷却 ${cooldown}s` : 'J · 敲';
     }
     const selfState = $('self-combat-state');
     if (selfState) selfState.textContent = !me ? '' : now < (combat?.freezeUntil || 0) ? '你被冻结中 · 暂时无法移动/互动'
@@ -1997,8 +2004,8 @@
     const self = selfPlayer();
     if (!self) return;
     const access = WORLD.portalAccess(self, portal);
-    if (!access.inReach) { showToast(access.reason || '距离电梯太远，请靠近后再按 E'); return; }
-    if (!access.facingOk) { showToast(access.reason || '请面向电梯门后再按 E'); return; }
+    if (!access.inReach) { showToast(access.reason || '距离电梯太远，请靠近后再按 K'); return; }
+    if (!access.facingOk) { showToast(access.reason || '请面向电梯门后再按 K'); return; }
     closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
     elevatorPicker = { portalId };
     const box = $('elevator-floors'); box.replaceChildren();
@@ -2854,13 +2861,10 @@
     const effectY = yb - (newShape ? 24 : 0);
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
     const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
-    // dev 分支并入：跳跃只在画面上把整身抬高（地面坐标不参与），镜头外由 visible 兜一层。
+    // dev 分支并入：镜头外的互动字段由投影的 visible 字段兜一层（脏值一律不下发）。
     const seen = p.visible !== false;
-    const z = seen ? (Number(p.z) || 0) : 0;
     ctx.save();
-    WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection, z);
-    // 身体绘制函数已把地面影子与跳跃分离；附加特效仍跟随腾空身体。
-    if (z) ctx.translate(0, -z);
+    WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection);
     // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
     if (p.freezeUntil && p.freezeUntil > now) {
       ctx.globalAlpha = .4 * a; rect(x - 13, effectY - 55, 26, newShape ? 86 : 62, '#bfe8ff');
@@ -3143,7 +3147,7 @@
       }
     }
   }
-  // 需求①：房间内的出口（门垫 + 提示），走到这里按 E 离开；位置会还原到进门时的站位。
+  // 需求①：房间内的出口（门垫 + 提示），走到这里按 K 离开；位置会还原到进门时的站位。
   function drawRoomExit(room) {
     const x = room.exit.x, y = room.exit.y;
     ctx.fillStyle = 'rgba(0,0,0,0.30)'; ctx.fillRect(x - 34, y - 12, 68, 24);
@@ -3537,7 +3541,7 @@
   };
   document.addEventListener('pointercancel', clearAllInput, true);
   const isTyping = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || (document.activeElement && document.activeElement.isContentEditable);
-  // 跳跃 / 挥锤额外放行按钮与链接：空格要能正常激活焦点里的按钮，不被游戏劫持。
+  // 挥锤额外放行按钮与链接：空格要能正常激活焦点里的按钮，不被游戏劫持。
   const isActionTarget = () => /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(document.activeElement && document.activeElement.tagName) || !!(document.activeElement && document.activeElement.isContentEditable);
   // 同一条中文原因只弹一次，避免按住键时刷屏。
   const actionToast = { text: '' };
@@ -3550,6 +3554,37 @@
     if (msg === actionToast.text) return;
     actionToast.text = msg;
     showToast(msg);
+  }
+  // K 场景交互（原 E 的语义）：物品格面板 → 私密面板 → 房间门 → 电梯 → 就近目标 → 兜底提示。
+  // 抽成具名函数是为了让 K 与未来的点击 / 手柄入口共用同一套仲裁顺序，不重复实现。
+  function interactNearest() {
+    // 物品格面板打开时，K 先收起面板（与其它私密面板一致）。
+    if (LOOT && LOOT.isOpen()) { LOOT.close(); return; }
+    if (explorationPanel) { closeExploration(); return; }
+    // 需求①：房间内先判「走到门口离开」，房间外先判「门口进入」——
+    // 门的优先级高于旁边的容器/NPC，避免站在门口按 K 却搜到了柜子。
+    const exitRoom = roomExitCandidate();
+    if (exitRoom) { leaveRoom(exitRoom.name); return; }
+    if (!zoneId) {
+      const door = roomDoorCandidate();
+      if (door) { enterRoom(door.room.id, door.room.name); return; }
+    }
+    // 需求2：站在电梯门前并面向门时，K 优先乘梯（弹选层面板），不被旁边的玩家/NPC/容器抢走。
+    const lift = elevatorTarget();
+    if (lift) {
+      if (lift.access.allowed) openElevatorPicker(lift.portal.id);
+      else showToast(lift.access.reason);
+      return;
+    }
+    const hit = nearestInteractable();
+    if (hit) {
+      if (hit.kind === 'player') select(hit.id);
+      else if (hit.kind === 'door') { const r = WORLD.roomById(hit.id); if (r) enterRoom(r.id, r.name); }
+      else if (hit.kind === 'exit') { const r = WORLD.roomById(hit.id); if (r) leaveRoom(r.name); }
+      else if (hit.kind === 'container') openLootFor(explorationEntity('container', hit.id));
+      else if (hit.kind === 'arcade') { if (SID.minigame) SID.minigame.open({ arcade: true }); }
+      else openExploration(hit.kind, hit.id);
+    } else showToast(zoneId ? '走到门口按 K 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
   }
   document.addEventListener('keydown', e => {
     // F1 碰撞调试层：任何时候都可开关，不改变输入/权威状态。
@@ -3582,9 +3617,9 @@
       if (!$('games').hidden) { e.preventDefault(); exitRps(); return; }
       clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return;
     }
-    // 转盘 / 结算覆盖层打开时，忽略移动、E、J 等游戏内按键。
+    // 转盘 / 结算覆盖层打开时，忽略移动、K、J 等游戏内按键。
     if (wheelOpen || !$('finish-overlay').hidden || !$('games').hidden) return;
-    // 电梯选层面板打开时：忽略移动 / E / J（先选楼层或 Esc 取消），数字键直达对应楼层。
+    // 电梯选层面板打开时：忽略移动 / K / J（先选楼层或 Esc 取消），数字键直达对应楼层。
     if (elevatorPicker) {
       if (/^[1-7]$/.test(e.key)) {
         e.preventDefault();
@@ -3593,7 +3628,7 @@
       } else e.preventDefault();
       return;
     }
-    // 电梯过渡进行中：忽略移动 / E / J，避免在换层中途驱动旧层或重复发起。
+    // 电梯过渡进行中：忽略移动 / K / J，避免在换层中途驱动旧层或重复发起。
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return;
     if (isTyping()) return;
     // B：随时开关背包（画布正中弹出）。
@@ -3605,42 +3640,17 @@
       openExploration('backpack');
       return;
     }
-    if (e.code === 'KeyE') {
+    // K 场景交互（原 E）/ J 敲（幽灵 J 吓人）：服务端权威，这里只提交意图。
+    // K 走「就近场景交互」仲裁序列（含进/出房间、乘电梯、搜箱/NPC/玩家档案），不受 isActionTarget 限制；
+    // J 只负责手持木锤的无伤害敲击，焦点在按钮/链接上时让给原生 space/enter 激活。
+    if (e.code === 'KeyK') {
       e.preventDefault(); if (e.repeat) return;
-      // 物品格面板打开时，E 先收起面板（与其它私密面板一致）。
-      if (LOOT && LOOT.isOpen()) { LOOT.close(); return; }
-      if (explorationPanel) { closeExploration(); return; }
-      // 需求①：房间内先判「走到门口离开」，房间外先判「门口进入」——
-      // 门的优先级高于旁边的容器/NPC，避免站在门口按 E 却搜到了柜子。
-      const exitRoom = roomExitCandidate();
-      if (exitRoom) { leaveRoom(exitRoom.name); return; }
-      if (!zoneId) {
-        const door = roomDoorCandidate();
-        if (door) { enterRoom(door.room.id, door.room.name); return; }
-      }
-      // 需求2：站在电梯门前并面向门时，E 优先乘梯（弹选层面板），不被旁边的玩家/NPC/容器抢走。
-      const lift = elevatorTarget();
-      if (lift) {
-        if (lift.access.allowed) openElevatorPicker(lift.portal.id);
-        else showToast(lift.access.reason);
-        return;
-      }
-      const hit = nearestInteractable();
-      if (hit) {
-        if (hit.kind === 'player') select(hit.id);
-        else if (hit.kind === 'door') { const r = WORLD.roomById(hit.id); if (r) enterRoom(r.id, r.name); }
-        else if (hit.kind === 'exit') { const r = WORLD.roomById(hit.id); if (r) leaveRoom(r.name); }
-        else if (hit.kind === 'container') openLootFor(explorationEntity('container', hit.id));
-        else if (hit.kind === 'arcade') { if (SID.minigame) SID.minigame.open({ arcade: true }); }
-        else openExploration(hit.kind, hit.id);
-      } else showToast(zoneId ? '走到门口按 E 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
+      interactNearest();
       return;
     }
-    // K 跳跃 / J 攻击（幽灵 J 吓人）：服务端权威，这里只提交意图。
-    if (e.code === 'KeyK' || e.code === 'KeyJ') {
+    if (e.code === 'KeyJ') {
       e.preventDefault(); if (e.repeat || isActionTarget()) return;
-      if (e.code === 'KeyK') sendAction('jump');
-      else if (me && !me.alive) sendAction('scare');
+      if (me && !me.alive) sendAction('scare');
       else attack();
       return;
     }

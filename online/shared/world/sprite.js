@@ -20,8 +20,133 @@
     return color;
   }
   const ATTACK_ANIMATION_MS = 260;
-  // 袖口、前臂、握点与木锤共用同一组关节；逐像素栅格化，旋转时不产生平滑边缘。
-  function drawCharacterAttack(rect, x, y, direction, age, colors) {
+  // 新版 V4 素材（public/assets/characters-v4）的 cell 尺寸/缩放/脚底锚点；
+  // 权威定义在 public/js/render/characters.js:9（CELL_W=64,CELL_H=112,SCALE=.8，锚点 (32,104)），此处保持一致。
+  const NEW_CELL_W = 64, NEW_SCALE = .8, NEW_FOOT_X = 32, NEW_FOOT_Y = 104;
+  const ATTACK_FADE_IN_MS = 40, ATTACK_FADE_OUT_MS = 50;
+  // 挥锤关键帧 [手x, 手y, 锤柄角]：cell 坐标（原点=素材格左上角，y 向下；角 0=指向 +x，正值向下）。
+  // 手位与素材静止手（base 层肤色连通块实测）对齐，首末帧落回静止手位 → 与不打时无缝：
+  //   male front 右手 x44..50/y69..76 → (47,73)；male right 近侧手 x22..31/y69..77 → (27,73)；female 整体低 2px。
+  // 手必须摆到剪影外面动作才读得出来：素材头占 y8..50/x17..47、躯干+双臂 y56..64 横跨 x15..50，
+  // 落在这些范围里的手和手臂都是“隐形”的，所以举锤帧一律抬到 y≤40 并超出头/躯干侧缘，
+  // 下砸帧甩过身体中线到另一侧偏低位置。
+  const ATTACK_POSES = {
+    male: {
+      front: { times: [0, .26, .45, .68, 1], poses: [[47, 73, 1], [55, 38, -1.75], [53, 32, -1.55], [36, 84, .85], [47, 73, 1]] },
+      back: { times: [0, .26, .45, .68, 1], poses: [[16, 73, 2.14], [9, 38, -1.39], [11, 32, -1.59], [28, 84, 2.29], [16, 73, 2.14]] },
+      // 侧面头部剪影是 x8..50/y8..50 的一大团头发：手和锤必须甩到 x<10 或 y<10 才看得见，
+      // 所以举锤帧把锤头送到头后上方（cell 外也在所不惜，游戏画布不裁剪）。
+      // 下砸段先甩到胸前前方 (36,60) 再下劈，锤头从头前上方直落到身前，不横穿脸。
+      right: { times: [0, .22, .45, .62, .78, 1], poses: [[27, 73, .95], [14, 40, -2.31], [16, 26, -1.9], [36, 60, -.2], [42, 80, .6], [27, 73, .95]] }
+    },
+    female: {
+      front: { times: [0, .26, .45, .68, 1], poses: [[45, 75, 1], [53, 40, -1.75], [51, 34, -1.55], [34, 86, .85], [45, 75, 1]] },
+      back: { times: [0, .26, .45, .68, 1], poses: [[18, 75, 2.14], [11, 40, -1.39], [13, 34, -1.59], [30, 86, 2.29], [18, 75, 2.14]] },
+      right: { times: [0, .22, .45, .62, .78, 1], poses: [[28, 75, .95], [15, 42, -2.31], [17, 28, -1.9], [37, 62, -.2], [43, 82, .6], [28, 75, .95]] }
+    }
+  };
+  // 肩关节（cell 坐标）：手臂从这里伸出，落在上衣肩线上，不在脖子或腰上。
+  const ATTACK_SHOULDERS = {
+    male: { front: [46, 55], back: [17, 55], right: [28, 53] },
+    female: { front: [44, 57], back: [18, 57], right: [28, 55] }
+  };
+  // 挥击期间用袖子色盖住素材的静止手（否则屏幕上同时出现“素材的手”和“举起的手”）。
+  // 盒子只圈住手部肤色及其描边，全部落在该侧衣袖轮廓内部；female y94..100 的脚踝肤色不在此范围。
+  // 背面整条手臂由身体遮挡，无需覆盖。
+  const ATTACK_HAND_COVER = {
+    male: { front: [43, 67, 10, 11], right: [21, 67, 12, 11] },
+    female: { front: [42, 71, 8, 8], right: [24, 71, 9, 8] }
+  };
+  // 攻击手臂的渐入渐出（毫秒）：消除“手和锤突然出现又突然消失”的硬切。
+  function attackAlpha(age) {
+    if (!Number.isFinite(age) || age <= 0 || age >= ATTACK_ANIMATION_MS) return 0;
+    if (age < ATTACK_FADE_IN_MS) return age / ATTACK_FADE_IN_MS;
+    const left = ATTACK_ANIMATION_MS - age;
+    if (left < ATTACK_FADE_OUT_MS) return left / ATTACK_FADE_OUT_MS;
+    return 1;
+  }
+  // 挥锤配色（与 drawCharacterBody 内推导一致），供预览/调试复用。
+  function attackColors(p) {
+    const c = p.colors, hi = Math.max(0, PALETTES.hair.findIndex(o => o[0] === c.hair[0]));
+    const skin = SKIN[hi], top = c.top[1];
+    return { outline: '#1c1620', skin, skinLo: characterShade(skin, -.24), top, topHi: characterShade(top, .24), topLo: characterShade(top, -.3) };
+  }
+  // 挥锤手臂与木锤：在 cell 空间（与素材同坐标系）逐像素栅格化，(ox,oy)=素材格左上角的屏幕坐标，
+  // rect 为屏幕空间 fillRect。'left' 与 'right' 共用关键帧，绘制时按格中心镜像。
+  function drawCharacterAttack(rect, ox, oy, direction, age, colors, opts) {
+    opts = opts || {};
+    const female = !!opts.female, cover = opts.cover !== false;
+    const S = NEW_SCALE, flip = direction === 'left';
+    const base = flip ? 'right' : direction;
+    const build = ATTACK_POSES[female ? 'female' : 'male'];
+    const key = base === 'back' ? 'back' : base === 'front' ? 'front' : 'right';
+    const times = build[key].times, poses = build[key].poses;
+    const t = age / ATTACK_ANIMATION_MS;
+    let i = 0;
+    while (i < times.length - 2 && t >= times[i + 1]) i++;
+    const u = (t - times[i]) / (times[i + 1] - times[i]), eased = u * u * (3 - 2 * u);
+    const mix = (a, b) => a + (b - a) * eased;
+    const hand = { x: mix(poses[i][0], poses[i + 1][0]), y: mix(poses[i][1], poses[i + 1][1]) };
+    const angle = mix(poses[i][2], poses[i + 1][2]);
+    // ATTACK_SHOULDERS 里存的是 [x,y] 数组，必须先解构；直接取 .x/.y 会得到 undefined，
+    // 导致 shoulder→elbow→hand 三段 segment 的坐标全是 NaN，循环一次都不执行——
+    // 结果就是「只有锤子和手、完全没有手臂」。
+    const shoulderCell = ATTACK_SHOULDERS[female ? 'female' : 'male'][base];
+    const shoulder = { x: shoulderCell[0], y: shoulderCell[1] };
+    const elbow = { x: shoulder.x + (hand.x - shoulder.x) * .55 + (base === 'back' ? -3 : 3),
+      y: shoulder.y + (hand.y - shoulder.y) * .55 + 3 };
+    // cell 空间 → 屏幕空间：先按格中心镜像（left），再乘素材缩放，最后逐边取整保证不产生模糊边。
+    const pixel = (px, py, w, h, color) => {
+      if (flip) px = NEW_CELL_W - px - w;
+      const X = ox + px * S, Y = oy + py * S, X1 = ox + (px + w) * S, Y1 = oy + (py + h) * S;
+      const rx = Math.round(X), ry = Math.round(Y);
+      rect(rx, ry, Math.max(1, Math.round(X1) - rx), Math.max(1, Math.round(Y1) - ry), color);
+    };
+    const segment = (a, b, width, color) => {
+      const steps = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y)));
+      for (let j = 0; j <= steps; j++) {
+        pixel(Math.round(a.x + (b.x - a.x) * j / steps) - (width >> 1),
+          Math.round(a.y + (b.y - a.y) * j / steps) - (width >> 1), width, width, color);
+      }
+    };
+    // 先遮掉素材的静止手（袖子同色，视觉上变成一段空袖口），再画抬起的手臂，
+    // 避免“胯边一只手 + 又举起一只手”。
+    if (cover) {
+      const box = ATTACK_HAND_COVER[female ? 'female' : 'male'][base];
+      if (box) pixel(box[0], box[1], box[2], box[3], colors.top);
+    }
+    // 上臂（袖子）描边 9 + topLo，小臂 skin 打底 + skinLo 描边 8：0.8 缩放后仍有 5~6 屏幕像素，
+    // 手臂伸出体外时不会被身体同色吃掉。
+    segment(shoulder, elbow, 9, colors.outline);
+    segment(elbow, hand, 8, colors.skinLo);
+    segment(shoulder, elbow, 7, colors.topLo);
+    segment(elbow, hand, 5, colors.skin);
+    segment({ x: shoulder.x - 1, y: shoulder.y - 1 }, { x: elbow.x - 1, y: elbow.y - 1 }, 2, colors.topHi);
+    const vx = Math.cos(angle), vy = Math.sin(angle);
+    // 锤子按新身体比例放大：柄长 19、锤头 12×20（cell 像素），51×90 显示尺寸下能一眼认出。
+    const handleEnd = { x: hand.x + vx * 19, y: hand.y + vy * 19 };
+    const handleButt = { x: hand.x - vx * 3, y: hand.y - vy * 3 };
+    segment(handleButt, handleEnd, 5, colors.outline);
+    segment(handleButt, handleEnd, 3, '#986039');
+    // 锤头的横轴始终垂直于锤柄，保留深棕端面、暖木色与木纹。
+    for (let py = Math.floor(handleEnd.y - 14); py <= Math.ceil(handleEnd.y + 14); py++) {
+      for (let px = Math.floor(handleEnd.x - 14); px <= Math.ceil(handleEnd.x + 14); px++) {
+        const dx = px - handleEnd.x, dy = py - handleEnd.y;
+        const along = dx * vx + dy * vy, across = -dx * vy + dy * vx;
+        if (Math.abs(along) > 6 || Math.abs(across) > 10) continue;
+        const color = Math.abs(along) > 5 || Math.abs(across) > 9 ? colors.outline
+          : across > 6 ? '#75472d' : along < -2 ? '#ddb078'
+            : Math.abs(along - 1) < .6 ? '#a36b40' : '#bd8750';
+        pixel(px, py, 1, 1, color);
+      }
+    }
+    // 手掌最后盖住锤柄握点，不能出现柄与手分离的悬浮武器。
+    pixel(Math.round(hand.x) - 4, Math.round(hand.y) - 4, 8, 8, colors.outline);
+    pixel(Math.round(hand.x) - 3, Math.round(hand.y) - 3, 6, 6, colors.skin);
+    pixel(Math.round(hand.x) - 3, Math.round(hand.y) + 2, 6, 1, colors.skinLo);
+  }
+  // 旧版（非 V4 素材）逐块身体共用：以脚底中心为原点、1:1 像素空间的挥锤，保持历史外观不变。
+  function drawLegacyAttack(rect, x, y, direction, age, colors) {
     const t = age / ATTACK_ANIMATION_MS;
     const side = direction === 'left' || direction === 'right', back = direction === 'back';
     const poses = side
@@ -71,7 +196,8 @@
     pixel(Math.round(hand.x) - 2, Math.round(hand.y) + 1, 4, 1, colors.skinLo);
   }
   // 可选攻击 age 单位为毫秒；固定攻击方向只影响这次挥击，待机/走路仍使用原外观。
-  function drawCharacterBody(g, p, clock, attackAgeMs = null, attackDirection = null, elevation = 0) {
+  // 跳跃已下线：不再接收 elevation，地面影子透明度固定 0.3。
+  function drawCharacterBody(g, p, clock, attackAgeMs = null, attackDirection = null) {
     g.save();
     const rect = (x, y, w, h, color) => {
       g.fillStyle = color;
@@ -92,23 +218,37 @@
     const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
     const attacking = p.alive && Number.isFinite(attackAgeMs) && attackAgeMs >= 0 && attackAgeMs < ATTACK_ANIMATION_MS;
     const direction = (attacking ? attackDirection : p.spriteFacing) || p.spriteFacing || 'front';
-    const drawAttack = () => drawCharacterAttack(rect, x, yb, direction, attackAgeMs,
+    const drawAttack = () => drawLegacyAttack(rect, x, yb, direction, attackAgeMs,
       { outline: OL, skin, skinLo, topLo, topHi });
-    // 地面阴影贴在脚底中心，先绘制再抬高跳跃身体，避免影子与人物一起离地。
-    const z = Math.max(0, Number(elevation) || 0);
-    g.globalAlpha = (z > 0 ? .22 : .3) * a;
+    // 地面阴影贴在脚底中心，先绘制再画身体；影子透明度固定（跳跃已下线）。
+    g.globalAlpha = .3 * a;
     rect(x - 11, Math.round(p.y) - 1, 22, 4, '#0f0a12');
     g.globalAlpha = a;
-    if (z) g.translate(0, -z);
     const newCharacters = typeof window !== 'undefined' ? window.SID?.characterSprites : null;
     // clock 供新版人物做行走/呼吸起伏；地面影子仍在脚底，不随起伏移动。
-    if (newCharacters?.drawBody(g, p, direction, clock)) {
-      // 地面锚点/跳跃/在线透明度仍由本函数控制；挥锤沿用原权威动作时间。
+    if (newCharacters && newCharacters.status === 'ready' && typeof newCharacters.drawBody === 'function') {
+      // 挥锤与素材共用同一变换：cell 原点=素材格左上角，脚底锚点 (32,104)，整体 0.8 缩放，
+      // 手臂任意像素与身体任意像素一一对齐；起伏只跟随 bodyBob 一次，不再叠加旧 bob。
       if (attacking) {
-        // 身体随步频起伏时，手臂与木锤必须跟着同一偏移，否则会与肩部脱开。
         const lift = typeof newCharacters.bodyBob === 'function' ? newCharacters.bodyBob(p, clock) : 0;
-        g.save();g.translate(0,-17+lift);drawAttack();g.restore();
+        const female = typeof newCharacters.style === 'function' ? newCharacters.style(p) === 'female' : false;
+        const swingColors = attackColors(p);
+        const drawSwing = () => {
+          const alpha = attackAlpha(attackAgeMs);
+          if (alpha <= 0) return;
+          g.save();
+          g.globalAlpha *= alpha;
+          drawCharacterAttack(rect, x - NEW_FOOT_X * NEW_SCALE,
+            Math.round(p.y) - NEW_FOOT_Y * NEW_SCALE + lift, direction, attackAgeMs, swingColors, { female });
+          g.restore();
+        };
+        // 背面先画手臂，再由背部与后脑自然遮挡锤子；其余朝向手臂在身体前景。
+        if (direction === 'back') drawSwing();
+        newCharacters.drawBody(g, p, direction, clock);
+        if (direction !== 'back') drawSwing();
+        g.restore();return;
       }
+      newCharacters.drawBody(g, p, direction, clock);
       g.restore();return;
     }
     if (direction === 'left' || direction === 'right') {
@@ -191,5 +331,5 @@
     }
     g.restore();
   }
-  return { SKIN, characterShadeCache, characterShade, ATTACK_ANIMATION_MS, drawCharacterAttack, drawCharacterBody };
+  return { SKIN, characterShadeCache, characterShade, ATTACK_ANIMATION_MS, ATTACK_POSES, ATTACK_SHOULDERS, ATTACK_HAND_COVER, attackAlpha, attackColors, drawCharacterAttack, drawCharacterBody };
 });
