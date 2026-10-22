@@ -1,6 +1,7 @@
 'use strict';
 // room 子模块：可调配置（技能/探索/随机池）与随机工具。改数值只需动这个文件。
 const WORLD = require('../shared/world.js');
+const { normalizeGender, HAIR_PARITY, hairIndexAllowed } = require('../shared/gender.js');
 
 const SKILL_CONFIG = {
   chargeIntervalMs: 90_000, // 正式版改为 1_200_000（20 分钟）
@@ -45,7 +46,21 @@ const TRAIT_POOL = {
 const pick = list => list[Math.floor(Math.random() * list.length)];
 const randChar = () => SEG_CHARS[Math.floor(Math.random() * SEG_CHARS.length)];
 const randomSid = () => [0, 1, 2].map(() => randChar() + randChar() + randChar());
-const randomColors = () => Object.fromEntries(Object.entries(WORLD.PALETTES).map(([k, options]) => [k, pick(options)]));
+// 形象由公开发色索引奇偶决定（见 shared/gender.js 与客户端 characters.js）。
+// 指定性别时只从同奇偶的发色里挑，其它部位保持随机；未指定时退回原行为。
+function hairOptionsForGender(gender) {
+  const parsed = normalizeGender(gender);
+  if (!parsed) return WORLD.PALETTES.hair;
+  return WORLD.PALETTES.hair.filter((_, index) => index % 2 === HAIR_PARITY[parsed]);
+}
+const pickHairColor = gender => pick(hairOptionsForGender(gender));
+const randomColors = gender => {
+  const hair = hairOptionsForGender(gender);
+  return Object.fromEntries(Object.entries(WORLD.PALETTES).map(([k, options]) => [k, k === 'hair' ? pick(hair) : pick(options)]));
+};
 const randomTraits = () => Object.fromEntries(Object.keys(TRAIT_POOL).map(k => [k, pick(TRAIT_POOL[k])]));
 
-module.exports = { SKILL_CONFIG, EXPLORATION_REWARDS, SEG_CHARS, NAME_POOL, TRAIT_POOL, pick, randChar, randomSid, randomColors, randomTraits };
+module.exports = {
+  SKILL_CONFIG, EXPLORATION_REWARDS, SEG_CHARS, NAME_POOL, TRAIT_POOL,
+  pick, randChar, randomSid, normalizeGender, hairIndexAllowed, hairOptionsForGender, pickHairColor, randomColors, randomTraits
+};

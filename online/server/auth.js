@@ -46,20 +46,36 @@ function actingSession(req, url) {
   return sessionOf(req, url);
 }
 
+// 把员工档案里的性别补到 CAS 会话上：/api/auth/me 与 /api/join 都读这一个来源。
+// 档案库没有该工号时保留 CAS 自带性别；两者都没有则为 null，加入时退回随机形象。
+function withProfile(user, PROFILES) {
+  if (!user || !PROFILES) return user;
+  const employee = PROFILES.employeeOf(user.emp_no);
+  if (!employee) return user;
+  const normalize = typeof PROFILES.normalizeGender === 'function' ? PROFILES.normalizeGender : value => value;
+  return {
+    ...user,
+    name: user.name || employee.name,
+    gender: normalize(employee.gender) || normalize(user.gender) || null,
+    department: employee.department || user.department || null,
+    deliveryGroup: employee.deliveryGroup || user.deliveryGroup || null
+  };
+}
+
 // 正式服务的游戏接口必须带 CAS 会话；例外：auth/manager/dev/host/test。
 const SSO_EXEMPT = /^\/api\/(auth|manager|dev|host|test)(\/|$)/;
 
 // 返回 true 表示已应答（401 未登录）；false 表示放行。
-async function requireSso({ req, res, url, pathname }) {
+async function requireSso({ req, res, url, pathname, PROFILES }) {
   if (!pathname.startsWith('/api/') || SSO_EXEMPT.test(pathname) || !SSO_REQUIRED) return false;
   const user = await sso.getProfile(userTokenOf(req, url));
   if (!user) { send(res, 401, { error: '未登录或会话已过期', auth: false }); return true; }
-  req.ssoUser = user;
+  req.ssoUser = withProfile(user, PROFILES);
   return false;
 }
 
 // 路由模块约定：返回 false 表示未处理，其它返回值都表示已应答。
-async function handle({ req, res, url, pathname }) {
+async function handle({ req, res, url, pathname, PROFILES }) {
   if (pathname === '/api/auth/config' && req.method === 'GET') {
     const required = SSO_REQUIRED;
     return send(res, 200, { required, loginUrl: required ? sso.loginUrl() : '', logoutUrl: required ? sso.logoutUrl() : '' });
@@ -70,7 +86,8 @@ async function handle({ req, res, url, pathname }) {
     const token = await sso.authenticate(body.ticket, body.service);
     if (!token) return send(res, 200, { token: '' });
     setUserCookie(res, token);
-    return send(res, 200, { token, user: await sso.getProfile(token) });
+    const user = withProfile(await sso.getProfile(token), PROFILES);
+    return send(res, 200, { token, user });
   }
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
     await sso.revoke(userTokenOf(req, url));
@@ -84,10 +101,15 @@ async function handle({ req, res, url, pathname }) {
   return false;
 }
 
-async function handleMe({ req, res, pathname }) {
+async function handleMe({ req, res, url, pathname, PROFILES }) {
   if (pathname === '/api/auth/me' && req.method === 'GET') {
-    if (!req.ssoUser) return send(res, 401, { error: '未登录或会话已过期', auth: false });
-    return send(res, 200, req.ssoUser);
+    // /api/auth/me 属于 auth 例外，不会经过 requireSso 的预解析；这里自行解析一次，
+    // 否则浏览器拿到 401 会在“已登录”和“重新登录”之间来回跳。
+    const user = SSO_REQUIRED
+      ? (req.ssoUser || withProfile(await sso.getProfile(userTokenOf(req, url)), PROFILES))
+      : req.ssoUser;
+    if (!user) return send(res, 401, { error: '未登录或会话已过期', auth: false });
+    return send(res, 200, user);
   }
   return false;
 }

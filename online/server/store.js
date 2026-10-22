@@ -26,6 +26,7 @@ function createStore(options = {}) {
       saveRound() { }, savePlayers() { }, loadLastRound() { return null; },
       saveSnapshot() { return false; }, loadSnapshot() { return null; }, clearSnapshot() { return false; },
       saveFeatures() { return false; }, loadFeatures() { return null; },
+      saveEmployees() { return 0; }, getEmployee() { return null; }, employeeCount() { return 0; },
       loadAdmin() { return null; }, saveAdmin() { return false; },
       archiveDay() { return false; }, loadDays() { return []; }, archiveSession() { return false; }, loadSessions() { return []; }, close() { }
     };
@@ -84,10 +85,24 @@ function createStore(options = {}) {
         features_json TEXT NOT NULL DEFAULT '{}',
         saved_at INTEGER NOT NULL
       );
+      -- 员工档案：SSO 登录后按工号取性别，决定男/女形象。只存做出角色分配所必需的字段。
+      CREATE TABLE IF NOT EXISTS employees (
+        emp_no TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        gender TEXT,
+        email TEXT,
+        department TEXT,
+        delivery_group TEXT,
+        title TEXT,
+        synced_at INTEGER NOT NULL
+      );
     `);
     // 轻量迁移：早于本轮创建的库没有 features_json 列，CREATE TABLE IF NOT EXISTS 不会补列，
     // 会导致 prepared statement 启动即报错（服务直接起不来）。
     try { db.exec("ALTER TABLE snapshot ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'"); }
+    catch { /* 列已存在：正常路径 */ }
+    // 员工档案新增交付组列：老库已有 employees 表时补列，不影响已有数据。
+    try { db.exec("ALTER TABLE employees ADD COLUMN delivery_group TEXT"); }
     catch { /* 列已存在：正常路径 */ }
     state.enabled = true;
   } catch (error) {
@@ -122,6 +137,16 @@ function createStore(options = {}) {
   `);
   const selectSnapshot = db && db.prepare(`SELECT * FROM snapshot WHERE id = 1`);
   const deleteSnapshot = db && db.prepare(`DELETE FROM snapshot WHERE id = 1`);
+  const upsertEmployee = db && db.prepare(`
+    INSERT INTO employees (emp_no, name, gender, email, department, delivery_group, title, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(emp_no) DO UPDATE SET
+      name = excluded.name, gender = excluded.gender, email = excluded.email,
+      department = excluded.department, delivery_group = excluded.delivery_group,
+      title = excluded.title, synced_at = excluded.synced_at
+  `);
+  const selectEmployee = db && db.prepare(`SELECT * FROM employees WHERE emp_no = ?`);
+  const countEmployees = db && db.prepare(`SELECT COUNT(*) AS n FROM employees`);
 
   // 整局快照：玩家（去掉 NPC）与会话映射。重启后原样塞回 room，长局不会因为一次发版就从零开始。
   function saveSnapshot(snapshot) {
@@ -164,6 +189,62 @@ function createStore(options = {}) {
   function clearSnapshot() {
     if (!state.enabled) return false;
     try { deleteSnapshot.run(); return true; } catch { return false; }
+  }
+
+  // 员工档案全量 upsert。返回写入条数；不删除本次响应里没出现的旧工号，
+  // 因为上游可能分页/临时缺人，删除会让老员工突然退回随机形象。
+  function saveEmployees(list) {
+    if (!state.enabled || !Array.isArray(list) || !list.length) return 0;
+    let saved = 0;
+    try {
+      db.exec('BEGIN IMMEDIATE');
+      for (const item of list) {
+        if (!item || !item.empNo) continue;
+        upsertEmployee.run(
+          String(item.empNo),
+          String(item.name || item.empNo),
+          item.gender || null,
+          item.email || null,
+          item.department || null,
+          item.deliveryGroup || null,
+          item.title || null,
+          Date.now()
+        );
+        saved++;
+      }
+      db.exec('COMMIT');
+      return saved;
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+      state.error = String(error && error.message || error);
+      return 0;
+    }
+  }
+
+  function getEmployee(empNo) {
+    if (!state.enabled || !empNo) return null;
+    try {
+      const row = selectEmployee.get(String(empNo));
+      if (!row) return null;
+      return {
+        empNo: row.emp_no,
+        name: row.name,
+        gender: row.gender || null,
+        email: row.email || null,
+        department: row.department || null,
+        deliveryGroup: row.delivery_group || null,
+        title: row.title || null,
+        syncedAt: row.synced_at
+      };
+    } catch (error) {
+      state.error = String(error && error.message || error);
+      return null;
+    }
+  }
+
+  function employeeCount() {
+    if (!state.enabled) return 0;
+    try { return Number(countEmployees.get().n) || 0; } catch { return 0; }
   }
 
   function saveRound(summary) {
@@ -285,6 +366,7 @@ function createStore(options = {}) {
 
   return { ...state, enabled: state.enabled, file, error: state.error,
     saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures,
+    saveEmployees, getEmployee, employeeCount,
     loadAdmin, saveAdmin, archiveDay, loadDays, archiveSession, loadSessions,
     close, reason: state.error || 'ok' };
 }

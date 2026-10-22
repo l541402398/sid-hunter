@@ -9,10 +9,10 @@ const sessionRoutes = require('./routes/session.js');
 const gameplayRoutes = require('./routes/gameplay.js');
 const devRoutes = require('./routes/dev.js');
 
-function makeRouter({ ROOM, MANAGER, resetTokens, WORLD, openStream, ACTIVITY = null }) {
+function makeRouter({ ROOM, MANAGER, resetTokens, WORLD, openStream, ACTIVITY = null, PROFILES = null }) {
   return async function route(req, res, url) {
     const pathname = url.pathname;
-    const ctx = { req, res, url, pathname, ROOM, MANAGER, resetTokens, WORLD, openStream };
+    const ctx = { req, res, url, pathname, ROOM, MANAGER, resetTokens, WORLD, openStream, PROFILES };
     const handled = async handler => (await handler(ctx)) !== false;
     if (await handled(auth.handle)) return;
     if (await handled(auth.requireSso)) return;

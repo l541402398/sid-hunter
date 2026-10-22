@@ -17,7 +17,7 @@ const { createEvents } = require('./events.js');
 const charges = require('./charges.js');
 const {
   SKILL_CONFIG, EXPLORATION_REWARDS, SEG_CHARS, NAME_POOL, TRAIT_POOL,
-  pick, randChar, randomSid, randomColors, randomTraits
+  pick, randChar, randomSid, randomColors, randomTraits, normalizeGender, hairIndexAllowed, pickHairColor
 } = require('./config.js');
 
 // 可见性分层开关：默认关闭，压测达标后再打开。
@@ -182,6 +182,11 @@ function createRoom(options = {}) {
     const text = [...clean(name)].slice(0, 32).join('');
     return text || [...clean(fallback)].slice(0, 32).join('') || '玩家';
   }
+  // 组织信息来自员工档案，只在目标公开档案里展示；清掉控制字符并限制长度。
+  function cleanOrg(value) {
+    const text = String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    return [...text].slice(0, 64).join('') || null;
+  }
   function bindSession(player, sessionId) {
     if (player.sessionId && player.sessionId !== sessionId) room.sessions.delete(player.sessionId);
     player.sessionId = sessionId;
@@ -276,12 +281,36 @@ function createRoom(options = {}) {
     while (room.players.some(p => p.name === `${name}${n}`)) n++;
     return `${name}${n}`;
   }
+  // SSO 性别落到既有角色上：只纠正发色（公开形象的唯一依据），保留阵营、其它配色与进度。
+  // 已经符合性别时不再重随机，避免每次重连形象都在变。
+  function applyGender(player, rawGender) {
+    const gender = normalizeGender(rawGender);
+    if (!gender) return player;
+    const hair = player.colors && player.colors.hair;
+    const index = (WORLD.PALETTES.hair || []).findIndex(item => item[0] === (hair && hair[0]));
+    player.gender = gender;
+    if (index < 0 || !hairIndexAllowed(index, gender)) {
+      player.colors = { ...player.colors, hair: pickHairColor(gender) };
+    }
+    return player;
+  }
+  // 回座/重连时同步组织信息；老角色没有这两个字段也能补上。
+  function applyOrg(player, dept, deliveryGroup) {
+    if (dept) player.dept = dept;
+    if (deliveryGroup) player.deliveryGroup = deliveryGroup;
+    return player;
+  }
   function join(sessionId, nickname, identity) {
     const empNo = identity && identity.empNo ? String(identity.empNo) : '';
+    const gender = normalizeGender(identity && identity.gender);
+    const dept = cleanOrg(identity && identity.dept);
+    const deliveryGroup = cleanOrg(identity && identity.deliveryGroup);
     if (empNo) {
       const bound = playerByEmpNo(empNo);
       if (bound) {
-        // 同一工号回到原座位：不新开角色，也不改已经发下的阵营。
+        // 同一工号回到原座位：不新开角色，也不改已经发下的阵营；只按员工性别校正形象。
+        applyGender(bound, gender);
+        applyOrg(bound, dept, deliveryGroup);
         bindSession(bound, sessionId);
         return { player: bound, revived: true };
       }
@@ -290,6 +319,8 @@ function createRoom(options = {}) {
     if (existing) {
       if (empNo && existing.empNo && existing.empNo !== empNo) return { error: '身份凭证已绑定其他玩家' };
       // 只恢复身份；online 由流建立时置真，好让重连摘要先固化。
+      applyGender(existing, gender);
+      applyOrg(existing, dept, deliveryGroup);
       existing.lastSeen = now();
       return { player: existing, revived: true };
     }
@@ -307,7 +338,12 @@ function createRoom(options = {}) {
       id,
       name,
       empNo: empNo || null,
-      colors: randomColors(),
+      // 仅服务端内部保存，不进入公开/私密快照；公开形象仍只由 colors.hair 决定。
+      gender: gender || null,
+      // 组织信息由目标公开档案展示（合约区 / 交付组），来自员工档案库。
+      dept: dept || null,
+      deliveryGroup: deliveryGroup || null,
+      colors: randomColors(gender),
       traits: randomTraits(),
       traitPublic: { saying: false, food: false, sport: false },
       sid: makeSidState(),
@@ -390,6 +426,9 @@ function createRoom(options = {}) {
         id,
         name,
         empNo: null,
+        gender: null,
+        dept: null,
+        deliveryGroup: null,
         colors: randomColors(),
         traits: randomTraits(),
         traitPublic: { saying: false, food: false, sport: false },
@@ -546,6 +585,9 @@ function createRoom(options = {}) {
       scareAt: seen ? p.scareAt : 0,
       frightAt: seen ? p.frightAt : 0,
       colors: p.colors,
+      // 组织信息：目标公开档案里展示，不参与身份/阵营/SID 判定。
+      dept: p.dept || null,
+      deliveryGroup: p.deliveryGroup || null,
       traits: Object.fromEntries(Object.keys(p.traits).map(k => [k, p.traitPublic[k] ? p.traits[k] : WORLD.MASK])),
       sid: p.sid.segments.map((s, i) => p.sid.revealed[i] ? s : WORLD.MASK).join('-')
     };
@@ -1253,7 +1295,8 @@ function createRoom(options = {}) {
         }
       } else {
         // rebirth：重新随机身份特征（颜色、隐藏属性、S-ID），并重置公开状态。
-        actor.colors = randomColors();
+        // 发色仍按员工性别挑选，轮回不会把男/女形象换错。
+        actor.colors = randomColors(actor.gender);
         actor.traits = randomTraits();
         actor.sid = makeSidState();
         actor.traitPublic = { saying: false, food: false, sport: false };

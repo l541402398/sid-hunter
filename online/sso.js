@@ -33,7 +33,16 @@ function expireMs() {
   return seconds * 1000;
 }
 function remember(token, user, exp = Date.now() + expireMs()) {
-  sessions.set(token, { user: { emp_no: user.emp_no, name: user.name, email: user.email || null }, exp });
+  sessions.set(token, {
+    user: {
+      emp_no: user.emp_no,
+      name: user.name,
+      email: user.email || null,
+      // CAS 若直接下发性别则一并保留；没有时由员工档案库补全（见 server/auth.js）。
+      gender: user.gender || null
+    },
+    exp
+  });
   if (sessions.size <= 500) return;
   const now = Date.now();
   for (const [key, item] of sessions) {
@@ -85,7 +94,8 @@ function parseCas(xml) {
   if (!empNo) return null;
   const name = tagText(block, ['sn']) || empNo;
   const email = tagText(block, ['mail', 'email']) || null;
-  return { empNo, name, email };
+  const gender = tagText(block, ['gender', 'sex', '性别']) || null;
+  return { empNo, name, email, gender };
 }
 function serviceAllowed(service, hostHeader) {
   if (!service || !hostHeader) return false;
@@ -105,9 +115,9 @@ function logoutUrl() {
 }
 function tokenExpire() { return Number(process.env.TOKEN_EXPIRE || config.TOKEN_EXPIRE || 604800); }
 
-function createToken(empNo, name, email) {
+function createToken(empNo, name, email, gender) {
   const token = randomBytes(24).toString('base64url');
-  remember(token, { emp_no: empNo, name, email: email || null });
+  remember(token, { emp_no: empNo, name, email: email || null, gender: gender || null });
   return token;
 }
 async function authenticate(ticket, service) {
@@ -129,7 +139,7 @@ async function authenticate(ticket, service) {
     console.log('[sso] serviceValidate 未通过');
     return null;
   }
-  const token = createToken(parsed.empNo, parsed.name, parsed.email);
+  const token = createToken(parsed.empNo, parsed.name, parsed.email, parsed.gender);
   console.log(`[sso] 登录成功 emp_no=${parsed.empNo} name=${parsed.name}`);
   return token;
 }

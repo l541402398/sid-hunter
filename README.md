@@ -29,7 +29,7 @@ HOST=127.0.0.1 PORT=8788 SID_SSO=0 node online/server.js
 联机玩家地图、名单/目标头像使用已确认男女形象的透明四向待机/6帧行走素材。`online/public/js/render/characters.js` 加载 `assets/characters-v4` 的固定肤色/轮廓层及 hair/top/pants/shoes 四项语义灰度蒙版，按公开色板预烘焙36张部位atlas，行走时只贴5层，不逐帧扫描像素。缓存按部位颜色而非所有组合展开，头像另有128项LRU。`assets/characters-v2`、`characters-v3` 保留作对比，不再被引用。
 
 - 原素材64×112、脚底(32,104)，地图按0.8倍绘制为51.2×89.6透明画布，角色实体约77高（16:54用户要求放大，较此前约60高增28%）；地面锚点、碰撞/速度/地图和技能/身份规则不变。头部标记/肿包/选中框及点击可视范围随新高度适配。幽灵保持原中性造型。
-- 形象样式仅由现有**公开发色索引**决定男女，不从id/姓名/SID/阵营/技能推导；没有新增性别选择或隐藏身份字段。若后续需要独立性别自选，须另定公开属性规则。
+- 形象样式仅由现有**公开发色索引**决定男女，不从id/姓名/SID/阵营/技能推导；没有新增公开性别选择或隐藏身份字段。服务端按 CAS 员工档案里的性别挑选同奇偶发色（偶数=男、奇数=女，见“员工档案同步与男女形象”），客户端仍只读 `colors.hair`。
 - 正/左/右/背静态与位移累计相位对应，站立/离线待机；跳跃身体抬高但影子留地面，挥锤继续使用原动作时间及绘制，不影响权威命中。行走仍为V2分层试作，非最终手绘动作。
 - 起伏（2026-10-20晚）：绘制层按相位给纵向偏移——走路每一步一次（触地下沉2px、跨步上抬1px，共3px），站立/离线按2.4秒呼吸缓慢上下（0~2px）。偏移只作用于贴图位置，世界脚底锚点、碰撞、命中判定和地面影子都不动；挥锤手臂与头顶眩晕星/受惊气泡/选中框跟随同一偏移。因素材帧脚底本身几乎不动（各帧包围盒仅差1px），起伏完全由这层偏移提供，这也是“贴着地走”而不是“整体上飘”的原因。
 - V3 卡通化（2026-10-21，修“换色出现白边”）：①每层蒙版按自身亮度55分位重新归一，主体档等于所选调色板颜色（V2 的头发主体只有约0.58倍，银白会渲成灰）；②明暗压成阴影/主体/高光三档平涂，去掉连续渐变；③贴轮廓的像素强制回到主体档、素材禁止纯白高光，运行时高光档上限250，全配色不再出现纯白像素；④鞋子整块（含偏白鞋底）并入换色层，旧版把中性鞋底漏在基础层，换任何鞋色都留一圈白；⑤整体轮廓外扩1px描边，形成约2px硬描边，更接近卡通读感。换色公式改为乘法保留色相（旧公式对灰度>190的像素往纯白外推，这才是白边的根因）。
@@ -266,6 +266,20 @@ WantedBy=multi-user.target
 - 校验端点必须用 **http**：公司 CAS 的证书链在多数机器上不受信，Node 的 `fetch` 走 https 会报 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`，现象是浏览器里 CAS 明明登录成功、回到页面却提示「单点登录失败，请重试」；而 `curl -k` 能通过，很容易误判。浏览器登录入口 `SSO_LOGIN_URL` 仍用 https。
 - 想走 https 校验就得给内网 CA：`NODE_EXTRA_CA_CERTS=/path/to/ca.pem`，或在 systemd 里放宽证书链。
 - 配置可写在仓库根目录 `.env`（已被 `.gitignore` 忽略，见 `.env.example`）或 systemd 的 `Environment=`；两者同时存在时进程环境优先（`sso.js` 只补空缺）。
+
+员工档案同步与男女形象：
+
+- 服务启动后异步调用 `PROFILE_API_URL`（默认 `http://profile.app.x/profilesAll`），把 `工号/姓名/性别/邮箱/合约区/交付组/职位` upsert 到 SQLite 的 `employees` 表。默认**只在启动时同步一次**（`PROFILE_SYNC_INTERVAL_MS=0`）；确实需要定时刷新时再设成正数毫秒。`SID_PROFILE_SYNC=0` 可关闭启动同步（仍读取已落库的数据）。
+- 注意 `/profiles` 是 HTML 页面，真正的员工 JSON 列表是 `/profilesAll`；接口受 CAS 保护，未登录会 302 到统一登录页。只需要成功一次时，最省事的是在已登录浏览器里打开 `http://profile.app.x/profiles`，从 Network 面板找到 `/profilesAll` 的 JSON 响应并存成文件后导入，完全不需要把凭证交给服务端：
+  ```bash
+  node online/profiles-sync.mjs --file=profilesAll.json
+  ```
+  也可以把一次性数据交给服务端：`node online/profiles-sync.mjs --ticket=ST-...`（票据通常只能用一次，默认的“启动同步一次”正好匹配），或用浏览器里 `profile.app.x` 的 `JSESSIONID` 执行 `node online/profiles-sync.mjs --cookie='JSESSIONID=...'`。需要长期自动同步时，才配置 `PROFILE_API_TOKEN`（同时以 `token` 头和 `Authorization: Bearer` 发送）、`PROFILE_API_COOKIE` 或 `PROFILE_API_HEADERS`。没有凭证时同步只记一条失败日志，不影响游戏启动。
+- 员工性别在 CAS 登录后按工号注入 `/api/auth/me` 与 `/api/join`：新角色只从同奇偶的发色里挑（公开色板偶数=男、奇数=女），因此客户端 `characters.js` 不需要读取新的身份字段；同一工号回座时只纠正发色，保留阵营、其它配色和进度；轮回券重随机配色也保持性别。
+- 点击地图/名单里的其他玩家打开“目标公开档案”时，姓名/SID 下方的状态行由原来的“存活 · 公开档案 / 已淘汰 · 可查看”替换为 **合约区 · 交付组**（如 `合约一区 · TRP开发组`）；这两项随公开快照下发，不参与身份/阵营/SID 判定。昵称试玩或 NPC 没有员工档案时退回原状态文案。
+- 性别值兼容 `男/女`、`M/F`、`male/female`、`1/2`；`/profilesAll` 的 `employee.no / employee.name / employee.sex / employee.dept` 以及 `empNo`、`empName`、`gender` 等常见字段都能识别，包装层兼容数组、`data.list`、`records` 等。上游不可用或性别未知时退回原来的随机分配。
+- 配好数据后可查写入条数：`node online/profiles-sync.mjs --file=profilesAll.json` 会输出 `saved`；重新执行是幂等 upsert，不会重复插入。
+- 回归：`node online/profile-test.mjs`（含真实 HTTP 服务、SSO 种子会话、`/api/join` 与公开快照发色校验）。
 
 反向代理要点（完整文件见服务器上的 `proxy/root.conf`）：
 
