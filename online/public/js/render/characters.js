@@ -61,12 +61,30 @@
     const col=walking?1+Math.floor(phase/(Math.PI*2)*6)%6:0;
     return{row,col,sex:style(p),bob:bobOffset(p,clock,walking,phase)};
   }
-  function drawBody(g,p,direction,clock){
+  // 挥锤时"挖掉那条垂着的手臂"用的离屏缓冲：直接在主画布上用 destination-out 会把地图挖穿，
+  // 所以先合成到 64×112 的离屏画布、在离屏上挖洞，再整张贴出去——洞是透明的，背景自然透出。
+  let holeBuf=null;
+  function drawBody(g,p,direction,clock,opts){
     if(status!=='ready')return false;
     const f=frame(p,direction,clock),parts=layers(p,f.sex);if(!parts)return false;
     const x=Math.round(p.x)-32*SCALE,y=Math.round(p.y)-104*SCALE+f.bob;
     const smoothing=g.imageSmoothingEnabled;g.imageSmoothingEnabled=false;
-    for(const image of parts)g.drawImage(image,f.col*64,f.row*112,64,112,x,y,64*SCALE,112*SCALE);
+    const holes=opts&&opts.holes;
+    // 挖洞表是按静止帧（col 0）的手臂位置标定的；挥锤时如果还在走，行走帧的手臂会前后摆动，
+    // 按走路帧去挖会偏 1~2px 留下一条手臂残边。所以挥锤期间统一贴静止帧——260ms 内看不出腿没动。
+    const col=holes?0:f.col;
+    if(holes&&holes.length){
+      if(!holeBuf)holeBuf=canvas(64,112);
+      const cx=holeBuf.getContext('2d');
+      cx.clearRect(0,0,64,112);
+      for(const image of parts)cx.drawImage(image,col*64,f.row*112,64,112,0,0,64,112);
+      cx.globalCompositeOperation='destination-out';cx.fillStyle='#000';
+      for(let i=0;i<holes.length;i++){const h=holes[i];cx.fillRect(h[2],h[0],h[3]-h[2]+1,h[1]);}
+      cx.globalCompositeOperation='source-over';
+      g.drawImage(holeBuf,0,0,64,112,x,y,64*SCALE,112*SCALE);
+    }else{
+      for(const image of parts)g.drawImage(image,col*64,f.row*112,64,112,x,y,64*SCALE,112*SCALE);
+    }
     g.imageSmoothingEnabled=smoothing;metrics.draws++;return true;
   }
   function portrait(p){

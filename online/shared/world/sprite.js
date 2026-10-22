@@ -30,10 +30,13 @@
   // 手必须摆到剪影外面动作才读得出来：素材头占 y8..50/x17..47、躯干+双臂 y56..64 横跨 x15..50，
   // 落在这些范围里的手和手臂都是“隐形”的，所以举锤帧一律抬到 y≤40 并超出头/躯干侧缘，
   // 下砸帧甩过身体中线到另一侧偏低位置。
+  // 背面例外：从背后看头是一整块 x12..54/y8..50 的头发，锤子只要举到头顶就必然糊在头发上。
+  // 所以背面不举过头，改成「贴着左肩往上抬、锤头落在头的左侧外」（锤头中心 x<12-半宽≈1），
+  // 举锤帧手位因此从 y38 降到 y42..48，锤柄角也从 -1.39/-1.59 改成 -2.0/-2.1（更偏左）。
   const ATTACK_POSES = {
     male: {
       front: { times: [0, .26, .45, .68, 1], poses: [[47, 73, 1], [55, 38, -1.75], [53, 32, -1.55], [36, 84, .85], [47, 73, 1]] },
-      back: { times: [0, .26, .45, .68, 1], poses: [[16, 73, 2.14], [9, 38, -1.39], [11, 32, -1.59], [28, 84, 2.29], [16, 73, 2.14]] },
+      back: { times: [0, .26, .45, .68, 1], poses: [[16, 73, 2.14], [8, 48, -2.0], [7, 42, -2.1], [28, 84, 2.29], [16, 73, 2.14]] },
       // 侧面头部剪影是 x8..50/y8..50 的一大团头发：手和锤必须甩到 x<10 或 y<10 才看得见，
       // 所以举锤帧把锤头送到头后上方（cell 外也在所不惜，游戏画布不裁剪）。
       // 下砸段先甩到胸前前方 (36,60) 再下劈，锤头从头前上方直落到身前，不横穿脸。
@@ -41,7 +44,7 @@
     },
     female: {
       front: { times: [0, .26, .45, .68, 1], poses: [[45, 75, 1], [53, 40, -1.75], [51, 34, -1.55], [34, 86, .85], [45, 75, 1]] },
-      back: { times: [0, .26, .45, .68, 1], poses: [[18, 75, 2.14], [11, 40, -1.39], [13, 34, -1.59], [30, 86, 2.29], [18, 75, 2.14]] },
+      back: { times: [0, .26, .45, .68, 1], poses: [[18, 75, 2.14], [10, 50, -2.0], [9, 44, -2.1], [30, 86, 2.29], [18, 75, 2.14]] },
       right: { times: [0, .22, .45, .62, .78, 1], poses: [[28, 75, .95], [15, 42, -2.31], [17, 28, -1.9], [37, 62, -.2], [43, 82, .6], [28, 75, .95]] }
     }
   };
@@ -50,14 +53,27 @@
     male: { front: [46, 55], back: [17, 55], right: [28, 53] },
     female: { front: [44, 57], back: [18, 57], right: [28, 55] }
   };
-  // 挥击期间用袖子色盖住素材的静止手（否则屏幕上同时出现“素材的手”和“举起的手”）。
-  // 盒子只圈住手部肤色及其描边，全部落在该侧衣袖轮廓内部；female y94..100 的脚踝肤色不在此范围。
-  // 背面整条手臂由身体遮挡，无需覆盖。
-  const ATTACK_HAND_COVER = {
-    male: { front: [43, 67, 10, 11], right: [21, 67, 12, 11] },
-    female: { front: [42, 71, 8, 8], right: [24, 71, 9, 8] }
+  // 挥锤时把素材里"垂着的那条手臂"整块挖成透明，而不是涂成衣服色。
+  // 依据：素材里手臂内侧本来就有独立描边、躯干轮廓也有自己的描边，所以挖掉手臂不会破坏躯干形状；
+  // 涂色的做法只是把手臂换个颜色，轮廓和体积还在，看起来仍然像身侧多了一只手/一截空袖子。
+  // 每段 [y, 行数, x0, x1]，cell 坐标。数值由「从身体中轴 x=32 向外扫到第一道躯干描边」的规则自动生成：
+  // 保留那道描边作为轮廓收口，挖它以外直到该侧最外不透明像素的全部内容（含垂手的皮肤和压在后面的裤腰边）。
+  // 上界固定 77（手的最低行）；y≥78 是腿和裤腿，绝不能进挖除范围，否则会把腿挖穿。
+  // 'left' 与 'right' 手臂贴着躯干、没有凸出剪影，不需要挖。
+  const ATTACK_ARM_HOLE = {
+    female: {
+      front: [[66,4,42,49], [70,3,41,49], [73,2,41,50], [75,2,42,50], [77,1,42,49]],
+      back: [[66,6,14,21], [72,6,13,21]]
+    },
+    male: {
+      front: [[64,2,43,52], [66,6,43,53], [72,3,42,53], [75,1,43,52], [76,2,43,51]],
+      back: [[64,2,13,21], [66,10,11,21], [76,2,13,21]]
+    }
   };
   // 攻击手臂的渐入渐出（毫秒）：消除“手和锤突然出现又突然消失”的硬切。
+  // 只给 left/right 用——侧面那条手臂贴在身上、素材里没有被挖掉，渐变是纯收益。
+  // front/back 不能渐变：素材里那条垂着的手臂已经挖成透明，程序化手臂再半透明就会透出背景，
+  // 看起来像“缺了一只手”。这两向统一用 attackAlphaHard（首末帧手位与素材静止手位重合，硬切即无缝）。
   function attackAlpha(age) {
     if (!Number.isFinite(age) || age <= 0 || age >= ATTACK_ANIMATION_MS) return 0;
     if (age < ATTACK_FADE_IN_MS) return age / ATTACK_FADE_IN_MS;
@@ -65,17 +81,20 @@
     if (left < ATTACK_FADE_OUT_MS) return left / ATTACK_FADE_OUT_MS;
     return 1;
   }
+  function attackAlphaHard(age) {
+    return Number.isFinite(age) && age >= 0 && age < ATTACK_ANIMATION_MS ? 1 : 0;
+  }
   // 挥锤配色（与 drawCharacterBody 内推导一致），供预览/调试复用。
   function attackColors(p) {
     const c = p.colors, hi = Math.max(0, PALETTES.hair.findIndex(o => o[0] === c.hair[0]));
-    const skin = SKIN[hi], top = c.top[1];
-    return { outline: '#1c1620', skin, skinLo: characterShade(skin, -.24), top, topHi: characterShade(top, .24), topLo: characterShade(top, -.3) };
+    const skin = SKIN[hi], top = c.top[1], pants = c.pants[1];
+    return { outline: '#1c1620', skin, skinLo: characterShade(skin, -.24), top, topHi: characterShade(top, .24), topLo: characterShade(top, -.3), pants };
   }
   // 挥锤手臂与木锤：在 cell 空间（与素材同坐标系）逐像素栅格化，(ox,oy)=素材格左上角的屏幕坐标，
   // rect 为屏幕空间 fillRect。'left' 与 'right' 共用关键帧，绘制时按格中心镜像。
   function drawCharacterAttack(rect, ox, oy, direction, age, colors, opts) {
     opts = opts || {};
-    const female = !!opts.female, cover = opts.cover !== false;
+    const female = !!opts.female;
     const S = NEW_SCALE, flip = direction === 'left';
     const base = flip ? 'right' : direction;
     const build = ATTACK_POSES[female ? 'female' : 'male'];
@@ -109,12 +128,8 @@
           Math.round(a.y + (b.y - a.y) * j / steps) - (width >> 1), width, width, color);
       }
     };
-    // 先遮掉素材的静止手（袖子同色，视觉上变成一段空袖口），再画抬起的手臂，
-    // 避免“胯边一只手 + 又举起一只手”。
-    if (cover) {
-      const box = ATTACK_HAND_COVER[female ? 'female' : 'male'][base];
-      if (box) pixel(box[0], box[1], box[2], box[3], colors.top);
-    }
+    // 素材里那条垂着的手臂不在这里处理：它已经被 ATTACK_ARM_HOLE 在身体那一层挖成透明了
+    // （见 drawCharacterBody）。这里只负责画抬起来的手臂和锤子。
     // 上臂（袖子）描边 9 + topLo，小臂 skin 打底 + skinLo 描边 8：0.8 缩放后仍有 5~6 屏幕像素，
     // 手臂伸出体外时不会被身体同色吃掉。
     segment(shoulder, elbow, 9, colors.outline);
@@ -233,8 +248,10 @@
         const lift = typeof newCharacters.bodyBob === 'function' ? newCharacters.bodyBob(p, clock) : 0;
         const female = typeof newCharacters.style === 'function' ? newCharacters.style(p) === 'female' : false;
         const swingColors = attackColors(p);
+        // front/back 走了挖洞，必须完全不透明；left/right 没挖，保留渐入渐出。
+        const hardCut = direction === 'front' || direction === 'back';
         const drawSwing = () => {
-          const alpha = attackAlpha(attackAgeMs);
+          const alpha = hardCut ? attackAlphaHard(attackAgeMs) : attackAlpha(attackAgeMs);
           if (alpha <= 0) return;
           g.save();
           g.globalAlpha *= alpha;
@@ -242,9 +259,16 @@
             Math.round(p.y) - NEW_FOOT_Y * NEW_SCALE + lift, direction, attackAgeMs, swingColors, { female });
           g.restore();
         };
-        // 背面先画手臂，再由背部与后脑自然遮挡锤子；其余朝向手臂在身体前景。
+        // 素材里那条垂着的手臂直接挖成透明（离屏 destination-out），露出背景——
+        // 只涂颜色是没用的，轮廓和体积还在，看起来仍旧是身侧多一截手臂。
+        // 侧面（left/right）手臂贴着躯干、不凸出剪影，不需要挖。
+        const holes = direction === 'front' || direction === 'back'
+          ? ATTACK_ARM_HOLE[female ? 'female' : 'male'][direction] : null;
+        const bag = holes ? { holes } : null;
+        // 挖洞在身体那一层完成，所以不再需要"擦除盖在身体之上"这个限制：
+        // 背面先把手臂画下去，再由背部与后脑自然遮住手臂根部与锤柄，只有伸出去的部分露出来。
         if (direction === 'back') drawSwing();
-        newCharacters.drawBody(g, p, direction, clock);
+        newCharacters.drawBody(g, p, direction, clock, bag);
         if (direction !== 'back') drawSwing();
         g.restore();return;
       }
@@ -331,5 +355,5 @@
     }
     g.restore();
   }
-  return { SKIN, characterShadeCache, characterShade, ATTACK_ANIMATION_MS, ATTACK_POSES, ATTACK_SHOULDERS, ATTACK_HAND_COVER, attackAlpha, attackColors, drawCharacterAttack, drawCharacterBody };
+  return { SKIN, characterShadeCache, characterShade, ATTACK_ANIMATION_MS, ATTACK_POSES, ATTACK_SHOULDERS, ATTACK_ARM_HOLE, attackAlpha, attackAlphaHard, attackColors, drawCharacterAttack, drawCharacterBody };
 });
