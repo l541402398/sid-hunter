@@ -1,40 +1,73 @@
 /* 页面骨架：shell / topbar / toolbar / stage / 世界标签 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
-.availability-banner{flex:none;background:#432e22;color:#ffe0ad;padding:10px 16px;border-bottom:1px solid #936b40;font-size:12px;line-height:1.6}
-::-webkit-scrollbar{width:6px;height:6px}
-::-webkit-scrollbar-thumb{background:#41546d;border-radius:6px}
+/* 明亮化：顶栏/工具栏/胶囊改浅色卡片；stage 保持深色（里面是像素夜景地图）。 */
+.availability-banner{flex:none;background:var(--sun-soft);color:#8a4a00;padding:10px 16px;border-bottom:1px solid var(--sun-line);font-size:12px;line-height:1.6}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
+::-webkit-scrollbar-thumb:hover{background:var(--line-strong)}
 ::-webkit-scrollbar-track{background:transparent}
-::selection{background:#2c4c72;color:#eaf3ff}
+::selection{background:var(--brand-soft);color:var(--brand-dk)}
 .shell{max-width:1360px;margin:auto;padding:22px 30px 16px}
 .topbar{display:flex;justify-content:space-between;align-items:center;gap:20px;padding-bottom:18px}
 .brand{display:flex;align-items:center;gap:16px}
-.brand-mark{font:900 26px ui-monospace,monospace;letter-spacing:-2.5px;border:1px solid #5b83ad;border-radius:12px;padding:12px 10px;color:#cde5ff;background:linear-gradient(160deg,#26405f,#14243c);box-shadow:inset 0 1px 0 #ffffff1f,inset 0 0 26px #2b4468,0 10px 24px -14px #000}
-.brand-mark span{color:#60a5fa}
-h1{font-size:23px;letter-spacing:1.6px;font-weight:600;margin:0 0 6px;background:linear-gradient(92deg,#eaf3ff,#a6c8ec);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* 品牌方块：白底 + 品牌蓝描边 + 柔光，比原来的深蓝发光块更有纸感 */
+.brand-mark{font:900 26px ui-monospace,monospace;letter-spacing:-2.5px;border:2px solid var(--brand);border-radius:14px;padding:11px 9px;color:var(--brand);
+  background:linear-gradient(160deg,#ffffff,var(--brand-soft));box-shadow:0 2px 6px #4a5fe81f,0 12px 26px -16px var(--brand)}
+.brand-mark span{color:var(--sun)}
+/* 标题：从品牌蓝到天蓝的渐变字，替代原来的浅蓝白渐变 */
+h1{font-size:23px;letter-spacing:1.6px;font-weight:700;margin:0 0 6px;background:linear-gradient(92deg,var(--brand),var(--sky));-webkit-background-clip:text;background-clip:text;color:transparent}
 p{margin:0}
-.brand p{font:10px ui-monospace,monospace;letter-spacing:2.4px;color:#8098b9}
-.public-stats{display:flex;gap:10px;align-items:center;color:#a4b3c7;font-size:12px}
-.public-stats>span{display:inline-flex;align-items:center;gap:6px;background:#111d2fcc;border:1px solid #2c405a;border-radius:999px;padding:7px 13px;box-shadow:inset 0 1px 0 #ffffff0f}
-.public-stats b{color:#e2e8f0;font:600 18px ui-monospace,monospace;margin-left:2px}
-.local-badge{color:#8ba2c0}
-.dot{display:inline-block;width:6px;height:6px;border-radius:50%;vertical-align:middle}
-.green{background:var(--green)}
-.gray{background:var(--gray)}
-.blue{background:var(--blue)}
+.brand p{font:10px ui-monospace,monospace;letter-spacing:2.4px;color:var(--ink-3)}
+.public-stats{display:flex;gap:10px;align-items:center;color:var(--ink-2);font-size:12px}
+/* 统计胶囊：白底细边，数字用深墨色，比原来的半透明深色更精神 */
+.public-stats>span{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-pill);padding:7px 13px;box-shadow:var(--sh-1)}
+.public-stats b{color:var(--ink);font:700 18px ui-monospace,monospace;margin-left:2px}
+.local-badge{color:var(--ink-3)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;vertical-align:middle;box-shadow:0 0 0 2px #ffffff}
+.green{background:var(--mint)}
+.gray{background:var(--ink-3)}
+.blue{background:var(--brand)}
+.amber{background:var(--sun)}
+.clue-chip[hidden]{display:none}
+/* 下次线索：琥珀色胶囊，跟其它统计胶囊区分开。
+   主值是「还剩多久」（mm:ss），后面跟一个淡一点的绝对钟点（HH:MM），
+   两种读法都满足：想知道还要等多久、想知道几点几分公布。 */
+.clue-chip{border-color:var(--sun-line)!important;background:var(--sun-soft)!important}
+.clue-chip b{color:#a85a00}
+.clue-chip em{font-style:normal;font-size:11px;font-weight:600;color:#b8763a;padding-left:6px;margin-left:2px;border-left:1px solid var(--sun-line)}
+.clue-chip em:empty{display:none}
+/* 系统刚公布过一轮线索：胶囊亮一下，提示倒计时已重置 */
+.clue-chip.clue-flash{animation:clueFlash 1.8s ease-out}
+@keyframes clueFlash{
+  0%{box-shadow:0 0 0 0 #ff9e2c99;background:#ffd79a!important;border-color:var(--sun)!important}
+  60%{box-shadow:0 0 0 8px #ff9e2c00;background:#ffe3b8!important}
+  100%{box-shadow:var(--sh-1);background:var(--sun-soft)!important}
+}
+@media(prefers-reduced-motion:reduce){.clue-chip.clue-flash{animation:none}}
 .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px}
 .toolbar-left,.toolbar-right{display:flex;align-items:center;gap:8px}
 .toolbar button{font-size:12px}
-.toolbar button span{font:11px ui-monospace,monospace;color:#7e98b9;padding-left:12px}
-.toolbar button[aria-expanded=true]{border-color:#60a5fa;background:#243d5c}
-.private-hint{font-size:11px;color:#6f859f;margin-right:6px}
-.sso-user{font-size:12px;color:#c5d7ea}
+.toolbar button span{font:11px ui-monospace,monospace;color:var(--ink-3);padding-left:12px}
+/* 展开态：品牌蓝描边 + 淡蓝底 */
+.toolbar button[aria-expanded=true]{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dk);box-shadow:inset 0 0 0 1px #4a5fe826}
+.private-hint{font-size:11px;color:var(--ink-3);margin-right:6px}
+.sso-user{font-size:12px;color:var(--ink-2)}
 .my-button{user-select:none}
-kbd{font:10px ui-monospace,monospace;color:#c3d6ea;background:#182740;border:1px solid #43536a;border-bottom-width:2px;border-radius:4px;padding:2px 6px;margin-left:4px}
-.stage{position:relative;aspect-ratio:3/2;width:100%;max-height:calc(100vh - 288px);min-height:370px;background:#0a1120;border:1px solid #46617f;border-radius:16px;overflow:hidden;box-shadow:0 34px 74px -32px #000,inset 0 0 0 1px #ffffff08,0 0 70px -34px #4b8fd0}
-canvas{display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;touch-action:none;border-radius:15px}
-.world-chip{pointer-events:none;position:absolute;left:18px;top:15px;display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #3b5470;background:#0d1728e8;border-radius:9px;font-size:12px;backdrop-filter:blur(8px)}
-.live-square{width:5px;height:5px;background:#60a5fa;box-shadow:0 0 10px #60a5fa}
-.world-chip small{color:#7790ad;font-size:10px;border-left:1px solid #344961;padding-left:9px}
-.map-foot{pointer-events:none;position:absolute;bottom:13px;left:18px;right:18px;display:flex;justify-content:space-between;color:#9aadc4;font-size:10px}
-.map-foot>span{background:#0d1728e8;border:1px solid #33475f;border-radius:8px;padding:6px 11px;backdrop-filter:blur(8px)}
-#coordinate{font:11px ui-monospace,monospace;color:#9cc9ef}
-i{font-style:normal;margin:0 5px;color:#5c708b}
+/* kbd：浅灰键帽 + 深色文字，立体感靠下边框加粗 */
+kbd{font:10px ui-monospace,monospace;color:var(--ink);background:var(--surface-3);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:5px;padding:2px 6px;margin-left:4px;box-shadow:0 1px 0 #ffffff inset}
+/* stage 保持深色：里面是深色像素办公室夜景，浅色外框反而衬得画面对比更强 */
+.stage{position:relative;aspect-ratio:3/2;width:100%;max-height:calc(100vh - 288px);min-height:370px;background:#0d1524;border:2px solid var(--line-2);border-radius:18px;overflow:hidden;
+  box-shadow:var(--sh-3),inset 0 0 0 1px #ffffff08}
+canvas{display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;touch-action:none;border-radius:16px}
+/* 地图整体提亮：像素夜景的暗色底不动（美术资产与七层主题都没改），只把画面抬亮一档并加一点饱和，
+   让「深色地图」不再发闷。1.12 是实测上限——再高霓虹地板就开始泛白、角色轮廓糊掉。
+   只作用于地图画布 #office：物品图标、转盘等其它 canvas 不受影响。 */
+#office{filter:brightness(1.12) saturate(1.12)}
+/* 地图上的浮层标签仍用深色半透明：它们压在深色画面上，浅色会糊成一片 */
+.world-chip{pointer-events:none;position:absolute;left:18px;top:15px;display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #3f5a7d;background:#0d1728e8;border-radius:9px;font-size:12px;color:#dce9f7;backdrop-filter:blur(8px)}
+.live-square{width:6px;height:6px;background:var(--sky);box-shadow:0 0 10px var(--sky)}
+.world-chip small{color:#91a9c4;font-size:10px;border-left:1px solid #344961;padding-left:9px}
+.map-foot{pointer-events:none;position:absolute;bottom:13px;left:18px;right:18px;display:flex;justify-content:space-between;color:#b8c9dd;font-size:10px}
+.map-foot>span{background:#0d1728e8;border:1px solid #3a5470;border-radius:8px;padding:6px 11px;backdrop-filter:blur(8px)}
+.map-foot kbd{color:#e6eef8;background:#1d2f47;border-color:#4a6688}
+#coordinate{font:11px ui-monospace,monospace;color:#a8d4f2}
+i{font-style:normal;margin:0 5px;color:var(--ink-3)}

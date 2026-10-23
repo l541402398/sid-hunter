@@ -60,6 +60,14 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   function block(reason){room.room.accessClosed=reason;for(const p of room.room.players)p.input={up:false,down:false,left:false,right:false};}
   function persist(){if(!store.enabled||!store.saveAdmin(record())){error='存档失败，已冻结；不会清空未归档场次';block(error);return false;}lastSave=now();error='';return true;}
   const isActive=()=>!!(session&&!session.settled);
+  // 把「下一次系统公布线索」的时间暴露给公共快照，供客户端显示倒计时。
+  // 与 state().cluePublication.nextAt 同一套判定：只在生效、未暂停、无错误、且早于本场结束时才有值。
+  // 只是一个时间戳，不含抽中谁/哪一项，因此不构成线索泄露。
+  function syncNextClueAt(){
+    const paused=!!(isActive()&&session.pausedAt);
+    room.room.nextClueAt=isActive()&&!paused&&!error&&clueSchedule.nextAt&&clueSchedule.nextAt<session.endsAt
+      ?clueSchedule.nextAt:0;
+  }
   function resultForSession(reason){
     const ranking=room.room.players.filter(p=>!p.npc).map(p=>({
       key:createHash('sha256').update(p.empNo?'employee:'+p.empNo:'guest:'+(p.participantKey||p.sessionId||room.room.roundId+':'+p.id)).digest('hex'),
@@ -111,6 +119,8 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   }
   function tick(){
     const t=now(),today=dayOf(t);
+    // 先把「下次公布线索」的时间同步给公共快照，后面的每个 return 分支都不会让它变脏。
+    syncNextClueAt();
     if(error&&t-lastAttempt<1000){block(error);return;}lastAttempt=t;
     if(!store.enabled){error='存档不可用，不能开始或继续场次';block(error);return;}
     // 结束时间优先于暂停与定时公布；暂停不能延长本场。
@@ -122,8 +132,10 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     }
     if(error&&!persist())return;
     if(isActive()){
-      if(session.pausedAt){room.room.pausedAt=session.pausedAt;block('本场已暂停，技能恢复和线索计时暂停；仍按原定时间结算');return;}
+      if(session.pausedAt){room.room.pausedAt=session.pausedAt;block('本场已暂停，技能恢复和线索计时暂停；仍按原定时间结算');syncNextClueAt();return;}
       if(!publishDue(t))return;
+      // 刚公布过 → clueSchedule.nextAt 已推进，重新同步一次，避免倒计时比实际晚一个 tick。
+      syncNextClueAt();
       room.room.accessClosed='';room.room.daily={day:session.day,startAt:session.startedAt,endAt:session.endsAt,enabled:true};
       if(t-lastSave>=5000)persist();return;
     }

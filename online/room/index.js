@@ -39,6 +39,10 @@ function createRoom(options = {}) {
     features: sanitizeFeatures(options && options.features, defaultFeatures()),
     players: [],
     chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs,
+    // 下一次「系统公布线索」的时间戳（毫秒；0 = 本场不会再有下一次）。
+    // 由 server/activity.js 的 clueSchedule 在每个 tick 写入，只用于公开倒计时提示，
+    // 不含任何线索内容，因此可以随公共快照下发。
+    nextClueAt: 0,
     // 卡牌对决（spire）：每人一局，单人闯三关，不占用坦克的双人对局表。
     spireBattles: new Map(),
     logs: [],
@@ -688,7 +692,9 @@ function createRoom(options = {}) {
         : undefined,
       badSlots: anonymousBadSlots(),
       logs: room.logs.slice(),
-      config: { chargeIntervalMs: room.chargeIntervalMs, tmj: !!(WORLD.TMJ && WORLD.TMJ.isEnabled()) }
+      config: { chargeIntervalMs: room.chargeIntervalMs, tmj: !!(WORLD.TMJ && WORLD.TMJ.isEnabled()) },
+      // 下一次系统公布线索的时间：纯倒计时，不泄露抽到谁/哪一项。0 表示本场没有下一次。
+      nextClueAt: Number(room.nextClueAt) || 0
     };
   }
   function privateSnapshot(playerId) {

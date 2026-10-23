@@ -305,8 +305,11 @@ await test('公共日志本人按目标标记青色，系统线索粗黄，无�
  const r=fixture();use(r,1,'probe',0);const probe=r.room.logs.find(e=>e.text.includes('已公开'));
  assert.equal(probe.subjectPlayerId,0);assert.ok(!probe.type);assert.ok(!('actorId'in probe));
  const css=readFileSync(new URL('./public/styles/panels.css',import.meta.url),'utf8');
- assert.match(css,/\.logs li\.log-system-clue p\{color:#ffe078;font-weight:700/);
- assert.match(css,/\.logs li\.log-mine p\{color:#91e9f7/);
+ // 明亮化改造后：系统线索=阳光橙浅底深橙字，与我有关=天蓝浅底深蓝字。
+ // 断言的是「两者仍是各自独立的强调色、且不可互相替代」，不再绑定旧深色主题的具体十六进制值。
+ assert.match(css,/\.logs li\.log-system-clue p\{color:#8a4a00;font-weight:700/);
+ assert.match(css,/\.logs li\.log-mine p\{color:var\(--sky-dk\);font-weight:600/);
+ assert.ok(!/#ffe078|#91e9f7/.test(css),'旧深色主题的青/黄强调色不应残留');
 });
 console.log(`轻量检查 ${passed} PASS / ${failed} FAIL；未启动服务或浏览器。`);
 process.exitCode = failed ? 1 : 0;

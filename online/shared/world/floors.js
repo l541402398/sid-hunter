@@ -924,11 +924,11 @@
     if (actor.floorId !== portal.floorId || !inHall(portal.floorId, portal.side, actor.x, actor.y))
       return { inReach: false, facingOk: false, allowed: false, reason: '请穿过玻璃门进入电梯厅后乘梯' };
     const dx = portal.x - actor.x, dy = portal.y - actor.y, d = Math.hypot(dx, dy);
-    if (d > range) return { inReach: false, facingOk: false, allowed: false, reason: '距离电梯太远，请靠近后再按 E（64 像素以内）' };
+    if (d > range) return { inReach: false, facingOk: false, allowed: false, reason: '距离电梯太远，请靠近后再按 K（64 像素以内）' };
     if (d === 0) return { inReach: true, facingOk: true, allowed: true, reason: '' };
     const f = facingVector(actor.spriteFacing);
     const facingOk = (dx * f.x + dy * f.y) / d >= 0.5;
-    if (!facingOk) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 E' };
+    if (!facingOk) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 K' };
     return { inReach: true, facingOk: true, allowed: true, reason: '' };
   }
   return { FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout };

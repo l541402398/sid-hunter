@@ -1,74 +1,94 @@
 /* 通用面板与名单/日志/目标档案/候选 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
-.panel{position:absolute;background:linear-gradient(158deg,#1b2a40f5,#111d2ef8);border:1px solid #456180;border-radius:14px;box-shadow:0 28px 60px -26px #000c,inset 0 1px 0 #ffffff12;backdrop-filter:blur(14px);z-index:5;overflow:hidden;display:flex;flex-direction:column}
+/* 明亮化：面板统一改白卡片 + 柔和阴影；压在深色像素地图上层次清楚。 */
+.panel{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:5;overflow:hidden;display:flex;flex-direction:column}
 .panel-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}
-.panel-heading small,.eyebrow{font:9px ui-monospace,monospace;color:#83a8d2;letter-spacing:2px}
-h2{font-size:17px;letter-spacing:.6px;font-weight:600;margin:4px 0 0}
-.icon-button{border:0;background:transparent;box-shadow:none;font-size:23px;padding:0 5px;color:#93a9c6;border-radius:8px}
-.icon-button:hover{color:#dbe9fb;background:#22364f}
+.panel-heading small,.eyebrow{font:9px ui-monospace,monospace;color:var(--brand);letter-spacing:2px;font-weight:700}
+h2{font-size:17px;letter-spacing:.6px;font-weight:700;margin:4px 0 0;color:var(--ink)}
+.icon-button{border:0;background:transparent;box-shadow:none;font-size:23px;padding:0 5px;color:var(--ink-3);border-radius:var(--r-sm)}
+.icon-button:hover{color:var(--coral);background:var(--coral-soft)}
 .roster{left:12px;top:60px;bottom:52px;width:266px;padding:18px;z-index:7}
-.logs{display:flex;flex-direction:column;min-width:0;padding:18px;background:linear-gradient(158deg,#1b2a40,#111d2e);border:1px solid #456180;border-radius:14px;overflow:hidden}
-.log-total{flex:none;color:#93a9c6;font-size:11px;padding:5px 9px;border:1px solid #354b66;border-radius:999px}
-.log-total b{color:#cfe3fb}.logs>.panel-heading,.logs>.panel-note{flex:none}
-.logs li.log-empty{border:0;margin:0;padding:6px 0;color:#8199b5}.logs li.log-empty:before{display:none}
-.search-label span{font-size:10px;color:#93a8c2}
-.search-label input{margin-top:6px;width:100%;background:#0d1826;border:1px solid #36506d;border-radius:8px;padding:10px 11px;color:#e2e8f0;font-size:12px;box-shadow:inset 0 1px 3px #0008}
-.search-label input:focus{outline:none;border-color:#5f8fc4;box-shadow:0 0 0 3px #60a5fa26,inset 0 1px 3px #0008}
-.panel-note{font-size:10px;color:#8ca2bd;line-height:1.75;margin:9px 0 12px}
+/* 公共日志是独立占位栏，同样改白卡片 */
+.logs{display:flex;flex-direction:column;min-width:0;padding:18px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-2);overflow:hidden}
+.log-total{flex:none;color:var(--ink-2);font-size:11px;padding:5px 9px;border:1px solid var(--line-2);border-radius:var(--r-pill);background:var(--surface-2)}
+.log-total b{color:var(--brand)}
+.logs>.panel-heading,.logs>.panel-note{flex:none}
+.logs li.log-empty{border:0;margin:0;padding:6px 0;color:var(--ink-3)}
+.logs li.log-empty:before{display:none}
+.search-label span{font-size:10px;color:var(--ink-2);font-weight:500}
+/* 输入框：白底 + 内凹阴影，聚焦时品牌蓝光圈 */
+.search-label input{margin-top:6px;width:100%;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r-sm);padding:10px 11px;color:var(--ink);font-size:12px;box-shadow:inset 0 1px 2px #23272f0f}
+.search-label input::placeholder{color:var(--ink-3)}
+.search-label input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px #4a5fe826}
+.panel-note{font-size:10px;color:var(--ink-3);line-height:1.75;margin:9px 0 12px}
 .roster-items{overflow:auto;flex:1 1 auto;min-height:0;height:auto;padding-right:3px}
-.roster-row{width:100%;padding:8px 6px;display:flex;align-items:center;gap:9px;text-align:left;border:1px solid transparent;background:transparent;margin-bottom:4px;border-radius:10px}
-.roster-row:hover{background:#1c2c44;border-color:#3c5273}
-.roster-row.active{background:linear-gradient(180deg,#254063,#1b2f4a);border-color:#5b86b8;box-shadow:inset 0 0 0 1px #60a5fa33}
+/* 名单行：hover 淡蓝、选中品牌蓝描边 + 淡蓝底 */
+.roster-row{width:100%;padding:8px 6px;display:flex;align-items:center;gap:9px;text-align:left;border:1px solid transparent;background:transparent;margin-bottom:4px;border-radius:var(--r-md);cursor:pointer}
+.roster-row:hover{background:var(--surface-3);border-color:var(--line-2)}
+.roster-row.active{background:var(--brand-soft);border-color:var(--brand);box-shadow:inset 0 0 0 1px #4a5fe81f}
 .portrait{display:inline-block;flex:none;width:32px;height:38px;image-rendering:pixelated}
-.roster-row strong{font-size:12px;font-weight:500;letter-spacing:.4px}
-.roster-row small{display:block;font:10px ui-monospace,monospace;color:#91a6c2;margin-top:5px}
-.roster-row small.roster-match{display:block;color:#e9c877;margin-top:4px;line-height:1.5;word-break:break-all}
-.out-label,.self-label,.offline-tag,.online-tag{font-size:9px;margin-left:auto;border-radius:999px;padding:3px 7px;background:#18253c;border:1px solid #35496a;color:#8191a5}
-.self-label{color:#8fc6ff;border-color:#3f6ea3;background:#16304e}
-.offline-tag{color:#9aa6b8;border-color:#3a4757}
-.online-tag{color:#8fbfa2;border-color:#3c5c4c}
+.roster-row strong{font-size:12px;font-weight:600;letter-spacing:.4px;color:var(--ink)}
+.roster-row small{display:block;font:10px ui-monospace,monospace;color:var(--ink-3);margin-top:5px}
+/* 搜索命中来源：用阳光橙强调，一眼看出为什么被匹配到 */
+.roster-row small.roster-match{display:block;color:#a85a00;margin-top:4px;line-height:1.5;word-break:break-all;background:var(--sun-soft);border-radius:4px;padding:2px 5px}
+/* 状态徽章：四色区分，均为浅底深字（对比度 >= 5:1） */
+.out-label,.self-label,.offline-tag,.online-tag{font-size:9px;margin-left:auto;border-radius:var(--r-pill);padding:3px 8px;font-weight:600;background:var(--surface-3);border:1px solid var(--line-2);color:var(--ink-2)}
+.self-label{color:var(--brand-dk);border-color:var(--brand-line);background:var(--brand-soft)}
+.offline-tag{color:var(--ink-3);border-color:var(--line-2);background:var(--surface-3)}
+.online-tag{color:var(--mint-dk);border-color:var(--mint-line);background:var(--mint-soft)}
+.out-label{color:var(--coral-dk);border-color:var(--coral-line);background:var(--coral-soft)}
 .logs ol{list-style:none;padding:0;margin:0;overflow:auto;flex:1 1 auto;min-height:0}
-.logs li{border-left:1px solid #3b536e;margin-left:3px;padding:0 0 18px 14px;position:relative}
-.logs li:before{content:'';position:absolute;width:5px;height:5px;border-radius:50%;background:#60a5fa;left:-3px;top:5px;box-shadow:0 0 8px #60a5fa80}
-.logs li.log-mine{border-left:2px solid #65d9ef;background:linear-gradient(90deg,#65d9ef14,transparent);border-radius:0 7px 7px 0}
-.logs li.log-mine p{color:#91e9f7;font-weight:600}
-.logs li.log-mine:before{background:#65d9ef;box-shadow:0 0 8px #65d9ef80}
-.logs .log-event-tag{display:inline-block;font-size:10px;line-height:1.5;padding:1px 6px;margin:0 0 5px;border:1px solid currentColor;border-radius:4px;color:#91e9f7}
-.logs li.log-system-clue{border-left:2px solid #ffd65a;background:linear-gradient(90deg,#ffd65a1c,transparent);border-radius:0 7px 7px 0}
-.logs li.log-system-clue p{color:#ffe078;font-weight:700}
-.logs li.log-system-clue time{color:#c9ac58}
-.logs li.log-system-clue .log-event-tag{color:#ffe078;font-weight:700}
-.logs li.log-system-clue:before{background:#ffd65a;box-shadow:0 0 10px #ffd65a80}
-.logs time{display:block;font:10px ui-monospace,monospace;color:#8199b5;margin-bottom:5px}
-.logs li p{font-size:12px;line-height:1.7}
+.logs li{border-left:2px solid var(--line-2);margin-left:3px;padding:0 0 18px 14px;position:relative}
+.logs li:before{content:'';position:absolute;width:7px;height:7px;border-radius:50%;background:var(--brand);left:-4px;top:4px}
+/* 与我有关：天蓝 */
+.logs li.log-mine{border-left:2px solid var(--sky);background:var(--sky-soft);border-radius:0 var(--r-sm) var(--r-sm) 0}
+.logs li.log-mine p{color:var(--sky-dk);font-weight:600}
+.logs li.log-mine:before{background:var(--sky)}
+.logs .log-event-tag{display:inline-block;font-size:10px;line-height:1.5;padding:1px 7px;margin:0 0 5px;border:1px solid currentColor;border-radius:5px;color:var(--sky-dk);font-weight:600}
+/* 系统线索：阳光橙底 + 深橙字，保持"这是系统公布"的高优先级辨识度 */
+.logs li.log-system-clue{border-left:2px solid var(--sun);background:var(--sun-soft);border-radius:0 var(--r-sm) var(--r-sm) 0}
+.logs li.log-system-clue p{color:#8a4a00;font-weight:700}
+.logs li.log-system-clue time{color:#a8672a}
+.logs li.log-system-clue .log-event-tag{color:#8a4a00;font-weight:700}
+.logs li.log-system-clue:before{background:var(--sun)}
+.logs time{display:block;font:10px ui-monospace,monospace;color:var(--ink-3);margin-bottom:5px}
+.logs li p{font-size:12px;line-height:1.7;color:var(--ink-2)}
 .target{right:14px;top:62px;width:288px;padding:17px;max-height:calc(100% - 114px);overflow:auto;z-index:9;display:block}
 .target .panel-heading{margin-bottom:12px}
 .target-person{display:flex;align-items:center;gap:12px;margin-bottom:12px}
 .target-person .portrait{width:40px;height:48px}
 .target-person h2{font-size:18px}
-.sid{font:12px ui-monospace,monospace;color:#b6cdea;letter-spacing:1px;margin-top:7px}
-.status{font-size:10px;margin-top:7px;color:#98aec8}
+.sid{font:12px ui-monospace,monospace;color:var(--brand-dk);letter-spacing:1px;margin-top:7px;font-weight:600}
+.status{font-size:10px;margin-top:7px;color:var(--ink-2)}
 .color-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}
-.attribute{border:1px solid #33496a;background:linear-gradient(180deg,#152339,#111c2e);padding:9px;border-radius:8px;font-size:11px;box-shadow:inset 0 1px 0 #ffffff0d}
-.attribute span{color:#8ea5c3;display:block;font-size:9px;margin-bottom:5px}
-.swatch{width:8px;height:8px;display:inline-block;border:1px solid #ffffff44;border-radius:3px;margin:0 6px 0 0;box-shadow:0 0 0 1px #0006}
+/* 属性卡：浅灰底 + 细边，替代原来的深蓝内嵌块 */
+.attribute{border:1px solid var(--line);background:var(--surface-2);padding:9px;border-radius:var(--r-sm);font-size:11px;color:var(--ink)}
+.attribute span{color:var(--ink-3);display:block;font-size:9px;margin-bottom:5px}
+.swatch{width:9px;height:9px;display:inline-block;border:1px solid #ffffff;border-radius:3px;margin:0 6px 0 0;box-shadow:0 0 0 1px #23272f33}
 .traits{display:grid;gap:7px;margin:13px 0}
-.trait{display:flex;justify-content:space-between;gap:10px;font-size:11px}
-.trait span{color:#8ea5c3}
-.trait strong{font-weight:400}
-.private-gate{width:100%;background:linear-gradient(180deg,#1e324c,#16263c);border:1px dashed #567593;font-size:12px;border-radius:9px}
-.hold-note{font-size:10px;color:#90a8c4;line-height:1.6;margin-top:7px}
-.private-block{border-top:1px solid #445e7a;margin-top:12px;padding-top:12px}
-.private-title{font-size:11px;color:#c3d5ec;margin-bottom:9px}
+.trait{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--ink)}
+.trait span{color:var(--ink-3)}
+.trait strong{font-weight:600}
+/* 私密操作入口：虚线描边 + 淡紫底，暗示"这里不是常驻功能" */
+.private-gate{width:100%;background:var(--brand-soft);border:1.5px dashed var(--brand-line);color:var(--brand-dk);font-size:12px;font-weight:600;border-radius:var(--r-sm)}
+.private-gate:hover{background:#e4e8ff;border-color:var(--brand)}
+.hold-note{font-size:10px;color:var(--ink-3);line-height:1.6;margin-top:7px}
+.private-block{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.private-title{font-size:11px;color:var(--ink-2);font-weight:600;margin-bottom:9px}
 .skill-row{display:flex;gap:7px}
-.skill-row button{flex:1;font-size:12px;padding:8px;border-radius:8px}
-.investigate{background:#193c60;border-color:#477bad}
-.accuse{background:#58341e;border-color:#a56736}
-.kill{background:#4c2530;border-color:#93515c}
-.skill-info{color:#a8bad0;font-size:10px;margin:8px 0;line-height:1.6}
-.confirm-box{margin-top:9px;background:#0e1927;padding:10px;border:1px solid #4f6a89;border-radius:8px}
-.confirm-box p{font-size:11px;line-height:1.6;margin-bottom:8px}
-.confirm-box input{width:100%;padding:9px;background:#101d2e;border:1px solid #597391;color:#e2e8f0;border-radius:6px;font:12px ui-monospace,monospace;margin-bottom:8px}
+.skill-row button{flex:1;font-size:12px;padding:8px;border-radius:var(--r-sm)}
+/* 技能按钮语义色（旧名保留）：探查=品牌蓝 / 指认=阳光橙 / 击杀=珊瑚红 */
+.investigate{background:var(--brand-soft);border-color:var(--brand-line);color:var(--brand-dk);font-weight:600}
+.investigate:hover{background:#e0e5ff;border-color:var(--brand)}
+.accuse{background:var(--sun-soft);border-color:var(--sun-line);color:#8a4a00;font-weight:600}
+.accuse:hover{background:#ffe9cc;border-color:var(--sun)}
+.kill{background:var(--coral-soft);border-color:var(--coral-line);color:var(--coral-dk);font-weight:600}
+.kill:hover{background:#ffdde3;border-color:var(--coral)}
+.skill-info{color:var(--ink-2);font-size:10px;margin:8px 0;line-height:1.6}
+.confirm-box{margin-top:9px;background:var(--surface-2);padding:10px;border:1px solid var(--line-2);border-radius:var(--r-sm)}
+.confirm-box p{font-size:11px;line-height:1.6;margin-bottom:8px;color:var(--ink)}
+.confirm-box input{width:100%;padding:9px;background:var(--surface);border:1px solid var(--line-2);color:var(--ink);border-radius:var(--r-sm);font:12px ui-monospace,monospace;margin-bottom:8px}
+.confirm-box input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px #4a5fe826}
 .confirm-box button{font-size:11px;padding:7px 10px}
-.private-result{font-size:11px;line-height:1.7;color:#c5dcf7;margin-top:10px;border-left:2px solid #60a5fa;padding-left:9px}
+.private-result{font-size:11px;line-height:1.7;color:var(--ink);margin-top:10px;border-left:3px solid var(--brand);padding-left:9px;background:var(--brand-soft);border-radius:0 var(--r-sm) var(--r-sm) 0;padding:8px 10px}
 .candidates{left:50%;top:50%;transform:translate(-50%,-50%);width:268px;padding:18px;z-index:10;display:block}
-.candidates p{font-size:10px;color:#90a8c4;margin-bottom:10px}
+.candidates p{font-size:10px;color:var(--ink-3);margin-bottom:10px}

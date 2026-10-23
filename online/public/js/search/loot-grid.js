@@ -43,6 +43,9 @@
     els.close.onclick = () => close();
     els.start.onclick = () => beginSearch();
     els.take.onclick = () => takeAll();
+    // 按钮上标出快捷键：面板开着时再按一次 K 等同点这个按钮（K 先「开始搜索」，翻完后「全部拾取」）。
+    els.start.textContent = '开始搜索(K)';
+    els.take.textContent = '全部拾取(K)';
   }
 
   function open(options) {
@@ -87,6 +90,19 @@
     if (!silent && SID.lootGrid.onClose) SID.lootGrid.onClose();
   }
   function isOpen() { return !!(host && !host.hidden); }
+
+  // K 键复用入口：面板开着时再按一次 K。
+  // 优先级与按钮一致：还没开始 → 「开始搜索」；格子翻完 → 「全部拾取」；翻找中 → 什么都不做
+  // （翻找中把面板关掉就看不到进度了）。返回 true 表示这次按键已被消费。
+  function pressPrimary() {
+    if (!state || !els) return false;
+    if (!state.session) {
+      if (!els.start.hidden && !els.start.disabled) { beginSearch(); return true; }
+      return false;
+    }
+    if (!els.take.hidden && !els.take.disabled) { takeAll(); return true; }
+    return true;
+  }
 
   function buildGrid(session) {
     els.grid.replaceChildren();
@@ -267,5 +283,5 @@
     close();
   }, true);
 
-  SID.lootGrid = { open, close, isOpen, onClose: null };
+  SID.lootGrid = { open, close, isOpen, pressPrimary, onClose: null };
 })(window);

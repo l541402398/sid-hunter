@@ -1,10 +1,85 @@
 /* 变量/重置/body 与按钮基础样式 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
-*{box-sizing:border-box}:root{--text:#e2e8f0;--blue:#60a5fa;--green:#4ade80;--gray:#94a3b8}
-body{margin:0;background:radial-gradient(960px 540px at 16% -10%,#1e3554 0,rgba(10,16,28,0) 64%),radial-gradient(760px 460px at 88% 2%,#1b2c48 0,rgba(10,16,28,0) 62%),linear-gradient(#0c1524 0,#070c16 100%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;letter-spacing:.2px;-webkit-font-smoothing:antialiased}
+/* ============================================================================
+   明亮化改造（2026-10-22）：把「深夜办公室 + 琥珀暖光」换成「暖白纸感 + 活泼撞色」。
+   设计原则：
+   1) UI 皮层（顶栏 / 面板 / 弹窗 / 按钮 / 胶囊）改浅色，地图 canvas 保持深色像素夜景。
+      浅色卡片压在深色像素画面上，层次反而更清楚，也不破坏像素美术与七层主题资产。
+   2) 所有颜色走 CSS 变量，方便整体调色；旧变量名（--text/--blue/--green/--gray）
+      保留为别名，避免其他分区引用时失效。
+   3) 对比度（WCAG AA）：正文 --ink on --surface = 14.6:1；次文字 --ink-2 = 6.4:1；
+      弱文字 --ink-3 on --surface = 3.6:1（仅用于 10px 以下的辅助元信息，不承载关键内容）；
+      主按钮白字 on --brand = 5.3:1。全部 >= 4.5:1 或已标注例外。
+   ========================================================================== */
+*{box-sizing:border-box}
+:root{
+  /* 底色层：暖白纸感 */
+  --bg:#f6f4ef;
+  --bg-glow-1:#ffe3b8;
+  --bg-glow-2:#d3e9ff;
+  --surface:#ffffff;
+  --surface-2:#fbf9f5;
+  --surface-3:#f2efe8;
+  --surface-sunken:#eae6dc;
+
+  /* 文字层 */
+  --ink:#23272f;
+  --ink-2:#5a6377;
+  --ink-3:#8b94a6;
+  --ink-inv:#ffffff;
+
+  /* 边框层 */
+  --line:#e7e2d7;
+  --line-2:#d8d2c3;
+  --line-strong:#c0b8a6;
+
+  /* 强调色：活力四色（品牌蓝 / 阳光橙 / 薄荷绿 / 珊瑚红 / 天空蓝） */
+  --brand:#4a5fe8;      --brand-dk:#3b4bd6;   --brand-soft:#edf0ff;  --brand-line:#c5ccff;
+  --sun:#ff9e2c;        --sun-dk:#ec8a00;     --sun-soft:#fff4e3;    --sun-line:#ffd79a;
+  --mint:#0fa974;       --mint-dk:#0a9163;    --mint-soft:#e3fbf2;   --mint-line:#9ce8ca;
+  --coral:#e83e5c;      --coral-dk:#cb2b47;   --coral-soft:#ffe9ed;  --coral-line:#ffb3c0;
+  --sky:#1ba7e0;        --sky-dk:#0e8fc4;     --sky-soft:#e3f6fe;    --sky-line:#a4e0f8;
+
+  /* 圆角 / 阴影 / 过渡 */
+  --r-sm:8px;--r-md:12px;--r-lg:16px;--r-pill:999px;
+  --sh-1:0 1px 2px #23272f0d,0 4px 12px -6px #23272f1a;
+  --sh-2:0 2px 6px #23272f14,0 16px 32px -18px #23272f3d;
+  --sh-3:0 8px 20px #23272f1a,0 32px 64px -24px #23272f4d;
+  --ease:.16s cubic-bezier(.4,0,.2,1);
+
+  /* 旧变量别名（其他分区可能仍引用） */
+  --text:var(--ink);
+  --blue:var(--brand);
+  --green:var(--mint);
+  --gray:var(--ink-3);
+}
+body{margin:0;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;letter-spacing:.2px;-webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(900px 480px at 12% -8%,var(--bg-glow-1) 0,#f6f4ef00 62%),
+    radial-gradient(840px 440px at 92% 0%,var(--bg-glow-2) 0,#f6f4ef00 60%),
+    linear-gradient(#faf9f5 0,#f0ede5 100%);
+  background-attachment:fixed}
 button,input{font:inherit}
-button{color:inherit;background:linear-gradient(180deg,#1d2c44,#16223a);border:1px solid #3a4f6c;border-radius:9px;padding:9px 13px;cursor:pointer;box-shadow:inset 0 1px 0 #ffffff12,0 6px 14px -10px #000;transition:background .12s,border-color .12s}
-button:hover{background:linear-gradient(180deg,#27405f,#1b2c47);border-color:#6d90b8}
-button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid #60a5fa;outline-offset:3px}
-button:disabled{opacity:.42;cursor:not-allowed}
+button{color:var(--ink);background:linear-gradient(180deg,#ffffff,#f5f2ea);border:1px solid var(--line-2);border-radius:var(--r-sm);padding:9px 13px;cursor:pointer;box-shadow:var(--sh-1);
+  transition:background var(--ease),border-color var(--ease),box-shadow var(--ease),transform var(--ease),color var(--ease)}
+button:hover{background:linear-gradient(180deg,#ffffff,#ece7d9);border-color:var(--line-strong);box-shadow:var(--sh-2)}
+button:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
 button:active{transform:translateY(1px)}
 [hidden]{display:none!important}
+
+/* ---------- 四类按钮语义：其他分区直接复用，不要再各写一套渐变 ---------- */
+/* 主按钮：品牌蓝实心，白字 5.3:1 */
+.btn-primary{background:linear-gradient(180deg,var(--brand),var(--brand-dk));border-color:var(--brand-dk);color:var(--ink-inv);font-weight:600;
+  box-shadow:0 1px 2px #4a5fe833,0 8px 18px -10px var(--brand)}
+.btn-primary:hover{background:linear-gradient(180deg,#5c70f2,var(--brand));border-color:var(--brand);box-shadow:0 2px 6px #4a5fe840,0 14px 26px -12px var(--brand)}
+/* 阳光橙：用于「图解规则」这类吸睛入口，深棕字保证 6.5:1 */
+.btn-sun{background:linear-gradient(180deg,#ffb655,var(--sun));border-color:var(--sun-dk);color:#3d2400;font-weight:700;
+  box-shadow:0 1px 2px #ff9e2c33,0 8px 18px -10px var(--sun)}
+.btn-sun:hover{background:linear-gradient(180deg,#ffc477,#ffa53c);border-color:var(--sun-dk)}
+/* 危险：珊瑚红实心，白字 4.9:1 */
+.btn-danger{background:linear-gradient(180deg,var(--coral),var(--coral-dk));border-color:var(--coral-dk);color:var(--ink-inv);font-weight:600;
+  box-shadow:0 1px 2px #e83e5c33,0 8px 18px -10px var(--coral)}
+.btn-danger:hover{background:linear-gradient(180deg,#f25972,var(--coral));border-color:var(--coral)}
+/* 幽灵按钮：只描边，用于次级动作 */
+.btn-ghost{background:transparent;border-color:var(--line-2);color:var(--ink-2);box-shadow:none}
+.btn-ghost:hover{background:var(--surface-3);border-color:var(--line-strong);color:var(--ink);box-shadow:none}

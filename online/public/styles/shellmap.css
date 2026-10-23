@@ -1,37 +1,41 @@
 /* 游戏内布局（game-hud/map-view/常驻日志/电梯过渡） —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
+/* 明亮化：HUD 区改白卡片；浮在深色地图上的元素（门、过渡卡、就近按钮）保持深色以免糊成一片。 */
 html,body{height:100%}
 body{min-height:100%}
 /* QA-D13：shell 允许纵向滚动 —— 小视口（如 1280x720 + 150% zoom = 853x480）下 HUD+地图+说明/开发区总高超过视口时，
    改为整页滚动，而不是把 .stage 挤到内容以下导致 .map-view 被 overflow:hidden 裁切、与下方兄弟节点重叠。 */
 .shell{max-width:none;margin:0;padding:clamp(8px,1.4vw,18px);height:100dvh;display:flex;flex-direction:column;gap:10px;min-height:0;overflow-y:auto;overflow-x:hidden}
-/* QA-D13：stage 不再允许被压到内容最小值以下。min-height = HUD 上限(min(40dvh,340px)) + 地图视区下限(180px) + 2px(stage 上下边框)，
-   保证 .map-view 始终落在 .stage 的 overflow:hidden 裁剪框内（面板与其关闭键因此始终可见可点）。 */
+/* QA-D13：stage 不再允许被压到内容最小值以下。 */
 .stage{display:flex;flex-direction:column;flex:1 1 auto;min-height:calc(min(40dvh,340px) + 182px);height:auto;max-height:none;aspect-ratio:auto;width:100%;padding:0;overflow:hidden}
-.game-hud{flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:12px 16px 10px;border-bottom:1px solid #2c405a;max-height:min(40dvh,340px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain}
+/* HUD 白卡片：与页面底色区分，底边分隔线用淡色。
+   顶部压一条四色细带（品牌蓝→天蓝→薄荷→阳光橙），是整屏唯一的「高饱和」装饰——
+   面积只有 3px，却能让最上方这块大白卡有精神，不跟地图抢视线。 */
+.game-hud{position:relative;flex:0 0 auto;display:flex;flex-direction:column;gap:6px;padding:14px 16px 10px;border-bottom:1px solid var(--line);max-height:min(40dvh,340px);overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;background:linear-gradient(180deg,var(--surface),#fdfbf5);border-radius:0 0 var(--r-lg) var(--r-lg)}
+.game-hud::before{content:'';position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,var(--brand) 0,var(--sky) 32%,var(--mint) 60%,var(--sun) 84%,var(--coral) 100%)}
 .game-hud .topbar{padding-bottom:8px;flex-wrap:wrap;row-gap:8px}
 .game-hud .toolbar{margin-bottom:0;flex-wrap:wrap;row-gap:8px}
 .map-view{position:relative;flex:1 1 auto;min-height:180px;width:100%;overflow:hidden}
 .map-view canvas{display:block;width:100%;height:100%;object-fit:fill;image-rendering:pixelated;touch-action:none;border-radius:0}
 .map-view .panel{max-height:calc(100% - 24px)}
-/* QA-D13：短视口（如 1280x720 + 150% zoom）地图视区仅 ~180px，名单面板若仍用 top:60/bottom:52 只剩 ~68px（仅标题可见）。
-   此处放宽上下内缩，让面板标题、搜索与列表在矮视口下也可用；不改变常规高度下的表现。 */
+/* QA-D13：短视口下放宽面板上下内缩。 */
 @media(max-height:600px){.roster{top:8px;bottom:8px}}
-.floor-indicator{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(180deg,#26405f,#16273f);border:1px solid #5b83ad;border-radius:999px;padding:7px 14px;color:#cde5ff;font:700 12px ui-monospace,monospace;letter-spacing:1px;box-shadow:inset 0 1px 0 #ffffff14}
+/* 楼层指示：白底品牌蓝描边 */
+.floor-indicator{display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);border:1px solid var(--brand-line);border-radius:var(--r-pill);padding:7px 14px;color:var(--brand-dk);font:800 12px ui-monospace,monospace;letter-spacing:1px;box-shadow:inset 0 1px 0 #ffffff}
 .instructions{flex:0 0 auto;max-height:34dvh;overflow:auto}
 .instructions .lan-section{margin-top:0;margin-bottom:12px}
 /* 公共日志为地图右侧独立占位栏，不属于地图浮层，也不提供折叠行为。 */
 .game-layout{display:grid;grid-template-columns:minmax(0,1fr) clamp(240px,22vw,320px);gap:12px;align-items:stretch;flex:1 1 auto;min-height:calc(min(40dvh,340px) + 182px)}
 .shell>.bad-section,.shell>.dev-management{flex:0 0 auto}
 .game-layout>.stage{min-width:0;height:100%}
-.game-layout>.log-sidebar{position:static;width:auto;min-height:0;height:0;align-self:stretch;min-height:100%;z-index:auto;box-shadow:inset 0 1px 0 #ffffff0d}
+.game-layout>.log-sidebar{position:static;width:auto;min-height:0;height:0;align-self:stretch;min-height:100%;z-index:auto}
 .log-sidebar ol{overscroll-behavior:contain;overflow-wrap:anywhere;padding-right:4px}
 @media(max-width:850px){.game-layout{grid-template-columns:minmax(0,1fr) 220px;gap:8px}.log-sidebar{padding:12px}.log-sidebar .panel-heading{gap:8px}.log-sidebar h2{font-size:15px}}
 @media(max-width:560px){.game-layout{grid-template-columns:minmax(0,1fr) 160px;gap:6px}.log-sidebar{padding:10px}.log-sidebar .panel-heading{align-items:flex-start;flex-wrap:wrap}.log-sidebar .panel-note{font-size:9px}.log-sidebar li p{font-size:11px}}
-/* 顶层居中操作窗：不受地图高度、缩放与 overflow 裁剪影响。 */
-dialog.center-dialog{position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 32px));height:fit-content;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:20px;border:1px solid #9d8156;border-radius:14px;background:#172331;color:#e9e4da;overflow:auto;box-shadow:0 24px 80px #0009;transform:none}
+/* 顶层居中操作窗：不受地图高度、缩放与 overflow 裁剪影响。浅色遮罩 + 白卡片。 */
+dialog.center-dialog{position:fixed;inset:0;margin:auto;width:min(480px,calc(100vw - 32px));height:fit-content;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:20px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--ink);overflow:auto;box-shadow:var(--sh-3);transform:none}
 dialog.center-dialog:not([open]){display:none}
-dialog.center-dialog::backdrop{background:#070c16ad;backdrop-filter:blur(3px)}
-dialog.center-dialog>.panel-heading{position:sticky;top:-20px;background:#172331;padding:10px 0;z-index:1;gap:12px}
+dialog.center-dialog::backdrop{background:#23272f5c;backdrop-filter:blur(6px)}
+dialog.center-dialog>.panel-heading{position:sticky;top:-20px;background:var(--surface);padding:10px 0;z-index:1;gap:12px}
 dialog.center-dialog .icon-button{min-width:44px;min-height:44px;flex:none}
 dialog.center-dialog .private-block{border:0;padding-top:0;margin-top:0}
 dialog.center-dialog .skill-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
@@ -39,17 +43,18 @@ dialog.center-dialog .skill-row button,dialog.center-dialog .confirm-box button{
 dialog.private-dialog{width:min(540px,calc(100vw - 32px))}
 .private-skill{min-width:0;display:flex;flex-direction:column;gap:5px}
 .private-skill button{width:100%;padding:10px 6px;line-height:1.5;white-space:normal;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
-.private-skill .skill-button-label{display:block;font-size:16px;font-weight:600;line-height:1.5}
-.private-skill .skill-button-timer{display:block;font-size:11px;font-weight:400;line-height:1.4;font-variant-numeric:tabular-nums;letter-spacing:.4px}
+.private-skill .skill-button-label{display:block;font-size:16px;font-weight:700;line-height:1.5}
+.private-skill .skill-button-timer{display:block;font-size:11px;font-weight:500;line-height:1.4;font-variant-numeric:tabular-nums;letter-spacing:.4px;opacity:.85}
 .private-skill .skill-button-timer[hidden]{display:none}
-.private-skill .skill-effect{font-size:11px;line-height:1.6;color:#b5c5d8;margin:0 2px 5px}
-.private-resources{margin-top:10px;color:#9fb2c9;font-size:11px}
-.private-resources summary{cursor:pointer}
-/* 按技能类型配色：双方探查/指认蓝色，坏人额外刺探/击杀红色。 */
-dialog.private-dialog .skill-blue{background:linear-gradient(180deg,#245b91,#1a416c);border-color:#609bda;color:#eff7ff}
-dialog.private-dialog .skill-blue:hover:not(:disabled){background:#2d6ba6;border-color:#9ac9ff}
-dialog.private-dialog .skill-red{background:linear-gradient(180deg,#a33545,#782736);border-color:#df6a7b;color:#fff1f3}
-dialog.private-dialog .skill-red:hover:not(:disabled){background:#b64053;border-color:#ffa1b0}
+.private-skill .skill-effect{font-size:11px;line-height:1.6;color:var(--ink-2);margin:0 2px 5px}
+.private-resources{margin-top:10px;color:var(--ink-2);font-size:11px}
+.private-resources summary{cursor:pointer;color:var(--brand-dk);font-weight:600}
+/* 按技能类型配色（语义保持不变）：双方探查/指认=品牌蓝，坏人额外刺探/击杀=珊瑚红。
+   这里刻意改成浅底深字的实心块，比原来的深蓝/深红更明快，也保证白底面板上的对比度。 */
+dialog.private-dialog .skill-blue{background:linear-gradient(180deg,#6a7df2,var(--brand));border-color:var(--brand-dk);color:#fff;font-weight:700;box-shadow:0 1px 2px #4a5fe833,0 8px 18px -10px var(--brand)}
+dialog.private-dialog .skill-blue:hover:not(:disabled){background:linear-gradient(180deg,#7d8ef7,#556af0);border-color:var(--brand)}
+dialog.private-dialog .skill-red{background:linear-gradient(180deg,#f25672,var(--coral));border-color:var(--coral-dk);color:#fff;font-weight:700;box-shadow:0 1px 2px #e83e5c33,0 8px 18px -10px var(--coral)}
+dialog.private-dialog .skill-red:hover:not(:disabled){background:linear-gradient(180deg,#f76e86,#ec506a);border-color:var(--coral)}
 @media(min-width:700px) and (max-height:600px){dialog.private-dialog{width:min(780px,calc(100vw - 32px))}dialog.private-dialog .skill-row{grid-template-columns:repeat(4,minmax(0,1fr))}dialog.private-dialog>.panel-heading{padding:4px 0}dialog.private-dialog .panel-note{margin:4px 0}.private-skill .skill-effect{font-size:10px}}
 dialog.center-dialog .skill-info{line-height:1.7;font-size:11px}
 dialog.exploration .exploration-body{overflow:visible}
@@ -59,17 +64,19 @@ dialog.exploration.bag-mode{left:0;top:0;right:0;bottom:0;transform:none;margin:
 dialog.bad-pool-dialog{width:min(720px,calc(100vw - 32px))}
 dialog.bad-pool-dialog .bad-slots{padding:6px 0 12px}
 dialog.bad-pool-dialog .bad-note{padding:0}
-/* 电梯过渡：门覆盖层只盖住地图视区，不遮挡 HUD 文字与 Esc。 */
+/* 电梯过渡：门覆盖层只盖住地图视区，不遮挡 HUD 文字与 Esc。
+   门本身是"电梯金属门"，保持深色更符合画面语义（它在深色地图上）。 */
 .floor-transition{position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;pointer-events:none;overflow:hidden}
-.floor-transition .door{position:absolute;top:0;bottom:0;width:52%;background:repeating-linear-gradient(90deg,#243244 0 14px,#1b2637 14px 28px);border:1px solid #3f5874;box-shadow:inset 0 0 60px #000a;transition:transform .38s ease}
+.floor-transition .door{position:absolute;top:0;bottom:0;width:52%;background:repeating-linear-gradient(90deg,#3a4a60 0 14px,#2c394b 14px 28px);border:1px solid #55708f;box-shadow:inset 0 0 60px #0007;transition:transform .38s ease}
 .floor-transition .door-left{left:0;transform:translateX(-101%)}
 .floor-transition .door-right{right:0;transform:translateX(101%)}
 .floor-transition.closed .door-left{transform:translateX(0)}
 .floor-transition.closed .door-right{transform:translateX(0)}
-.floor-transition-card{position:relative;z-index:2;background:#0d1728f2;border:1px solid #456180;border-radius:12px;padding:16px 20px;text-align:center;color:#e2e8f0;box-shadow:0 20px 50px -24px #000;max-width:min(420px,86%)}
-.floor-arrow{font:700 14px ui-monospace,monospace;color:#f0c47d;letter-spacing:1px}
-.floor-phase{font-size:13px;line-height:1.7;margin-top:6px}
-.floor-detail{font-size:11px;color:#9fb6d4;line-height:1.6;margin-top:6px}
+/* 过渡卡：白卡片，浮在深色门上 */
+.floor-transition-card{position:relative;z-index:2;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:16px 20px;text-align:center;color:var(--ink);box-shadow:var(--sh-3);max-width:min(420px,86%)}
+.floor-arrow{font:800 14px ui-monospace,monospace;color:var(--brand-dk);letter-spacing:1px}
+.floor-phase{font-size:13px;line-height:1.7;margin-top:6px;font-weight:600}
+.floor-detail{font-size:11px;color:var(--ink-2);line-height:1.6;margin-top:6px}
 #floor-transition-close{pointer-events:auto;margin-top:10px;min-height:40px;font-size:12px}
-.floor-transition.notice{background:#05080fdd;pointer-events:auto}
+.floor-transition.notice{background:#23272f80;pointer-events:auto}
 @media(prefers-reduced-motion:reduce){.floor-transition .door{transition:none}}

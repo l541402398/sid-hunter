@@ -492,7 +492,7 @@
     if (!r) return [];
     return r.containers.map(f => ({ ...f, container: { ...f.container } }));
   }
-  // 楼层上距离玩家最近、且在其半径内的房间门（用于「按 E 进入」）。
+  // 楼层上距离玩家最近、且在其半径内的房间门（用于「按 K 进入」）。
   function roomDoorNear(floorId, x, y, range = ENTER_PAD) {
     let best = null, bestD = Infinity;
     for (const r of ROOM_LIST) {

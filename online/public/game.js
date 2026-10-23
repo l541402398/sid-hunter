@@ -200,6 +200,9 @@
   let wheelSpinFlight = null, wheelResult = '';
   let playerCache = new Map(), skinCache = new Map(), rosterCache = [];
   let rulesInfo = null, finishReason = '', rankingList = null, achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
+  // 下一次「系统公布线索」的服务端时间戳（0 = 本场没有下一次）。只用来显示倒计时，
+  // 不含任何线索内容，所以放在公共快照里也不构成泄露。
+  let nextClueAt = 0;
   // serverTime 只在快照到达时更新；本地用单调时钟插值，避免计时与动画在快照间隙抖动/闪烁。
   function serverNow() { return serverTime + (performance.now() - serverPerfBase); }
   let gameClosed = '', gamePausedAt = 0;
@@ -423,6 +426,7 @@
     $('game-availability').textContent = gameClosed;
     if (gameClosed && keys.size) { keys.clear(); sendIntent(false); }
     if (s.rules) rulesInfo = s.rules;
+    nextClueAt = Number(s.nextClueAt) || 0;
     rankingList = Array.isArray(s.ranking) ? s.ranking : null;
     achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
     achievementLeaders = Array.isArray(s.achievementLeaders) ? s.achievementLeaders : [];
@@ -1433,9 +1437,41 @@
   function syncTimeLeft() {
     const node = $('time-left'); if (!node) return;
     const endsAt = rulesInfo && rulesInfo.endsAt;
-    if (!endsAt) { node.textContent = finished ? '已结束' : '--:--'; return; }
-    const left = endsAt - serverNow();
-    node.textContent = left <= 0 ? (finished ? '已结束' : '00:00:00') : formatDuration(left);
+    if (!endsAt) { node.textContent = finished ? '已结束' : '--:--'; }
+    else {
+      const left = endsAt - serverNow();
+      node.textContent = left <= 0 ? (finished ? '已结束' : '00:00:00') : formatDuration(left);
+    }
+    syncNextClue();
+  }
+  // 下一次系统公布线索的时间：相对倒计时（mm:ss）+ 绝对钟点（HH:MM）。
+  // 服务端只下发时间戳，抽到谁/哪一项都不在这里出现，所以公开显示不构成泄露。
+  // 系统真的公布一批线索时，新条目会进 logs；这里顺便让胶囊闪一下，避免玩家没注意到「刚刚公布」。
+  let lastClueBatchSig = '';
+  function syncNextClue() {
+    const chip = $('clue-next'), label = $('clue-next-left'), at = $('clue-next-at');
+    if (!chip || !label) return;
+    if (!nextClueAt || finished) { chip.hidden = true; lastClueBatchSig = ''; return; }
+    const left = nextClueAt - serverNow();
+    if (left <= 0) { label.textContent = '即将公布'; }
+    else {
+      const total = Math.ceil(left / 1000), mm = Math.floor(total / 60), ss = total % 60;
+      label.textContent = mm > 0 ? `${mm}:${String(ss).padStart(2, '0')}` : `${ss} 秒`;
+    }
+    if (at) {
+      // 绝对钟点按北京时间显示（与服务端日志同一时区），避免本机时区不同时对不上。
+      at.textContent = new Date(nextClueAt).toLocaleTimeString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+    }
+    chip.hidden = false;
+    // 系统线索条目变化 = 刚刚公布过一轮；给胶囊一次高亮，让玩家知道倒计时被重置了。
+    const batchSig = String(logs.filter(l => l.type === 'systemClue').length) + '|' + (logs.find(l => l.type === 'systemClue')?.time || '');
+    if (lastClueBatchSig && batchSig !== lastClueBatchSig) {
+      chip.classList.remove('clue-flash');
+      void chip.offsetWidth;
+      chip.classList.add('clue-flash');
+      setTimeout(() => chip.classList.remove('clue-flash'), 1800);
+    }
+    lastClueBatchSig = batchSig;
   }
   function finishReasonText(reason) {
     return reason === 'aliveFloor' ? '存活人数已淘汰至剩余 100 人'
@@ -1552,11 +1588,12 @@
           button = document.createElement('button'); button.dataset.entity = item.id;
           button.onclick = () => activateNearby(item.kind, item.id); host.append(button);
         }
-        // 文案随状态更新（房间门/出口/容器/NPC 四类）
-        button.textContent = item.kind === 'container' ? item.entity.container.name
-          : item.kind === 'door' ? `进入「${item.entity.name}」`
-            : item.kind === 'exit' ? `离开「${item.entity.name}」`
-              : `${item.entity.name} · NPC / ${item.entity.cost} 筹码`;
+        // 文案随状态更新（房间门/出口/容器/NPC 四类）。
+        // 每项都带「按：K」前缀，让玩家知道这些按钮等价于按 K（用户要求把提示统一成实际键位）。
+        button.textContent = item.kind === 'container' ? `按：K · ${item.entity.container.name}`
+          : item.kind === 'door' ? `按：K · 进入「${item.entity.name}」`
+            : item.kind === 'exit' ? `按：K · 离开「${item.entity.name}」`
+              : `按：K · ${item.entity.name} · NPC / ${item.entity.cost} 筹码`;
       }
       for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
     }
@@ -2182,6 +2219,21 @@
       ctx.beginPath(); ctx.ellipse(cx, by - 2, rx * 0.8, ry * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
+    // 靠近可搜索物品时，在光圈正下方标出操作提示「按：K」，与就近列表的按钮前缀一致。
+    // 只在 ready（真的能搜）时画，blocked/idle 不画，避免误导。
+    if (tier === 'ready') {
+      const label = '按：K';
+      ctx.save();
+      ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const tw = Math.round(ctx.measureText(label).width) + 12;
+      const lx = Math.round(cx - tw / 2), ly = Math.round(by - 2 + ry + 4);
+      ctx.globalAlpha = .82; ctx.fillStyle = '#08121e'; ctx.fillRect(lx, ly, tw, 15);
+      ctx.globalAlpha = 1; ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 1;
+      ctx.strokeRect(lx + .5, ly + .5, tw - 1, 14);
+      ctx.fillStyle = '#d8f4ff'; ctx.fillText(label, lx + tw / 2, ly + 8);
+      ctx.restore();
+    }
   }
   // ---------- 家具三层绘制（阶段2-2a，美术规格 §3 C-0）----------
   // 视角约定：rect = 平面投影；立面占 rect 下沿起 facePx（柜类可越过 y，故需 padUp）；
@@ -2756,7 +2808,7 @@
   }
   // 电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 单个呼梯按钮。
   // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
-  // 玩家站在门前并面向门时叠呼吸描边与「E 选择楼层」提示。
+  // 玩家站在门前并面向门时叠呼吸描边与「K 选择楼层」提示。
   function drawElevatorHall(p, active) {
     const cx = Math.round(p.x), cy = Math.round(p.y);
     const accent = '#7fe3ff';
@@ -2794,7 +2846,7 @@
       ctx.strokeStyle = accent; ctx.lineWidth = 2;
       ctx.strokeRect(x0 - 6, y0 - 6, hw * 2 + 12, hh * 2 + 14);
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
-      const label = 'E 选择楼层';
+      const label = 'K 选择楼层';
       ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       const tw = Math.round(ctx.measureText(label).width) + 12, lx = cx - tw / 2, ly = y0 - 32;
       ctx.fillStyle = 'rgba(8,11,18,.88)'; ctx.fillRect(lx, ly, tw, 16);
@@ -3143,7 +3195,7 @@
         ctx.strokeRect(x - 27, y - 14, 54, 28);
         ctx.fillStyle = `rgba(191,233,255,${(0.55 + 0.35 * Math.sin(t * 4)).toFixed(3)})`;
         ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-        ctx.fillText('E 进入房间', x, y + 30);
+        ctx.fillText('K 进入房间', x, y + 30);
       }
     }
   }
@@ -3159,7 +3211,7 @@
     ctx.fillStyle = '#ffe3a3';
     ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('E 离开房间', x, y + 26);
+    ctx.fillText('K 离开房间', x, y + 26);
   }
   function draw() {
     if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
@@ -3558,8 +3610,12 @@
   // K 场景交互（原 E 的语义）：物品格面板 → 私密面板 → 房间门 → 电梯 → 就近目标 → 兜底提示。
   // 抽成具名函数是为了让 K 与未来的点击 / 手柄入口共用同一套仲裁顺序，不重复实现。
   function interactNearest() {
-    // 物品格面板打开时，K 先收起面板（与其它私密面板一致）。
-    if (LOOT && LOOT.isOpen()) { LOOT.close(); return; }
+    // 物品格面板打开时，K 先走「开始搜索」：还没开始就等同点按钮（按钮标着 (K)），
+    // 已经开始或已搜完再按一次才收起面板——这样"按 K 开 → 按 K 搜 → 按 K 关"是一条直线的操作。
+    if (LOOT && LOOT.isOpen()) {
+      if (typeof LOOT.pressPrimary === 'function' && LOOT.pressPrimary()) return;
+      LOOT.close(); return;
+    }
     if (explorationPanel) { closeExploration(); return; }
     // 需求①：房间内先判「走到门口离开」，房间外先判「门口进入」——
     // 门的优先级高于旁边的容器/NPC，避免站在门口按 K 却搜到了柜子。
@@ -3655,7 +3711,10 @@
       return;
     }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) {
-      e.preventDefault(); if (interactionFlight || selfDisabled()) return;
+      e.preventDefault();
+      // 搜索弹窗不是模态：一旦试图移动就关掉它，避免"人走了面板还在"。
+      if (LOOT && LOOT.isOpen()) LOOT.close();
+      if (interactionFlight || selfDisabled()) return;
       keys.add(e.code); sendIntent(false);
     }
   });

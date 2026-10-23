@@ -1,58 +1,66 @@
 /* 计分芯片、排行榜、大转盘、电梯选层、结算 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
+/* 明亮化：分数用阳光橙强调；卡片一律白底 + 柔和阴影；遮罩改浅色模糊。 */
+
 /* 分数槽、时间提示：延续顶部胶囊样式，只做稳定值槽。 */
-.score-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#a4b3c7;background:#111d2fcc;border:1px solid #2c405a;border-radius:999px;padding:7px 12px;box-shadow:inset 0 1px 0 #ffffff0f}
-.score-chip b{color:#f0c47d;font:700 14px ui-monospace,monospace}
-#time-left{color:#cfe3fb}
+.score-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);background:var(--sun-soft);border:1px solid var(--sun-line);border-radius:var(--r-pill);padding:7px 12px;font-weight:500}
+.score-chip b{color:#a85a00;font:800 14px ui-monospace,monospace}
+#time-left{color:var(--brand-dk);font-weight:700}
+
 /* 排行榜：结构与 games 一致，只更新值槽；坏人身份结束前不显示。 */
-.ranking{left:12px;top:60px;width:318px;max-width:calc(100% - 24px);max-height:calc(100% - 114px);padding:17px;z-index:24;border-color:#9d8156;color:#e9e4da}
-.ranking>.panel-heading{flex:none;margin-bottom:10px}.ranking #ranking-close{flex:none;min-width:44px;min-height:44px}
-.ranking #ranking-rules{color:#e9c877;margin-top:2px}.ranking #ranking-alive{color:#e9c877}
+/* 「排行榜打开后在屏幕中心」：.map-view 是 position:relative，用 absolute + translate 居中。 */
+.ranking{left:50%;top:50%;transform:translate(-50%,-50%);width:318px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);padding:17px;z-index:24;border-color:var(--line);color:var(--ink)}
+.ranking>.panel-heading{flex:none;margin-bottom:10px}
+.ranking #ranking-close{flex:none;min-width:44px;min-height:44px}
+.ranking #ranking-rules{color:var(--ink-2);margin-top:2px}
+.ranking #ranking-alive{color:var(--coral-dk);font-weight:800}
 .ranking-items{overflow:auto;min-height:0;flex:1 1 auto;display:flex;flex-direction:column;gap:5px}
-.ranking-row{width:100%;padding:7px 9px;display:flex;align-items:center;gap:9px;text-align:left;border:1px solid #33496a;background:linear-gradient(180deg,#152339,#111c2e);border-radius:9px;margin-bottom:2px;cursor:default}
-.ranking-row:hover{background:#1c2c44;border-color:#3c5273}
-.ranking-rank{font:700 14px ui-monospace,monospace;color:#e9c877;min-width:28px;text-align:center;flex:none}
+/* 榜单行：浅底细边，前三名用金银铜描边区分 */
+.ranking-row{width:100%;padding:7px 9px;display:flex;align-items:center;gap:9px;text-align:left;border:1px solid var(--line);background:var(--surface-2);border-radius:var(--r-sm);margin-bottom:2px;cursor:default}
+.ranking-row:hover{background:var(--surface-3);border-color:var(--line-2)}
+.ranking-row:nth-child(1){border-color:#ffd24d;background:linear-gradient(90deg,#fff8dd,var(--surface-2))}
+.ranking-row:nth-child(2){border-color:#cfd8e3;background:linear-gradient(90deg,#f4f7fa,var(--surface-2))}
+.ranking-row:nth-child(3){border-color:#e8b98a;background:linear-gradient(90deg,#fdf1e6,var(--surface-2))}
+.ranking-rank{font:800 14px ui-monospace,monospace;color:var(--brand-dk);min-width:28px;text-align:center;flex:none}
 .ranking-row .portrait{width:26px;height:31px}
-.ranking-name{font-size:12px;font-weight:500;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ranking-score{font:600 13px ui-monospace,monospace;color:#c6dcff;margin-left:auto;flex:none}
+.ranking-name{font-size:12px;font-weight:600;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+.ranking-score{font:700 13px ui-monospace,monospace;color:#a85a00;margin-left:auto;flex:none}
 .ranking-row .out-label{margin-left:0;flex:none}
-/* 大转盘覆盖层：10 格扇形由 canvas 绘制，卡片沿用暗色主题。 */
-.wheel-overlay{position:absolute;inset:0;z-index:44;display:flex;align-items:center;justify-content:center;background:#05080fd8;backdrop-filter:blur(6px)}
-.wheel-card{width:min(440px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:#1E293B;border:1px solid #F59E0B;border-radius:16px;padding:19px;color:#E2E8F0;box-shadow:0 30px 80px -24px #000,inset 0 0 0 1px #ffffff0d}
-.wheel-card .panel-heading{margin-bottom:12px}
-#wheel-canvas{display:block;width:min(380px,74vw);height:auto;margin:2px auto 12px;image-rendering:auto;border-radius:14px;background:#0F172A}
-#wheel-cost{color:#f0c47d;margin:6px 0 10px}
-#wheel-spin{width:100%;min-height:44px;font-size:14px;font-weight:700;background:linear-gradient(180deg,#f7c366,#d9932f);border-color:#ffdda0;color:#3a2606}
-#wheel-spin:hover:not(:disabled){background:linear-gradient(180deg,#ffdd93,#e6a53c)}
-#wheel-result{margin-top:10px}#wheel-result:empty{display:none}
-#wheel-rules{margin-top:8px}
-/* 电梯选层覆盖层：不分方向的电梯，进门任选 1–7F（当前层禁选）。 */
-.elevator-picker{position:absolute;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;background:#05080fd8;backdrop-filter:blur(6px)}
-.elevator-card{box-sizing:border-box;min-width:0;max-height:calc(100% - 16px);overflow:auto;overscroll-behavior:contain;width:min(420px,calc(100% - 24px));background:#1E293B;border:1px solid #7fb2e5;border-radius:16px;padding:18px;color:#E2E8F0;box-shadow:0 30px 80px -24px #000,inset 0 0 0 1px #ffffff0d}
-.elevator-card .panel-heading{margin-bottom:10px}
-.elevator-floors{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}
-.elevator-floor-btn{min-width:0;max-width:100%;overflow-wrap:anywhere;min-height:58px;font:700 16px/1.2 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:#0F172A;border:1px solid #3d4c66;border-radius:10px;color:#dbe8ff;cursor:pointer;transition:transform .06s ease,border-color .12s ease,background .12s ease}
-.elevator-floor-btn small{display:block;font-size:10px;font-weight:500;color:#8fa3c2;margin-top:3px;white-space:normal;overflow-wrap:anywhere;overflow:hidden}
-.elevator-floor-btn:hover:not(:disabled){border-color:#7fb2e5;background:#17233a;transform:translateY(-1px)}
-.elevator-floor-btn:disabled{opacity:.38;cursor:not-allowed}
-.elevator-floor-btn:disabled small{color:#64748b}
-/* 合并适配：dev 的右侧常驻日志栏在窄屏把舞台压窄，电梯选层卡片内容（7 个楼层按钮）超出
-   map-view 的高度，5/6/7F 按钮需要滚动、中心点会被舞台下方的匿名线索栏覆盖。
-   窄屏让选层覆盖层脱离 map-view、改为覆盖整个视口，卡片即可获得足够高度：
-   7 个楼层按钮全部可见可点，桌面端（>560px）行为不变。 */
-@media(max-width:560px){.elevator-picker{position:fixed}}
-/* 结算覆盖层：结束方式 + 排名，关闭后可再从排行榜查看。 */
-.finish-overlay{position:absolute;inset:0;z-index:54;display:flex;align-items:center;justify-content:center;background:#05080fdd;backdrop-filter:blur(6px)}
-.finish-card{width:min(500px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:linear-gradient(158deg,#1b2a40f8,#111d2efb);border:1px solid #9d8156;border-radius:16px;padding:20px;color:#e9e4da;box-shadow:0 30px 80px -24px #000}
-.finish-card h2{font-size:20px}
-#finish-reason{color:#f0c47d;font-size:13px;line-height:1.8;margin:8px 0 14px}
-#finish-ranking{margin-top:4px}
-@media(max-width:850px){.ranking{width:288px;top:52px}}
-
-
-/* ---------- 自适应全屏：HUD 移入游戏界面内部，地图视区占满剩余空间 ---------- */
 
 /* 双榜切换：筹码榜 / 成就榜 */
 .ranking-tabs{display:flex;gap:6px;margin:0 0 10px}
-.ranking-tabs button{flex:1;padding:6px 8px;font-size:11px;border:1px solid #2d3a4a;background:#0f1722;color:#8ba3bd;border-radius:7px;cursor:pointer}
-.ranking-tabs button.active{border-color:#5aa9f2;background:#132437;color:#cfe6ff}
+.ranking-tabs button{flex:1;padding:6px 8px;font-size:11px;border:1px solid var(--line-2);background:var(--surface-2);color:var(--ink-2);border-radius:var(--r-sm);cursor:pointer;font-weight:600}
+.ranking-tabs button.active{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dk);box-shadow:inset 0 0 0 1px #4a5fe81f}
 
+/* 大转盘覆盖层：10 格扇形由 canvas 绘制，卡片白底。 */
+.wheel-overlay{position:absolute;inset:0;z-index:44;display:flex;align-items:center;justify-content:center;background:#23272f59;backdrop-filter:blur(6px)}
+.wheel-card{width:min(440px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:var(--surface);border:2px solid var(--sun);border-radius:var(--r-lg);padding:19px;color:var(--ink);box-shadow:var(--sh-3)}
+.wheel-card .panel-heading{margin-bottom:12px}
+#wheel-canvas{display:block;width:min(380px,74vw);height:auto;margin:2px auto 12px;image-rendering:auto;border-radius:var(--r-md);background:var(--surface-2)}
+#wheel-cost{color:#a85a00;margin:6px 0 10px;font-weight:600}
+#wheel-spin{width:100%;min-height:44px;font-size:14px;font-weight:800;background:linear-gradient(180deg,#ffb655,var(--sun));border-color:var(--sun-dk);color:#3d2400;box-shadow:0 2px 6px #ff9e2c33,0 12px 24px -12px var(--sun)}
+#wheel-spin:hover:not(:disabled){background:linear-gradient(180deg,#ffc477,#ffa53c);border-color:var(--sun-dk)}
+#wheel-result{margin-top:10px}
+#wheel-result:empty{display:none}
+#wheel-rules{margin-top:8px}
+
+/* 电梯选层覆盖层：不分方向的电梯，进门任选 1–7F（当前层禁选）。 */
+.elevator-picker{position:absolute;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;background:#23272f59;backdrop-filter:blur(6px)}
+.elevator-card{box-sizing:border-box;min-width:0;max-height:calc(100% - 16px);overflow:auto;overscroll-behavior:contain;width:min(420px,calc(100% - 24px));background:var(--surface);border:2px solid var(--sky);border-radius:var(--r-lg);padding:18px;color:var(--ink);box-shadow:var(--sh-3)}
+.elevator-card .panel-heading{margin-bottom:10px}
+.elevator-floors{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}
+/* 楼层按钮：白底天空蓝描边，hover 上浮 */
+.elevator-floor-btn{min-width:0;max-width:100%;overflow-wrap:anywhere;min-height:58px;font:800 16px/1.2 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:var(--surface-2);border:1.5px solid var(--sky-line);border-radius:var(--r-md);color:var(--sky-dk);cursor:pointer;transition:transform var(--ease),border-color var(--ease),background var(--ease),box-shadow var(--ease)}
+.elevator-floor-btn small{display:block;font-size:10px;font-weight:500;color:var(--ink-3);margin-top:3px;white-space:normal;overflow-wrap:anywhere;overflow:hidden}
+.elevator-floor-btn:hover:not(:disabled){border-color:var(--sky);background:var(--sky-soft);transform:translateY(-2px);box-shadow:var(--sh-1)}
+.elevator-floor-btn:disabled{opacity:.45;cursor:not-allowed}
+.elevator-floor-btn:disabled small{color:var(--ink-3)}
+/* 窄屏让选层覆盖层脱离 map-view、改为覆盖整个视口，卡片即可获得足够高度。 */
+@media(max-width:560px){.elevator-picker{position:fixed}}
+
+/* 结算覆盖层：结束方式 + 排名，关闭后可再从排行榜查看。 */
+.finish-overlay{position:absolute;inset:0;z-index:54;display:flex;align-items:center;justify-content:center;background:#23272f66;backdrop-filter:blur(6px)}
+.finish-card{width:min(500px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:var(--surface);border:2px solid var(--brand);border-radius:var(--r-lg);padding:20px;color:var(--ink);box-shadow:var(--sh-3)}
+.finish-card h2{font-size:20px}
+#finish-reason{color:var(--brand-dk);font-size:13px;line-height:1.8;margin:8px 0 14px;font-weight:600}
+#finish-ranking{margin-top:4px}
+@media(max-width:850px){.ranking{width:288px}}

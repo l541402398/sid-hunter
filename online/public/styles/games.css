@@ -1,50 +1,57 @@
 /* 猜拳/小游戏、战斗 HUD 与按钮 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
-.games{left:12px;top:60px;width:312px;max-width:calc(100% - 24px);max-height:calc(100% - 114px);padding:17px;z-index:23;border-color:#9d8156;color:#e9e4da}
-.games>.panel-heading{flex:none;margin-bottom:10px}.games #games-close{flex:none;min-width:44px;min-height:44px}
+/* 明亮化：面板白卡片，猜拳用品牌蓝/阳光橙对比，接受=薄荷绿、拒绝=珊瑚红。 */
+.games{left:12px;top:60px;width:312px;max-width:calc(100% - 24px);max-height:calc(100% - 114px);padding:17px;z-index:23;border-color:var(--line);color:var(--ink)}
+.games>.panel-heading{flex:none;margin-bottom:10px}
+.games #games-close{flex:none;min-width:44px;min-height:44px}
 .games-body{overflow:auto;min-height:0;overscroll-behavior:contain}
-.games-balance{padding:9px 11px;background:#142439;border:1px solid #435975;border-radius:8px;font-size:12px}
-.games-balance strong{color:#e9c877}
-.rps-block{border-top:1px solid #5a4a33;margin-top:12px;padding-top:12px}
-.rps-choices{display:flex;gap:7px;margin:9px 0}.rps-choices button{flex:1;font-size:12px;padding:9px 6px}
-.rps-choices button.selected{border-color:#e9c877;background:#3a3020;color:#ffe6a8;box-shadow:inset 0 0 0 1px #e9c87755}
+.games-balance{padding:9px 11px;background:var(--mint-soft);border:1px solid var(--mint-line);border-radius:var(--r-sm);font-size:12px;color:var(--mint-dk)}
+.games-balance strong{color:var(--mint-dk);font-weight:800}
+.rps-block{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.rps-choices{display:flex;gap:7px;margin:9px 0}
+.rps-choices button{flex:1;font-size:12px;padding:9px 6px}
+/* 选中态：品牌蓝描边 + 淡蓝底 */
+.rps-choices button.selected{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dk);font-weight:600;box-shadow:inset 0 0 0 1px #4a5fe826}
 .games-invite-list{display:flex;flex-direction:column;gap:6px;margin:9px 0}
 .games-invite-list button{font-size:11px;padding:8px 10px;text-align:left}
-.games-state{font-size:11px;line-height:1.7;color:#e9c877;margin:8px 0}
+.games-state{font-size:11px;line-height:1.7;color:#a85a00;margin:8px 0;background:var(--sun-soft);border-radius:6px;padding:6px 9px}
 #games-result{margin-top:10px}
-.games-pending{border:1px dashed #9d8156;border-radius:9px;padding:11px;margin:9px 0;background:#221d16;font-size:11px}
-.games-pending p{line-height:1.7;color:#f4d69f}
-.games-pending-actions{display:flex;gap:8px;margin-top:8px}.games-pending-actions button{flex:1;font-size:11px;padding:8px}
-.games-timer{font:11px ui-monospace,monospace;color:#f0c47d;margin-top:8px}
+.games-pending{border:1.5px dashed var(--sun-line);border-radius:var(--r-sm);padding:11px;margin:9px 0;background:var(--sun-soft);font-size:11px}
+.games-pending p{line-height:1.7;color:#8a4a00;font-weight:500}
+.games-pending-actions{display:flex;gap:8px;margin-top:8px}
+.games-pending-actions button{flex:1;font-size:11px;padding:8px;min-height:40px}
+.games-timer{font:11px ui-monospace,monospace;color:#a85a00;margin-top:8px;font-weight:600}
 /* 猜拳上下布局：上方自己(左)/对手(右) 像素手势，下方三按钮(缩略图+标签)。 */
-.rps-arena{border-top:1px solid #5a4a33;margin-top:12px;padding-top:12px}
+.rps-arena{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
 .rps-top{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center}
-.rps-side{display:flex;flex-direction:column;align-items:center;gap:5px;background:#14233af2;border:1px solid #3b5470;border-radius:10px;padding:9px 6px}
-.rps-self{border-color:#9d8156}
-.rps-role{font-size:9px;color:#8ca2bd;letter-spacing:1px}
-.rps-name{font-size:11px;color:#cfe0f3;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rps-side{display:flex;flex-direction:column;align-items:center;gap:5px;background:var(--surface-2);border:1px solid var(--line-2);border-radius:var(--r-md);padding:9px 6px}
+.rps-self{border-color:var(--brand);background:var(--brand-soft)}
+.rps-role{font-size:9px;color:var(--ink-3);letter-spacing:1px;font-weight:600}
+.rps-name{font-size:11px;color:var(--ink);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .rps-glyph-slot{width:64px;height:64px;display:flex;align-items:center;justify-content:center}
 .rps-glyph{width:58px;height:58px;image-rendering:pixelated;display:block}
-.rps-vs{font:700 12px ui-monospace,monospace;color:#e9c877}
-.rps-phase{font-size:11px;line-height:1.6;color:#e9c877;margin:9px 0 6px;text-align:center;min-height:1.2em}
+.rps-vs{font:700 12px ui-monospace,monospace;color:var(--sun-dk)}
+.rps-phase{font-size:11px;line-height:1.6;color:#a85a00;margin:9px 0 6px;text-align:center;min-height:1.2em;font-weight:600}
 .rps-choices{display:flex;gap:7px;margin:6px 0}
 .rps-choices button{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;padding:8px 4px}
 .rps-choices button .rps-glyph{width:40px;height:40px}
 .rps-choices button span{font-size:11px}
-.rps-choices button[aria-pressed=true]{border-color:#e9c877;background:#3a3020;color:#ffe6a8;box-shadow:inset 0 0 0 1px #e9c87755}
-.rps-unconfirmed{font-size:10px;color:#f0a06a;line-height:1.6;margin:6px 0 0;text-align:center}
+.rps-choices button[aria-pressed=true]{border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dk);box-shadow:inset 0 0 0 1px #4a5fe826}
+.rps-unconfirmed{font-size:10px;color:var(--coral-dk);line-height:1.6;margin:6px 0 0;text-align:center;font-weight:600}
 .rps-result-close{width:100%;margin-top:8px;font-size:11px;padding:8px}
-.games-pending-actions{display:flex;gap:8px;margin-top:8px}
-.games-pending-actions button{flex:1;font-size:11px;padding:8px;min-height:40px}
-.rps-accept{background:#193c60;border-color:#477bad}
-.rps-reject{background:#4c2530;border-color:#93515c}
-.target-invite-rps{width:100%;margin:10px 0 2px;background:linear-gradient(180deg,#1e324c,#16263c);border:1px solid #9d8156;color:#ffe6a8;font-size:12px;border-radius:9px}
-.target-invite-rps:hover{background:#26394f;border-color:#e9c877}
-.target-invite-rps:disabled{opacity:.42;cursor:not-allowed}
-.combat-hud{display:flex;flex-direction:column;gap:6px;margin-top:7px;border-top:1px solid #33475f;padding-top:7px}
+/* 接受=薄荷绿 / 拒绝=珊瑚红 */
+.rps-accept{background:var(--mint-soft);border-color:var(--mint-line);color:var(--mint-dk);font-weight:600}
+.rps-accept:hover{background:#d3f7ea;border-color:var(--mint)}
+.rps-reject{background:var(--coral-soft);border-color:var(--coral-line);color:var(--coral-dk);font-weight:600}
+.rps-reject:hover{background:#ffdde3;border-color:var(--coral)}
+/* 邀请猜拳：品牌蓝面板按钮 */
+.target-invite-rps{width:100%;margin:10px 0 2px;background:linear-gradient(180deg,var(--brand),var(--brand-dk));border:1px solid var(--brand-dk);color:#fff;font-size:12px;font-weight:600;border-radius:var(--r-sm);box-shadow:0 1px 2px #4a5fe833,0 8px 18px -10px var(--brand)}
+.target-invite-rps:hover{background:linear-gradient(180deg,#5c70f2,var(--brand));border-color:var(--brand)}
+.target-invite-rps:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.combat-hud{display:flex;flex-direction:column;gap:6px;margin-top:7px;border-top:1px solid var(--line);padding-top:7px}
 #attack-button{font-size:10px;padding:6px 9px;text-align:left}
-.self-combat-state{color:#ffd0a8;font-size:10px;line-height:1.5}
+.self-combat-state{color:var(--coral-dk);font-size:10px;line-height:1.5;font-weight:600}
 .self-combat-state:empty{display:none}
-.combat-status{color:#c5dcf7;font-size:10px;line-height:1.6}
+.combat-status{color:var(--ink-2);font-size:10px;line-height:1.6}
 /* 左上角彻底清空（区域名、遮挡自述、无伤害说明、道具/技能提示条）：
    - .world-chip 已在 HTML 里置 hidden；
    - #cover-status / #nearby-empty / .combat-note / #self-combat-state 一律不显示；
@@ -56,10 +63,13 @@
 .exploration-hud{display:flex;flex-direction:column;align-items:flex-start;width:max-content;max-width:none;left:18px;top:15px;padding:0;border:0;background:none;backdrop-filter:none;max-height:none;overflow:visible;z-index:5}
 .exploration-hud:not(:has(.nearby-items button)){display:none}
 .exploration-hud .nearby-items{margin-top:0}
-.exploration-hud .nearby-items button{background:#0d1728f2;border:1px solid #3b5470;border-radius:9px;box-shadow:0 6px 16px -10px #000}
+/* 就近互动按钮压在地图上：保持深色半透明，但描边与文字提亮，和浅色 HUD 协调 */
+.exploration-hud .nearby-items button{background:#0d1728f2;border:1px solid #4a6a92;border-radius:var(--r-sm);color:#e6eef8;box-shadow:0 6px 16px -10px #000}
+.exploration-hud .nearby-items button:hover{background:#16263c;border-color:var(--sky);color:#fff}
 .exploration-hud .combat-hud{margin:0;padding:0;border:0;gap:0}
 #attack-button[hidden]{display:none}
 .map-foot{position:absolute}
-#combat-status{position:absolute;left:0;bottom:calc(100% + 8px);z-index:40;max-width:min(360px,52vw);margin:0;padding:8px 12px;border:1px solid #3b5470;border-radius:9px;background:#0d1728f2;box-shadow:0 10px 26px -14px #000;overflow-wrap:anywhere}
-.combat-note{color:#8098b9;font-size:9px;line-height:1.5}
+/* 命中/空挥反馈同上：压在地图上的深色小条 */
+#combat-status{position:absolute;left:0;bottom:calc(100% + 8px);z-index:40;max-width:min(360px,52vw);margin:0;padding:8px 12px;border:1px solid #4a6a92;border-radius:var(--r-sm);background:#0d1728f2;color:#e6eef8;box-shadow:0 10px 26px -14px #000;overflow-wrap:anywhere}
+.combat-note{color:#a9bcd4;font-size:9px;line-height:1.5}
 @media(max-width:850px){.games{width:288px}}
