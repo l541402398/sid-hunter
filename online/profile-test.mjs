@@ -305,6 +305,38 @@ try {
     assert.ok(!css.includes('.org-grid'));
   });
 
+  await test('待加入名单：真实员工库、交付组分组与工号排序、离线淘汰排除及最小字段', () => {
+    const store = createStore({ file: path.join(tempDir(), 'pending.sqlite') });
+    try {
+      store.saveEmployees([
+        { empNo: '010', name: '同名', deliveryGroup: '甲组', email: 'private@example.com', gender: 'male', title: '秘密职位' },
+        { empNo: '002', name: '同名', deliveryGroup: '甲组' },
+        { empNo: '001', name: '已离线', deliveryGroup: '乙组' },
+        { empNo: '003', name: '已淘汰', deliveryGroup: '乙组' },
+        { empNo: '004', name: '未分组' }
+      ]);
+      const profiles = createProfiles({ store, enabled: false });
+      const result = profiles.pendingPlayers([
+        { empNo: '001', online: false, alive: true }, { empNo: '003', alive: false },
+        { name: '同名' }, { npc: true, empNo: '002' }
+      ]);
+      assert.equal(result.count, 3); assert.equal(result.total, 5);
+      assert.deepEqual(result.groups, [
+        { name: '甲组', members: [{ empNo: '002', name: '同名' }, { empNo: '010', name: '同名' }] },
+        { name: '未分配交付组', members: [{ empNo: '004', name: '未分组' }] }
+      ]);
+      assert.equal(/private@example|gender|秘密职位|email|session|faction|sid/.test(JSON.stringify(result)), false);
+      assert.equal(profiles.pendingPlayers(store.listEmployees()).count, 0, '全部加入空态');
+      assert.equal(profiles.pendingPlayers([]).count, 5, '新场不排除上一场参与者');
+      store.saveEmployees([{ empNo: '004', name: '调组', deliveryGroup: '甲组' }]);
+      assert.equal(profiles.pendingPlayers([]).groups.length, 2);
+    } finally { store.close(); }
+    assert.equal(createProfiles({ store: createStore({ enabled: false }), enabled: false }).pendingPlayers([]).ok, false);
+    const empty = createStore({ file: path.join(tempDir(), 'empty.sqlite') });
+    try { assert.match(createProfiles({ store: empty, enabled: false }).pendingPlayers([]).error, /尚未同步/); }
+    finally { empty.close(); }
+  });
+
   await test('HTTP 全链路：SSO 员工库有性别 → /api/join 分配对应形象', async () => {
     const dir = tempDir();
     const file = path.join(dir, 'http.sqlite');
@@ -365,6 +397,8 @@ try {
 
       const anonMe = await fetch(base + '/api/auth/me');
       assert.equal(anonMe.status, 401);
+      assert.equal((await fetch(base + '/api/pending-players')).status, 401);
+      assert.equal((await fetch(base + '/api/pending-players', { headers: { 'User-Token': 'token-m' } })).status, 401, '登录但未加入不可获取员工名单');
 
       const meM = await fetch(base + '/api/auth/me', { headers: { 'User-Token': 'token-m' } });
       const meMBody = await meM.json();
@@ -389,6 +423,14 @@ try {
       assert.equal(renderer.style(me), 'male');
       assert.equal(me.dept, '合约一区');
       assert.equal(me.deliveryGroup, 'TRP开发组');
+      const pendingHeaders = { 'User-Token': 'token-m', 'X-Sid-Session': joinedBody.sessionToken };
+      const pendingResponse = await fetch(base + '/api/pending-players', { headers: pendingHeaders });
+      assert.equal(pendingResponse.status, 200); assert.equal(pendingResponse.headers.get('cache-control'), 'no-store');
+      const pending = await pendingResponse.json();
+      assert.equal(pending.count, 1); assert.equal(pending.total, 2); assert.equal(pending.roundId, stateBody.roundId);
+      assert.deepEqual(pending.groups, [{ name: '票证预订系维组', members: [{ empNo: 'HTTP-F', name: '接口女' }] }]);
+      assert.equal(pending.port, port);
+      assert.equal((await fetch(base + '/api/pending-players', { method: 'POST', headers: pendingHeaders })).status, 405);
 
       const joinedF = await fetch(base + '/api/join', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Token': 'token-f' }, body: '{}'
@@ -400,6 +442,8 @@ try {
       const meF = (await stateF.json()).players.find(player => player.id === joinedFBody.playerId);
       assert.equal(WORLD.PALETTES.hair.findIndex(item => item[0] === meF.colors.hair[0]) % 2, 1);
       assert.equal(renderer.style(meF), 'female');
+      const afterJoin = await fetch(base + '/api/pending-players', { headers: pendingHeaders }).then(r => r.json());
+      assert.equal(afterJoin.count, 0); assert.deepEqual(afterJoin.groups, []);
       assert.equal(log.includes('员工档案同步失败'), false, log);
     } finally {
       child.kill();

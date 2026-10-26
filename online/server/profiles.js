@@ -165,6 +165,25 @@ function createProfiles(options = {}) {
     try { return store.getEmployee(String(empNo)); } catch { return null; }
   }
 
+  function pendingPlayers(players = []) {
+    const employees = store && typeof store.listEmployees === 'function' ? store.listEmployees() : null;
+    if (!employees) return { ok: false, error: '同事表暂时不可用，请联系管理员检查员工档案' };
+    if (!employees.length) return { ok: false, error: '尚未同步同事表，请联系管理员同步员工档案' };
+    // 按工号排除所有本场参与者，包含离线/淘汰；昵称及 NPC 不能凭同名排除员工。
+    const joined = new Set(players.filter(p => !p.npc && p.empNo).map(p => String(p.empNo)));
+    const groups = new Map();
+    for (const e of employees) {
+      if (joined.has(String(e.empNo))) continue;
+      const group = e.deliveryGroup || '未分配交付组';
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push({ empNo: String(e.empNo), name: e.name || String(e.empNo) });
+    }
+    const compare = (a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }) || (a < b ? -1 : a > b ? 1 : 0);
+    const grouped = [...groups].sort(([a], [b]) => a === '未分配交付组' ? 1 : b === '未分配交付组' ? -1 : compare(a, b))
+      .map(([name, members]) => ({ name, members: members.sort((a, b) => compare(a.empNo, b.empNo)) }));
+    return { ok: true, total: employees.length, count: grouped.reduce((n, g) => n + g.members.length, 0), groups: grouped };
+  }
+
   function genderOf(empNo) {
     const employee = employeeOf(empNo);
     return employee ? normalizeGender(employee.gender) : null;
@@ -256,7 +275,7 @@ function createProfiles(options = {}) {
     };
   }
 
-  return { employeeOf, genderOf, sync, start, stop, status, normalizeGender };
+  return { employeeOf, pendingPlayers, genderOf, sync, start, stop, status, normalizeGender };
 }
 
 module.exports = {

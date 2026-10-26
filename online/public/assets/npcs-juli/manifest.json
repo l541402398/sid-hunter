@@ -1,0 +1,58 @@
+{
+  "version": 2,
+  "source": "Approved Juli pixel three-view V2; right mirrored from left",
+  "cell": [
+    128,
+    112
+  ],
+  "anchor": [
+    64,
+    104
+  ],
+  "scale": 0.8,
+  "directions": [
+    "front",
+    "left",
+    "right",
+    "back"
+  ],
+  "views": [
+    {
+      "direction": "front",
+      "sourceBox": [
+        29,
+        322,
+        556,
+        797
+      ],
+      "components": [
+        141751
+      ]
+    },
+    {
+      "direction": "left",
+      "sourceBox": [
+        612,
+        326,
+        974,
+        796
+      ],
+      "components": [
+        99978
+      ]
+    },
+    {
+      "direction": "back",
+      "sourceBox": [
+        1007,
+        327,
+        1516,
+        797
+      ],
+      "components": [
+        133979
+      ]
+    }
+  ],
+  "animation": "2.8s breathing, feet fixed; no walking frames"
+}

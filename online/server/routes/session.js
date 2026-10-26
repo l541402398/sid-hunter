@@ -14,6 +14,14 @@ function guestKey(req, res) {
 
 async function handle(ctx) {
   const { req, res, url, pathname, ROOM, MANAGER, resetTokens, WORLD, openStream, PROFILES } = ctx;
+  if (pathname === '/api/pending-players') {
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'method not allowed' });
+    if (!currentPlayer(req, url)) return send(res, 401, { ok: false, error: '请先加入游戏' });
+    const data = PROFILES ? PROFILES.pendingPlayers(ROOM.room.players) : { ok: false, error: '同事表暂时不可用' };
+    // 仅回局域网 IP 和实际服务端口用于本机邀请；不信任请求提供的 Host/转发头。
+    return send(res, data.ok ? 200 : 503, { ...data, roundId: ROOM.room.roundId, lan: lanAddresses(), port: PORT });
+  }
   if (pathname === '/api/stream') {
     const player = currentPlayer(req, url);
     if (!player) return send(res, 401, { error: 'no identity' });

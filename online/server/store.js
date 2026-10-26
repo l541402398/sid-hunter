@@ -26,7 +26,7 @@ function createStore(options = {}) {
       saveRound() { }, savePlayers() { }, loadLastRound() { return null; },
       saveSnapshot() { return false; }, loadSnapshot() { return null; }, clearSnapshot() { return false; },
       saveFeatures() { return false; }, loadFeatures() { return null; },
-      saveEmployees() { return 0; }, getEmployee() { return null; }, employeeCount() { return 0; },
+      saveEmployees() { return 0; }, getEmployee() { return null; }, employeeCount() { return 0; }, listEmployees() { return null; },
       loadAdmin() { return null; }, saveAdmin() { return false; },
       archiveDay() { return false; }, loadDays() { return []; }, archiveSession() { return false; }, loadSessions() { return []; }, close() { }
     };
@@ -242,6 +242,16 @@ function createStore(options = {}) {
     }
   }
 
+  // 名单只读最小公开字段，绝不将邮箱/性别/职位等整份档案下发。
+  function listEmployees() {
+    if (!state.enabled) return null;
+    try {
+      return db.prepare('SELECT emp_no, name, delivery_group FROM employees').all().map(row => ({
+        empNo: row.emp_no, name: row.name, deliveryGroup: row.delivery_group || null
+      }));
+    } catch (error) { state.error = String(error && error.message || error); return null; }
+  }
+
   function employeeCount() {
     if (!state.enabled) return 0;
     try { return Number(countEmployees.get().n) || 0; } catch { return 0; }
@@ -366,7 +376,7 @@ function createStore(options = {}) {
 
   return { ...state, enabled: state.enabled, file, error: state.error,
     saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures,
-    saveEmployees, getEmployee, employeeCount,
+    saveEmployees, getEmployee, employeeCount, listEmployees,
     loadAdmin, saveAdmin, archiveDay, loadDays, archiveSession, loadSessions,
     close, reason: state.error || 'ok' };
 }

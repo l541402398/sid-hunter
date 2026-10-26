@@ -181,6 +181,9 @@
   let ssoRequired = false, ssoLoginUrl = '', ssoLogoutUrl = '', loginRedirecting = false;
   let badSlots = [], badPoolAvailable = false, lastBadPoolSig = '';
   let npcBusy = false;
+  let pendingFlight = false, pendingNextCheck = 0, pendingSignature = '', pendingInviteUrl = '';
+  let pendingRequestId = 0;
+  const expandedPendingGroups = new Set(); // 本页独立保存各组折叠态，名单更新不重置。
   const confirmedDigests = new Set(); // 只有服务端 ACK 成功后才登记
   let lastTargetSig = '', lastLogSig = '', lastRosterSig = '';
   const offlineEvents = new Set();
@@ -250,7 +253,7 @@
     return f;
   }
   function operationModalOpen() {
-    return !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open;
+    return !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
   }
   function sendIntent(force) {
     if (operationModalOpen() || elevatorPicker || gameClosed) keys.clear();
@@ -417,7 +420,12 @@
     // TMJ 权威开关由服务端下发：关闭时完全走旧碰撞；打开时客户端同步 portal/spawn 布局供渲染侧使用。
     if (TMJ_DEBUG && s.config && typeof s.config.tmj === 'boolean') TMJ_DEBUG.apply(s.config.tmj);
     serverTime = s.serverTime || Date.now();
-    if (s.roundId) roundId = s.roundId;
+    if (s.roundId && s.roundId !== roundId) {
+      pendingRequestId++; pendingNextCheck = 0; pendingSignature = ''; pendingInviteUrl = '';
+      $('pending-count').textContent = '—'; $('pending-items').replaceChildren();
+      $('pending-summary').textContent = '正在读取本场待加入名单…'; closeInviteDialog();
+      roundId = s.roundId;
+    }
     serverPerfBase = performance.now();
     finished = !!s.finished;
     gameClosed = s.availability || '';
@@ -2954,6 +2962,7 @@
     ctx.globalAlpha = a;
   }
   function sprite(p) {
+    if (SID.juliSprites?.draw(ctx, p, clock)) return;
     if (!p.alive) { ghostSprite(p); return; }
     const x = Math.round(p.x), meId = selfId();
     const ph = p.walk * .13;
@@ -3370,8 +3379,11 @@
         if (clipWall) ctx.restore();
       } else {
         sprite(item.p);
-        // NPC 描边对准命中框 x±21, y-53..y+8。
-        if (item.p.npc) drawOutline(item.p.x - 21, item.p.y - 53, 42, 61, interactTier('npc', item.p.entityId), '#ffd76a');
+        // 场景NPC描边覆盖Juli翼片；测试玩家NPC不冒充商店，也不改变服务器交互范围。
+        if (item.p.npc && item.p.entityId) {
+          const b = SID.juliSprites?.bounds(item.p) || { x: -21, y: -53, w: 42, h: 61 };
+          drawOutline(item.p.x + b.x, item.p.y + b.y, b.w, b.h, interactTier('npc', item.p.entityId), '#ffd76a');
+        }
       }
     }
     makeLabels(list);
@@ -3477,6 +3489,7 @@
       lastSkillTick = tick;
       if (holding()) updateSkillStatus();
       updateBuffHUD();
+      if (!document.hidden && Date.now() >= pendingNextCheck) refreshPendingPlayers();
       if (mineOpen) renderMine();
       syncTimeLeft();
       if (!$('ranking').hidden) syncRanking();
@@ -3517,7 +3530,12 @@
     const list = drawList();
     makeLabels(list);
     const atLabel = l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h && !WORLD.pointOccluded(x, y, l.p, occluders);
-    const atBody = p => Math.abs(x - p.x) <= (window.SID?.characterSprites?.status === 'ready' ? 26 : 21) && y >= p.y - (window.SID?.characterSprites?.status === 'ready' ? 79 : 53) && y <= p.y + 8 && !WORLD.pointOccluded(x, y, p, occluders);
+    const atBody = p => {
+      const b = SID.juliSprites?.bounds(p);
+      const inside = b ? x >= p.x + b.x && x <= p.x + b.x + b.w && y >= p.y + b.y && y <= p.y + b.y + b.h
+        : Math.abs(x - p.x) <= (window.SID?.characterSprites?.status === 'ready' ? 26 : 21) && y >= p.y - (window.SID?.characterSprites?.status === 'ready' ? 79 : 53) && y <= p.y + 8;
+      return inside && !WORLD.pointOccluded(x, y, p, occluders);
+    };
     const labelHits = labels.filter(l => !l.p.npc && atLabel(l));
     const bodyHits = list.filter(p => !p.npc && atBody(p)).map(p => p.id);
     const hits = [...new Set([...labelHits.flatMap(l => l.ids), ...bodyHits])];
@@ -3565,7 +3583,101 @@
     $(button).setAttribute('aria-expanded', String(visible));
     if (panel === 'roster') renderRoster();
   }
-  $('roster-toggle').onclick = () => toggle('roster', 'roster-toggle');
+  function closePendingPlayers() {
+    $('pending-players').hidden = true; $('pending-toggle').setAttribute('aria-expanded', 'false');
+  }
+  // 非本机访问保留当前来源（支持正式域名/HTTPS）；本机访问改用当前服务返回的LAN地址。
+  // 丢弃所有查询串和hash，不把ticket/token等凭证塞进邀请链接。
+  function gameInviteUrl(data) {
+    if (!['localhost','127.0.0.1','[::1]','0.0.0.0'].includes(location.hostname)) return location.origin + '/';
+    const host = (data.lan || []).find(ip => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) && !ip.startsWith('127.'));
+    return host ? `http://${host}:${data.port}/` : '';
+  }
+  function renderPendingPlayers(data) {
+    $('pending-count').textContent = String(data.count);
+    $('pending-summary').textContent = `待加入 ${data.count} 人 / 同事 ${data.total} 人`;
+    const signature = JSON.stringify([data.groups, pendingInviteUrl]);
+    if (signature === pendingSignature) return;
+    pendingSignature = signature;
+    const root = $('pending-items'), fragment = document.createDocumentFragment();
+    // 在替换节点前直接读取状态，避免原生 toggle 事件尚未派发时丢失刚刚的操作。
+    for (const old of root.querySelectorAll('details.pending-group')) {
+      if (old.open) expandedPendingGroups.add(old.dataset.group);
+      else expandedPendingGroups.delete(old.dataset.group);
+    }
+    const scrollTop = root.scrollTop;
+    for (const group of data.groups) {
+      const section = document.createElement('details'); section.className = 'pending-group'; section.dataset.group = group.name;
+      section.open = expandedPendingGroups.has(group.name);
+      section.ontoggle = () => {
+        if (!section.isConnected) return;
+        if (section.open) expandedPendingGroups.add(group.name); else expandedPendingGroups.delete(group.name);
+      };
+      const heading = document.createElement('summary');
+      const label = document.createElement('strong'); label.textContent = group.name;
+      const count = document.createElement('span'); count.className = 'pending-group-count'; count.textContent = `${group.members.length} 人`;
+      heading.append(label, count); section.append(heading);
+      for (const person of group.members) {
+        const row = document.createElement('div'); row.className = 'pending-member';
+        const info = document.createElement('div'); info.className = 'pending-person';
+        const name = document.createElement('strong'); name.textContent = person.name;
+        const emp = document.createElement('small'); emp.textContent = `工号 ${person.empNo}`; info.append(name, emp);
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'pending-invite';
+        button.textContent = '邀请'; button.setAttribute('aria-label', `邀请${person.name}加入游戏`);
+        button.onclick = () => inviteColleague(button); row.append(info, button); section.append(row);
+      }
+      fragment.append(section);
+    }
+    if (!data.count) { const empty = document.createElement('p'); empty.className = 'panel-note'; empty.textContent = '同事表中的所有同事都已加入本场游戏'; fragment.append(empty); }
+    root.replaceChildren(fragment);
+    root.scrollTop = scrollTop;
+  }
+  async function refreshPendingPlayers() {
+    if (pendingFlight || !me) return;
+    pendingFlight = true; const requestId = ++pendingRequestId, requestedRound = roundId, requestedSession = sessionToken;
+    $('pending-refresh').disabled = true;
+    pendingNextCheck = Date.now() + ($('pending-players').hidden ? 30000 : 5000);
+    try {
+      const data = await api('/api/pending-players');
+      if (requestId !== pendingRequestId || requestedRound !== roundId || requestedSession !== sessionToken) return;
+      if (!data.ok) throw new Error(data.status === 404 ? '新名单接口尚未启用，请联系管理员更新并重启服务' : data.error || '同事表读取失败，请稍后刷新');
+      if (data.roundId !== roundId) { pendingNextCheck = 0; return; }
+      pendingInviteUrl = gameInviteUrl(data); renderPendingPlayers(data);
+    } catch (error) {
+      if (requestedRound !== roundId || requestedSession !== sessionToken) return;
+      pendingSignature = ''; pendingInviteUrl = ''; $('pending-count').textContent = '—';
+      $('pending-summary').textContent = error.message || '同事表读取失败，请稍后刷新'; $('pending-items').replaceChildren();
+    } finally { pendingFlight = false; $('pending-refresh').disabled = false; }
+  }
+  async function inviteColleague(button) {
+    // 先展示可手动复制的文本；仅在剪贴板实际写入成功之后显示「已复制」。
+    clearAllInput();
+    const dialog = $('invite-dialog'), input = $('invite-link'), message = $('invite-message');
+    const link = pendingInviteUrl;
+    input.value = link; input.hidden = !link;
+    message.textContent = link ? '正在复制游戏链接…' : '当前没有可用的局域网邀请地址，请联系管理员确认局域网服务已开启。';
+    if (!dialog.open) dialog.showModal();
+    if (!link) return;
+    button.disabled = true;
+    try {
+      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(link);
+      else { input.focus(); input.select(); if (!document.execCommand('copy')) throw new Error('copy denied'); }
+      message.textContent = '已复制游戏链接，快去邀请他加入吧'; $('invite-ok').focus();
+    } catch {
+      message.textContent = '未能自动复制，请手动复制下方游戏链接，再去邀请他加入吧'; input.focus(); input.select();
+    } finally { button.disabled = false; }
+  }
+  function closeInviteDialog() { if ($('invite-dialog').open) $('invite-dialog').close(); }
+  $('invite-close').onclick = closeInviteDialog; $('invite-ok').onclick = closeInviteDialog;
+  $('invite-dialog').addEventListener('cancel', e => { e.preventDefault(); closeInviteDialog(); });
+  $('pending-toggle').onclick = () => {
+    if (!$('pending-players').hidden) { closePendingPlayers(); return; }
+    $('roster').hidden = true; $('roster-toggle').setAttribute('aria-expanded', 'false');
+    $('pending-players').hidden = false; $('pending-toggle').setAttribute('aria-expanded', 'true'); refreshPendingPlayers();
+  };
+  $('pending-close').onclick = closePendingPlayers;
+  $('pending-refresh').onclick = refreshPendingPlayers;
+  $('roster-toggle').onclick = () => { closePendingPlayers(); toggle('roster', 'roster-toggle'); };
   $('roster-close').onclick = () => toggle('roster', 'roster-toggle');
   $('search').oninput = renderRoster;
   // ---------- 匿名坏人线索池（dev 分支并入）：只消费服务端的匿名投影，不推断身份 ----------
@@ -3706,7 +3818,8 @@
     if (operationModalOpen()) {
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (privateOpen) clearPrivate();
+        if ($('invite-dialog').open) closeInviteDialog();
+        else if (privateOpen) clearPrivate();
         else if (explorationPanel) closeExploration();
         else closeBadPool();
       } else if (e.code === 'KeyE' && explorationPanel && !isTyping()) {

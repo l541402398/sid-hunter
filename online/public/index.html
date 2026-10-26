@@ -28,6 +28,8 @@
 <script src="js/render/paint.js" defer></script>
 <!-- 新人物透明层与四色预烘焙，加载失败时保留旧角色。仅前端外观，不改变身份/碰撞规则。 -->
 <script src="js/render/characters.js" defer></script>
+<!-- Juli吉祥物仅替换接待员/档案员场景NPC，加载失败仍保留原外观。 -->
+<script src="js/render/juli.js" defer></script>
 <!-- F1 碰撞调试层：只读 TMJ/旧碰撞，不参与权威移动；必须在 game.js 之前挂到 window.SID -->
 <script src="js/render/tmj-debug.js" defer></script>
 <script src="js/render/tmj-visual.js" defer></script>
@@ -51,7 +53,7 @@
         <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="clue-chip" id="clue-next" hidden title="下一次系统公布线索的时间"><i class="dot amber"></i>下次线索 <b id="clue-next-left">--:--</b><em id="clue-next-at"></em></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span></div>
       </div>
       <div class="toolbar" aria-label="公共功能">
-        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking">排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
+        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players">待加入玩家 <span id="pending-count">—</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking">排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
         <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint">点击开闭 · 眼睛独立显示</span><span class="score-chip" title="我的分数">分数 <b id="score-value">0</b></span><button id="clue-bag" aria-label="打开或关闭私密线索背包" aria-controls="exploration" aria-expanded="false">线索背包</button><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false">我的信息</button></div>
       </div>
     </div>
@@ -101,6 +103,12 @@
         <p class="panel-note">仅搜索已公开信息 · 未公开隐藏属性（***）不会被搜到</p>
         <div id="roster-items" class="roster-items"></div>
       </aside>
+      <aside id="pending-players" class="panel roster pending-players" hidden aria-labelledby="pending-title">
+        <div class="panel-heading"><div><small>WAITING TO JOIN</small><h2 id="pending-title">待加入玩家</h2></div><button id="pending-close" type="button" class="icon-button" aria-label="收起待加入玩家">×</button></div>
+        <div class="pending-tools"><p id="pending-summary" class="panel-note" role="status">正在读取同事表…</p><button id="pending-refresh" type="button">刷新</button></div>
+        <p class="panel-note">点击交付组展开 / 收起 · 组内按工号排序 · 离线或淘汰者仍算已加入</p>
+        <div id="pending-items" class="roster-items"></div>
+      </aside>
       <section id="target" class="panel target" hidden aria-label="目标公开档案"></section>
       <section id="candidates" class="panel candidates" hidden aria-label="重叠角色候选"></section>
       <section id="mine" class="panel mine" hidden aria-label="我的信息，秘密字段可独立切换显示"></section>
@@ -131,6 +139,12 @@
     <div class="log-clues-entry"><button id="bad-toggle" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog"><span>坏人线索</span><span id="bad-toggle-label">展开＋</span></button><p>发现线索，锁定隐藏的猎手</p></div>
   </aside>
   </div>
+  <dialog id="invite-dialog" class="center-dialog invite-dialog" aria-labelledby="invite-title">
+    <div class="panel-heading"><h2 id="invite-title">邀请同事</h2><button id="invite-close" type="button" class="icon-button" aria-label="关闭邀请提示">×</button></div>
+    <p id="invite-message" role="status"></p>
+    <input id="invite-link" aria-label="游戏邀请链接，可手动复制" readonly>
+    <button id="invite-ok" type="button" class="btn-primary">知道了</button>
+  </dialog>
   <dialog id="exploration" class="center-dialog exploration" aria-label="私密探索与线索背包"></dialog>
   <dialog id="private-dialog" class="center-dialog private-dialog" aria-labelledby="private-dialog-title">
     <div class="panel-heading"><div><small>PRIVATE ACTION</small><h2 id="private-dialog-title">私密操作</h2><p id="private-dialog-target" class="panel-note"></p></div><button id="private-close" class="icon-button" type="button" aria-label="关闭私密操作">×</button></div>
