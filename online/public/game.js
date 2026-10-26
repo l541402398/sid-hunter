@@ -168,7 +168,7 @@
   // 失败分 FAILED_SOURCE（已证实未换层，恢复源层）与 UNCONFIRMED（结果不明，只读对账）。
   let floorState = 'IDLE_SOURCE', floorFlight = null, floorPending = null;
   // 电梯选层面板：不分方向的电梯，进门（E / 点击）先弹选层（1–7，禁当前层），选定后才发起换层。
-  let elevatorPicker = null; // { portalId }
+  let elevatorPicker = null; // { portalId, selectedFloorId }
   let floorStartedAt = 0, floorNoticeTimer = null, floorStageTimer = null, roundId = null;
   let privateOpen = false, mineOpen = false, pending = null, privateResult = '';
   let sessionGeneration = 0, privateGeneration = 0, explorationGeneration = 0;
@@ -253,7 +253,7 @@
     return !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open;
   }
   function sendIntent(force) {
-    if (operationModalOpen() || gameClosed) keys.clear();
+    if (operationModalOpen() || elevatorPicker || gameClosed) keys.clear();
     const sig = ['KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyS', 'ArrowDown', 'KeyD', 'ArrowRight'].map(c => keys.has(c) ? 1 : 0).join('');
     if (!force && sig === lastIntent) return;
     lastIntent = sig;
@@ -2023,12 +2023,58 @@
     labels = []; updateScoreDisplay(); updateExplorationHUD();
     draw();
   }
-  // 电梯选层面板：进门（E / 点击门）→ 弹出 1–7 楼层按钮（当前层禁选）→ 选定后发起换层。
-  // 面板期间可随时 Esc / 点 × / 移动取消；提交时再按「距离 + 面向」守卫复查（服务端仍会再判一次）。
+  // 电梯选层：K / 点击门打开，WASD / 方向键移动蓝框，K 确认；当前层禁选。
+  // 保留鼠标点击与数字直达，Esc / × 取消；面板期间不向地图传递移动输入。
+  function selectElevatorFloor(floor, focus = true) {
+    if (!elevatorPicker) return;
+    const buttons = [...$('elevator-floors').querySelectorAll('.elevator-floor-btn')];
+    const target = buttons.find(b => Number(b.dataset.floorId) === floor && !b.disabled);
+    if (!target) return;
+    elevatorPicker.selectedFloorId = floor;
+    for (const b of buttons) {
+      const selected = b === target;
+      b.classList.toggle('is-selected', selected);
+      b.setAttribute('aria-pressed', String(selected));
+      b.tabIndex = selected ? 0 : -1;
+    }
+    if (focus) { target.focus({ preventScroll: true }); target.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  }
+  function moveElevatorSelection(code) {
+    if (!elevatorPicker) return;
+    const box = $('elevator-floors'), buttons = [...box.querySelectorAll('.elevator-floor-btn')];
+    const columns = Math.max(1, getComputedStyle(box).gridTemplateColumns.split(/\s+/).length);
+    const index = buttons.findIndex(b => Number(b.dataset.floorId) === elevatorPicker.selectedFloorId);
+    const dx = ['KeyA', 'ArrowLeft'].includes(code) ? -1 : ['KeyD', 'ArrowRight'].includes(code) ? 1 : 0;
+    const dy = ['KeyW', 'ArrowUp'].includes(code) ? -1 : ['KeyS', 'ArrowDown'].includes(code) ? 1 : 0;
+    const row = Math.floor(index / columns), col = index % columns;
+    if (dx) {
+      // 横向不跨行；跳过当前楼层的禁用格。
+      for (let c = col + dx; c >= 0 && c < columns; c += dx) {
+        const b = buttons[row * columns + c];
+        if (b && !b.disabled) { selectElevatorFloor(Number(b.dataset.floorId)); return; }
+      }
+    } else if (dy) {
+      // 纵向保持列；末行不足四格时钳制到最后一格。禁用目标取该行最近可选格。
+      const r = row + dy, start = r * columns;
+      if (r < 0 || start >= buttons.length) return;
+      const end = Math.min(start + columns, buttons.length), preferred = Math.min(start + col, end - 1);
+      const candidates = buttons.slice(start, end).map((b, i) => ({ b, distance: Math.abs(start + i - preferred) }))
+        .filter(v => !v.b.disabled).sort((a, b) => a.distance - b.distance);
+      if (candidates.length) selectElevatorFloor(Number(candidates[0].b.dataset.floorId));
+    }
+  }
+  function confirmElevatorSelection() {
+    if (!elevatorPicker) return;
+    const { portalId, selectedFloorId } = elevatorPicker;
+    if (selectedFloorId === floorId) return;
+    closeElevatorPicker(); requestFloorChange(portalId, selectedFloorId);
+  }
   function closeElevatorPicker() {
     if (!elevatorPicker) return false;
     elevatorPicker = null;
     const overlay = $('elevator-picker'); if (overlay) overlay.hidden = true;
+    keys.clear();
+    if (overlay && overlay.contains(document.activeElement)) canvas.focus({ preventScroll: true });
     return true;
   }
   function openElevatorPicker(portalId) {
@@ -2044,20 +2090,28 @@
     if (!access.inReach) { showToast(access.reason || '距离电梯太远，请靠近后再按 K'); return; }
     if (!access.facingOk) { showToast(access.reason || '请面向电梯门后再按 K'); return; }
     closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
-    elevatorPicker = { portalId };
+    const options = WORLD.floorOptions();
+    const initial = options.find(fl => fl.id > floorId) || options.find(fl => fl.id !== floorId);
+    elevatorPicker = { portalId, selectedFloorId: initial.id };
+    keys.clear(); sendIntent(true); // 进面板立即停步，避免仍按着方向键时人物滑走。
     const box = $('elevator-floors'); box.replaceChildren();
-    for (const fl of WORLD.floorOptions()) {
+    for (const fl of options) {
       const f = fl.id, btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'elevator-floor-btn'; btn.dataset.floorId = String(f);
       btn.setAttribute('aria-label', `${fl.label} ${fl.name} ${f === floorId ? '当前楼层' : '目标楼层'}`);
       btn.innerHTML = `<span>${f}F</span><small>${fl ? (fl.name || '').replace(/^\d+F\s*·?\s*/, '') : ''}</small>`;
       if (f === floorId) { btn.disabled = true; btn.title = '当前楼层'; btn.innerHTML = `<span>${f}F</span><small>当前楼层</small>`; }
-      else btn.onclick = () => { const pid = elevatorPicker ? elevatorPicker.portalId : portalId; closeElevatorPicker(); requestFloorChange(pid, f); };
+      else {
+        btn.onfocus = () => selectElevatorFloor(f, false);
+        btn.onpointerenter = () => selectElevatorFloor(f, false);
+        btn.onclick = () => { selectElevatorFloor(f, false); confirmElevatorSelection(); };
+      }
       box.append(btn);
     }
     const title = $('elevator-picker-title');
     if (title) title.textContent = `请选择楼层（当前 ${floorId}F）`;
     $('elevator-picker').hidden = false;
+    selectElevatorFloor(initial.id);
   }
   function requestFloorChange(portalId, targetFloorId) {
     if (!me || !me.alive || finished) return;
@@ -3263,6 +3317,10 @@
     if (SCENE && !currentRoom) SCENE.halls(ctx, f, glassDoorStates);
     // 需求①：楼层上画出通往各独立房间的门（门牌 + 地面指示灯带），让"哪面墙能进去"一眼可见。
     if (!currentRoom) drawRoomDoors();
+    // 电梯地坪、门和提示统一属于场景背景，必须先于人物绘制，不能盖住门前的角色。
+    const liftNow = elevatorTarget();
+    const liftId = liftNow && liftNow.access.allowed ? liftNow.portal.id : '';
+    if (!currentRoom) for (const portal of portals) drawElevatorHall(portal, portal.id === liftId);
     const list = drawList();
     const near = (x, y, w, h, padx, pady) => x + w + padx > camX && x - padx < camX + viewW && y + h + pady > camY && y - (pady + 20) < camY + viewH;
     const ws = WORLD.FLOOR_SCALE || 2;
@@ -3316,11 +3374,6 @@
         if (item.p.npc) drawOutline(item.p.x - 21, item.p.y - 53, 42, 61, interactTier('npc', item.p.entityId), '#ffd76a');
       }
     }
-    // 需求2：当前层电梯厅（每层左右各一处，含上行/下行两扇门）。脉冲空框改为可辨认的电梯门，
-    // 当前可提交的那扇叠呼吸描边 + 「E ↑/↓ 至 nF」提示；端点画灰态。
-    const liftNow = elevatorTarget();
-    const liftId = liftNow && liftNow.access.allowed ? liftNow.portal.id : '';
-    for (const portal of portals) drawElevatorHall(portal, portal.id === liftId);
     makeLabels(list);
     ctx.textAlign = 'center';
     const meId = selfId();
@@ -3675,13 +3728,16 @@
     }
     // 转盘 / 结算覆盖层打开时，忽略移动、K、J 等游戏内按键。
     if (wheelOpen || !$('finish-overlay').hidden || !$('games').hidden) return;
-    // 电梯选层面板打开时：忽略移动 / K / J（先选楼层或 Esc 取消），数字键直达对应楼层。
+    // 面板优先消费方向键 / K：只移动蓝框，不移动人物。保留 Tab、数字直达和按钮原生激活。
     if (elevatorPicker) {
-      if (/^[1-7]$/.test(e.key)) {
+      if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) {
+        e.preventDefault(); moveElevatorSelection(e.code);
+      } else if (e.code === 'KeyK') {
+        e.preventDefault(); if (!e.repeat) confirmElevatorSelection();
+      } else if (/^[1-7]$/.test(e.key)) {
         e.preventDefault();
-        const f = Number(e.key);
-        if (f !== floorId) { const pid = elevatorPicker.portalId; closeElevatorPicker(); requestFloorChange(pid, f); }
-      } else e.preventDefault();
+        if (!e.repeat && Number(e.key) !== floorId) { selectElevatorFloor(Number(e.key), false); confirmElevatorSelection(); }
+      } else if (!['Tab','Enter','Space'].includes(e.code)) e.preventDefault();
       return;
     }
     // 电梯过渡进行中：忽略移动 / K / J，避免在换层中途驱动旧层或重复发起。

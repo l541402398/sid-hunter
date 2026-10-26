@@ -52,6 +52,9 @@
 .elevator-floor-btn{min-width:0;max-width:100%;overflow-wrap:anywhere;min-height:58px;font:800 16px/1.2 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;background:var(--surface-2);border:1.5px solid var(--sky-line);border-radius:var(--r-md);color:var(--sky-dk);cursor:pointer;transition:transform var(--ease),border-color var(--ease),background var(--ease),box-shadow var(--ease)}
 .elevator-floor-btn small{display:block;font-size:10px;font-weight:500;color:var(--ink-3);margin-top:3px;white-space:normal;overflow-wrap:anywhere;overflow:hidden}
 .elevator-floor-btn:hover:not(:disabled){border-color:var(--sky);background:var(--sky-soft);transform:translateY(-2px);box-shadow:var(--sh-1)}
+/* 独立选中态：键盘与鼠标共用蓝框，不依赖 hover 或浏览器默认焦点轮廓。 */
+.elevator-floor-btn.is-selected:not(:disabled){border-color:var(--brand);background:var(--brand-soft);color:var(--brand-dk);box-shadow:inset 0 0 0 2px var(--brand),0 0 0 2px #4a5fe826;transform:none}
+.elevator-floor-btn.is-selected small{color:var(--brand-dk)}
 .elevator-floor-btn:disabled{opacity:.45;cursor:not-allowed}
 .elevator-floor-btn:disabled small{color:var(--ink-3)}
 /* 窄屏让选层覆盖层脱离 map-view、改为覆盖整个视口，卡片即可获得足够高度。 */

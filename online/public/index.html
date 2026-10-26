@@ -114,10 +114,11 @@
         <p class="hold-note">按分数降序 · 坏人身份在游戏结束前不显示 · 仅展示公开信息。</p>
       </aside>
       <script src="js/markup/overlays.js"></script>
-      <div id="elevator-picker" class="elevator-picker" hidden role="dialog" aria-modal="true" aria-label="选择楼层">
+      <div id="elevator-picker" class="elevator-picker" hidden role="dialog" aria-modal="true" aria-label="选择楼层" aria-describedby="elevator-keyboard-help">
         <div class="elevator-card">
           <div class="panel-heading"><div><small>ELEVATOR / 电梯选层</small><h2 id="elevator-picker-title">请选择楼层</h2></div><button id="elevator-close" class="icon-button" aria-label="取消乘梯">×</button></div>
-          <p class="panel-note">电梯不分方向 · 到达所选楼层的同侧电梯门口 · <kbd>Esc</kbd> 取消</p>
+          <p class="panel-note">到达所选楼层的同侧电梯门口 · 当前楼层不可选</p>
+          <p class="panel-note" id="elevator-keyboard-help"><kbd>W A S D</kbd> / 方向键移动蓝框 · <kbd>K</kbd> 确认乘梯 · <kbd>Esc</kbd> 取消</p>
           <div id="elevator-floors" class="elevator-floors"></div>
         </div>
       </div>
