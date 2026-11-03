@@ -91,7 +91,7 @@
     const c=document.createElement('canvas');c.width=w;c.height=h;
     const g=c.getContext('2d');
     const rg=g.createRadialGradient(w/2,h*.44,Math.min(w,h)*.3,w/2,h*.48,Math.max(w,h)*1.02);
-    rg.addColorStop(0,'rgba(255,216,152,.05)');rg.addColorStop(.55,'rgba(0,0,0,0)');rg.addColorStop(1,'rgba(6,4,10,.42)');
+    rg.addColorStop(0,'rgba(255,216,152,.05)');rg.addColorStop(.55,'rgba(0,0,0,0)');rg.addColorStop(1,'rgba(38,24,14,.16)');
     g.fillStyle=rg;g.fillRect(0,0,w,h);vignette=c;
   }
   // 视口尺寸/DPR 变化时重建 backing，并重新设置 transform 与 imageSmoothingEnabled。
@@ -1702,14 +1702,14 @@
     drawCamX=camX;drawCamY=camY;
     const f=WORLD.floorById(floorId);
     ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
-    ctx.fillStyle='#05070c';ctx.fillRect(0,0,cssW,cssH);
+    ctx.fillStyle='#362417';ctx.fillRect(0,0,cssW,cssH);
     ctx.save();ctx.scale(scale,scale);ctx.translate(-camX,-camY);
     // 楼面：按轮廓多边形裁剪后铺 512 分块地板；轮廓外保持非楼面（不补平）。
     ctx.beginPath();
     f.polygon.forEach((q,i)=>i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y));
     ctx.closePath();
     ctx.save();ctx.clip();
-    ctx.fillStyle='#2b2333';ctx.fillRect(camX,camY,viewW,viewH);
+    ctx.fillStyle='#d8ad78';ctx.fillRect(camX,camY,viewW,viewH);
     const c0x=Math.floor(camX/CHUNK),c1x=Math.floor((camX+viewW)/CHUNK);
     const c0y=Math.floor(camY/CHUNK),c1y=Math.floor((camY+viewH)/CHUNK);
     ensureChunks(c0x,c0y,c1x,c1y);

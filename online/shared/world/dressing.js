@@ -1,14 +1,9 @@
 'use strict';
-// 逐层「陈设填充」（需求③：每层楼太空旷，需要添加物品，特别是可搜索的物品）。
+// 逐层「独立主题功能陈设」（星露谷式明媚温暖主题 · 每层按专属建筑轮廓与功能区独立设计，严禁跨层复制粘贴与堆叠）。
 //
-// 这里只放"额外家具行"，格式与 floors.js 的 FLOOR_SPECS[*].furniture 完全一致：
+// 格式与 floors.js 的 FLOOR_SPECS[*].furniture 完全一致：
 //   [type, label, x1, y1, x2, y2, flag?]   // 角点，0–1500 × 0–1000 归一化
-//   flag = 'container:<name>' → 生成可搜容器（稳定 ID 见 floors.js 的 CONTAINER_IDS / 自动回退）
-//
-// 设计约束（建造后会由 validate 脚本 + elevator-world BFS 双重校验）：
-//   · 家具的行走碰撞是"南沿立面条带"，所以整齐靠墙摆放不会切断走廊；
-//   · 不覆盖：房间门点、出生点、电梯厅、门洞开口（这些点在别处定义）；
-//   · 每层保持一条贯通东西的主走廊（y≈150–300 的可走带）。
+//   flag = 'container:<name>' → 生成可搜容器（稳定 ID）
 //
 // 本文件不依赖任何其它 world 子模块，必须在 floors.js 之前加载。
 (function (root, factory) {
@@ -17,317 +12,205 @@
   if (isNode) module.exports = api;
   else Object.assign(root.SID_WORLD_PARTS = root.SID_WORLD_PARTS || {}, api);
 })(typeof window !== 'undefined' ? window : globalThis, function () {
-  // 公共小件：各层都会用到的走廊陈设
-  const corridor = (y, opts = {}) => ([
-    ['plant', opts.leftPlant || '走廊绿植一', 560, y, 615, y + 55],
-    ['plant', opts.rightPlant || '走廊绿植二', 900, y, 955, y + 55],
-    ['bench', '走廊长凳', 660, y + 8, 790, y + 52]
-  ]);
-  // 「别让它太空」补丁：每层额外再加的一圈小陈设（靠墙、角落、工位之间），
-  // 全部只用南沿薄碰撞带，不会切断走廊。数量按"走进任意一屏都能看到 3–5 件东西"来配。
-  const filler = (floorId) => {
-    const v = floorId;   // 用楼层号做轻微错位，避免七层看起来是同一张图复制
-    return [
-      ['plant', '窗台绿植', 300 + v * 6, 60, 350 + v * 6, 120],
-      ['plant', '墙角绿植', 1000, 60, 1050, 125],
-      ['lamp', '落地灯', 620, 60, 665, 120],
-      ['chair', '临时座椅', 470, 260, 520, 310],
-      ['cooler', '备用饮水机', 300, 420, 350, 490],
-      ['boxstack', '杂物纸箱', 560, 430, 640, 505, `container:junk${v}a`],
-      ['crate', '周转箱', 860, 430, 930, 505, `container:junk${v}b`],
-      ['plant', '会议角绿植', 960, 430, 1010, 495],
-      ['shelf', '共享资料架', 1050, 260, 1150, 350],
-      ['chair', '等候椅', 1200, 260, 1250, 310],
-      ['plant', '电梯厅绿植', 1250, 60, 1300, 125],
-      ['bench', '东侧长凳二', 1200, 680, 1320, 740],
-      // 每层一台『楼层游戏机』：支持跨楼层匹配（见 room/minigames.js 的 arcade 模式）。
-      ['arcade', '楼层游戏机', 1320, 300, 1400, 380]
-    ];
-  };
-  // 「放大后第二圈」：地图 2× 后一屏能看到的世界面积约 2.5×，只靠第一圈 filler 会显得空。
-  // 这一圈优先填南区/中部/东翼的空带，全部靠墙或靠南沿，不压主走廊（y≈150–300）。
-  // 每层再补 2 个可搜容器，让主空间的搜索点密度跟得上放大后的面积。
-  const filler2 = (floorId) => {
-    const v = floorId;
-    return [
-      ['bench', '南区长凳', 320, 900, 480, 950],
-      ['plant', '南区绿植一', 520, 900, 580, 960],
-      ['crate', '南区周转箱', 620, 900, 700, 970, `container:south${v}a`],
-      ['boxstack', '南区纸箱', 740, 900, 820, 970],
-      ['shelf', '南区资料架', 860, 900, 980, 980],
-      ['chair', '南区座椅', 1020, 900, 1080, 950],
-      ['cooler', '南区饮水机', 1120, 900, 1170, 970],
-      ['arcade', '南区游戏机', 1220, 880, 1300, 960],
-      ['tv', '南区信息屏', 340, 620, 520, 650],
-      ['plant', '中部绿植', 620, 560, 680, 630],
-      ['bench', '中部长凳', 760, 580, 900, 630],
-      ['crate', '中部木箱', 700, 680, 780, 750, `container:mid${v}a`],
-      ['shelf', '中部书架', 1000, 600, 1100, 690],
-      ['chair', '中部座椅', 1120, 620, 1170, 670],
-      ['lamp', '中部落地灯', 940, 700, 985, 760]
-    ];
-  };
+
   const DRESSING = {
-    // ===== 1F 门厅 · 晨光木石 =====
+    // ===== 1F · 晨光迎宾小镇厅（西迎宾接待 / 中央晨光花坛广场 / 南红格桌布烘焙餐厅 / 东社区市集） =====
     1: [
-      // 北墙一侧：接待动线
-      ['shelf', '总服务台资料架', 60, 80, 210, 160],
-      ['shelf', '告示资料架', 340, 80, 430, 150],
-      ['bench', '门厅长凳一', 760, 110, 900, 165],
-      ['bench', '门厅长凳二', 760, 190, 900, 245],
-      ['plant', '门厅绿植二', 950, 100, 1010, 170],
-      ['cooler', '直饮水机', 1050, 100, 1100, 175],
-      ['vending', '自动售货机', 1110, 95, 1175, 180],
-      ['boxstack', '快递暂存箱', 1185, 100, 1250, 170, 'container:parcel1'],
-      // 中部休闲区（原本只有两张沙发）
-      ['plant', '休闲区绿植', 700, 280, 760, 350],
-      ['chair', '休闲椅一', 780, 300, 830, 350],
-      ['chair', '休闲椅二', 840, 300, 890, 350],
-      ['tv', '大堂信息屏', 620, 60, 800, 90],
-      ['whiteboard', '楼层导览板', 470, 70, 600, 105],
-      // 食堂与后厨
-      ['counter', '小料台', 300, 600, 350, 700],
-      ['cooler', '后厨饮水机', 850, 870, 900, 950],
-      ['boxstack', '食材周转箱', 860, 600, 950, 690, 'container:foodbox1'],
-      ['plant', '食堂绿植二', 970, 600, 1030, 680],
-      ['shelf', '餐具架', 970, 760, 1030, 860],
-      // 东侧服务翼
-      ['bench', '东侧等候长凳', 1020, 420, 1100, 470],
-      ['vending', '东侧售货机', 1390, 400, 1460, 500, 'container:vending1'],
-      ['plant', '东侧绿植三', 1390, 560, 1450, 640],
-      ['boxstack', '东侧杂物箱', 1390, 680, 1460, 760, 'container:boxe1'],
-      ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
+      ['shelf', '迎宾导览书架', 55, 100, 175, 185],
+      ['whiteboard', '今日暖心公告板', 410, 95, 535, 155],
+      ['tv', '小镇晴雨播报屏', 565, 95, 705, 155],
+      ['bench', '花坛北沐光长凳', 655, 195, 795, 255],
+      ['bench', '花坛南沐光长凳', 655, 395, 795, 455],
+      ['plant', '花坛西琴叶榕', 560, 285, 625, 355],
+      ['plant', '花坛东向日葵', 835, 285, 900, 355],
+      ['cooler', '蜂蜜柠檬水站', 945, 110, 1005, 185],
+      ['vending', '鲜果轻食柜', 1035, 105, 1110, 190],
+      ['boxstack', '爱心邮包木箱', 1145, 110, 1235, 185, 'container:parcel1'],
+      ['boxstack', '新鲜蔬果木箱', 205, 555, 295, 635, 'container:foodbox1'],
+      ['cooler', '烘焙坊茶饮机', 205, 735, 265, 815],
+      ['vending', '鲜奶果汁售货机', 1245, 310, 1325, 405, 'container:vending1'],
+      ['boxstack', '东翼园艺收纳箱', 1245, 575, 1335, 655, 'container:boxe1'],
+      ['crate', '果木补给箱一', 1055, 575, 1145, 655, 'container:junk1a'],
+      ['crate', '果木补给箱二', 1055, 745, 1145, 825, 'container:junk1b'],
+      ['crate', '南廊储物木箱', 1215, 745, 1305, 825, 'container:south1a'],
+      ['crate', '中庭整理木箱', 1055, 315, 1145, 395, 'container:mid1a']
     ],
 
-    // ===== 2F 综合办公 · 薄荷工位 =====
+    // ===== 2F · 晴空绿茵体育场（中央绿茵足球场 / 北冠军奖杯看台 / 西更衣果汁吧 / 南替补席 / 东乒乓射箭区） =====
     2: [
-      ['shelf', '工位书架一', 620, 60, 760, 150],
-      ['shelf', '工位书架二', 780, 60, 920, 150],
-      ['printer', '打印间复印机', 600, 260, 700, 340, 'container:copier2'],
-      ['whiteboard', '部门看板', 600, 60, 700, 95],
-      ['cooler', '饮水机', 300, 250, 350, 320],
-      ['plant', '工位绿植一', 560, 260, 610, 320],
-      ['chair', '访客椅一', 300, 500, 350, 550],
-      ['chair', '访客椅二', 620, 520, 670, 570],
-      ['bench', '等候长凳', 950, 260, 1060, 310],
-      ['vending', '东侧售货机', 1390, 400, 1460, 500, 'container:vending2'],
-      ['boxstack', '打印纸箱', 1390, 560, 1460, 640, 'container:paperbox2'],
-      ['plant', '东侧绿植三', 1390, 680, 1450, 760],
-      ['shelf', '档案备件架', 1010, 700, 1110, 800, 'container:spare2'],
-      ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
+      ['whiteboard', '友谊赛记分板', 435, 95, 555, 155],
+      ['shelf', '俱乐部金杯架一', 595, 95, 725, 180],
+      ['shelf', '俱乐部金杯架二', 755, 95, 885, 180],
+      ['printer', '赛事手册印制台', 1055, 105, 1165, 185, 'container:copier2'],
+      ['cooler', '场边鲜榨补水站', 265, 285, 325, 365],
+      ['bench', '北看台观赛木凳一', 415, 205, 555, 255],
+      ['bench', '北看台观赛木凳二', 885, 205, 1025, 255],
+      ['vending', '运动能量果饮柜', 1355, 285, 1435, 380, 'container:vending2'],
+      ['boxstack', '球具收纳木箱', 1355, 445, 1445, 525, 'container:paperbox2'],
+      ['shelf', '运动器材木架', 1135, 685, 1255, 775, 'container:spare2'],
+      ['crate', '场边补给木箱一', 1135, 285, 1225, 365, 'container:junk2a'],
+      ['crate', '场边补给木箱二', 1135, 445, 1225, 525, 'container:junk2b'],
+      ['crate', '南看台储物箱', 985, 875, 1075, 955, 'container:south2a'],
+      ['crate', '西看台整理箱', 265, 685, 355, 765, 'container:mid2a']
     ],
 
-    // ===== 3F 产品研发 · 蓝图纸 =====
+    // ===== 3F · 暖木学者书院与画廊（北皇家藏书长廊 / 西茗茶修复室 / 中央红毯共读厅 / 东手绘画廊） =====
     3: [
-      ['server', '研发机柜一', 660, 90, 760, 230, 'container:server3'],
-      ['server', '研发机柜二', 780, 90, 880, 230],
-      ['whiteboard', '迭代看板', 900, 90, 1080, 130],
-      ['lamp', '绘图灯', 320, 240, 370, 300],
-      ['crate', '样机箱', 460, 230, 540, 310, 'container:sample3'],
-      ['chair', '讨论椅一', 640, 320, 690, 370],
-      ['chair', '讨论椅二', 700, 320, 750, 370],
-      ['plant', '研发区绿植', 900, 250, 960, 320],
-      ['vending', '东侧售货机', 1390, 400, 1460, 500, 'container:vending3'],
-      ['boxstack', '零件箱', 1390, 560, 1460, 640, 'container:parts3'],
-      ['bench', '东侧长凳', 1020, 420, 1100, 470],
-      ['shelf', '元件架', 1010, 700, 1110, 800],
-      ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
+      ['server', '古籍恒温典藏柜一', 715, 100, 825, 195, 'container:server3'],
+      ['server', '古籍恒温典藏柜二', 855, 100, 965, 195],
+      ['whiteboard', '手绘原画展示板', 1145, 100, 1285, 165],
+      ['lamp', '黄铜阅读台灯一', 605, 365, 655, 435],
+      ['lamp', '黄铜阅读台灯二', 985, 365, 1035, 435],
+      ['crate', '画具收纳木箱', 1145, 355, 1235, 435, 'container:sample3'],
+      ['vending', '书院下午茶柜', 1365, 355, 1445, 450, 'container:vending3'],
+      ['boxstack', '手稿典藏木箱', 1365, 555, 1455, 635, 'container:parts3'],
+      ['shelf', '精装绘本木架', 1145, 585, 1275, 675],
+      ['crate', '书院木箱一', 215, 365, 305, 445, 'container:junk3a'],
+      ['crate', '书院木箱二', 215, 645, 305, 725, 'container:junk3b'],
+      ['crate', '南书廊整理箱', 1145, 845, 1235, 925, 'container:south3a'],
+      ['crate', '中庭古籍木箱', 435, 645, 525, 725, 'container:mid3a']
     ],
 
-    // ===== 4F 档案票证 · 纸张森林 =====
+    // ===== 4F · 阳光玻璃花房与果木温室（北育苗廊 / 西果木苗圃 / 中央阳光花坛 / 东香草茶歇露台） =====
     4: [
-      ['shelf', '档案架甲', 660, 80, 800, 190, 'container:arc4a'],
-      ['shelf', '档案架乙', 820, 80, 960, 190, 'container:arc4b'],
-      ['shelf', '档案架丙', 660, 220, 800, 330, 'container:arc4c'],
-      ['shelf', '档案架丁', 820, 220, 960, 330],
-      ['boxstack', '票证箱一', 1000, 220, 1080, 300, 'container:ticketbox4'],
-      ['boxstack', '票证箱二', 1030, 620, 1110, 700],
-      ['printer', '票证打印机', 620, 620, 720, 700, 'container:printer4'],
-      ['lamp', '阅览台灯', 300, 500, 350, 560],
-      ['chair', '阅览椅', 360, 520, 410, 570],
-      ['whiteboard', '归档规则板', 620, 60, 760, 95],
-      ['vending', '东侧售货机', 1390, 400, 1460, 500, 'container:vending4'],
-      ['plant', '东侧绿植三', 1390, 560, 1450, 640],
-      ['bench', '东侧长凳', 1020, 420, 1100, 470],
-      ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
+      ['whiteboard', '四季作物日历板', 515, 95, 645, 155],
+      ['shelf', '草本标本木架甲', 685, 95, 815, 185, 'container:arc4a'],
+      ['shelf', '草本标本木架乙', 845, 95, 975, 185, 'container:arc4b'],
+      ['shelf', '花种培育木架丙', 1025, 95, 1155, 185, 'container:arc4c'],
+      ['boxstack', '良种储藏木箱一', 1205, 105, 1295, 185, 'container:ticketbox4'],
+      ['printer', '植物图鉴印制台', 655, 625, 765, 705, 'container:printer4'],
+      ['lamp', '温室暖光灯柱', 655, 345, 710, 415],
+      ['vending', '花草茶售货机', 1355, 325, 1435, 420, 'container:vending4'],
+      ['plant', '温室向日葵花箱', 1355, 615, 1435, 695],
+      ['crate', '园艺泥炭木箱一', 1125, 335, 1215, 415, 'container:junk4a'],
+      ['crate', '园艺泥炭木箱二', 1125, 615, 1215, 695, 'container:junk4b'],
+      ['crate', '南花境木箱', 985, 865, 1075, 945, 'container:south4a'],
+      ['crate', '果圃工具箱', 205, 665, 295, 745, 'container:mid4a']
     ],
 
-    // ===== 5F 值班会议 · 夜巡 =====
+    // ===== 5F · 暖灯星象古籍馆（中央金辉星盘圆厅 / 北星图壁龛 / 西宝石标本翼 / 南星象讲堂） =====
     5: [
-      ['server', '值班服务器', 620, 120, 720, 260, 'container:server5'],
-      ['tv', '值班监控墙', 620, 60, 900, 100],
-      ['lamp', '值班台灯', 340, 300, 390, 360],
-      ['cooler', '饮水机', 720, 300, 770, 370],
-      ['chair', '值班椅', 500, 560, 550, 610],
-      ['bench', '夜巡长凳', 640, 620, 780, 670],
-      ['crate', '应急物资箱', 800, 620, 880, 700, 'container:emerg5'],
-      ['vending', '东侧售货机', 1390, 400, 1460, 500, 'container:vending5'],
-      ['boxstack', '值班被褥箱', 1390, 560, 1460, 640, 'container:bedding5'],
-      ['plant', '东侧绿植三', 1390, 680, 1450, 760],
-      ['shelf', '值班资料架', 1010, 700, 1110, 800],
-      ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
+      ['server', '星象黄铜典籍柜', 635, 95, 755, 190, 'container:server5'],
+      ['tv', '二十八宿星图屏', 795, 95, 945, 155],
+      ['lamp', '星盘北引路提灯', 515, 285, 565, 355],
+      ['lamp', '星盘东引路提灯', 935, 285, 985, 355],
+      ['cooler', '暖姜茶饮机', 1115, 110, 1175, 185],
+      ['crate', '星象仪零件箱', 945, 725, 1035, 805, 'container:emerg5'],
+      ['vending', '热可可自助机', 1365, 285, 1445, 380, 'container:vending5'],
+      ['boxstack', '羊皮卷储藏箱', 1365, 465, 1455, 545, 'container:bedding5'],
+      ['shelf', '天文手札木架', 1115, 465, 1245, 555],
+      ['crate', '标本收纳箱一', 195, 315, 285, 395, 'container:junk5a'],
+      ['crate', '标本收纳箱二', 1115, 285, 1205, 365, 'container:junk5b'],
+      ['crate', '南讲堂典藏箱', 945, 865, 1035, 945, 'container:south5a'],
+      ['crate', '西翼矿石箱', 385, 725, 475, 805, 'container:mid5a']
     ],
 
-    // ===== 6F 财务 · 保险库 =====
+    // ===== 6F · 晴海甲板甜品舱（北舷窗观海廊 / 西冰淇淋吧 / 中央蓝毯下午茶沙龙 / 东船长露台） =====
     6: [
-      ['safe', '财务小保险柜', 620, 120, 740, 240, 'container:minisafe6'],
-      ['shelf', '凭证架甲', 760, 120, 880, 230, 'container:voucher6'],
-      ['shelf', '凭证架乙', 760, 250, 880, 360],
-      ['whiteboard', '预算看板', 900, 110, 1080, 150],
-      ['lamp', '账台灯', 400, 560, 450, 620],
-      ['chair', '审阅椅', 460, 580, 510, 630],
-      ['printer', '凭证打印机', 300, 700, 400, 780, 'container:printer6'],
-      ['crate', '票据箱', 560, 700, 640, 780, 'container:billbox6'],
-      ['vending', '东侧售货机', 1390, 400, 1460, 500, 'container:vending6'],
-      ['boxstack', '审计箱', 1390, 560, 1460, 640, 'container:audit6'],
-      ['bench', '东侧长凳', 1020, 420, 1100, 470],
-      ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
+      ['safe', '甜品工坊金库柜', 645, 95, 765, 185, 'container:minisafe6'],
+      ['shelf', '烘焙食谱木架甲', 805, 95, 935, 185, 'container:voucher6'],
+      ['whiteboard', '今日甜点推荐板', 985, 95, 1125, 155],
+      ['lamp', '海风暖光台灯', 625, 395, 680, 465],
+      ['printer', '礼盒礼券印制台', 315, 525, 425, 605, 'container:printer6'],
+      ['crate', '糖果礼盒木箱', 1185, 735, 1275, 815, 'container:billbox6'],
+      ['vending', '海盐冰淇淋柜', 1365, 385, 1445, 480, 'container:vending6'],
+      ['boxstack', '可可豆木箱', 1365, 565, 1455, 645, 'container:audit6'],
+      ['crate', '航海果干箱一', 185, 315, 275, 395, 'container:junk6a'],
+      ['crate', '航海果干箱二', 1185, 385, 1275, 465, 'container:junk6b'],
+      ['crate', '南甲板甜品箱', 1185, 865, 1275, 945, 'container:south6a'],
+      ['crate', '中舱香料箱', 1185, 565, 1275, 645, 'container:mid6a']
     ],
 
-    // ===== 7F 健身 · 天光 =====
+    // ===== 7F · 云端晚霞音乐露台（北中露天音乐舞台 / 中央礼堂坐席 / 西云端健身阁 / 南晚霞果饮吧 / 东文创市集） =====
     7: [
-      ['treadmill', '跑步机五', 170, 140, 250, 220],
-      ['rack', '哑铃架三', 560, 260, 640, 330],
-      ['bench', '训练长凳一', 660, 280, 760, 330],
-      ['bench', '训练长凳二', 660, 350, 760, 400],
-      ['cooler', '运动饮水站', 900, 240, 950, 320, 'container:drink7'],
-      ['mat', '拉伸垫一', 900, 360, 1010, 430],
-      ['whiteboard', '训练计划板', 700, 60, 860, 95],
-      ['lamp', '场地射灯', 1000, 200, 1050, 260],
-      ['vending', '能量售货机', 1390, 400, 1460, 500, 'container:vending7'],
-      ['boxstack', '器材箱', 1390, 560, 1460, 640, 'container:gear7'],
-      ['bench', '东侧休息凳', 1020, 420, 1100, 470],
-      ['plant', '东侧绿植三', 1390, 680, 1450, 760],
-      ...corridor(300, { leftPlant: '走廊绿植三', rightPlant: '走廊绿植四' })
+      ['whiteboard', '音乐会节目单板', 1025, 95, 1155, 155],
+      ['cooler', '鲜果气泡水吧', 915, 715, 975, 795, 'container:drink7'],
+      ['lamp', '舞台西暖阳灯柱', 515, 145, 565, 215],
+      ['lamp', '舞台东暖阳灯柱', 985, 145, 1035, 215],
+      ['vending', '云端特饮售货机', 1355, 245, 1435, 340, 'container:vending7'],
+      ['boxstack', '庆典彩带礼箱', 1355, 415, 1445, 495, 'container:gear7'],
+      ['plant', '露台葵花盆栽一', 1155, 715, 1225, 795],
+      ['crate', '市集手作木箱一', 1155, 285, 1245, 365, 'container:junk7a'],
+      ['crate', '市集手作木箱二', 1155, 455, 1245, 535, 'container:junk7b'],
+      ['crate', '南露台礼盒箱', 1155, 855, 1245, 935, 'container:south7a'],
+      ['crate', '西健身补给箱', 345, 415, 435, 495, 'container:mid7a']
     ]
   };
-  // ===== 放大后的「场景陈设」：按楼层世界观撒放真实素材 =====
-  // 与 DRESSING 的区别：DRESSING 是手工摆位（含容器/功能点），这一份是**纯装饰**，
-  // 由 clutter.js 在楼面空隙里按网格确定性撒放（不挡路、不覆盖容器/门点/出生点）。
-  // prop  = scene.js 已加载的单图素材键；w/h = 绘制后的像素尺寸（含整数倍放大）；
-  // scale = 允许的最大整数倍（drawSpecAt 会按 footprint 宽度再夹一次）。
+
+  // ===== 功能区精细点缀池（由 clutter.js 按各层固定锚点对称摆放，全部采用 2× 真实像素比例） =====
   const deco = (prop, w, h, scale, label, weight = 1) => ({ prop, w, h, scale, label, weight });
   const THEME_CLUTTER = {
-    1: [   // 科幻实验室：机柜/天线/冷光
-      deco('controlBox', 64, 60, 2, '服务器机柜', 3),
-      deco('antenna', 44, 192, 2, '信号天线', 2),
-      deco('cyberLight', 110, 136, 2, '冷光灯柱', 1),
-      deco('monitorFace', 63, 54, 3, '监控屏', 2),
-      deco('neonHolo', 32, 32, 2, '全息地标', 2)
+    1: [
+      deco('plantBig', 64, 64, 2, '琴叶榕盆栽', 3),
+      deco('plantSmall', 36, 36, 2, '向阳小盆栽', 3),
+      deco('tableRound', 68, 56, 2, '阳光茶歇圆桌', 2),
+      deco('coffee', 36, 38, 2, '手冲咖啡机', 2),
+      deco('shelf', 40, 48, 2, '社区图书架', 2)
     ],
-    2: [   // 竞技运动层：球场边的长凳/储物柜/器材（用普通家具类型，按默认办公素材绘制）
-      { type: 'bench', w: 120, h: 40, label: '场边长凳', weight: 3 },
-      { type: 'locker', w: 56, h: 96, label: '球员储物柜', weight: 2 },
-      { type: 'cooler', w: 40, h: 60, label: '饮水站', weight: 1 },
-      { type: 'crate', w: 56, h: 56, label: '器材箱', weight: 2 },
-      { type: 'shelf', w: 80, h: 90, label: '器材架', weight: 1 }
+    2: [
+      { type: 'bench', w: 96, h: 42, label: '场边观赛长凳', weight: 3 },
+      { type: 'cooler', w: 44, h: 56, label: '绿茵补水站', weight: 2 },
+      deco('plantBig', 64, 64, 2, '球场边花木', 3),
+      deco('plantSmall', 36, 36, 2, '场边迎春花钵', 3),
+      { type: 'shelf', w: 68, h: 64, label: '奖杯陈列架', weight: 2 }
     ],
-    3: [   // 魔幻城堡
-      deco('dgnChest', 48, 48, 3, '宝箱', 2),
-      deco('dgnBoxes', 32, 64, 2, '木箱堆', 2),
-      deco('dgnColumn', 32, 96, 2, '石柱', 2),
-      deco('dgnSkull', 32, 32, 2, '头骨', 1),
-      deco('dgnTorch1', 28, 46, 2, '火把', 1),
-      deco('dgnChestOpen', 48, 48, 3, '打开的宝箱', 1)
+    3: [
+      deco('shelfTall', 64, 64, 2, '古典高书架', 3),
+      deco('shelf', 40, 48, 2, '木质绘本架', 3),
+      deco('tableRound', 68, 56, 2, '共读圆桌', 2),
+      deco('plantBig', 64, 64, 2, '书斋绿植', 3),
+      deco('dgnChest', 36, 36, 2, '镶金典藏木箱', 2)
     ],
-    4: [   // 幽深森林：树要占多数，否则空地还是像草坪
-      deco('forestTree1', 132, 194, 2, '古树', 6),
-      deco('forestTree2', 64, 148, 2, '小树', 4),
-      deco('forestBrush1', 86, 80, 2, '灌木', 3),
-      deco('forestStump', 60, 48, 2, '树桩', 2),
-      deco('forestRock1', 44, 36, 4, '岩石', 1),
-      deco('forestRock2', 44, 36, 4, '碎石', 1),
-      deco('forestFlowerR', 20, 20, 4, '红花', 1),
-      deco('forestFlowerB', 20, 20, 4, '蓝花', 2)
+    4: [
+      deco('forestTree1', 68, 98, 1, '阳光果树', 3),
+      deco('forestTree2', 42, 76, 1, '翠绿小树', 3),
+      deco('forestBrush1', 50, 44, 1, '修剪花灌木', 3),
+      deco('plantBig', 64, 64, 2, '温室花钵', 3),
+      deco('tableRound', 68, 56, 2, '园艺茶叙圆桌', 2)
     ],
-    5: [   // 地牢回廊
-      deco('dgnChest', 48, 48, 3, '宝箱', 2),
-      deco('dgnBoxes', 32, 64, 2, '木箱堆', 2),
-      deco('dgnColumn', 32, 96, 2, '石柱', 2),
-      deco('dgnSkull', 32, 32, 2, '头骨', 2),
-      deco('dgnChestOpen', 48, 48, 3, '打开的宝箱', 1),
-      deco('dgnTorch1', 28, 46, 2, '火把', 2)
+    5: [
+      deco('shelfTall', 64, 64, 2, '回廊古籍架', 3),
+      deco('dgnChest', 36, 36, 2, '星象典藏箱', 3),
+      deco('dgnTorch1', 32, 48, 2, '暖金壁灯', 2),
+      deco('plantBig', 64, 64, 2, '回廊万年青', 3),
+      deco('tableRound', 68, 56, 2, '观星圆桌', 2)
     ],
-    6: [   // 海盗甲板
-      deco('dgnChest', 48, 48, 3, '宝箱', 2),
-      deco('dgnBoxes', 32, 64, 2, '货箱', 3),
-      deco('dgnColumn', 32, 96, 2, '桅杆', 1),
-      deco('dgnBox', 32, 64, 2, '木桶', 2)
+    6: [
+      deco('tableRound', 68, 56, 2, '海景下午茶圆桌', 3),
+      deco('coffee', 36, 38, 2, '焦糖浓缩咖啡机', 2),
+      deco('plantBig', 64, 64, 2, '甲板花钵', 3),
+      deco('dgnChest', 36, 36, 2, '航海甜品礼箱', 2),
+      deco('candyPop', 44, 44, 1, '缤纷棒棒糖花束', 2)
     ],
-    7: [   // 赛博霓虹
-      deco('antenna', 44, 192, 2, '信号天线', 2),
-      deco('cyberLight', 110, 136, 2, '霓虹灯柱', 2),
-      deco('bannerSmall', 26, 70, 2, '霓虹条幅', 2),
-      deco('bannerBig', 90, 60, 1, '巨型广告牌', 1),
-      deco('monitorFace', 63, 54, 3, '广告屏', 2),
-      deco('hotelSign', 68, 35, 1, '旅馆招牌', 1),
-      deco('controlBox', 64, 60, 2, '配电箱', 2),
-      deco('neonHolo', 32, 32, 2, '全息地标', 2)
+    7: [
+      deco('plantBig', 64, 64, 2, '露台阳光葵花', 3),
+      deco('plantSmall', 36, 36, 2, '云端花箱', 3),
+      deco('tableRound', 68, 56, 2, '露台茶叙圆桌', 3),
+      deco('sofaSmall', 64, 52, 2, '云端藤编沙发', 2),
+      deco('water', 64, 64, 2, '露台冷萃水站', 2)
     ]
   };
-  // ===== 主题家具的"单图素材"映射（服务端与客户端共用）=====
-  // scene.js 用它画主题家具；floors.js 用它把碰撞盒收窄到素材里**实际物体**的宽度
-  // （PNG 画布有透明边，按整张图算碰撞会比肉眼大一圈）。
-  // 只收 {prop,scale[,repeat]} 这一类；图集(sheet)拼的桌椅仍在 scene.js 里配置。
+
   const THEME_PROP = {
     1: {
-      cabinet: { prop: 'controlBox', scale: 2 },
-      vending: { prop: 'cyberLight', scale: 2 },
-      plant: { prop: 'antenna', scale: 2 },
-      shelf: { prop: 'controlBox', scale: 2 },
-      tv: { prop: 'monitorFace', scale: 3 }
+      cooler: { prop: 'water', scale: 2 },
+      vending: { prop: 'vending', scale: 2 }
     },
     3: {
-      cabinet: { prop: 'dgnChest', scale: 2 },
-      crate: { prop: 'dgnBoxes', scale: 2 },
-      plant: { prop: 'dgnColumn', scale: 2 },
-      locker: { prop: 'dgnChestOpen', scale: 2 }
-    },
-    4: {
-      desk: { prop: 'forestStump', scale: 2 },
-      table: { prop: 'forestStump', scale: 2 },
-      chair: { prop: 'forestRock2', scale: 3 },
-      plant: { prop: 'forestTree1', scale: 2 },
-      sofa: { prop: 'forestBrush1', scale: 2 },
-      cabinet: { prop: 'forestStump', scale: 2 },
-      crate: { prop: 'forestRock1', scale: 3 },
-      boxstack: { prop: 'forestRock1', scale: 3 },
-      bench: { prop: 'forestRock2', scale: 3 },
-      shelf: { prop: 'forestTree2', scale: 2 },
-      lamp: { prop: 'forestFlowerR', scale: 3 }
+      crate: { prop: 'dgnChest', scale: 2 }
     },
     5: {
-      cabinet: { prop: 'dgnChest', scale: 2 },
-      crate: { prop: 'dgnBoxes', scale: 2 },
-      boxstack: { prop: 'dgnBoxes', scale: 2 },
-      plant: { prop: 'dgnSkull', scale: 2 },
-      locker: { prop: 'dgnChestOpen', scale: 2 },
-      vending: { prop: 'dgnColumn', scale: 2 },
-      shelf: { prop: 'dgnColumn', scale: 2 }
+      crate: { prop: 'dgnChest', scale: 2 },
+      boxstack: { prop: 'dgnChest', scale: 2 }
     },
     6: {
-      cabinet: { prop: 'dgnChest', scale: 2 },
-      crate: { prop: 'dgnBoxes', scale: 2 },
-      plant: { prop: 'dgnColumn', scale: 2 }
+      plant: { prop: 'candyPop', scale: 1 }
     },
     7: {
-      plant: { prop: 'antenna', scale: 1 },
-      vending: { prop: 'bannerSmall', scale: 2 },
-      tv: { prop: 'monitorFace', scale: 3 },
-      whiteboard: { prop: 'bannerBig', scale: 1 },
-      shelf: { prop: 'hotelSign', scale: 1 },
-      lamp: { prop: 'cyberLight', scale: 1 },
-      cabinet: { prop: 'controlBox', scale: 2 },
-      treadmill: { prop: 'controlBox', scale: 2 },
-      rack: { prop: 'antenna', scale: 1 },
-      stage: { prop: 'neonFloorBase', scale: 1, repeat: true },
-      mat: { prop: 'neonStripH', scale: 1, repeat: true }
+      cooler: { prop: 'water', scale: 2 },
+      vending: { prop: 'vending', scale: 2 }
     }
   };
-  // 把「别让它太空」补丁接到每层末尾。用追加而不是改写既有数组，
-  // 让原有手工摆位保持可读、可回溯（谁加的、加在哪一层一目了然）。
-  for (const key of Object.keys(DRESSING)) {
-    if (Array.isArray(DRESSING[key])) DRESSING[key] = DRESSING[key].concat(filler(Number(key)), filler2(Number(key)));
-  }
+
   return { DRESSING, THEME_CLUTTER, THEME_PROP };
 });

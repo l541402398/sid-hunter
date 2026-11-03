@@ -16,7 +16,7 @@
   }
  ],
  "nextlayerid": 8,
- "nextobjectid": 97,
+ "nextobjectid": 98,
  "layers": [
   {
    "id": 1,
@@ -2851,12 +2851,12 @@
     0,
     0,
     0,
+    0,
     3,
     3,
     3,
     0,
     0,
-    0,
     3,
     0,
     0,
@@ -2910,11 +2910,11 @@
     0,
     0,
     3,
-    0,
     0,
     0,
-    0,
-    0,
+    3,
+    3,
+    3,
     0,
     0,
     0,
@@ -3002,12 +3002,12 @@
     3,
     0,
     0,
-    3,
-    3,
-    3,
+    0,
+    0,
     0,
     0,
     0,
+    0,
     3,
     0,
     0,
@@ -3701,10 +3701,10 @@
     3,
     0,
     0,
-    3,
-    3,
-    3,
+    0,
+    0,
     0,
+    0,
     3,
     0,
     3,
@@ -3788,11 +3788,11 @@
     0,
     0,
     3,
-    0,
-    0,
     0,
     0,
-    0,
+    3,
+    3,
+    3,
     0,
     0,
     0,
@@ -5235,101 +5235,8 @@
     0,
     0,
     0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
+    4,
+    4,
     0,
     0,
     0,
@@ -5448,7 +5355,100 @@
     0,
     0,
     0,
-    4,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
     0,
     0,
     0,
@@ -9081,7 +9081,7 @@
    "visible": true,
    "objects": [
     {
-     "id": 87,
+     "id": 88,
      "name": "牢房",
      "type": "zone",
      "x": 112,
@@ -9109,7 +9109,7 @@
      ]
     },
     {
-     "id": 88,
+     "id": 89,
      "name": "刑讯室",
      "type": "zone",
      "x": 288,
@@ -9137,7 +9137,7 @@
      ]
     },
     {
-     "id": 89,
+     "id": 90,
      "name": "铁栅井",
      "type": "zone",
      "x": 528,
@@ -9170,7 +9170,7 @@
      ]
     },
     {
-     "id": 90,
+     "id": 91,
      "name": "守卫室",
      "type": "zone",
      "x": 768,
@@ -9198,7 +9198,7 @@
      ]
     },
     {
-     "id": 91,
+     "id": 92,
      "name": "水牢",
      "type": "zone",
      "x": 912,
@@ -9226,7 +9226,7 @@
      ]
     },
     {
-     "id": 92,
+     "id": 93,
      "name": "宝库",
      "type": "zone",
      "x": 1120,
@@ -9254,7 +9254,7 @@
      ]
     },
     {
-     "id": 93,
+     "id": 94,
      "name": "东侧电梯厅",
      "type": "zone",
      "x": 1264,
@@ -9365,7 +9365,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -9408,7 +9408,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -9494,7 +9494,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -9580,7 +9580,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -9596,6 +9596,49 @@
     },
     {
      "id": 8,
+     "name": "prop-crate",
+     "type": "prop",
+     "x": 291,
+     "y": 104,
+     "width": 16,
+     "height": 16,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "crate"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "箱"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnChest"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 9,
      "name": "prop-chain",
      "type": "prop",
      "x": 303,
@@ -9623,7 +9666,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -9638,7 +9681,7 @@
      ]
     },
     {
-     "id": 9,
+     "id": 10,
      "name": "prop-barrel",
      "type": "prop",
      "x": 317,
@@ -9681,7 +9724,7 @@
      ]
     },
     {
-     "id": 10,
+     "id": 11,
      "name": "prop-crate",
      "type": "prop",
      "x": 335,
@@ -9709,50 +9752,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 11,
-     "name": "prop-crate",
-     "type": "prop",
-     "x": 365,
-     "y": 84,
-     "width": 16,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "crate"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "箱"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent2"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -9768,49 +9768,6 @@
     },
     {
      "id": 12,
-     "name": "prop-chain",
-     "type": "prop",
-     "x": 371,
-     "y": 104,
-     "width": 10,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "chain"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "链"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "paper"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "dgnSkull"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 13,
      "name": "prop-shaft",
      "type": "prop",
      "x": 570,
@@ -9838,7 +9795,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "tableRound"
       },
       {
        "name": "propScale",
@@ -9858,11 +9815,11 @@
      ]
     },
     {
-     "id": 14,
+     "id": 13,
      "name": "prop-plant",
      "type": "prop",
-     "x": 560,
-     "y": 211,
+     "x": 531,
+     "y": 212,
      "width": 12,
      "height": 12,
      "rotation": 0,
@@ -9901,11 +9858,11 @@
      ]
     },
     {
-     "id": 15,
+     "id": 14,
      "name": "prop-chest",
      "type": "prop",
-     "x": 617,
-     "y": 212,
+     "x": 531,
+     "y": 228,
      "width": 20,
      "height": 14,
      "rotation": 0,
@@ -9944,11 +9901,11 @@
      ]
     },
     {
-     "id": 16,
+     "id": 15,
      "name": "prop-sign",
      "type": "prop",
-     "x": 625,
-     "y": 230,
+     "x": 531,
+     "y": 246,
      "width": 12,
      "height": 18,
      "rotation": 0,
@@ -9973,6 +9930,49 @@
        "name": "prop",
        "type": "string",
        "value": "dgnFlagBlue"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 16,
+     "name": "prop-plant",
+     "type": "prop",
+     "x": 625,
+     "y": 212,
+     "width": 12,
+     "height": 12,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "plant"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "绿植"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnTorch1"
       },
       {
        "name": "propScale",
@@ -9988,53 +9988,10 @@
     },
     {
      "id": 17,
-     "name": "prop-column",
-     "type": "prop",
-     "x": 562,
-     "y": 257,
-     "width": 12,
-     "height": 12,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "column"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "柱"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "wallTop"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "dgnColumn"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 18,
      "name": "prop-sign",
      "type": "prop",
-     "x": 531,
-     "y": 212,
+     "x": 625,
+     "y": 228,
      "width": 12,
      "height": 18,
      "rotation": 0,
@@ -10059,6 +10016,49 @@
        "name": "prop",
        "type": "string",
        "value": "dgnFlagBlue"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 18,
+     "name": "prop-chest",
+     "type": "prop",
+     "x": 617,
+     "y": 250,
+     "width": 20,
+     "height": 14,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "chest"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "宝箱"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent1"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -10076,8 +10076,8 @@
      "id": 19,
      "name": "prop-chest",
      "type": "prop",
-     "x": 531,
-     "y": 234,
+     "x": 771,
+     "y": 84,
      "width": 20,
      "height": 14,
      "rotation": 0,
@@ -10119,8 +10119,8 @@
      "id": 20,
      "name": "prop-chair",
      "type": "prop",
-     "x": 787,
-     "y": 83,
+     "x": 771,
+     "y": 102,
      "width": 14,
      "height": 14,
      "rotation": 0,
@@ -10160,53 +10160,10 @@
     },
     {
      "id": 21,
-     "name": "prop-bench",
-     "type": "prop",
-     "x": 805,
-     "y": 83,
-     "width": 40,
-     "height": 14,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "bench"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "长凳"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "floorLight"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "sofaSmall"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 22,
      "name": "prop-chest",
      "type": "prop",
-     "x": 776,
-     "y": 127,
+     "x": 841,
+     "y": 84,
      "width": 20,
      "height": 14,
      "rotation": 0,
@@ -10245,54 +10202,11 @@
      ]
     },
     {
-     "id": 23,
-     "name": "prop-desk",
-     "type": "prop",
-     "x": 800,
-     "y": 121,
-     "width": 34,
-     "height": 20,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "desk"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "桌"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent1"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "desk"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 24,
+     "id": 22,
      "name": "prop-chair",
      "type": "prop",
-     "x": 838,
-     "y": 127,
+     "x": 847,
+     "y": 102,
      "width": 14,
      "height": 14,
      "rotation": 0,
@@ -10331,54 +10245,11 @@
      ]
     },
     {
-     "id": 25,
-     "name": "prop-cone",
-     "type": "prop",
-     "x": 920,
-     "y": 275,
-     "width": 10,
-     "height": 10,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "cone"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "锥"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent2"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "bin"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 2
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 26,
+     "id": 23,
      "name": "prop-barrel",
      "type": "prop",
-     "x": 915,
-     "y": 228,
+     "x": 925,
+     "y": 227,
      "width": 14,
      "height": 18,
      "rotation": 0,
@@ -10417,25 +10288,25 @@
      ]
     },
     {
-     "id": 27,
-     "name": "prop-cone",
+     "id": 24,
+     "name": "prop-crate",
      "type": "prop",
-     "x": 995,
-     "y": 228,
-     "width": 10,
-     "height": 10,
+     "x": 943,
+     "y": 227,
+     "width": 16,
+     "height": 16,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "cone"
+       "value": "crate"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "锥"
+       "value": "箱"
       },
       {
        "name": "role",
@@ -10445,12 +10316,12 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "bin"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
        "type": "int",
-       "value": 2
+       "value": 1
       },
       {
        "name": "solid",
@@ -10460,11 +10331,11 @@
      ]
     },
     {
-     "id": 28,
+     "id": 25,
      "name": "prop-chain",
      "type": "prop",
-     "x": 995,
-     "y": 242,
+     "x": 963,
+     "y": 227,
      "width": 10,
      "height": 16,
      "rotation": 0,
@@ -10488,7 +10359,136 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 26,
+     "name": "prop-chain",
+     "type": "prop",
+     "x": 995,
+     "y": 228,
+     "width": 10,
+     "height": 16,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "chain"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "链"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "paper"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "plantSmall"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 27,
+     "name": "prop-crate",
+     "type": "prop",
+     "x": 989,
+     "y": 248,
+     "width": 16,
+     "height": 16,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "crate"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "箱"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnChest"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 28,
+     "name": "prop-boxstack",
+     "type": "prop",
+     "x": 1139,
+     "y": 115,
+     "width": 20,
+     "height": 24,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "boxstack"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "箱堆"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnBoxes"
       },
       {
        "name": "propScale",
@@ -10506,8 +10506,8 @@
      "id": 29,
      "name": "prop-cabinet",
      "type": "prop",
-     "x": 1195,
-     "y": 116,
+     "x": 1163,
+     "y": 115,
      "width": 18,
      "height": 26,
      "rotation": 0,
@@ -10547,34 +10547,34 @@
     },
     {
      "id": 30,
-     "name": "prop-boxstack",
+     "name": "prop-shelf",
      "type": "prop",
-     "x": 1193,
-     "y": 146,
-     "width": 20,
-     "height": 24,
+     "x": 1185,
+     "y": 115,
+     "width": 14,
+     "height": 30,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "boxstack"
+       "value": "shelf"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "箱堆"
+       "value": "架"
       },
       {
        "name": "role",
        "type": "string",
-       "value": "accent2"
+       "value": "wallTop"
       },
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "shelf"
       },
       {
        "name": "propScale",
@@ -10590,52 +10590,9 @@
     },
     {
      "id": 31,
-     "name": "prop-cabinet",
-     "type": "prop",
-     "x": 1127,
-     "y": 147,
-     "width": 18,
-     "height": 26,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "cabinet"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "柜"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "wallTop"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "cabinetTall"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 32,
      "name": "prop-shelf",
      "type": "prop",
-     "x": 1149,
+     "x": 1128,
      "y": 143,
      "width": 14,
      "height": 30,
@@ -10675,10 +10632,10 @@
      ]
     },
     {
-     "id": 33,
+     "id": 32,
      "name": "prop-crate",
      "type": "prop",
-     "x": 1167,
+     "x": 1146,
      "y": 157,
      "width": 16,
      "height": 16,
@@ -10703,7 +10660,50 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 33,
+     "name": "prop-cabinet",
+     "type": "prop",
+     "x": 1166,
+     "y": 147,
+     "width": 18,
+     "height": 26,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "cabinet"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "柜"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "wallTop"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "cabinetTall"
       },
       {
        "name": "propScale",
@@ -10719,24 +10719,24 @@
     },
     {
      "id": 34,
-     "name": "prop-plant",
+     "name": "prop-boxstack",
      "type": "prop",
-     "x": 1276,
-     "y": 83,
-     "width": 12,
-     "height": 12,
+     "x": 1188,
+     "y": 149,
+     "width": 20,
+     "height": 24,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "plant"
+       "value": "boxstack"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "绿植"
+       "value": "箱堆"
       },
       {
        "name": "role",
@@ -10746,7 +10746,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnTorch1"
+       "value": "dgnBoxes"
       },
       {
        "name": "propScale",
@@ -10764,8 +10764,8 @@
      "id": 35,
      "name": "prop-bench",
      "type": "prop",
-     "x": 1292,
-     "y": 83,
+     "x": 1276,
+     "y": 143,
      "width": 40,
      "height": 14,
      "rotation": 0,
@@ -10805,24 +10805,24 @@
     },
     {
      "id": 36,
-     "name": "prop-cooler",
+     "name": "prop-sign",
      "type": "prop",
-     "x": 1336,
-     "y": 83,
-     "width": 14,
-     "height": 20,
+     "x": 1320,
+     "y": 139,
+     "width": 12,
+     "height": 18,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "cooler"
+       "value": "sign"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "饮水机"
+       "value": "牌"
       },
       {
        "name": "role",
@@ -10832,7 +10832,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "water"
+       "value": "dgnFlagBlue"
       },
       {
        "name": "propScale",
@@ -10850,7 +10850,7 @@
      "id": 37,
      "name": "prop-sign",
      "type": "prop",
-     "x": 1361,
+     "x": 1267,
      "y": 84,
      "width": 12,
      "height": 18,
@@ -10891,24 +10891,24 @@
     },
     {
      "id": 38,
-     "name": "prop-cooler",
+     "name": "prop-sign",
      "type": "prop",
-     "x": 1284,
-     "y": 137,
-     "width": 14,
-     "height": 20,
+     "x": 1361,
+     "y": 102,
+     "width": 12,
+     "height": 18,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "cooler"
+       "value": "sign"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "饮水机"
+       "value": "牌"
       },
       {
        "name": "role",
@@ -10918,7 +10918,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "water"
+       "value": "dgnFlagBlue"
       },
       {
        "name": "propScale",
@@ -10936,8 +10936,8 @@
      "id": 39,
      "name": "prop-plant",
      "type": "prop",
-     "x": 1302,
-     "y": 145,
+     "x": 1281,
+     "y": 84,
      "width": 12,
      "height": 12,
      "rotation": 0,
@@ -10977,6 +10977,49 @@
     },
     {
      "id": 40,
+     "name": "prop-plant",
+     "type": "prop",
+     "x": 1347,
+     "y": 102,
+     "width": 12,
+     "height": 12,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "plant"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "绿植"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnTorch1"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 41,
      "name": "prop-crate",
      "type": "prop",
      "x": 418,
@@ -11004,7 +11047,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11019,7 +11062,7 @@
      ]
     },
     {
-     "id": 41,
+     "id": 42,
      "name": "prop-barrel",
      "type": "prop",
      "x": 418,
@@ -11062,7 +11105,7 @@
      ]
     },
     {
-     "id": 42,
+     "id": 43,
      "name": "prop-chain",
      "type": "prop",
      "x": 418,
@@ -11090,7 +11133,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -11105,7 +11148,7 @@
      ]
     },
     {
-     "id": 43,
+     "id": 44,
      "name": "prop-barrel",
      "type": "prop",
      "x": 322,
@@ -11148,7 +11191,7 @@
      ]
     },
     {
-     "id": 44,
+     "id": 45,
      "name": "prop-crate",
      "type": "prop",
      "x": 364,
@@ -11176,7 +11219,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11191,7 +11234,7 @@
      ]
     },
     {
-     "id": 45,
+     "id": 46,
      "name": "prop-plant",
      "type": "prop",
      "x": 406,
@@ -11234,7 +11277,7 @@
      ]
     },
     {
-     "id": 46,
+     "id": 47,
      "name": "prop-sign",
      "type": "prop",
      "x": 448,
@@ -11277,7 +11320,7 @@
      ]
     },
     {
-     "id": 47,
+     "id": 48,
      "name": "prop-plant",
      "type": "prop",
      "x": 946,
@@ -11320,7 +11363,7 @@
      ]
     },
     {
-     "id": 48,
+     "id": 49,
      "name": "prop-sign",
      "type": "prop",
      "x": 988,
@@ -11363,7 +11406,7 @@
      ]
     },
     {
-     "id": 49,
+     "id": 50,
      "name": "prop-column",
      "type": "prop",
      "x": 1030,
@@ -11391,7 +11434,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "shelfTall"
       },
       {
        "name": "propScale",
@@ -11406,7 +11449,7 @@
      ]
     },
     {
-     "id": 50,
+     "id": 51,
      "name": "prop-barrel",
      "type": "prop",
      "x": 1072,
@@ -11449,7 +11492,7 @@
      ]
     },
     {
-     "id": 51,
+     "id": 52,
      "name": "prop-chain",
      "type": "prop",
      "x": 610,
@@ -11477,50 +11520,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 52,
-     "name": "prop-plant",
-     "type": "prop",
-     "x": 610,
-     "y": 140,
-     "width": 12,
-     "height": 12,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "plant"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "绿植"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent2"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "dgnTorch1"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -11536,6 +11536,49 @@
     },
     {
      "id": 53,
+     "name": "prop-column",
+     "type": "prop",
+     "x": 610,
+     "y": 140,
+     "width": 12,
+     "height": 12,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "column"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "柱"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "wallTop"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "shelfTall"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 54,
      "name": "prop-barrel",
      "type": "prop",
      "x": 1010,
@@ -11578,7 +11621,7 @@
      ]
     },
     {
-     "id": 54,
+     "id": 55,
      "name": "prop-crate",
      "type": "prop",
      "x": 1052,
@@ -11606,7 +11649,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11621,7 +11664,7 @@
      ]
     },
     {
-     "id": 55,
+     "id": 56,
      "name": "prop-column",
      "type": "prop",
      "x": 1094,
@@ -11649,7 +11692,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "shelfTall"
       },
       {
        "name": "propScale",
@@ -11664,7 +11707,7 @@
      ]
     },
     {
-     "id": 56,
+     "id": 57,
      "name": "prop-plant",
      "type": "prop",
      "x": 1136,
@@ -11707,7 +11750,7 @@
      ]
     },
     {
-     "id": 57,
+     "id": 58,
      "name": "prop-column",
      "type": "prop",
      "x": 1250,
@@ -11735,7 +11778,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "shelfTall"
       },
       {
        "name": "propScale",
@@ -11750,7 +11793,7 @@
      ]
     },
     {
-     "id": 58,
+     "id": 59,
      "name": "prop-plant",
      "type": "prop",
      "x": 1250,
@@ -11793,7 +11836,7 @@
      ]
     },
     {
-     "id": 59,
+     "id": 60,
      "name": "prop-crate",
      "type": "prop",
      "x": 434,
@@ -11821,7 +11864,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11836,7 +11879,7 @@
      ]
     },
     {
-     "id": 60,
+     "id": 61,
      "name": "prop-chain",
      "type": "prop",
      "x": 476,
@@ -11864,7 +11907,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -11879,7 +11922,7 @@
      ]
     },
     {
-     "id": 61,
+     "id": 62,
      "name": "prop-column",
      "type": "prop",
      "x": 518,
@@ -11907,7 +11950,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "shelfTall"
       },
       {
        "name": "propScale",
@@ -11922,7 +11965,7 @@
      ]
     },
     {
-     "id": 62,
+     "id": 63,
      "name": "prop-sign",
      "type": "prop",
      "x": 1122,
@@ -11965,7 +12008,7 @@
      ]
     },
     {
-     "id": 63,
+     "id": 64,
      "name": "prop-chain",
      "type": "prop",
      "x": 1122,
@@ -11993,7 +12036,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -12008,10 +12051,53 @@
      ]
     },
     {
-     "id": 64,
-     "name": "prop-plant",
+     "id": 65,
+     "name": "prop-crate",
      "type": "prop",
      "x": 114,
+     "y": 290,
+     "width": 16,
+     "height": 16,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "crate"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "箱"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnChest"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 66,
+     "name": "prop-plant",
+     "type": "prop",
+     "x": 156,
      "y": 290,
      "width": 12,
      "height": 12,
@@ -12051,10 +12137,10 @@
      ]
     },
     {
-     "id": 65,
+     "id": 67,
      "name": "prop-sign",
      "type": "prop",
-     "x": 156,
+     "x": 198,
      "y": 290,
      "width": 12,
      "height": 18,
@@ -12094,50 +12180,7 @@
      ]
     },
     {
-     "id": 66,
-     "name": "prop-chain",
-     "type": "prop",
-     "x": 198,
-     "y": 290,
-     "width": 10,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "chain"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "链"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "paper"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "dgnSkull"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 67,
+     "id": 68,
      "name": "prop-column",
      "type": "prop",
      "x": 898,
@@ -12165,7 +12208,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "shelfTall"
       },
       {
        "name": "propScale",
@@ -12180,7 +12223,7 @@
      ]
     },
     {
-     "id": 68,
+     "id": 69,
      "name": "prop-crate",
      "type": "prop",
      "x": 940,
@@ -12208,7 +12251,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -12223,7 +12266,7 @@
      ]
     },
     {
-     "id": 69,
+     "id": 70,
      "name": "prop-sign",
      "type": "prop",
      "x": 982,
@@ -12266,7 +12309,7 @@
      ]
     },
     {
-     "id": 70,
+     "id": 71,
      "name": "prop-chain",
      "type": "prop",
      "x": 1024,
@@ -12294,7 +12337,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -12309,7 +12352,7 @@
      ]
     },
     {
-     "id": 71,
+     "id": 72,
      "name": "prop-plant",
      "type": "prop",
      "x": 802,
@@ -12352,7 +12395,7 @@
      ]
     },
     {
-     "id": 72,
+     "id": 73,
      "name": "prop-chain",
      "type": "prop",
      "x": 844,
@@ -12380,7 +12423,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -12395,7 +12438,7 @@
      ]
     },
     {
-     "id": 73,
+     "id": 74,
      "name": "prop-crate",
      "type": "prop",
      "x": 886,
@@ -12423,7 +12466,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -12438,7 +12481,7 @@
      ]
     },
     {
-     "id": 74,
+     "id": 75,
      "name": "prop-barrel",
      "type": "prop",
      "x": 928,
@@ -12481,7 +12524,7 @@
      ]
     },
     {
-     "id": 75,
+     "id": 76,
      "name": "prop-column",
      "type": "prop",
      "x": 290,
@@ -12509,7 +12552,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "shelfTall"
       },
       {
        "name": "propScale",
@@ -12524,7 +12567,7 @@
      ]
     },
     {
-     "id": 76,
+     "id": 77,
      "name": "prop-barrel",
      "type": "prop",
      "x": 290,
@@ -12567,7 +12610,7 @@
      ]
     },
     {
-     "id": 77,
+     "id": 78,
      "name": "prop-column",
      "type": "prop",
      "x": 658,
@@ -12595,7 +12638,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnColumn"
+       "value": "shelfTall"
       },
       {
        "name": "propScale",
@@ -12610,7 +12653,7 @@
      ]
     },
     {
-     "id": 78,
+     "id": 79,
      "name": "prop-crate",
      "type": "prop",
      "x": 700,
@@ -12638,7 +12681,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -12653,7 +12696,7 @@
      ]
     },
     {
-     "id": 79,
+     "id": 80,
      "name": "prop-sign",
      "type": "prop",
      "x": 742,
@@ -12696,7 +12739,7 @@
      ]
     },
     {
-     "id": 80,
+     "id": 81,
      "name": "prop-chain",
      "type": "prop",
      "x": 784,
@@ -12724,7 +12767,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnSkull"
+       "value": "plantSmall"
       },
       {
        "name": "propScale",
@@ -12739,7 +12782,7 @@
      ]
     },
     {
-     "id": 81,
+     "id": 82,
      "name": "prop-sign",
      "type": "prop",
      "x": 258,
@@ -12782,7 +12825,7 @@
      ]
     },
     {
-     "id": 82,
+     "id": 83,
      "name": "prop-plant",
      "type": "prop",
      "x": 258,
@@ -12825,7 +12868,7 @@
      ]
     },
     {
-     "id": 83,
+     "id": 84,
      "name": "prop-jamb",
      "type": "prop",
      "x": -72,
@@ -12868,7 +12911,7 @@
      ]
     },
     {
-     "id": 84,
+     "id": 85,
      "name": "prop-jamb",
      "type": "prop",
      "x": -72,
@@ -12911,7 +12954,7 @@
      ]
     },
     {
-     "id": 85,
+     "id": 86,
      "name": "prop-jamb",
      "type": "prop",
      "x": 1440,
@@ -12954,7 +12997,7 @@
      ]
     },
     {
-     "id": 86,
+     "id": 87,
      "name": "prop-jamb",
      "type": "prop",
      "x": 1440,
@@ -13009,7 +13052,7 @@
    "visible": true,
    "objects": [
     {
-     "id": 94,
+     "id": 95,
      "name": "spawn",
      "type": "point",
      "x": 72,
@@ -13020,7 +13063,7 @@
      "properties": []
     },
     {
-     "id": 95,
+     "id": 96,
      "name": "lift-left",
      "type": "rect",
      "x": -36,
@@ -13048,7 +13091,7 @@
      ]
     },
     {
-     "id": 96,
+     "id": 97,
      "name": "lift-right",
      "type": "rect",
      "x": 1476,
@@ -13082,12 +13125,12 @@
   {
    "name": "theme",
    "type": "string",
-   "value": "5F · 地牢回廊"
+   "value": "5F · 暖灯古籍"
   },
   {
    "name": "palette",
    "type": "string",
-   "value": "#100c09,#080504,#211912,#392b20,#5a4532,#18120e,#281f17,#433426,#e6773f,#d24a3a,#ffc06e,#ddccab"
+   "value": "#302012,#21150b,#5e3f22,#855c36,#a6784c,#785636,#916b46,#a37b54,#c47e36,#a84a38,#dbb464,#e6d8c2"
   },
   {
    "name": "source",
@@ -13107,7 +13150,7 @@
   {
    "name": "landmark",
    "type": "string",
-   "value": "中央铁栅井"
+   "value": "中央星象罗盘"
   },
   {
    "name": "zones",

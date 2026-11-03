@@ -128,7 +128,7 @@
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     const g = c.getContext('2d');
     const rg = g.createRadialGradient(w / 2, h * .44, Math.min(w, h) * .3, w / 2, h * .48, Math.max(w, h) * 1.02);
-    rg.addColorStop(0, 'rgba(255,216,152,.05)'); rg.addColorStop(.55, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(6,4,10,.42)');
+    rg.addColorStop(0, 'rgba(255,216,152,.05)'); rg.addColorStop(.55, 'rgba(0,0,0,0)'); rg.addColorStop(1, 'rgba(38,24,14,.16)');
     g.fillStyle = rg; g.fillRect(0, 0, w, h); vignette = c;
   }
   // 视区尺寸/DPR 变化时重建 backing，并重新设置 transform 与 imageSmoothingEnabled。
@@ -2304,12 +2304,12 @@
   const FURN_FACE = { desk: 24, table: 24, counter: 30, cabinet: 58, reception: 34, sofa: 26, plant: 19,
     treadmill: 42, rack: 35, mat: 2, seat: 30, stage: 13, wall: 7 };
   const FURN_PAD = {
-    default: { padX: 16, padUp: 64, padDown: 32 },
-    plant: { padX: 26, padUp: 44, padDown: 12 },
-    sofa: { padX: 16, padUp: 12, padDown: 12 },
-    mat: { padX: 16, padUp: 8, padDown: 8 },
-    stage: { padX: 16, padUp: 20, padDown: 16 },
-    wall: { padX: 4, padUp: 4, padDown: 4 }
+    default: { padX: 28, padUp: 68, padDown: 28 },
+    plant: { padX: 28, padUp: 64, padDown: 20 },
+    sofa: { padX: 24, padUp: 52, padDown: 24 },
+    mat: { padX: 20, padUp: 24, padDown: 16 },
+    stage: { padX: 20, padUp: 32, padDown: 20 },
+    wall: { padX: 4, padUp: 24, padDown: 6 }
   };
   const furnitureFace = type => (FURN_FACE[type] == null ? 24 : FURN_FACE[type]);
   const furniturePad = type => FURN_PAD[type] || FURN_PAD.default;
@@ -2855,66 +2855,83 @@
   bakeSprites();
   if (SCENE) SCENE.ready.then(() => { chunkClear(); bakeSprites(); draw(); });
   function drawWallPanel(f) {
-    // 需求②：楼层里的隔墙也要跟随该层主题配色，否则 3F/6F/7F 会突兀地出现棕色木墙。
-    const t = SCENE && SCENE.themeOf ? SCENE.themeOf(floorId) : null;
-    const p = t && t.wall ? t.wall : null;
-    const base = p ? p.base : '#5b4a3c';
-    const trim = p ? p.trim : '#8d745e';
-    const dark = p ? p.skirt : '#33251b';
-    const seam = p ? p.line : '#4b3a2d';
-    rect(f.x, f.y, f.w, f.h, base);
-    rect(f.x, f.y, f.w, 3, trim);
-    rect(f.x, f.y + f.h - 3, f.w, 3, dark);
-    if (f.w >= f.h) { for (let x = f.x + 18; x < f.x + f.w - 8; x += 36) rect(x, f.y + 6, 2, Math.max(0, f.h - 12), seam); }
-    else { for (let y = f.y + 18; y < f.y + f.h - 8; y += 36) rect(f.x + 5, y, Math.max(0, f.w - 10), 2, seam); }
+    const x = Math.round(f.x), y = Math.round(f.y), w = Math.round(f.w), h = Math.round(f.h);
+    const elev = 18;
+    rect(x + 2, y + h, w, 4, 'rgba(28,15,6,0.32)');
+    if (w >= h) {
+      // 3/4 视角星露谷胡桃木半墙：深胡桃木顶梁 + 暖雪松木护墙板 + 端头立柱
+      rect(x, y - elev, w, h + elev, '#7a4e2b');
+      rect(x, y - elev, w, 7, '#4a2c16');
+      rect(x + 2, y - elev + 2, Math.max(2, w - 4), 3, '#6e4526');
+      rect(x, y + h - 4, w, 4, '#3d2310');
+      for (let sx = x + 10; sx < x + w - 34; sx += 44) {
+        rect(sx, y - elev + 9, 32, Math.max(4, h + elev - 15), '#663f22');
+        rect(sx + 2, y - elev + 10, 28, 2, '#8f5e36');
+      }
+      const pw = Math.min(12, Math.max(8, Math.round(w * 0.06)));
+      for (const px of [x, x + w - pw]) {
+        rect(px, y - elev - 2, pw, h + elev + 2, '#422612');
+        rect(px + 2, y - elev, pw - 4, h + elev - 2, '#694022');
+        rect(px + 2, y - elev - 1, pw - 4, 3, '#96623a');
+      }
+    } else {
+      rect(x, y - elev, w, h + elev, '#6e4526');
+      rect(x, y - elev, 2, h + elev, '#8f5e36');
+      rect(x + w - 2, y - elev, 2, h + elev, '#3d2310');
+      rect(x - 1, y - elev - 2, w + 2, 10, '#422612');
+      rect(x + 1, y - elev, Math.max(2, w - 2), 6, '#7a4e2b');
+      rect(x - 1, y + h - 8, w + 2, 8, '#3d2310');
+      rect(x + 1, y + h - 7, Math.max(2, w - 2), 4, '#663f22');
+    }
   }
   // 电梯厅 —— 厅地坪 + 门框 + 金属双扇门 + 中缝 + 楼层指示 + 单个呼梯按钮。
   // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
   // 玩家站在门前并面向门时叠呼吸描边与「K 选择楼层」提示。
   function drawElevatorHall(p, active) {
     const cx = Math.round(p.x), cy = Math.round(p.y);
-    const accent = '#7fe3ff';
+    const accent = '#ffd86b';
     const hw = 32, hh = 15, x0 = cx - hw, y0 = cy - hh;
-    const metal = '#8d929a', metalHi = '#a9aeb6';
+    const metal = '#d8b480', metalHi = '#f2d8aa';
     ctx.save();
-    // 厅地坪（把门从地板纹理里抬出来）
-    rect(x0 - 7, y0 - 7, hw * 2 + 14, hh * 2 + 18, '#3a3f4a');
-    rect(x0 - 7, y0 - 7, hw * 2 + 14, 1, '#6b7480');
-    rect(x0 - 7, y0 + hh * 2 + 10, hw * 2 + 14, 1, '#242a33');
-    // 门框 + 两扇门 + 中缝 + 顶部高光
-    rect(x0 - 2, y0 - 2, hw * 2 + 4, hh * 2 + 4, '#39414a');
+    // 厅地坪（暖木镶边迎宾地垫）
+    rect(x0 - 7, y0 - 7, hw * 2 + 14, hh * 2 + 18, '#785334');
+    rect(x0 - 7, y0 - 7, hw * 2 + 14, 1, '#b5895e');
+    rect(x0 - 7, y0 + hh * 2 + 10, hw * 2 + 14, 1, '#4a311c');
+    // 门框 + 两扇暖黄铜木门 + 中缝 + 顶部高光
+    rect(x0 - 2, y0 - 2, hw * 2 + 4, hh * 2 + 4, '#543820');
+    rect(x0, y0, hw - 1, hh * 2, '#8d929a');
     rect(x0, y0, hw - 1, hh * 2, metal);
     rect(x0 + hw + 1, y0, hw - 1, hh * 2, metal);
-    rect(cx - 1, y0, 2, hh * 2, '#2b323a');
+    rect(cx - 1, y0, 2, hh * 2, '#5c3d22');
     rect(x0, y0, hw - 1, 3, metalHi);
     rect(x0 + hw + 1, y0, hw - 1, 3, metalHi);
-    // 门上金属压线（比例放大后的细节）
+    // 门上木框雕花压线
     for (let i = 0; i < 2; i++) {
-      rect(x0 + 6 + i * 10, y0 + 8, 6, 2, '#767c85');
-      rect(x0 + hw + 7 + i * 10, y0 + 8, 6, 2, '#767c85');
+      rect(x0 + 6 + i * 10, y0 + 8, 6, 2, '#a88252');
+      rect(x0 + hw + 7 + i * 10, y0 + 8, 6, 2, '#a88252');
     }
-    // 楼层指示（无方向：只显示本层号）
-    rect(cx - 13, y0 - 13, 26, 9, '#1a1f26');
-    rect(cx - 13, y0 - 13, 26, 1, '#2f3640');
+    // 楼层指示（暖木铭牌）
+    rect(cx - 13, y0 - 13, 26, 9, '#3d2614');
+    rect(cx - 13, y0 - 13, 26, 1, '#9c7146');
     ctx.font = '7px ui-monospace,SFMono-Regular,monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = accent;
     ctx.fillText(`${p.floorId}F`, cx, y0 - 8.5);
-    // 单个呼梯按钮（不分上下方向，只有一个呼叫键）
-    rect(x0 + hw * 2 + 5, cy - 4, 6, 8, '#39414a');
-    rect(x0 + hw * 2 + 6, cy - 3, 4, 6, '#7fe3ff');
+    // 单个呼梯按钮
+    rect(x0 + hw * 2 + 5, cy - 4, 6, 8, '#543820');
+    rect(x0 + hw * 2 + 6, cy - 3, 4, 6, '#ffd86b');
     if (active) {
-      ctx.globalAlpha = .5 + .35 * Math.sin(clock * 4);
+      ctx.globalAlpha = .55 + .35 * Math.sin(clock * 4);
       ctx.strokeStyle = accent; ctx.lineWidth = 2;
       ctx.strokeRect(x0 - 6, y0 - 6, hw * 2 + 12, hh * 2 + 14);
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
       const label = 'K 选择楼层';
       ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       const tw = Math.round(ctx.measureText(label).width) + 12, lx = cx - tw / 2, ly = y0 - 32;
-      ctx.fillStyle = 'rgba(8,11,18,.88)'; ctx.fillRect(lx, ly, tw, 16);
+      ctx.fillStyle = 'rgba(58,36,20,.92)'; ctx.fillRect(lx, ly, tw, 16);
       ctx.strokeStyle = accent; ctx.lineWidth = 1;
       ctx.strokeRect(lx + .5, ly + .5, tw - 1, 15);
-      ctx.fillStyle = '#eaf4ff';
+      ctx.fillStyle = '#fff6e5';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(label, cx, ly + 8.5);
     }
@@ -3083,6 +3100,7 @@
   // TMJ 是 90×25 顶视地图，没有旧楼层的 320px 后墙带。这里补一条 58px 的紧凑墙带：
   // 主题墙色 + 窗/玻璃光 + 中央楼层牌，让 3/4 角色仍像站在有墙的房间里。
   function drawTMJWallBand(ctx, f) {
+    if (SCENE && SCENE.wall(ctx, f)) return;
     const w = WORLD.FLOOR_W || f.width || 2880;
     const h = WORLD.WALL_BASE || BACK_WALL_H;
     const t = SCENE && SCENE.themeOf ? SCENE.themeOf(f.id) : null;
@@ -3219,59 +3237,54 @@
   function drawRoomDoors() {
     const self = selfPlayer();
     const t = performance.now() / 1000;
-    const theme = SCENE && SCENE.themeOf ? SCENE.themeOf(floorId) : null;
-    const wp = theme && theme.wall ? theme.wall : null;
     for (const room of zoneRooms) {
       const x = room.door.x, y = room.door.y;
-      // 门所在的墙段：让门"长在墙上"，而不是悬在空地中间
-      if (wp) {
-        ctx.fillStyle = wp.base; ctx.fillRect(x - 56, y - 48, 112, 36);
-        ctx.fillStyle = wp.trim; ctx.fillRect(x - 56, y - 48, 112, 3);
-        ctx.fillStyle = wp.skirt; ctx.fillRect(x - 56, y - 15, 112, 3);
-        ctx.fillStyle = wp.line;
-        for (let sx = x - 50; sx < x + 56; sx += 28) ctx.fillRect(sx, y - 44, 1, 26);
-      }
-      // 地面门垫
-      ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.fillRect(x - 26, y - 13, 52, 26);
-      const g2 = ctx.createLinearGradient(0, y - 13, 0, y + 13);
-      g2.addColorStop(0, 'rgba(127,227,255,0.34)'); g2.addColorStop(1, 'rgba(127,227,255,0.05)');
-      ctx.fillStyle = g2; ctx.fillRect(x - 26, y - 13, 52, 26);
-      ctx.strokeStyle = 'rgba(127,227,255,0.42)'; ctx.lineWidth = 1; ctx.strokeRect(x - 25.5, y - 12.5, 51, 25);
-      // 门框 + 门扇
-      ctx.fillStyle = '#3b2f24'; ctx.fillRect(x - 31, y - 44, 62, 8);
-      ctx.fillStyle = '#8d745e'; ctx.fillRect(x - 31, y - 44, 62, 2);
-      ctx.fillStyle = '#2b3442'; ctx.fillRect(x - 23, y - 37, 46, 24);
-      ctx.fillStyle = '#6b8fb5'; ctx.fillRect(x - 21, y - 35, 42, 20);
-      ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.fillRect(x - 1, y - 35, 2, 20);
-      ctx.fillStyle = '#ffe3a3'; ctx.fillRect(x + 14, y - 24, 2, 4);   // 门把手
-      // 门牌
-      ctx.fillStyle = '#0d1b2a'; ctx.fillRect(x - 38, y - 66, 76, 19);
-      ctx.strokeStyle = 'rgba(127,227,255,0.55)'; ctx.strokeRect(x - 37.5, y - 65.5, 75, 18);
-      ctx.fillStyle = '#bfe9ff';
-      ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      // 3/4 视角星露谷原木拱门门廊（紧凑 56×44px，不画突兀的宽墙块）
+      ctx.fillStyle = 'rgba(32,18,8,0.28)';
+      ctx.fillRect(x - 28, y - 12, 56, 24);
+      // 编织迎宾踏垫
+      ctx.fillStyle = '#59281e'; ctx.fillRect(x - 24, y - 10, 48, 20);
+      ctx.fillStyle = '#8f4336'; ctx.fillRect(x - 22, y - 8, 44, 16);
+      ctx.strokeStyle = 'rgba(235,198,142,0.55)'; ctx.lineWidth = 1;
+      ctx.strokeRect(x - 20.5, y - 6.5, 41, 13);
+      // 原木立柱与双坡小木檐
+      ctx.fillStyle = '#422612'; ctx.fillRect(x - 27, y - 42, 54, 34);
+      ctx.fillStyle = '#6b4223'; ctx.fillRect(x - 25, y - 40, 50, 30);
+      ctx.fillStyle = '#4f2f17'; ctx.fillRect(x - 31, y - 46, 62, 8);
+      ctx.fillStyle = '#8c5830'; ctx.fillRect(x - 29, y - 44, 58, 4);
+      // 橡木双扇门 + 暖黄灯光小窗 + 黄铜把手
+      ctx.fillStyle = '#9e683a'; ctx.fillRect(x - 19, y - 36, 38, 26);
+      ctx.fillStyle = '#54331a'; ctx.fillRect(x - 1, y - 36, 2, 26);
+      ctx.fillStyle = '#fae094'; ctx.fillRect(x - 14, y - 32, 10, 8); ctx.fillRect(x + 4, y - 32, 10, 8);
+      ctx.fillStyle = '#e6b85c'; ctx.fillRect(x - 5, y - 21, 3, 4); ctx.fillRect(x + 2, y - 21, 3, 4);
+      // 门楣原木铭牌
+      ctx.fillStyle = '#3d2412'; ctx.fillRect(x - 36, y - 63, 72, 17);
+      ctx.strokeStyle = '#b07b48'; ctx.strokeRect(x - 35.5, y - 62.5, 71, 16);
+      ctx.fillStyle = '#f5e6c8';
+      ctx.font = 'bold 10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(room.name.length > 7 ? room.name.slice(0, 7) + '…' : room.name, x, y - 56);
-      // 可进入：呼吸描边
+      ctx.fillText(room.name.length > 7 ? room.name.slice(0, 7) + '…' : room.name, x, y - 54);
       if (self && Math.hypot(self.x - x, self.y - y) <= WORLD.ROOM_ENTER_PAD) {
-        const a = 0.45 + 0.35 * Math.sin(t * 4);
-        ctx.strokeStyle = `rgba(127,227,255,${a.toFixed(3)})`; ctx.lineWidth = 2;
-        ctx.strokeRect(x - 27, y - 14, 54, 28);
-        ctx.fillStyle = `rgba(191,233,255,${(0.55 + 0.35 * Math.sin(t * 4)).toFixed(3)})`;
+        const a = 0.50 + 0.35 * Math.sin(t * 4);
+        ctx.strokeStyle = `rgba(255,218,110,${a.toFixed(3)})`; ctx.lineWidth = 2;
+        ctx.strokeRect(x - 25, y - 11, 50, 22);
+        ctx.fillStyle = `rgba(255,244,210,${(0.65 + 0.30 * Math.sin(t * 4)).toFixed(3)})`;
         ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-        ctx.fillText('K 进入房间', x, y + 30);
+        ctx.fillText('K 进入房间', x, y + 22);
       }
     }
   }
   // 需求①：房间内的出口（门垫 + 提示），走到这里按 K 离开；位置会还原到进门时的站位。
   function drawRoomExit(room) {
     const x = room.exit.x, y = room.exit.y;
-    ctx.fillStyle = 'rgba(0,0,0,0.30)'; ctx.fillRect(x - 34, y - 12, 68, 24);
+    ctx.fillStyle = 'rgba(64,38,16,0.28)'; ctx.fillRect(x - 34, y - 12, 68, 24);
     const g2 = ctx.createLinearGradient(0, y - 12, 0, y + 12);
-    g2.addColorStop(0, 'rgba(255,214,120,0.30)'); g2.addColorStop(1, 'rgba(255,214,120,0.05)');
+    g2.addColorStop(0, 'rgba(255,218,124,0.42)'); g2.addColorStop(1, 'rgba(224,162,84,0.16)');
     ctx.fillStyle = g2; ctx.fillRect(x - 34, y - 12, 68, 24);
-    ctx.strokeStyle = 'rgba(255,214,120,0.45)'; ctx.lineWidth = 1; ctx.strokeRect(x - 33.5, y - 11.5, 67, 23);
-    ctx.fillStyle = '#2b3442'; ctx.fillRect(x - 40, y + 18, 80, 16);
-    ctx.fillStyle = '#ffe3a3';
+    ctx.strokeStyle = 'rgba(208,144,68,0.65)'; ctx.lineWidth = 1; ctx.strokeRect(x - 33.5, y - 11.5, 67, 23);
+    ctx.fillStyle = '#4a2f19'; ctx.fillRect(x - 40, y + 18, 80, 16);
+    ctx.strokeStyle = '#b88652'; ctx.strokeRect(x - 39.5, y + 18.5, 79, 15);
+    ctx.fillStyle = '#fff3d4';
     ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText('K 离开房间', x, y + 26);
@@ -3288,18 +3301,21 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, cssW, cssH);
+    ctx.fillStyle = '#362417'; ctx.fillRect(0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
     if (currentRoom) {
-      // 需求①：房间是独立空间 —— 不画楼层轮廓/分块/后墙/电梯厅，只画这间屋子自己的地面与墙。
-      ctx.fillStyle = '#070a10'; ctx.fillRect(camX - 8, camY - 8, viewW + 16, viewH + 16);
+      // 需求①：房间是独立空间 —— 外围铺温暖木纹画框衬底，内部画小屋自己的地面与墙。
+      ctx.fillStyle = '#3b2819'; ctx.fillRect(camX - 8, camY - 8, viewW + 16, viewH + 16);
+      ctx.fillStyle = '#6e4d30'; ctx.fillRect(-10, -10, currentRoom.width + 20, currentRoom.height + 20);
+      ctx.strokeStyle = '#b38658'; ctx.lineWidth = 2; ctx.strokeRect(-9, -9, currentRoom.width + 18, currentRoom.height + 18);
       if (!(SCENE && SCENE.roomFloor(ctx, currentRoom))) {
-        ctx.fillStyle = '#2b2333'; ctx.fillRect(0, 0, currentRoom.width, currentRoom.height);
+        ctx.fillStyle = '#d8ad78'; ctx.fillRect(0, 0, currentRoom.width, currentRoom.height);
       }
       drawRoomExit(currentRoom);
     } else if (useTMJVisual) {
       // TMJ 画面层：地面/墙/装饰/家具全部来自同一张 floorN.tmj，和权威碰撞一致。
       if (!TMJ_VISUAL.drawFloor(ctx, tmjMap, floorId)) {
-        ctx.fillStyle = '#070a10'; ctx.fillRect(0, 0, WORLD.FLOOR_W || 2880, WORLD.FLOOR_H || 800);
+        ctx.fillStyle = '#d8ad78'; ctx.fillRect(0, 0, WORLD.FLOOR_W || 2880, WORLD.FLOOR_H || 800);
       }
       // 补回旧 3/4 画面的后墙墙带（窗户/标语/踢脚线），否则纯顶视会很平。
       drawTMJWallBand(ctx, f);
@@ -3360,9 +3376,9 @@
         const pad = furniturePad(f2.type);
         // 旧容器 sprite 是按旧楼层家具尺寸烘的；搬到 TMJ 房间后大件会显得像巨型柜台。
         // 只缩视觉、不缩交互 footprint，避免搜索点/碰撞跟着漂。
-        const cs = f2.container ? (CONTAINER_SCALE[f2.type] || ((f2.w > 90 || f2.h > 70) ? 0.78 : 1)) : 1;
-        const mirror = f2.container && ['desk', 'shelf', 'cabinet', 'table', 'printer'].includes(f2.type)
-          && (Math.round(f2.x / 64) + Math.round(f2.y / 64)) % 2 === 1 ? -1 : 1;
+        const cs = (useTMJVisual && f2.container) ? (CONTAINER_SCALE[f2.type] || ((f2.w > 90 || f2.h > 70) ? 0.78 : 1)) : 1;
+        const mirror = (useTMJVisual && f2.container && ['desk', 'shelf', 'cabinet', 'table', 'printer'].includes(f2.type)
+          && (Math.round(f2.x / 64) + Math.round(f2.y / 64)) % 2 === 1) ? -1 : 1;
         if (cs !== 1 || mirror !== 1) {
           const cx = f2.x + f2.w / 2, cy = f2.y + f2.h / 2;
           ctx.save();
@@ -3446,12 +3462,12 @@
     warm.addColorStop(1, 'rgba(255,150,80,0)');
     ctx.fillStyle = warm;
     ctx.fillRect(0, 0, cssW, cssH);
-    const g = ctx.createRadialGradient(sx, sy, Math.max(8, radius * 0.26), sx, sy, radius);
-    g.addColorStop(0, 'rgba(3,4,8,0)');
-    g.addColorStop(0.5, 'rgba(3,4,8,0.06)');
-    g.addColorStop(0.72, 'rgba(3,4,8,0.45)');
-    g.addColorStop(0.88, 'rgba(2,3,6,0.88)');
-    g.addColorStop(1, 'rgba(1,2,4,0.99)');
+    const g = ctx.createRadialGradient(sx, sy, Math.max(8, radius * 0.35), sx, sy, radius * 1.15);
+    g.addColorStop(0, 'rgba(62,38,18,0)');
+    g.addColorStop(0.6, 'rgba(62,38,18,0.04)');
+    g.addColorStop(0.82, 'rgba(58,36,18,0.18)');
+    g.addColorStop(0.94, 'rgba(52,32,16,0.30)');
+    g.addColorStop(1, 'rgba(46,28,14,0.38)');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, cssW, cssH);
     ctx.restore();

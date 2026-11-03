@@ -15,16 +15,16 @@
     error: '',
     loading: null,
   };
-  // 逐层光池：位置 0–1（相对 90×25 地图），颜色/半径/alpha。烘焙在地面层，props 和玩家压在上面。
-  const AMBIENT = { 1: '#3fd0e0', 2: '#ffd27a', 3: '#ffb15a', 4: '#d8ff9a', 5: '#b07aff', 6: '#ffcf8a', 7: '#ff5ad0' };
+  // 逐层柔和暖光池：低透明度（0.04–0.05）温润琥珀光晕，绝不产生刺眼眩光。
+  const AMBIENT = { 1: '#d9a86c', 2: '#c9a868', 3: '#c99658', 4: '#b8a862', 5: '#c49254', 6: '#c9985c', 7: '#c99262' };
   const LIGHT_POOLS = {
-    1: [{ x: 0.5, y: 0.55, r: 0.30, color: '#3fd0e0', a: 0.12 }, { x: 0.18, y: 0.22, r: 0.22, color: '#9fd2ff', a: 0.09 }],
-    2: [{ x: 0.25, y: 0.30, r: 0.32, color: '#ffd27a', a: 0.12 }, { x: 0.75, y: 0.30, r: 0.32, color: '#ffe9b0', a: 0.10 }],
-    3: [{ x: 0.15, y: 0.22, r: 0.24, color: '#ffb15a', a: 0.13 }, { x: 0.55, y: 0.55, r: 0.26, color: '#ffd76a', a: 0.10 }, { x: 0.85, y: 0.30, r: 0.22, color: '#9fd2ff', a: 0.07 }],
-    4: [{ x: 0.30, y: 0.25, r: 0.34, color: '#d8ff9a', a: 0.11 }, { x: 0.70, y: 0.55, r: 0.32, color: '#ffe9a0', a: 0.09 }],
-    5: [{ x: 0.18, y: 0.30, r: 0.18, color: '#b07aff', a: 0.10 }, { x: 0.55, y: 0.60, r: 0.18, color: '#ff8a4c', a: 0.09 }, { x: 0.85, y: 0.30, r: 0.16, color: '#7fe3ff', a: 0.06 }],
-    6: [{ x: 0.50, y: 0.15, r: 0.34, color: '#ffcf8a', a: 0.14 }, { x: 0.80, y: 0.55, r: 0.24, color: '#ff8a4c', a: 0.09 }],
-    7: [{ x: 0.25, y: 0.30, r: 0.28, color: '#ff5ad0', a: 0.12 }, { x: 0.70, y: 0.45, r: 0.28, color: '#3fd0e0', a: 0.11 }, { x: 0.50, y: 0.75, r: 0.26, color: '#9b6bff', a: 0.08 }],
+    1: [{ x: 0.50, y: 0.50, r: 0.30, color: '#d9a466', a: 0.05 }, { x: 0.20, y: 0.25, r: 0.24, color: '#cfa064', a: 0.04 }, { x: 0.80, y: 0.30, r: 0.24, color: '#b89460', a: 0.04 }],
+    2: [{ x: 0.25, y: 0.30, r: 0.30, color: '#c49e58', a: 0.05 }, { x: 0.75, y: 0.30, r: 0.30, color: '#bfa05c', a: 0.04 }, { x: 0.50, y: 0.60, r: 0.26, color: '#9eb868', a: 0.04 }],
+    3: [{ x: 0.18, y: 0.24, r: 0.26, color: '#c9924e', a: 0.05 }, { x: 0.52, y: 0.52, r: 0.28, color: '#c48e4c', a: 0.05 }, { x: 0.84, y: 0.30, r: 0.24, color: '#b88648', a: 0.04 }],
+    4: [{ x: 0.28, y: 0.26, r: 0.32, color: '#9eb85c', a: 0.05 }, { x: 0.72, y: 0.52, r: 0.30, color: '#bfa058', a: 0.04 }, { x: 0.50, y: 0.35, r: 0.26, color: '#b89654', a: 0.04 }],
+    5: [{ x: 0.20, y: 0.30, r: 0.24, color: '#c48a46', a: 0.05 }, { x: 0.52, y: 0.58, r: 0.24, color: '#b87e3e', a: 0.05 }, { x: 0.82, y: 0.32, r: 0.22, color: '#bf8844', a: 0.04 }],
+    6: [{ x: 0.48, y: 0.20, r: 0.32, color: '#c99452', a: 0.05 }, { x: 0.78, y: 0.55, r: 0.26, color: '#bf864a', a: 0.04 }, { x: 0.22, y: 0.55, r: 0.24, color: '#78a8b8', a: 0.04 }],
+    7: [{ x: 0.25, y: 0.30, r: 0.28, color: '#c48858', a: 0.05 }, { x: 0.72, y: 0.44, r: 0.28, color: '#b87852', a: 0.04 }, { x: 0.50, y: 0.72, r: 0.26, color: '#c49258', a: 0.04 }],
   };
   function rgba(hex, a) {
     const s = String(hex || '#ffffff').replace('#', '');
@@ -92,7 +92,7 @@
     const pal = map.palette || [];
     const color = (i, fb) => pal[i] || fb;
     const ts = state.tiles[floorId];
-    g.fillStyle = color(1, '#05070c');
+    g.fillStyle = color(1, '#3b2818');
     g.fillRect(0, 0, cv.width, cv.height);
     const edge = Math.max(2, Math.round(3 * s / 2));
     const inkW = Math.max(1, Math.round(s / 2));
@@ -102,26 +102,26 @@
         const px = x * T, py = y * T;
         if (map.ground[i]) {
           if (ts) g.drawImage(ts, 0, 0, 16, 16, px, py, T, T);
-          else { g.fillStyle = color(6, '#132838'); g.fillRect(px, py, T, T); }
+          else { g.fillStyle = color(6, '#d8b07a'); g.fillRect(px, py, T, T); }
           if (map.decor[i] === 3) {
-            g.fillStyle = color(8, '#3fd0e0');
-            g.globalAlpha = 0.30;
+            g.fillStyle = color(8, '#ffd27a');
+            g.globalAlpha = 0.26;
             g.fillRect(px, py, T, T);
             g.globalAlpha = 1;
           }
           if (map.objects[i] === 4) {
-            g.fillStyle = color(9, '#ff8a4c');
-            g.globalAlpha = 0.55;
+            g.fillStyle = color(9, '#e88b58');
+            g.globalAlpha = 0.50;
             g.fillRect(px + 4 * s, py + 5 * s, 8 * s, 6 * s);
             g.globalAlpha = 1;
           }
         } else {
           // 墙：贴图顶面 + 底部侧壁 + 临地面描边，和 tiled/preview.html 的平面读法一致
           if (ts) g.drawImage(ts, 16, 0, 16, 16, px, py, T, T);
-          else { g.fillStyle = color(4, '#2f6280'); g.fillRect(px, py, T, T); }
-          g.fillStyle = color(3, '#1b3a52');
+          else { g.fillStyle = color(4, '#a67b52'); g.fillRect(px, py, T, T); }
+          g.fillStyle = color(3, '#7d5736');
           g.fillRect(px, py + T - edge, T, edge);
-          g.fillStyle = color(0, '#070d16');
+          g.fillStyle = color(0, '#362315');
           if (x > 0 && map.ground[i - 1]) g.fillRect(px, py, inkW, T);
           if (x < W - 1 && map.ground[i + 1]) g.fillRect(px + T - inkW, py, inkW, T);
           if (y > 0 && map.ground[i - W]) g.fillRect(px, py, T, inkW);

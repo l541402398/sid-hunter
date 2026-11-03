@@ -1,27 +1,26 @@
 /* 需求③：搜打撤式物品格面板 + 需求①：房间空间提示条。
    由 styles.css 按序 @import；像素硬边、稀有度描边、逐格翻牌。
-   明亮化：面板/背包/小游戏卡片改白底；压在深色地图上的浮条（房间提示条、buff 条、机能按钮）保留深色。 */
+   明亮化：面板/背包/小游戏卡片改白底；压在地图上的浮条（房间提示条、buff 条、机能按钮）采用暖木牌风格。 */
 
 /* ---------- 独立空间提示条 ---------- */
-/* 它压在地图上，保持深色半透明；描边和标题提亮以配合新的 UI 色调 */
 .zone-banner{position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;
-  padding:7px 14px;border:1px solid #5d80a8;border-radius:var(--r-sm);background:#0d1728ea;z-index:6;
-  font-size:11px;color:#dceaf7;box-shadow:0 8px 24px -10px #000;max-width:min(660px,92%);flex-wrap:wrap;justify-content:center}
+  padding:7px 14px;border:1px solid #ad8052;border-radius:var(--r-sm);background:#3d2817ee;z-index:6;
+  font-size:11px;color:#fff5e4;box-shadow:0 8px 24px -10px rgba(30,16,6,0.65);max-width:min(660px,92%);flex-wrap:wrap;justify-content:center}
 .zone-banner[hidden]{display:none}
-.zone-banner-tag{padding:2px 8px;border-radius:5px;background:var(--sky);color:#04202c;font-size:10px;letter-spacing:.14em;font-weight:700}
-.zone-banner strong{color:#ffd79a;font-size:13px;letter-spacing:.04em;font-weight:700}
-.zone-banner-hint{color:#9fb6d0;font-size:10px}
-.zone-banner kbd{padding:1px 5px;border:1px solid #4d6b8c;border-radius:4px;background:#1c2f47;color:#e6eef8;font-size:10px}
+.zone-banner-tag{padding:2px 8px;border-radius:5px;background:#ffd268;color:#3d240c;font-size:10px;letter-spacing:.14em;font-weight:700}
+.zone-banner strong{color:#ffe49e;font-size:13px;letter-spacing:.04em;font-weight:700}
+.zone-banner-hint{color:#e6ccb0;font-size:10px}
+.zone-banner kbd{padding:1px 5px;border:1px solid #ad8052;border-radius:4px;background:#5c3e24;color:#fff6e8;font-size:10px}
 
 /* ---------- 第二轮：道具背包 / 商店 / buff 条 ---------- */
 .buff-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:56px;display:flex;gap:6px;z-index:5;flex-wrap:wrap;justify-content:center;pointer-events:none}
 .buff-bar[hidden]{display:none}
-/* buff 条也压在地图上：深底 + 彩色描边，三色语义对应疾行/护体/专注 */
+/* buff 条压在地图上：暖木底 + 彩色描边，三色语义对应疾行/护体/专注 */
 .buff-chip{padding:3px 9px;border-radius:var(--r-pill);font-size:10px;font-family:ui-monospace,SFMono-Regular,monospace;
-  border:1px solid #4a6a92;background:#0d1728e6;color:#dceaf7;box-shadow:0 4px 12px -6px #000;font-weight:600}
-.buff-chip.speed{border-color:#3fd39a;color:#8ff0c8}
-.buff-chip.shield{border-color:#5aa9f2;color:#bfe0ff}
-.buff-chip.focus{border-color:#ffb655;color:#ffd79a}
+  border:1px solid #966c42;background:#3d2817e6;color:#fff5e4;box-shadow:0 4px 12px -6px rgba(30,16,6,0.6);font-weight:600}
+.buff-chip.speed{border-color:#3fd39a;color:#9df5ce}
+.buff-chip.shield{border-color:#5aa9f2;color:#cbe6ff}
+.buff-chip.focus{border-color:#ffb655;color:#ffe2a6}
 /* 商店/背包内嵌块：白底浅灰 */
 .bag-block{margin:10px 0;padding:9px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}
 .bag-items{display:flex;flex-direction:column;gap:6px;max-height:216px;overflow:auto}
@@ -129,10 +128,10 @@
 }
 
 /* ---------- 小游戏：坦克对决面板 ---------- */
-/* 入口按钮压在地图上，保持深色；面板本体白底 */
+/* 入口按钮压在地图上，采用暖木牌底；面板本体白底 */
 .minigame-toggle{position:absolute;right:12px;bottom:64px;z-index:6;padding:8px 12px;font-size:12px;
-  border:1px solid #4a6a92;border-radius:var(--r-sm);background:#0d1728e6;color:#bfe0ff;cursor:pointer;font-weight:600}
-.minigame-toggle:hover{background:#16263a;border-color:var(--sky);color:#fff}
+  border:1px solid #ad8052;border-radius:var(--r-sm);background:#3d2817e8;color:#ffe6b0;cursor:pointer;font-weight:600;box-shadow:0 4px 12px -4px rgba(36,20,8,0.45)}
+.minigame-toggle:hover{background:#523720;border-color:#ffd268;color:#fff8eb}
 .minigame-panel{position:absolute;right:12px;top:12px;width:340px;max-width:calc(100% - 24px);z-index:26;
   padding:15px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--ink);box-shadow:var(--sh-3)}
 .minigame-panel[hidden]{display:none}

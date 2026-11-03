@@ -22,8 +22,8 @@
     const hit = chunkCache.get(key); if (hit) return hit;
     const c = document.createElement('canvas'); c.width = CHUNK; c.height = CHUNK;
     const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
-    g.fillStyle = '#4a3727'; g.fillRect(0, 0, CHUNK, CHUNK);
-    const planks = ['#54402f', '#4a3727', '#5b462f', '#453324', '#4f3c2c'];
+    g.fillStyle = '#9c7146'; g.fillRect(0, 0, CHUNK, CHUNK);
+    const planks = ['#a67a4e', '#9c7146', '#ad8256', '#91673f', '#875f39'];
     // 阶段2-阶段1：地板纹理模块 64×16 → 32×8（1.0m×0.25m 宽板），保持缩小后的屏幕观感。
     for (let y = 0; y < CHUNK; y += 8) {
       const row = ((cy * CHUNK + y) / 8) | 0, stag = (row % 2) ? 16 : 0;
@@ -31,12 +31,12 @@
         const worldCol = Math.round((cx * CHUNK + x) / 32);
         const k = Math.abs(row * 31 + worldCol * 17 + 97);
         g.fillStyle = planks[k % 5]; g.fillRect(x, y, 32, 8);
-        if (k % 7 === 0) { g.fillStyle = '#3c2c20'; g.fillRect(x + 5, y + 3, 9, 1); }
-        else if (k % 5 === 0) { g.fillStyle = '#3c2c20'; g.fillRect(x + 16, y + 5, 6, 1); }
-        if (k % 2) { g.fillStyle = '#3d2d20'; g.fillRect(x, y, 1, 8); }
+        if (k % 7 === 0) { g.fillStyle = '#75502f'; g.fillRect(x + 5, y + 3, 9, 1); }
+        else if (k % 5 === 0) { g.fillStyle = '#75502f'; g.fillRect(x + 16, y + 5, 6, 1); }
+        if (k % 2) { g.fillStyle = '#6b4829'; g.fillRect(x, y, 1, 8); }
       }
-      g.fillStyle = '#5e4936'; g.fillRect(0, y, CHUNK, 1);
-      g.fillStyle = '#33251b'; g.fillRect(0, y + 7, CHUNK, 1);
+      g.fillStyle = '#b88b5e'; g.fillRect(0, y, CHUNK, 1);
+      g.fillStyle = '#694628'; g.fillRect(0, y + 7, CHUNK, 1);
     }
     if (window.SID_SCENE) window.SID_SCENE.floor(g, floorId, cx * CHUNK, cy * CHUNK, CHUNK, CHUNK);
     chunkCache.set(key, c); chunkTotal++; return c;
@@ -51,7 +51,7 @@
     }
     pruneChunks(keep);
   }
-    // 楼层切换/资源就绪时需要整层重建：清空缓存并由调用方按当前 floorId 重烘焙。
+  // 楼层切换/资源就绪时需要整层重建：清空缓存并由调用方按当前 floorId 重烘焙。
   function clear() { chunkCache.clear(); chunkTotal = 0; }
   function get(cx, cy, floorId) { return chunkCache.get(floorId + ':' + cx + ':' + cy); }
   SID.chunks = { CHUNK, CHUNK_CACHE_LIMIT, pruneChunks, chunkFor, ensureChunks, get, clear };

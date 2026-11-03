@@ -16,7 +16,7 @@
   }
  ],
  "nextlayerid": 8,
- "nextobjectid": 104,
+ "nextobjectid": 103,
  "layers": [
   {
    "id": 1,
@@ -2819,13 +2819,13 @@
     3,
     3,
     3,
+    0,
     3,
     3,
     3,
     0,
     0,
     0,
-    0,
     3,
     0,
     0,
@@ -2997,11 +2997,11 @@
     3,
     3,
     3,
-    0,
     0,
     0,
-    0,
-    0,
+    3,
+    3,
+    3,
     0,
     0,
     0,
@@ -3268,9 +3268,9 @@
     3,
     0,
     0,
-    3,
-    3,
-    3,
+    0,
+    0,
+    0,
     0,
     0,
     0,
@@ -5134,6 +5134,8 @@
     0,
     0,
     0,
+    4,
+    4,
     0,
     0,
     0,
@@ -5173,9 +5175,7 @@
     0,
     0,
     0,
-    0,
-    0,
-    0,
+    4,
     0,
     0,
     0,
@@ -5262,8 +5262,8 @@
     0,
     0,
     0,
-    0,
-    0,
+    4,
+    4,
     0,
     0,
     0,
@@ -5356,8 +5356,8 @@
     0,
     0,
     0,
-    4,
-    4,
+    0,
+    0,
     0,
     0,
     0,
@@ -9081,7 +9081,7 @@
    "visible": true,
    "objects": [
     {
-     "id": 95,
+     "id": 94,
      "name": "检录更衣",
      "type": "zone",
      "x": 48,
@@ -9109,7 +9109,7 @@
      ]
     },
     {
-     "id": 96,
+     "id": 95,
      "name": "中央球场",
      "type": "zone",
      "x": 384,
@@ -9142,7 +9142,7 @@
      ]
     },
     {
-     "id": 97,
+     "id": 96,
      "name": "看台补给",
      "type": "zone",
      "x": 384,
@@ -9170,7 +9170,7 @@
      ]
     },
     {
-     "id": 98,
+     "id": 97,
      "name": "跑道直道",
      "type": "zone",
      "x": 384,
@@ -9198,7 +9198,7 @@
      ]
     },
     {
-     "id": 99,
+     "id": 98,
      "name": "器材库",
      "type": "zone",
      "x": 1184,
@@ -9226,7 +9226,7 @@
      ]
     },
     {
-     "id": 100,
+     "id": 99,
      "name": "东侧电梯厅",
      "type": "zone",
      "x": 1216,
@@ -9552,7 +9552,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "bannerBig"
+       "value": "board"
       },
       {
        "name": "propScale",
@@ -9917,34 +9917,34 @@
     },
     {
      "id": 16,
-     "name": "prop-plant",
+     "name": "prop-table",
      "type": "prop",
-     "x": 595,
-     "y": 83,
-     "width": 12,
-     "height": 12,
+     "x": 387,
+     "y": 102,
+     "width": 28,
+     "height": 24,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "plant"
+       "value": "table"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "绿植"
+       "value": "台"
       },
       {
        "name": "role",
        "type": "string",
-       "value": "accent2"
+       "value": "wallTop"
       },
       {
        "name": "prop",
        "type": "string",
-       "value": "plantSmall"
+       "value": "tableSmall"
       },
       {
        "name": "propScale",
@@ -9960,96 +9960,10 @@
     },
     {
      "id": 17,
-     "name": "prop-bench",
-     "type": "prop",
-     "x": 611,
-     "y": 83,
-     "width": 40,
-     "height": 14,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "bench"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "长凳"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "floorLight"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "sofaSmall"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 18,
-     "name": "prop-cooler",
-     "type": "prop",
-     "x": 655,
-     "y": 83,
-     "width": 14,
-     "height": 20,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "cooler"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "饮水机"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "paper"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "water"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 19,
      "name": "prop-cone",
      "type": "prop",
-     "x": 1139,
-     "y": 228,
+     "x": 1074,
+     "y": 227,
      "width": 10,
      "height": 10,
      "rotation": 0,
@@ -10088,11 +10002,97 @@
      ]
     },
     {
+     "id": 18,
+     "name": "prop-bench",
+     "type": "prop",
+     "x": 1088,
+     "y": 227,
+     "width": 40,
+     "height": 14,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "bench"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "长凳"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "floorLight"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "sofaSmall"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 19,
+     "name": "prop-sign",
+     "type": "prop",
+     "x": 1132,
+     "y": 227,
+     "width": 12,
+     "height": 18,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "sign"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "牌"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "paper"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "board"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
      "id": 20,
      "name": "prop-sign",
      "type": "prop",
-     "x": 1137,
-     "y": 242,
+     "x": 387,
+     "y": 228,
      "width": 12,
      "height": 18,
      "rotation": 0,
@@ -10134,8 +10134,8 @@
      "id": 21,
      "name": "prop-cone",
      "type": "prop",
-     "x": 993,
-     "y": 227,
+     "x": 943,
+     "y": 259,
      "width": 10,
      "height": 10,
      "rotation": 0,
@@ -10177,8 +10177,8 @@
      "id": 22,
      "name": "prop-bench",
      "type": "prop",
-     "x": 1007,
-     "y": 227,
+     "x": 957,
+     "y": 255,
      "width": 40,
      "height": 14,
      "rotation": 0,
@@ -10218,24 +10218,24 @@
     },
     {
      "id": 23,
-     "name": "prop-cooler",
+     "name": "prop-sign",
      "type": "prop",
-     "x": 1051,
-     "y": 227,
-     "width": 14,
-     "height": 20,
+     "x": 1001,
+     "y": 251,
+     "width": 12,
+     "height": 18,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "cooler"
+       "value": "sign"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "饮水机"
+       "value": "牌"
       },
       {
        "name": "role",
@@ -10245,7 +10245,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "water"
+       "value": "board"
       },
       {
        "name": "propScale",
@@ -10261,34 +10261,34 @@
     },
     {
      "id": 24,
-     "name": "prop-shelf",
+     "name": "prop-crate",
      "type": "prop",
-     "x": 1226,
-     "y": 99,
-     "width": 14,
-     "height": 30,
+     "x": 1325,
+     "y": 114,
+     "width": 16,
+     "height": 16,
      "rotation": 0,
      "visible": true,
      "properties": [
       {
        "name": "kind",
        "type": "string",
-       "value": "shelf"
+       "value": "crate"
       },
       {
        "name": "label",
        "type": "string",
-       "value": "架"
+       "value": "箱"
       },
       {
        "name": "role",
        "type": "string",
-       "value": "wallTop"
+       "value": "accent2"
       },
       {
        "name": "prop",
        "type": "string",
-       "value": "shelf"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -10306,8 +10306,8 @@
      "id": 25,
      "name": "prop-boxstack",
      "type": "prop",
-     "x": 1244,
-     "y": 99,
+     "x": 1321,
+     "y": 134,
      "width": 20,
      "height": 24,
      "rotation": 0,
@@ -10349,8 +10349,8 @@
      "id": 26,
      "name": "prop-cabinet",
      "type": "prop",
-     "x": 1268,
-     "y": 99,
+     "x": 1323,
+     "y": 162,
      "width": 18,
      "height": 26,
      "rotation": 0,
@@ -10390,96 +10390,10 @@
     },
     {
      "id": 27,
-     "name": "prop-crate",
-     "type": "prop",
-     "x": 1290,
-     "y": 99,
-     "width": 16,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "crate"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "箱"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent2"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "dgnBoxes"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 28,
-     "name": "prop-cabinet",
-     "type": "prop",
-     "x": 1187,
-     "y": 109,
-     "width": 18,
-     "height": 26,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "cabinet"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "柜"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "wallTop"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "cabinetTall"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 29,
      "name": "prop-shelf",
      "type": "prop",
-     "x": 1187,
-     "y": 139,
+     "x": 1226,
+     "y": 159,
      "width": 14,
      "height": 30,
      "rotation": 0,
@@ -10518,10 +10432,139 @@
      ]
     },
     {
+     "id": 28,
+     "name": "prop-boxstack",
+     "type": "prop",
+     "x": 1244,
+     "y": 165,
+     "width": 20,
+     "height": 24,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "boxstack"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "箱堆"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnBoxes"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 29,
+     "name": "prop-cabinet",
+     "type": "prop",
+     "x": 1268,
+     "y": 163,
+     "width": 18,
+     "height": 26,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "cabinet"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "柜"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "wallTop"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "cabinetTall"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
      "id": 30,
+     "name": "prop-crate",
+     "type": "prop",
+     "x": 1290,
+     "y": 173,
+     "width": 16,
+     "height": 16,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "crate"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "箱"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "dgnChest"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 31,
      "name": "prop-cooler",
      "type": "prop",
-     "x": 1221,
+     "x": 1247,
      "y": 137,
      "width": 14,
      "height": 20,
@@ -10561,10 +10604,10 @@
      ]
     },
     {
-     "id": 31,
+     "id": 32,
      "name": "prop-bench",
      "type": "prop",
-     "x": 1239,
+     "x": 1265,
      "y": 143,
      "width": 40,
      "height": 14,
@@ -10604,97 +10647,11 @@
      ]
     },
     {
-     "id": 32,
-     "name": "prop-sign",
-     "type": "prop",
-     "x": 1283,
-     "y": 139,
-     "width": 12,
-     "height": 18,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "sign"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "牌"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "paper"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "board"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
      "id": 33,
-     "name": "prop-plant",
-     "type": "prop",
-     "x": 1299,
-     "y": 145,
-     "width": 12,
-     "height": 12,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "plant"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "绿植"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent2"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "plantSmall"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 34,
      "name": "prop-cooler",
      "type": "prop",
-     "x": 1327,
-     "y": 73,
+     "x": 1219,
+     "y": 68,
      "width": 14,
      "height": 20,
      "rotation": 0,
@@ -10733,11 +10690,54 @@
      ]
     },
     {
+     "id": 34,
+     "name": "prop-sign",
+     "type": "prop",
+     "x": 1219,
+     "y": 92,
+     "width": 12,
+     "height": 18,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "sign"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "牌"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "paper"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "board"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
      "id": 35,
      "name": "prop-plant",
      "type": "prop",
-     "x": 1329,
-     "y": 97,
+     "x": 1219,
+     "y": 114,
      "width": 12,
      "height": 12,
      "rotation": 0,
@@ -10777,53 +10777,10 @@
     },
     {
      "id": 36,
-     "name": "prop-sign",
-     "type": "prop",
-     "x": 1329,
-     "y": 113,
-     "width": 12,
-     "height": 18,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "sign"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "牌"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "paper"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "board"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 37,
      "name": "prop-plant",
      "type": "prop",
-     "x": 429,
-     "y": 84,
+     "x": 401,
+     "y": 228,
      "width": 12,
      "height": 12,
      "rotation": 0,
@@ -10862,7 +10819,7 @@
      ]
     },
     {
-     "id": 38,
+     "id": 37,
      "name": "prop-cooler",
      "type": "prop",
      "x": 1122,
@@ -10905,7 +10862,7 @@
      ]
     },
     {
-     "id": 39,
+     "id": 38,
      "name": "prop-bench",
      "type": "prop",
      "x": 1122,
@@ -10948,7 +10905,7 @@
      ]
     },
     {
-     "id": 40,
+     "id": 39,
      "name": "prop-cone",
      "type": "prop",
      "x": 1282,
@@ -10991,7 +10948,7 @@
      ]
     },
     {
-     "id": 41,
+     "id": 40,
      "name": "prop-sign",
      "type": "prop",
      "x": 1324,
@@ -11034,7 +10991,7 @@
      ]
     },
     {
-     "id": 42,
+     "id": 41,
      "name": "prop-crate",
      "type": "prop",
      "x": 1366,
@@ -11062,7 +11019,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11077,7 +11034,7 @@
      ]
     },
     {
-     "id": 43,
+     "id": 42,
      "name": "prop-cooler",
      "type": "prop",
      "x": 306,
@@ -11120,7 +11077,7 @@
      ]
     },
     {
-     "id": 44,
+     "id": 43,
      "name": "prop-sign",
      "type": "prop",
      "x": 306,
@@ -11163,7 +11120,7 @@
      ]
     },
     {
-     "id": 45,
+     "id": 44,
      "name": "prop-crate",
      "type": "prop",
      "x": 514,
@@ -11191,7 +11148,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11206,7 +11163,7 @@
      ]
     },
     {
-     "id": 46,
+     "id": 45,
      "name": "prop-goal",
      "type": "prop",
      "x": 556,
@@ -11249,7 +11206,7 @@
      ]
     },
     {
-     "id": 47,
+     "id": 46,
      "name": "prop-bench",
      "type": "prop",
      "x": 606,
@@ -11292,7 +11249,7 @@
      ]
     },
     {
-     "id": 48,
+     "id": 47,
      "name": "prop-sign",
      "type": "prop",
      "x": 648,
@@ -11335,7 +11292,7 @@
      ]
     },
     {
-     "id": 49,
+     "id": 48,
      "name": "prop-cone",
      "type": "prop",
      "x": 738,
@@ -11378,7 +11335,7 @@
      ]
     },
     {
-     "id": 50,
+     "id": 49,
      "name": "prop-plant",
      "type": "prop",
      "x": 738,
@@ -11421,7 +11378,7 @@
      ]
     },
     {
-     "id": 51,
+     "id": 50,
      "name": "prop-bench",
      "type": "prop",
      "x": 738,
@@ -11464,7 +11421,7 @@
      ]
     },
     {
-     "id": 52,
+     "id": 51,
      "name": "prop-crate",
      "type": "prop",
      "x": 738,
@@ -11492,7 +11449,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11507,7 +11464,7 @@
      ]
     },
     {
-     "id": 53,
+     "id": 52,
      "name": "prop-bench",
      "type": "prop",
      "x": 434,
@@ -11550,7 +11507,7 @@
      ]
     },
     {
-     "id": 54,
+     "id": 53,
      "name": "prop-plant",
      "type": "prop",
      "x": 476,
@@ -11593,7 +11550,7 @@
      ]
     },
     {
-     "id": 55,
+     "id": 54,
      "name": "prop-plant",
      "type": "prop",
      "x": 1282,
@@ -11636,7 +11593,7 @@
      ]
     },
     {
-     "id": 56,
+     "id": 55,
      "name": "prop-crate",
      "type": "prop",
      "x": 1324,
@@ -11664,7 +11621,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -11679,7 +11636,7 @@
      ]
     },
     {
-     "id": 57,
+     "id": 56,
      "name": "prop-cone",
      "type": "prop",
      "x": 1366,
@@ -11722,7 +11679,7 @@
      ]
     },
     {
-     "id": 58,
+     "id": 57,
      "name": "prop-bench",
      "type": "prop",
      "x": 130,
@@ -11765,7 +11722,7 @@
      ]
     },
     {
-     "id": 59,
+     "id": 58,
      "name": "prop-plant",
      "type": "prop",
      "x": 130,
@@ -11808,7 +11765,7 @@
      ]
     },
     {
-     "id": 60,
+     "id": 59,
      "name": "prop-sign",
      "type": "prop",
      "x": 242,
@@ -11851,7 +11808,7 @@
      ]
     },
     {
-     "id": 61,
+     "id": 60,
      "name": "prop-bench",
      "type": "prop",
      "x": 284,
@@ -11894,7 +11851,7 @@
      ]
     },
     {
-     "id": 62,
+     "id": 61,
      "name": "prop-cooler",
      "type": "prop",
      "x": 326,
@@ -11937,7 +11894,7 @@
      ]
     },
     {
-     "id": 63,
+     "id": 62,
      "name": "prop-plant",
      "type": "prop",
      "x": 368,
@@ -11980,7 +11937,7 @@
      ]
     },
     {
-     "id": 64,
+     "id": 63,
      "name": "prop-crate",
      "type": "prop",
      "x": 354,
@@ -12008,7 +11965,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -12023,7 +11980,7 @@
      ]
     },
     {
-     "id": 65,
+     "id": 64,
      "name": "prop-plant",
      "type": "prop",
      "x": 354,
@@ -12066,7 +12023,7 @@
      ]
     },
     {
-     "id": 66,
+     "id": 65,
      "name": "prop-sign",
      "type": "prop",
      "x": 354,
@@ -12109,7 +12066,7 @@
      ]
     },
     {
-     "id": 67,
+     "id": 66,
      "name": "prop-cooler",
      "type": "prop",
      "x": 354,
@@ -12152,7 +12109,7 @@
      ]
     },
     {
-     "id": 68,
+     "id": 67,
      "name": "prop-sign",
      "type": "prop",
      "x": 1074,
@@ -12195,7 +12152,7 @@
      ]
     },
     {
-     "id": 69,
+     "id": 68,
      "name": "prop-cone",
      "type": "prop",
      "x": 1074,
@@ -12238,7 +12195,7 @@
      ]
     },
     {
-     "id": 70,
+     "id": 69,
      "name": "prop-sign",
      "type": "prop",
      "x": 882,
@@ -12281,7 +12238,7 @@
      ]
     },
     {
-     "id": 71,
+     "id": 70,
      "name": "prop-plant",
      "type": "prop",
      "x": 924,
@@ -12324,7 +12281,7 @@
      ]
     },
     {
-     "id": 72,
+     "id": 71,
      "name": "prop-bench",
      "type": "prop",
      "x": 966,
@@ -12367,7 +12324,7 @@
      ]
     },
     {
-     "id": 73,
+     "id": 72,
      "name": "prop-cone",
      "type": "prop",
      "x": 1008,
@@ -12410,7 +12367,7 @@
      ]
     },
     {
-     "id": 74,
+     "id": 73,
      "name": "prop-crate",
      "type": "prop",
      "x": 290,
@@ -12438,7 +12395,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -12453,7 +12410,7 @@
      ]
     },
     {
-     "id": 75,
+     "id": 74,
      "name": "prop-cooler",
      "type": "prop",
      "x": 290,
@@ -12496,7 +12453,7 @@
      ]
     },
     {
-     "id": 76,
+     "id": 75,
      "name": "prop-goal",
      "type": "prop",
      "x": 1154,
@@ -12539,7 +12496,7 @@
      ]
     },
     {
-     "id": 77,
+     "id": 76,
      "name": "prop-bench",
      "type": "prop",
      "x": 1204,
@@ -12582,7 +12539,7 @@
      ]
     },
     {
-     "id": 78,
+     "id": 77,
      "name": "prop-cone",
      "type": "prop",
      "x": 1246,
@@ -12625,7 +12582,7 @@
      ]
     },
     {
-     "id": 79,
+     "id": 78,
      "name": "prop-crate",
      "type": "prop",
      "x": 898,
@@ -12653,7 +12610,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -12668,7 +12625,7 @@
      ]
     },
     {
-     "id": 80,
+     "id": 79,
      "name": "prop-plant",
      "type": "prop",
      "x": 898,
@@ -12711,7 +12668,7 @@
      ]
     },
     {
-     "id": 81,
+     "id": 80,
      "name": "prop-sign",
      "type": "prop",
      "x": 898,
@@ -12754,7 +12711,7 @@
      ]
     },
     {
-     "id": 82,
+     "id": 81,
      "name": "prop-bench",
      "type": "prop",
      "x": 898,
@@ -12797,7 +12754,136 @@
      ]
     },
     {
+     "id": 82,
+     "name": "prop-cone",
+     "type": "prop",
+     "x": 1042,
+     "y": 194,
+     "width": 10,
+     "height": 10,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "cone"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "锥"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "bin"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 2
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
      "id": 83,
+     "name": "prop-plant",
+     "type": "prop",
+     "x": 1042,
+     "y": 236,
+     "width": 12,
+     "height": 12,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "plant"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "绿植"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "accent2"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "plantSmall"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 84,
+     "name": "prop-cooler",
+     "type": "prop",
+     "x": 1042,
+     "y": 278,
+     "width": 14,
+     "height": 20,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "kind",
+       "type": "string",
+       "value": "cooler"
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "value": "饮水机"
+      },
+      {
+       "name": "role",
+       "type": "string",
+       "value": "paper"
+      },
+      {
+       "name": "prop",
+       "type": "string",
+       "value": "water"
+      },
+      {
+       "name": "propScale",
+       "type": "int",
+       "value": 1
+      },
+      {
+       "name": "solid",
+       "type": "bool",
+       "value": false
+      }
+     ]
+    },
+    {
+     "id": 85,
      "name": "prop-bench",
      "type": "prop",
      "x": 882,
@@ -12840,7 +12926,7 @@
      ]
     },
     {
-     "id": 84,
+     "id": 86,
      "name": "prop-crate",
      "type": "prop",
      "x": 882,
@@ -12868,7 +12954,7 @@
       {
        "name": "prop",
        "type": "string",
-       "value": "dgnBoxes"
+       "value": "dgnChest"
       },
       {
        "name": "propScale",
@@ -12883,7 +12969,7 @@
      ]
     },
     {
-     "id": 85,
+     "id": 87,
      "name": "prop-cone",
      "type": "prop",
      "x": 690,
@@ -12926,7 +13012,7 @@
      ]
     },
     {
-     "id": 86,
+     "id": 88,
      "name": "prop-sign",
      "type": "prop",
      "x": 690,
@@ -12969,136 +13055,7 @@
      ]
     },
     {
-     "id": 87,
-     "name": "prop-crate",
-     "type": "prop",
-     "x": 370,
-     "y": 210,
-     "width": 16,
-     "height": 16,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "crate"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "箱"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent2"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "dgnBoxes"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 88,
-     "name": "prop-bench",
-     "type": "prop",
-     "x": 412,
-     "y": 210,
-     "width": 40,
-     "height": 14,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "bench"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "长凳"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "floorLight"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "sofaSmall"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
      "id": 89,
-     "name": "prop-goal",
-     "type": "prop",
-     "x": 454,
-     "y": 210,
-     "width": 48,
-     "height": 32,
-     "rotation": 0,
-     "visible": true,
-     "properties": [
-      {
-       "name": "kind",
-       "type": "string",
-       "value": "goal"
-      },
-      {
-       "name": "label",
-       "type": "string",
-       "value": "球门"
-      },
-      {
-       "name": "role",
-       "type": "string",
-       "value": "accent2"
-      },
-      {
-       "name": "prop",
-       "type": "string",
-       "value": "sportsGoalB"
-      },
-      {
-       "name": "propScale",
-       "type": "int",
-       "value": 1
-      },
-      {
-       "name": "solid",
-       "type": "bool",
-       "value": false
-      }
-     ]
-    },
-    {
-     "id": 90,
      "name": "prop-plant",
      "type": "prop",
      "x": 258,
@@ -13141,7 +13098,7 @@
      ]
     },
     {
-     "id": 91,
+     "id": 90,
      "name": "prop-jamb",
      "type": "prop",
      "x": -72,
@@ -13184,7 +13141,7 @@
      ]
     },
     {
-     "id": 92,
+     "id": 91,
      "name": "prop-jamb",
      "type": "prop",
      "x": -72,
@@ -13227,7 +13184,7 @@
      ]
     },
     {
-     "id": 93,
+     "id": 92,
      "name": "prop-jamb",
      "type": "prop",
      "x": 1440,
@@ -13270,7 +13227,7 @@
      ]
     },
     {
-     "id": 94,
+     "id": 93,
      "name": "prop-jamb",
      "type": "prop",
      "x": 1440,
@@ -13325,7 +13282,7 @@
    "visible": true,
    "objects": [
     {
-     "id": 101,
+     "id": 100,
      "name": "spawn",
      "type": "point",
      "x": 72,
@@ -13336,7 +13293,7 @@
      "properties": []
     },
     {
-     "id": 102,
+     "id": 101,
      "name": "lift-left",
      "type": "rect",
      "x": -36,
@@ -13364,7 +13321,7 @@
      ]
     },
     {
-     "id": 103,
+     "id": 102,
      "name": "lift-right",
      "type": "rect",
      "x": 1476,
@@ -13398,12 +13355,12 @@
   {
    "name": "theme",
    "type": "string",
-   "value": "2F · 竞技运动"
+   "value": "2F · 晴空绿茵"
   },
   {
    "name": "palette",
    "type": "string",
-   "value": "#0d130a,#070b05,#1e2a17,#364a26,#577337,#162210,#27401d,#3f632c,#f0c24a,#f06a4a,#ffe6a3,#f4f0d8"
+   "value": "#23381b,#172611,#3b612d,#528540,#6ea35a,#3e6933,#4c7d40,#5c914e,#d49e42,#bf6249,#e0c678,#e6dfd0"
   },
   {
    "name": "source",
@@ -13423,7 +13380,7 @@
   {
    "name": "landmark",
    "type": "string",
-   "value": "中央计分塔"
+   "value": "中央阳光记分牌"
   },
   {
    "name": "zones",

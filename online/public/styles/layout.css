@@ -1,5 +1,5 @@
 /* 页面骨架：shell / topbar / toolbar / stage / 世界标签 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
-/* 明亮化：顶栏/工具栏/胶囊改浅色卡片；stage 保持深色（里面是像素夜景地图）。 */
+/* 明亮化：顶栏/工具栏/胶囊改浅色卡片；stage 改暖木画框衬托明媚的星露谷风像素地图。 */
 .availability-banner{flex:none;background:var(--sun-soft);color:#8a4a00;padding:10px 16px;border-bottom:1px solid var(--sun-line);font-size:12px;line-height:1.6}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:8px}
@@ -54,20 +54,18 @@ p{margin:0}
 .my-button{user-select:none}
 /* kbd：浅灰键帽 + 深色文字，立体感靠下边框加粗 */
 kbd{font:10px ui-monospace,monospace;color:var(--ink);background:var(--surface-3);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:5px;padding:2px 6px;margin-left:4px;box-shadow:0 1px 0 #ffffff inset}
-/* stage 保持深色：里面是深色像素办公室夜景，浅色外框反而衬得画面对比更强 */
-.stage{position:relative;aspect-ratio:3/2;width:100%;max-height:calc(100vh - 288px);min-height:370px;background:#0d1524;border:2px solid var(--line-2);border-radius:18px;overflow:hidden;
-  box-shadow:var(--sh-3),inset 0 0 0 1px #ffffff08}
+/* stage：暖木画框衬托明媚的星露谷风像素地图 */
+.stage{position:relative;aspect-ratio:3/2;width:100%;max-height:calc(100vh - 288px);min-height:370px;background:#3a2718;border:2px solid #b58d63;border-radius:18px;overflow:hidden;
+  box-shadow:var(--sh-3),inset 0 0 0 1px #fff6e533}
 canvas{display:block;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;touch-action:none;border-radius:16px}
-/* 地图整体提亮：像素夜景的暗色底不动（美术资产与七层主题都没改），只把画面抬亮一档并加一点饱和，
-   让「深色地图」不再发闷。1.12 是实测上限——再高霓虹地板就开始泛白、角色轮廓糊掉。
-   只作用于地图画布 #office：物品图标、转盘等其它 canvas 不受影响。 */
+/* 地图画布保持清透明媚的色彩与饱和度（与像素验收基线一致） */
 #office{filter:brightness(1.12) saturate(1.12)}
-/* 地图上的浮层标签仍用深色半透明：它们压在深色画面上，浅色会糊成一片 */
-.world-chip{pointer-events:none;position:absolute;left:18px;top:15px;display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #3f5a7d;background:#0d1728e8;border-radius:9px;font-size:12px;color:#dce9f7;backdrop-filter:blur(8px)}
-.live-square{width:6px;height:6px;background:var(--sky);box-shadow:0 0 10px var(--sky)}
-.world-chip small{color:#91a9c4;font-size:10px;border-left:1px solid #344961;padding-left:9px}
-.map-foot{pointer-events:none;position:absolute;bottom:13px;left:18px;right:18px;display:flex;justify-content:space-between;color:#b8c9dd;font-size:10px}
-.map-foot>span{background:#0d1728e8;border:1px solid #3a5470;border-radius:8px;padding:6px 11px;backdrop-filter:blur(8px)}
-.map-foot kbd{color:#e6eef8;background:#1d2f47;border-color:#4a6688}
-#coordinate{font:11px ui-monospace,monospace;color:#a8d4f2}
+/* 地图上的浮层标签采用星露谷式的暖棕木牌底 + 奶白文字，在明媚画面上清晰且有温度 */
+.world-chip{pointer-events:none;position:absolute;left:18px;top:15px;display:flex;align-items:center;gap:8px;padding:7px 12px;border:1px solid #9e7348;background:#3d2817e8;border-radius:9px;font-size:12px;color:#fff5e4;backdrop-filter:blur(8px);box-shadow:0 4px 12px -4px rgba(36,20,8,0.45)}
+.live-square{width:6px;height:6px;background:#68d888;box-shadow:0 0 10px #68d888}
+.world-chip small{color:#e2c6a6;font-size:10px;border-left:1px solid #755332;padding-left:9px}
+.map-foot{pointer-events:none;position:absolute;bottom:13px;left:18px;right:18px;display:flex;justify-content:space-between;color:#f5e4cc;font-size:10px}
+.map-foot>span{background:#3d2817e6;border:1px solid #966c42;border-radius:8px;padding:6px 11px;backdrop-filter:blur(8px);box-shadow:0 4px 12px -4px rgba(36,20,8,0.4)}
+.map-foot kbd{color:#fff6e8;background:#5c3e24;border-color:#ad8052}
+#coordinate{font:11px ui-monospace,monospace;color:#ffe29e}
 i{font-style:normal;margin:0 5px;color:var(--ink-3)}

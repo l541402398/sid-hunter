@@ -171,51 +171,51 @@ const STYLE_KINDS = {
   landmark: ['column', 'plant', 'chest', 'sign'],
 };
 
-// 逐层真实素材映射：7 层全部接 vendor sprite；1F/7F 是首批样板，2F–6F 按同一张表铺。
+// 逐层真实素材映射：全部采用温暖、明媚的星露谷风办公/书院/花园/甜品素材（剔除头骨、监控鬼脸、巨型天线）。
 const ASSET_BY_FLOOR = {
   1: {
-    plant: 'plantSmall', desk: 'desk', server: 'controlBox', monitor: 'monitorFace',
-    sign: 'monitorFace', locker: 'cabinetTall', shelf: 'shelf', cabinet: 'cabinetTall',
-    bench: 'sofaSmall', chair: 'chair', cooler: 'water', crate: 'dgnBoxes', boxstack: 'dgnBoxes',
-    chest: 'dgnChest', column: 'dgnColumn', tank: 'neonHolo', cone: 'bin', barrel: 'dgnBox',
-    chain: 'dgnSkull', table: 'tableSmall', tv: 'monitorFace',
+    plant: 'plantSmall', desk: 'desk', server: 'cabinetWide', monitor: 'board',
+    sign: 'board', locker: 'cabinetTall', shelf: 'shelf', cabinet: 'cabinetTall',
+    bench: 'sofaSmall', chair: 'chair', cooler: 'water', crate: 'dgnChest', boxstack: 'dgnBoxes',
+    chest: 'dgnChest', column: 'plantBig', tank: 'tableRound', cone: 'bin', barrel: 'dgnBox',
+    chain: 'plantSmall', table: 'tableSmall', tv: 'board',
   },
   2: {
     cooler: 'water', plant: 'plantSmall', bench: 'sofaSmall', sign: 'board', cone: 'bin',
-    locker: 'cabinetTall', crate: 'dgnBoxes', boxstack: 'dgnBoxes', scoreboard: 'bannerBig',
+    locker: 'cabinetTall', crate: 'dgnChest', boxstack: 'dgnBoxes', scoreboard: 'board',
     table: 'tableSmall', shelf: 'shelf', cabinet: 'cabinetTall', barrel: 'dgnBox', chair: 'chair', goal: 'sportsGoalB',
   },
   3: {
-    plant: 'plantSmall', sign: 'dgnFlagRed', column: 'dgnColumn', shelf: 'shelf',
-    crate: 'dgnBoxes', boxstack: 'dgnBoxes', bench: 'sofaSmall', chest: 'dgnChest',
-    table: 'tableRound', chair: 'chair', chain: 'dgnSkull', cone: 'bin', barrel: 'dgnBox',
+    plant: 'plantSmall', sign: 'dgnFlagRed', column: 'shelfTall', shelf: 'shelf',
+    crate: 'dgnChest', boxstack: 'dgnBoxes', bench: 'sofaSmall', chest: 'dgnChest',
+    table: 'tableRound', chair: 'chair', chain: 'plantSmall', cone: 'bin', barrel: 'dgnBox',
     cooler: 'water', throne: 'dgnChestOpen', cabinet: 'cabinetTall',
   },
   4: {
-    plant: 'forestBrush1', crate: 'forestStump', bench: 'forestRock2', boxstack: 'forestStump',
+    plant: 'forestBrush1', crate: 'dgnChest', bench: 'sofaSmall', boxstack: 'dgnBox',
     cooler: 'water', flower: 'forestFlowerB', sign: 'board', column: 'forestTree1',
-    chest: 'dgnChest', shelf: 'forestStump', cabinet: 'forestStump', rope: 'dgnBox',
-    rock: 'forestRock1', tree: 'forestTree1', barrel: 'forestStump',
+    chest: 'dgnChest', shelf: 'shelf', cabinet: 'cabinetWide', rope: 'dgnBox',
+    rock: 'forestRock1', tree: 'forestTree1', barrel: 'dgnBox',
   },
   5: {
-    crate: 'dgnBoxes', barrel: 'dgnBox', chain: 'dgnSkull', cone: 'bin', chest: 'dgnChest',
+    crate: 'dgnChest', barrel: 'dgnBox', chain: 'plantSmall', cone: 'bin', chest: 'dgnChest',
     sign: 'dgnFlagBlue', bench: 'sofaSmall', plant: 'dgnTorch1', shelf: 'shelf',
-    bed: 'sofaSmall', column: 'dgnColumn', chair: 'chair', cabinet: 'cabinetTall',
-    cooler: 'water', shaft: 'dgnColumn', desk: 'desk', boxstack: 'dgnBoxes',
+    bed: 'sofaSmall', column: 'shelfTall', chair: 'chair', cabinet: 'cabinetTall',
+    cooler: 'water', shaft: 'tableRound', desk: 'desk', boxstack: 'dgnBoxes',
   },
   6: {
-    crate: 'dgnBoxes', barrel: 'dgnBox', cabinet: 'cabinetTall', bench: 'sofaSmall',
-    map: 'lootMap', rope: 'dgnBox', stove: 'cabinetTall', table: 'tableSmall',
-    chain: 'dgnSkull', cannon: 'dgnBox', plant: 'plantSmall', mast: 'dgnColumn',
+    crate: 'dgnChest', barrel: 'dgnBox', cabinet: 'cabinetTall', bench: 'sofaSmall',
+    map: 'lootMap', rope: 'dgnBox', stove: 'cabinetWide', table: 'tableSmall',
+    chain: 'plantSmall', cannon: 'dgnChest', plant: 'plantSmall', mast: 'plantBig',
     shelf: 'shelf', boxstack: 'dgnBoxes', chest: 'dgnChest', desk: 'desk',
     cooler: 'water', sign: 'dgnFlagRed',
   },
   7: {
-    plant: 'plantSmall', sign: 'bannerArrow', bench: 'sofaSmall', neon: 'neonHolo',
-    crate: 'dgnBoxes', cabinet: 'vending', monitor: 'neonHolo', locker: 'cabinetTall',
-    server: 'cabinetTall', column: 'dgnColumn', chest: 'dgnChest', table: 'tableSmall',
-    chair: 'chair', shelf: 'shelf', tower: 'antenna', bed: 'sofaSmall', barrel: 'dgnBox',
-    whiteboard: 'bannerBig', tv: 'neonHolo', vending: 'vending', lamp: 'neonHolo',
+    plant: 'plantSmall', sign: 'board', bench: 'sofaSmall', neon: 'plantBig',
+    crate: 'dgnChest', cabinet: 'vending', monitor: 'board', locker: 'cabinetTall',
+    server: 'cabinetWide', column: 'plantBig', chest: 'dgnChest', table: 'tableSmall',
+    chair: 'chair', shelf: 'shelf', tower: 'tableRound', bed: 'sofaSmall', barrel: 'dgnBox',
+    whiteboard: 'board', tv: 'board', vending: 'vending', lamp: 'plantSmall',
   },
 };
 const OPEN_KINDS = {
@@ -231,8 +231,8 @@ const ASSET_VARIANTS = {
   1: { plant: ['plantSmall', 'plantBig'] },
   2: { goal: ['sportsGoalA', 'sportsGoalB', 'sportsGoalC'] },
   3: { plant: ['plantSmall', 'plantBig'] },
-  4: { plant: ['forestBrush1', 'forestRock2'], rock: ['forestRock1', 'forestRock2'], flower: ['forestFlowerR', 'forestFlowerB'], column: ['forestTree1', 'forestTree2'] },
-  7: { plant: ['plantSmall', 'plantBig'], neon: ['neonHolo', 'bannerArrow'], crate: ['dgnBoxes', 'dgnBox'], barrel: ['dgnBox', 'dgnBoxes'], shelf: ['shelf', 'shelfTall'], sign: ['bannerArrow', 'neonHolo'] },
+  4: { plant: ['forestBrush1', 'forestFlowerR'], rock: ['forestRock1', 'forestRock2'], flower: ['forestFlowerR', 'forestFlowerB'], column: ['forestTree1', 'forestTree2'] },
+  7: { plant: ['plantSmall', 'plantBig'], neon: ['plantBig', 'plantSmall'], crate: ['dgnChest', 'dgnBox'], barrel: ['dgnBox', 'dgnChest'], shelf: ['shelf', 'shelfTall'], sign: ['board', 'plantSmall'] },
 };
 const visualRectOf = (p) => {
   const sz = ASSET_SIZES[p.prop];
