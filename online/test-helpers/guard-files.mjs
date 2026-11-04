@@ -19,12 +19,14 @@ export const GUARD_FILES = [
 // 模块目录（递归展开其中的 .js/.css）
 export const GUARD_DIRS = [
   'online/shared/world',
+  'online/shared/world/layouts',
   'online/room',
   'online/server',
   'online/server/routes',
   'online/public/js',
   'online/public/js/core',
   'online/public/js/render',
+  'online/public/js/render/lobby-themes',
   'online/public/js/markup',
   // 需求③：搜打撤物品格（图标 + 面板）——新增目录必须在这里登记，否则哈希守卫不覆盖。
   'online/public/js/search',

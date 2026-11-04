@@ -50,6 +50,9 @@ function createRoom(options = {}) {
     finished: false,
     finishReason: '',
     ranking: null,
+    // 截至昨日的历史累计前100榜与个人历史累计分（由 server/activity.js 同步注入）
+    historicalRanking: [],
+    historicalScores: {},
     // 上一局结算快照：结束瞬间写入，reset 不会清掉，管理页/重开流程据此读取上局排名。
     lastResult: null,
     startedAt: Date.now(),
@@ -231,7 +234,55 @@ function createRoom(options = {}) {
     rpsWin: 5, rpsDraw: 2, rpsLose: 1,
     hammer: 1, kill: 30, eliminated: 5, minigame: 8, minigameWin: 20
   };
+  function ensureScoreState(p) {
+    if (!p) return;
+    if (!Number.isFinite(p.joinedAt)) p.joinedAt = room.startedAt;
+    if (!Number.isFinite(p.survivalTicks)) p.survivalTicks = 0;
+    if (typeof p.firstSearchDone !== 'boolean') p.firstSearchDone = false;
+    if (typeof p.firstMinigameDone !== 'boolean') p.firstMinigameDone = false;
+    if (!p.scoreBreakdown || typeof p.scoreBreakdown !== 'object') {
+      p.scoreBreakdown = { participate: 0, survival: 0, combat: Number(p.score) || 0 };
+    }
+  }
+  function award(p, key, category = 'combat') {
+    if (!p || !p.alive || room.finished) return 0;
+    ensureScoreState(p);
+    const delta = Number(WORLD.SCORE[key]) || 0;
+    if (!delta) return 0;
+    p.score += delta;
+    p.scoreBreakdown[category] = (Number(p.scoreBreakdown[category]) || 0) + delta;
+    return delta;
+  }
+  function awardFirstSearch(p) {
+    if (!p || !p.alive || room.finished) return 0;
+    ensureScoreState(p);
+    if (p.firstSearchDone) return 0;
+    p.firstSearchDone = true;
+    return award(p, 'firstSearch', 'participate');
+  }
+  function awardFirstMinigame(p) {
+    if (!p || !p.alive || room.finished) return 0;
+    ensureScoreState(p);
+    if (p.firstMinigameDone) return 0;
+    p.firstMinigameDone = true;
+    return award(p, 'firstMinigame', 'participate');
+  }
+  function syncSurvivalScore(p, t) {
+    if (!p || p.npc || !p.alive || room.finished) return;
+    ensureScoreState(p);
+    const effT = room.pausedAt ? Math.min(t, room.pausedAt) : t;
+    const interval = Number(WORLD.SCORE.survivalIntervalMs) || (30 * 60 * 1000);
+    const elapsed = Math.max(0, effT - p.joinedAt);
+    const dueTicks = Math.floor(elapsed / interval);
+    while (p.survivalTicks < dueTicks) {
+      p.survivalTicks += 1;
+      award(p, 'survivalTick', 'survival');
+    }
+  }
   function gainAchievement(p, key, times = 1) {
+    if (['rpsWin', 'rpsDraw', 'rpsLose', 'minigame'].includes(key)) {
+      awardFirstMinigame(p);
+    }
     const base = ACHIEVEMENT[key] || 0;
     if (!base || !p.achievements) return 0;
     const add = base * Math.max(1, Math.floor(times));
@@ -242,11 +293,8 @@ function createRoom(options = {}) {
   const minigames = createMinigames({
     room, now, find, gainAchievement,
   });
-  function award(p, key) {
-    p.score += WORLD.SCORE[key] || 0;
-  }
   function makeSkills(faction) {
-    const ids = faction === 'bad' ? ['probe', 'accuse', 'spy', 'kill'] : ['probe', 'accuse'];
+    const ids = faction === 'bad' ? ['spy', 'kill'] : ['probe', 'accuse'];
     return Object.fromEntries(ids.map(id => [id, {
       chargesRemaining: SKILL_CONFIG.maxCharges, maxCharges: SKILL_CONFIG.maxCharges,
       cooldownMs: ['probe', 'spy'].includes(id) ? SKILL_CONFIG.probeCooldownMs : SKILL_CONFIG.actionCooldownMs,
@@ -340,6 +388,11 @@ function createRoom(options = {}) {
       hp: faction === 'bad' ? 3 : 1,
       alive: true,
       score: 0,
+      joinedAt: t,
+      survivalTicks: 0,
+      firstSearchDone: false,
+      firstMinigameDone: false,
+      scoreBreakdown: { participate: 0, survival: 0, combat: 0 },
       x: spawn.x,
       y: spawn.y,
       floorId: 1,
@@ -425,6 +478,11 @@ function createRoom(options = {}) {
         hp: faction === 'bad' ? 3 : 1,
         alive: true,
         score: 0,
+        joinedAt: now(),
+        survivalTicks: 0,
+        firstSearchDone: false,
+        firstMinigameDone: false,
+        scoreBreakdown: { participate: 0, survival: 0, combat: 0 },
         x: spot.x,
         y: spot.y,
         floorId,
@@ -549,7 +607,7 @@ function createRoom(options = {}) {
       name: p.name,
       alive: p.alive,
       online: p.online,
-      score: p.score,
+      score: (!viewer || room.finished || viewer.id === p.id) ? p.score : 0,
       x: p.x,
       y: p.y,
       floorId: p.floorId,
@@ -583,6 +641,9 @@ function createRoom(options = {}) {
     const t = now();
     syncRoom(t);
     syncCharges(p, t);
+    ensureScoreState(p);
+    const histMap = room.historicalScores || {};
+    const historicalScore = Number(histMap[p.empNo ? `emp:${p.empNo}` : `name:${p.name}`] ?? histMap[`name:${p.name}`] ?? 0) || 0;
     return {
       id: p.id,
       name: p.name,
@@ -591,6 +652,11 @@ function createRoom(options = {}) {
       hp: p.hp,
       alive: p.alive,
       score: p.score,
+      scoreBreakdown: { ...p.scoreBreakdown },
+      firstSearchDone: !!p.firstSearchDone,
+      firstMinigameDone: !!p.firstMinigameDone,
+      joinedAt: p.joinedAt,
+      historicalScore,
       traits: p.traits,
       floorId: p.floorId,
       floorRevision: p.floorRevision,
@@ -642,6 +708,7 @@ function createRoom(options = {}) {
       daily: room.daily || null,
       finishReason: room.finishReason || null,
       ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
+      historicalRanking: Array.isArray(room.historicalRanking) ? room.historicalRanking.map(r => ({ ...r })) : [],
       rankingAchievement: room.rankingAchievement ? room.rankingAchievement.map(r => ({ ...r })) : null,
       // 进行中的成就榜（前 10）：不算私密数据，只暴露名字与点数。
       achievementLeaders: room.players.slice()
@@ -822,8 +889,8 @@ function createRoom(options = {}) {
       ranking: (room.ranking || []).map(r => ({ ...r }))
     };
   }
-  // 仅三种结束方式。注意 aliveFloor 必须加 players.length > endRemainingPlayers 守卫：
-  // 否则小房间（如 20 人）会在开局瞬间就满足“存活 <= 100”而立即结束，这是有意设计。
+  // 场次结束判定：默认按每日配置截止或管理员结算（不因剩100人或坏人全灭自动结束）。
+  // 若测试显式传入 rules.enableAliveFloor / rules.enableBadWiped 则按测试规则覆盖。
   function checkFinish(t = now(), syncChallenges = true) {
     if (room.finished) return;
     if (!room.players.length) return;
@@ -831,14 +898,15 @@ function createRoom(options = {}) {
     const bads = room.players.filter(p => p.faction === 'bad');
     const aliveBad = bads.filter(p => p.alive);
     let reason = '';
-    if (room.players.length > rules.endRemainingPlayers && alive.length <= rules.endRemainingPlayers) reason = 'aliveFloor';
-    else if (bads.length > 0 && aliveBad.length === 0) reason = 'badWiped';
+    if (rules.enableAliveFloor && room.players.length > rules.endRemainingPlayers && alive.length <= rules.endRemainingPlayers) reason = 'aliveFloor';
+    else if (rules.enableBadWiped && bads.length > 0 && aliveBad.length === 0) reason = 'badWiped';
     else if (t - room.startedAt >= rules.timeLimitMs) reason = 'timeUp';
     if (reason) {
+      for (const p of room.players) syncSurvivalScore(p, t);
       freezeRoom(t);
       room.finishReason = reason;
       room.ranking = (reason === 'badWiped' || reason === 'timeUp') ? buildRanking() : null;
-    room.rankingAchievement = buildAchievementRanking();
+      room.rankingAchievement = buildAchievementRanking();
       archiveResult(t);
       log(reason === 'aliveFloor' ? `游戏结束：存活人数已淘汰至剩余${rules.endRemainingPlayers}人。`
         : reason === 'badWiped' ? '游戏结束：坏人已全部出局。'
@@ -847,8 +915,6 @@ function createRoom(options = {}) {
     // syncRoom 以 false 调用此函数只判整体结束；避免相互递归。
     if (syncChallenges) syncRoom(t);
   }
-  // Strict uppercase match. Whitespace is ignored so a pasted value still works, but
-  // lowercase input is a format error: it never consumes a charge or starts a cooldown.
   function normalizeSid(value) {
     const raw = typeof value === 'string' ? value.replace(/\s/g, '') : '';
     return /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(raw) ? raw : null;
@@ -860,74 +926,82 @@ function createRoom(options = {}) {
     if (!Number.isSafeInteger(body.expectedFloorRevision) || body.expectedFloorRevision !== p.floorRevision) return '楼层版本不一致，请重新同步';
     return '';
   }
-
-  function doSpy(actor, target) {
-    {
-      const index = target.sid.revealed.findIndex(x => !x);
-      if (index < 0) return reject('该目标没有未公开的S-ID段，不消耗次数');
-      target.sid.revealed[index] = true;
-      queueEvent(target.id, { type: 'revealedSegment', segmentIndex: index });
-      log(`${target.name}的S-ID已公开：${publicProjection(target).sid}。`, { subjectPlayerId: target.id });
-      return { ok: true, kind: 'spy', resultText: `刺探完成：第${index + 1}段S-ID为 ${target.sid.segments[index]}。`, targetId: target.id };
+  function eliminatePlayer(target, t) {
+    syncSurvivalScore(target, t);
+    freezeSkills(target, t);
+    target.hp = 0;
+    target.alive = false;
+    badPool.invalidate();
+    room.eliminateEvents += 1;
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === target.id || ch.toId === target.id) cancelChallenge(ch, t, '参与者已淘汰');
     }
+    queueEvent(target.id, { type: 'eliminated' });
+    log(`${target.name}已出局，今日积分保留。`, { subjectPlayerId: target.id });
+  }
+  function doSpy(actor, target) {
+    const index = target.sid.revealed.findIndex(x => !x);
+    if (index < 0) return reject('对方身份码已全部公开，本次未消耗机会。');
+    if (target.faction === 'bad') {
+      // 公开坏人：双方码均不变，扣1次，0分，不发公开公告
+      return { ok: true, kind: 'spy', resultText: '本次公开未产生变化，未获得积分。', targetId: target.id, unchanged: true };
+    }
+    target.sid.revealed[index] = true;
+    if (!target.npc) award(actor, 'spy', 'combat');
+    queueEvent(target.id, { type: 'revealedSegment', segmentIndex: index });
+    log(`${target.name}的第${index + 1}段身份码已公开。`, { subjectPlayerId: target.id });
+    return { ok: true, kind: 'spy', resultText: `公开成功，对方第${index + 1}段身份码已公开，积分+2。`, targetId: target.id, segmentIndex: index };
   }
   function doProbe(actor, target) {
     const pending = Object.keys(target.traits).filter(k => !target.traitPublic[k]);
-    if (!pending.length) return reject('该目标没有未公开的隐藏属性，不消耗次数');
+    if (!pending.length) return reject('对方属性已全部公开，本次未消耗机会。');
     const key = random ? pending[Math.min(pending.length - 1, Math.floor(random() * pending.length))] : pending[0];
     target.traitPublic[key] = true;
     badPool.invalidate(); // 匿名池缓存随已公开属性失效
     queueEvent(target.id, { type: 'revealedTrait', traitName: WORLD.TRAIT_NAMES[key], traitValue: target.traits[key] });
     log(`${target.name}的${WORLD.TRAIT_NAMES[key]}已公开：${target.traits[key]}。`, { subjectPlayerId: target.id });
-    return { ok: true, kind: 'probe', resultText: `探查完成：${WORLD.TRAIT_NAMES[key]}为「${target.traits[key]}」。`, targetId: target.id };
+    return { ok: true, kind: 'probe', resultText: `调查成功：${target.name}的${WORLD.TRAIT_NAMES[key]}是「${target.traits[key]}」，已公开。`, targetId: target.id };
   }
   function doAccuse(actor, target, t) {
-    log(`${target.name}被指认一次。`, { subjectPlayerId: target.id });
+    const nextIdx = target.sid.revealed.findIndex(x => !x);
+    if (nextIdx < 0) return reject('对方身份码已全部公开，本次未消耗机会。');
     if (target.faction === 'bad') {
-      award(actor, 'accuseHit');
-      target.hp -= 1;
-      if (target.hp > 0) {
-        queueEvent(target.id, { type: 'damaged' });
-        return { ok: true, kind: 'accuse', resultText: `指认命中：目标扣1血，仍存活。`, targetId: target.id };
+      target.sid.revealed[nextIdx] = true;
+      if (!target.npc) award(actor, 'accuseHit', 'combat');
+      log(`${target.name}的第${nextIdx + 1}段身份码已公开。`, { subjectPlayerId: target.id });
+      const allRevealed = target.sid.revealed.every(Boolean);
+      target.hp = Math.max(0, 3 - target.sid.revealed.filter(Boolean).length);
+      if (allRevealed) {
+        gainAchievement(actor, 'kill');
+        gainAchievement(target, 'eliminated');
+        eliminatePlayer(target, t);
+        return { ok: true, kind: 'accuse', resultText: '指认成功，积分+10，对方身份码已全部公开，已出局。', targetId: target.id, segmentIndex: nextIdx, eliminated: true };
       }
-      freezeSkills(target, t); // 先结算已赚到的恢复，再冻结资源
-      target.alive = false;
-      badPool.invalidate(); // 匿名池缓存随存活状态失效
-      room.eliminateEvents += 1;
-      queueEvent(target.id, { type: 'eliminated' });
-      log(`${target.name}已淘汰。`, { subjectPlayerId: target.id });
-      return { ok: true, kind: 'accuse', resultText: '指认命中：目标已淘汰。', targetId: target.id };
+      queueEvent(target.id, { type: 'revealedSegment', segmentIndex: nextIdx });
+      return { ok: true, kind: 'accuse', resultText: '指认成功，公开对方一段身份码，积分+10。', targetId: target.id, segmentIndex: nextIdx };
     }
-    const index = actor.sid.revealed.findIndex(x => !x);
-    let resultText = '错指认：自己的S-ID已全部公开，无新增公开段。';
-    if (index >= 0) {
-      actor.sid.revealed[index] = true;
-      resultText = `错指认：自己第${index + 1}段S-ID已公开。`;
-      // Penalty updates the public projection, but never logs the actor or the outcome.
+    const selfIdx = actor.sid.revealed.findIndex(x => !x);
+    let resultText = '指认失败，您的身份码已全部公开，本次消耗1次机会。';
+    if (selfIdx >= 0) {
+      actor.sid.revealed[selfIdx] = true;
+      log(`${actor.name}的第${selfIdx + 1}段身份码已公开。`, { subjectPlayerId: actor.id });
+      resultText = `指认失败，您的第${selfIdx + 1}段身份码已公开。`;
     }
-    queueEvent(actor.id, { type: 'accusationFailed', segmentIndex: index });
-    return { ok: true, kind: 'accuse', resultText, targetId: target.id, selfRevealed: true };
+    queueEvent(actor.id, { type: 'accusationFailed', segmentIndex: selfIdx });
+    return { ok: true, kind: 'accuse', resultText, targetId: target.id, selfRevealed: selfIdx >= 0 };
   }
   function doKill(actor, target, submitted, t) {
-    const sid = normalizeSid(submitted);
-    if (!sid) return { ok: false, error: '格式错误：必须是三段，每段3位字母或数字。不消耗次数。', formatError: true };
-    if (sid !== target.sid.segments.join('-')) {
-      return { ok: true, kind: 'kill', resultText: 'S-ID不匹配：目标未淘汰，消耗1次击杀。', targetId: target.id };
+    if (!target.sid.revealed.every(Boolean)) {
+      return reject('对方身份码尚未全部公开，无法击杀，本次未消耗机会。');
     }
-    award(actor, 'kill');
+    if (target.faction === 'good' && !target.npc) {
+      award(actor, 'kill', 'combat');
+    }
     gainAchievement(actor, 'kill');
     gainAchievement(target, 'eliminated');
-    gainAchievement(actor, 'kill');
-    gainAchievement(target, 'eliminated');
-    freezeSkills(target, t); // 先结算已赚到的恢复，再冻结资源
-    target.hp = 0;
-    target.alive = false;
-    badPool.invalidate(); // 匿名池缓存随存活状态失效
-    room.eliminateEvents += 1;
-    queueEvent(target.id, { type: 'eliminated' });
-    log(`${target.name}已淘汰。`, { subjectPlayerId: target.id });
-    checkFinish();
-    return { ok: true, kind: 'kill', resultText: 'S-ID完全匹配：目标已淘汰。', targetId: target.id };
+    eliminatePlayer(target, t);
+    checkFinish(t);
+    return { ok: true, kind: 'kill', resultText: target.faction === 'good' ? '击杀成功，积分+5。' : '击杀成功，对方已出局（同阵营不加分）。', targetId: target.id, eliminated: true };
   }
   function useSkill(sessionId, body) {
     const t = now();
@@ -942,11 +1016,11 @@ function createRoom(options = {}) {
     if (room.processed.has(commandId)) return reject('该指令已结算过');
     const kind = body.skill === 'action' ? (actor.faction === 'bad' ? 'kill' : 'accuse') : body.skill;
     if (!['probe', 'accuse', 'spy', 'kill'].includes(kind)) return reject('未知技能');
-    const allowed = actor.faction === 'bad' ? ['probe', 'accuse', 'spy', 'kill'] : ['probe', 'accuse'];
+    const allowed = actor.faction === 'bad' ? ['spy', 'kill'] : ['probe', 'accuse'];
     const skill = actor.skills[kind];
     if (!allowed.includes(kind) || !skill) return reject('无权使用该技能');
     syncCharges(actor, t);
-    if (skill.chargesRemaining <= 0) return reject(`${kind === 'probe' ? '探查' : '该技能'}次数用尽，等待恢复`);
+    if (skill.chargesRemaining <= 0) return reject(`${kind === 'probe' ? '调查属性' : '该技能'}次数用尽，等待恢复`);
     const target = find(Number(body.targetId));
     if (!target || target.id === actor.id) return reject('目标无效');
     if (!target.alive) return reject('已淘汰目标不可操作');
@@ -956,10 +1030,6 @@ function createRoom(options = {}) {
       room.processed.set(commandId, t);
       // 最后一次成功扣次与幂等登记都先落入本事务，再判整局结束并冻结全员资源。
       checkFinish(t);
-      // 同一局保留全部 commandId，避免旧指令在冷却结束后重新结算。
-      // 计分：探查/刺探成功加分；指认命中与击杀在 doAccuse/doKill 内计分。
-      if (kind === 'probe') award(actor, 'probe');
-      else if (kind === 'spy') award(actor, 'spy');
     }
     // 立即回传本人的最新技能资源，连续使用无需等待下一帧SSE。
     return { ...resolved, serverTime: t, skills: Object.fromEntries(
@@ -1067,6 +1137,7 @@ function createRoom(options = {}) {
       }
       actor.exploration.searched.push(entity.id);
       award(actor, 'search');
+      awardFirstSearch(actor);
       gainAchievement(actor, 'search');
     } else {
       // 背包「人脉」被动：NPC 线索兑换便宜 N 筹码（最低 0）。
@@ -1187,6 +1258,7 @@ function createRoom(options = {}) {
   // 统一同步入口：所有请求与投影先判整体结束条件，结束后立即取消不结算；
   // 邀请阶段仅在超时取消，选择阶段到 deadline 才同步结算一次（即便双方都已选也不提前结算）。
   function syncRoom(t) {
+    for (const p of room.players) syncSurvivalScore(p, t);
     checkFinish(t, false);
     if (room.pausedAt && !room.finished) return;
     // 搜索会话按时间过期：玩家中途关页面时，容器不会永久卡在"搜到一半"的状态。
@@ -1266,6 +1338,12 @@ function createRoom(options = {}) {
           actor.exploration.chips += 2;
           resultText = `转盘第${spins + 1}次：线索券暂无可用的坏人线索，补偿2筹码。`;
         }
+      } else if (item.key === 'jackpot') {
+        actor.exploration.chips += 6;
+        resultText = `转盘第${spins + 1}次：筹码福袋，获得6筹码（花费${cost}筹码）。`;
+      } else if (item.key === 'bounty') {
+        actor.exploration.chips += 4;
+        resultText = `转盘第${spins + 1}次：潜伏补给券，获得4筹码（花费${cost}筹码）。`;
       } else if (item.key === 'reform') {
         if (actor.faction === 'bad') {
           actor.faction = 'good';
@@ -1287,6 +1365,7 @@ function createRoom(options = {}) {
         resultText = `转盘第${spins + 1}次：轮回券，你的身份特征已重新随机。`;
       }
       actor.games.wheelSpins[entity.id] = spins + 1;
+      awardFirstMinigame(actor);
       award(actor, 'wheelPrize');
       actor.games.lastResult = resultText;
       // reform 可能造成坏人全灭，转盘结算后立即判定。
@@ -1706,6 +1785,8 @@ function createRoom(options = {}) {
     }
     if (!actor.exploration.searched.includes(s.containerId)) actor.exploration.searched.push(s.containerId);
     award(actor, 'search');
+    awardFirstSearch(actor);
+    gainAchievement(actor, 'search');
     room.searchSessions.delete(s.id);
     actor.input = { up: false, down: false, left: false, right: false };
     const parts = [];
@@ -1892,9 +1973,11 @@ function createRoom(options = {}) {
   function finish() {
     if (room.finished) return;
     const t = now();
+    for (const p of room.players) syncSurvivalScore(p, t);
     freezeRoom(t);
     room.finishReason = 'host';
-    room.ranking = null;
+    room.ranking = buildRanking();
+    room.rankingAchievement = buildAchievementRanking();
     syncRoom(now());
     archiveResult(now());
     log('游戏已结束：主持人结束了游戏。');

@@ -13,6 +13,13 @@
 <!-- dressing.js 必须先于 floors.js：floors.js 建造时会把逐层陈设 concat 进家具表 -->
 <script src="/shared/world/dressing.js" defer></script>
 <script src="/shared/world/sprite-bounds.js" defer></script>
+<script src="/shared/world/layouts/f1.js" defer></script>
+<script src="/shared/world/layouts/f2.js" defer></script>
+<script src="/shared/world/layouts/f3.js" defer></script>
+<script src="/shared/world/layouts/f4.js" defer></script>
+<script src="/shared/world/layouts/f5.js" defer></script>
+<script src="/shared/world/layouts/f6.js" defer></script>
+<script src="/shared/world/layouts/f7.js" defer></script>
 <script src="/shared/world/floors.js" defer></script>
 <!-- rooms.js 依赖 floors.js；clutter.js 依赖 floors+rooms（按楼层撒装饰）；loot.js 无依赖 -->
 <script src="/shared/world/rooms.js" defer></script>
@@ -21,6 +28,14 @@
 <script src="/shared/world/sprite.js" defer></script>
 <script src="/shared/world.js" defer></script>
 <script src="/shared/scene.js" defer></script>
+<script src="js/render/lobby.js" defer></script>
+<script src="js/render/lobby-themes/f1.js" defer></script>
+<script src="js/render/lobby-themes/f2.js" defer></script>
+<script src="js/render/lobby-themes/f3.js" defer></script>
+<script src="js/render/lobby-themes/f4.js" defer></script>
+<script src="js/render/lobby-themes/f5.js" defer></script>
+<script src="js/render/lobby-themes/f6.js" defer></script>
+<script src="js/render/lobby-themes/f7.js" defer></script>
 <!-- 客户端自包含工具：defer 且排在 game.js 之前，game.js 里以别名引用（调用点不变） -->
 <script src="js/core/chunks.js" defer></script>
 <script src="js/core/wheel.js" defer></script>
@@ -53,8 +68,8 @@
         <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="clue-chip" id="clue-next" hidden title="下一次系统公布线索的时间"><i class="dot amber"></i>下次线索 <b id="clue-next-left">--:--</b><em id="clue-next-at"></em></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span></div>
       </div>
       <div class="toolbar" aria-label="公共功能">
-        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players">待加入玩家 <span id="pending-count">—</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking">排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
-        <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint">点击开闭 · 眼睛独立显示</span><span class="score-chip" title="我的分数">分数 <b id="score-value">0</b></span><button id="clue-bag" aria-label="打开或关闭私密线索背包" aria-controls="exploration" aria-expanded="false">线索背包</button><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false">我的信息</button></div>
+        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P">待加入玩家 <span id="pending-count">—</span></button><button id="rules-toggle" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="快捷键 H"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>图解游戏规则</button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
+        <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint">点击或快捷键开闭</span><span class="score-chip" title="我的分数">分数 <b id="score-value">0</b></span><button id="clue-bag" aria-label="打开或关闭私密线索背包" aria-controls="exploration" aria-expanded="false" title="快捷键 B">🎒 线索背包</button><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="logs-toggle" type="button" aria-label="打开或关闭公共日志" aria-controls="logs" aria-expanded="true" title="快捷键 G">📜 公共日志</button></div>
       </div>
     </div>
     <div class="map-view" id="map-view">
@@ -63,7 +78,7 @@
       <div class="exploration-hud" aria-label="就近互动"><p id="cover-status" hidden></p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty" hidden></p><div class="combat-hud"><button id="attack-button" type="button" hidden>J 敲</button><p id="self-combat-state" class="self-combat-state" hidden aria-live="polite"></p><span class="combat-note" hidden></span></div></div>
       <!-- 第二轮：限时 buff 条（疾行 / 护体 / 专注），由服务端剩余毫秒驱动 -->
       <div id="buff-bar" class="buff-bar" hidden aria-live="polite"></div>
-      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> / 方向键移动 <i>·</i> 点击角色查看档案 <i>·</i> <kbd>J</kbd> 敲 / 幽灵吓人 <i>·</i> <kbd>K</kbd> 交互 / 乘梯 / 进房间 <i>·</i> <kbd>B</kbd> 背包 <i>·</i> <kbd>F1</kbd> 碰撞调试</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
+      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> 移动 <i>·</i> 点击角色查档案 <i>·</i> <kbd>J</kbd> 敲 <i>·</i> <kbd>K</kbd> 交互/乘梯 <i>·</i> <kbd>B</kbd> 背包 <i>·</i> <kbd>L</kbd> 排行榜 <i>·</i> <kbd>R</kbd> 名单 <i>·</i> <kbd>M</kbd> 档案 <i>·</i> <kbd>G</kbd> 日志 <i>·</i> <kbd>H</kbd> 规则</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
       <div id="offline-banner" class="offline-banner" hidden></div>
       <!-- 需求①：进入独立小房间后的空间提示条（房间名 + 如何离开） -->
       <div id="zone-banner" class="zone-banner" hidden aria-live="polite">
@@ -115,11 +130,11 @@
       <section id="games" class="panel games" hidden aria-label="猜拳对战"></section>
       <section id="offline-summary" class="panel offline-summary" hidden aria-label="离线期间事件摘要"></section>
       <aside id="ranking" class="panel ranking" hidden aria-label="实时排行榜">
-        <div class="panel-heading"><div><small>SCOREBOARD</small><h2>排行榜</h2></div><button id="ranking-close" class="icon-button" aria-label="收起排行榜">×</button></div>
+        <div class="panel-heading"><div><small>SCOREBOARD</small><h2>积分与总榜</h2></div><button id="ranking-close" class="icon-button" aria-label="收起排行榜">×</button></div>
         <p id="ranking-rules" class="panel-note"></p>
-        <p class="panel-note">存活 <strong id="ranking-alive">0</strong> · 结算条件见上</p>
+        <p class="panel-note">当前在场存活 <strong id="ranking-alive">0</strong> · 每日活动按时结算</p>
         <div id="ranking-items" class="ranking-items"></div>
-        <p class="hold-note">按分数降序 · 坏人身份在游戏结束前不显示 · 仅展示公开信息。</p>
+        <p class="hold-note">局内仅展示本人今日积分明细与截至昨日累计总榜（Top 100） · 每日结束后统一结算入榜。</p>
       </aside>
       <script src="js/markup/overlays.js"></script>
       <div id="elevator-picker" class="elevator-picker" hidden role="dialog" aria-modal="true" aria-label="选择楼层" aria-describedby="elevator-keyboard-help">
@@ -133,7 +148,7 @@
     </div>
   </main>
   <aside id="logs" class="logs log-sidebar" aria-labelledby="logs-title">
-    <div class="panel-heading"><div><small>OFFICE FEED</small><h2 id="logs-title">公共日志</h2></div><span class="log-total"><b id="log-count">0</b> 条</span></div>
+    <div class="panel-heading"><div><small>OFFICE FEED</small><h2 id="logs-title">公共日志</h2></div><div class="log-head-actions"><span class="log-total"><b id="log-count">0</b> 条</span><button id="logs-close" type="button" class="icon-button" aria-label="收起公共日志">×</button></div></div>
     <p class="panel-note">时间倒序 · 仅公开变化，不公布操作者</p>
     <ol id="log-items" tabindex="0" aria-label="公共日志记录"></ol>
     <div class="log-clues-entry"><button id="bad-toggle" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog"><span>坏人线索</span><span id="bad-toggle-label">展开＋</span></button><p>发现线索，锁定隐藏的猎手</p></div>

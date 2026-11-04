@@ -476,6 +476,13 @@
 
   function floor(g, id, ox, oy, w, h) {
     if (!stats.ready) return false;
+    // 美术层楼层（layouts/fN.js）：分区地面整体交给 js/render/lobby.js；未加载时回退原主题。
+    const lobbyF = root.SID_LOBBY && root.WORLD && root.WORLD.floorById && root.WORLD.floorById(id);
+    if (lobbyF && lobbyF.lobby) {
+      g.save(); g.translate(-ox, -oy);
+      root.SID_LOBBY.floor(g, id, ox, oy, w, h);
+      g.restore(); stats.floors++; return true;
+    }
     const st = floorStyles[id] || floorStyles[1], stride = st.cell || 16;
     g.save();
     g.translate(-ox, -oy);
@@ -610,6 +617,7 @@
     if(f.architecturalPlaceholder)return true;
     if(!stats.ready)return false;
     const id=f.floorId||1, by=baseY(f), w=f.w, h=f.h;
+    if(root.SID_LOBBY&&root.SID_LOBBY.has(id)&&root.SID_LOBBY.furniture(g,f)){stats.furniture++;return true;}
     if(id!==1)stats.themed=(stats.themed||0)+1;
 
     // 0) 建筑核心筒与东侧楼梯间：56px 高 3/4 视角星露谷原木石砌建筑体（替代原先突兀的薄柜子）
@@ -1571,6 +1579,7 @@
   }
 
   function wall(g, f) {
+    if (f.lobby && root.SID_LOBBY && root.SID_LOBBY.backWall) return root.SID_LOBBY.backWall(g, f);
     const t = themeOf(f.id), w = f.width, y1 = MIN_Y, y0 = -56, p = t.wall;
     wallBody(g, t, w, y0, y1);
     const modules = Math.max(1, Math.floor(w / 144));

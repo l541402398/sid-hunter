@@ -329,7 +329,9 @@
       const w = size.w, h = size.h;
       const id = `f${spec.floorId}:room:${spec.slug}`;
       const wantedDoor = [Math.round(spec.door[0] * FLOOR_SCALE), Math.round(spec.door[1] * FLOOR_SCALE)];
-      const door = snapDoor(spec.floorId, wantedDoor);
+      // 美术层楼层（layouts/fN.js）：门嵌在墙面上，门点由布局给出（2× 世界 px），不做吸附。
+      const pinned = D.LOBBY_DOORS && D.LOBBY_DOORS[spec.slug];
+      const door = pinned ? { x: Math.round(pinned[0] * FLOOR_SCALE / 2), y: Math.round(pinned[1] * FLOOR_SCALE / 2) } : snapDoor(spec.floorId, wantedDoor);
       if (!door) throw new Error(`[rooms] 无法为 ${spec.name} 在 ${spec.floorId}F 找到可站立门点（候选 ${spec.door}）`);
       const room = {
         id, floorId: spec.floorId, slug: spec.slug, kind: spec.kind, name: spec.name,

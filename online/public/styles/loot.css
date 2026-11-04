@@ -1,121 +1,117 @@
-/* 需求③：搜打撤式物品格面板 + 需求①：房间空间提示条。
-   由 styles.css 按序 @import；像素硬边、稀有度描边、逐格翻牌。
-   明亮化：面板/背包/小游戏卡片改白底；压在地图上的浮条（房间提示条、buff 条、机能按钮）采用暖木牌风格。 */
+/* 需求③：搜打撤式物品格面板 + 需求①：房间空间提示条 + 需求④：RPG 储物箱背包与小游戏木匣。
+   由 styles.css 按序 @import；像素硬边、稀有度描边、逐格翻牌。 */
 
-/* ---------- 独立空间提示条 ---------- */
-.zone-banner{position:absolute;left:50%;top:10px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;
-  padding:7px 14px;border:1px solid #ad8052;border-radius:var(--r-sm);background:#3d2817ee;z-index:6;
-  font-size:11px;color:#fff5e4;box-shadow:0 8px 24px -10px rgba(30,16,6,0.65);max-width:min(660px,92%);flex-wrap:wrap;justify-content:center}
+/* ---------- 独立空间提示条：燕尾切角木牌 ---------- */
+.zone-banner{position:absolute;left:50%;top:88px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;
+  padding:6px 15px;border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-banner);background:#382314f0;z-index:14;
+  font-size:11px;color:#fff5e4;filter:drop-shadow(0 8px 18px rgba(30,16,6,0.65));max-width:min(660px,92%);flex-wrap:wrap;justify-content:center}
 .zone-banner[hidden]{display:none}
-.zone-banner-tag{padding:2px 8px;border-radius:5px;background:#ffd268;color:#3d240c;font-size:10px;letter-spacing:.14em;font-weight:700}
+.zone-banner-tag{padding:2px 8px;border-radius:0;clip-path:var(--clip-card);background:#ffd268;color:#3d240c;font-size:10px;letter-spacing:.12em;font-weight:800}
 .zone-banner strong{color:#ffe49e;font-size:13px;letter-spacing:.04em;font-weight:700}
 .zone-banner-hint{color:#e6ccb0;font-size:10px}
-.zone-banner kbd{padding:1px 5px;border:1px solid #ad8052;border-radius:4px;background:#5c3e24;color:#fff6e8;font-size:10px}
+.zone-banner kbd{padding:1px 5px;border:1px solid #ad8052;border-radius:3px;background:#5c3e24;color:#fff6e8;font-size:10px}
 
 /* ---------- 第二轮：道具背包 / 商店 / buff 条 ---------- */
-.buff-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:56px;display:flex;gap:6px;z-index:5;flex-wrap:wrap;justify-content:center;pointer-events:none}
+.buff-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:48px;display:flex;gap:6px;z-index:12;flex-wrap:wrap;justify-content:center;pointer-events:none}
 .buff-bar[hidden]{display:none}
-/* buff 条压在地图上：暖木底 + 彩色描边，三色语义对应疾行/护体/专注 */
-.buff-chip{padding:3px 9px;border-radius:var(--r-pill);font-size:10px;font-family:ui-monospace,SFMono-Regular,monospace;
-  border:1px solid #966c42;background:#3d2817e6;color:#fff5e4;box-shadow:0 4px 12px -6px rgba(30,16,6,0.6);font-weight:600}
+.buff-chip{padding:3px 10px;border-radius:0;clip-path:var(--clip-card);font-size:10px;font-family:ui-monospace,SFMono-Regular,monospace;
+  border:1.5px solid #966c42;background:#382314eb;color:#fff5e4;filter:drop-shadow(0 4px 10px rgba(30,16,6,0.6));font-weight:700}
 .buff-chip.speed{border-color:#3fd39a;color:#9df5ce}
 .buff-chip.shield{border-color:#5aa9f2;color:#cbe6ff}
 .buff-chip.focus{border-color:#ffb655;color:#ffe2a6}
-/* 商店/背包内嵌块：白底浅灰 */
-.bag-block{margin:10px 0;padding:9px 10px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}
+/* 商店/背包木格内嵌盘：八角切边深色樟木内胆 + 藤蔓暗纹，还原经典像素 RPG 背包箱质感 */
+.bag-block{margin:10px 0;padding:10px 12px;border:2px solid #a8763e;border-radius:0;clip-path:var(--clip-plaque);background-color:#2b190c;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='32' viewBox='0 0 64 32'><path d='M0 16 Q16 6 32 16 T64 16' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.16'/><path d='M12 11 L16 8 L14 13 Z M44 20 L48 17 L46 22 Z' fill='%2343a047' opacity='.22'/></svg>"),linear-gradient(180deg,#3b2413,#251509);box-shadow:inset 0 3px 8px rgba(0,0,0,.45)}
+.bag-block .private-title{color:#ffd885;font-size:11.5px;letter-spacing:.5px;margin-bottom:6px}
+.bag-block .panel-note{color:#d8b88c;margin:6px 0 0}
 .bag-items{display:flex;flex-direction:column;gap:6px;max-height:216px;overflow:auto}
-.bag-item{display:flex;align-items:center;gap:8px;padding:6px 7px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface)}
-.bag-item.shop{background:var(--surface-3)}
+.bag-item{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1.5px solid #8c6239;border-radius:0;clip-path:var(--clip-card);background:#f5e6c8}
+.bag-item.shop{background:linear-gradient(180deg,#faeed4,#ead6af)}
 .bag-icon{width:26px;height:26px;image-rendering:pixelated;flex:none}
-.bag-meta{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}
-.bag-meta strong{font-size:11px;color:var(--ink);font-weight:700;overflow-wrap:anywhere}
-.bag-meta span{font-size:9.5px;color:var(--ink-3);line-height:1.5;overflow-wrap:anywhere}
+.bag-meta{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.bag-meta strong{font-size:11.5px;color:var(--ink);font-weight:800;overflow-wrap:anywhere}
+.bag-meta span{font-size:10px;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere}
 .bag-actions{display:flex;gap:5px;flex:none}
-.bag-actions button{min-height:28px;padding:0 9px;font-size:10.5px;border:1px solid var(--brand-line);border-radius:6px;background:var(--brand-soft);color:var(--brand-dk);font-weight:600;cursor:pointer}
-.bag-actions button.sell{border-color:var(--mint-line);background:var(--mint-soft);color:var(--mint-dk)}
-.bag-actions button:hover:not(:disabled){filter:brightness(.97);box-shadow:var(--sh-1)}
+.bag-actions button{min-height:28px;padding:0 10px;font-size:10.5px;border:1.5px solid #6e3b10;border-radius:0;clip-path:var(--clip-card);background:linear-gradient(180deg,#ffc86b,#d98218);color:#2b1402;font-weight:800;cursor:pointer}
+.bag-actions button.sell{border-color:#0f572d;background:linear-gradient(180deg,#34a861,#197841);color:#fff8eb}
+.bag-actions button:hover:not(:disabled){filter:brightness(1.06)}
 .bag-actions button:disabled{opacity:.45;cursor:not-allowed;filter:none}
 
-/* ---------- 物品格面板 ---------- */
-/* 居中弹出：用户要求「按 K 弹出的搜索弹窗在屏幕中心」。.map-view 是 position:relative，
-   所以这里用 absolute + translate 居中，而不是原来的右上角固定位。 */
-.loot-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:352px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);
-  display:flex;flex-direction:column;gap:9px;padding:15px;z-index:24;
-  border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--ink);
-  box-shadow:var(--sh-3)}
+/* ---------- 物品格面板（搜打撤异形藤蔓雕花木箱） ---------- */
+.loot-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:376px;max-width:calc(100% - 24px);max-height:calc(100% - 28px);
+  display:flex;flex-direction:column;gap:9px;padding:8px 10px;z-index:24;
+  border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 round;border-radius:0;background:transparent;color:var(--ink);
+  box-shadow:none;filter:var(--sh-3)}
 .loot-panel[hidden]{display:none}
-.loot-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex:none}
-.loot-head small{display:block;font-size:9px;letter-spacing:.16em;color:var(--brand);font-weight:700}
-.loot-head h2{margin:2px 0 0;font-size:15px;color:var(--ink);line-height:1.35;overflow-wrap:anywhere}
-/* 关闭键：hover 变珊瑚红，和 .icon-button 一致 */
-.loot-x{flex:none;width:30px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface-2);color:var(--ink-2);font-size:16px;line-height:1;cursor:pointer}
-.loot-x:hover{background:var(--coral-soft);border-color:var(--coral-line);color:var(--coral-dk)}
-.loot-meta{margin:0;font-size:10px;color:var(--ink-3);line-height:1.6}
+.loot-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;background-color:#3a2211;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='28' viewBox='0 0 64 28'><path d='M0 14 Q16 5 32 14 T64 14' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.22'/><path d='M12 10 L16 7 L14 12 Z M44 18 L48 15 L46 20 Z' fill='%2343a047' opacity='.28'/><polygon points='32,3 35,6 32,9 29,6' fill='%23ffd257' opacity='.22'/></svg>"),linear-gradient(180deg,#4d2f18,#2d190b);border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-banner);padding:8px 15px;color:#ffefc7}
+.loot-head small{display:block;font:800 9px ui-monospace,monospace;letter-spacing:.16em;color:#ffd06b}
+.loot-head small::before{content:'✦ 🌿 ';color:#68d372}
+.loot-head small::after{content:' 🌿 ✦';color:#68d372}
+.loot-head h2{margin:2px 0 0;font-size:15px;color:#fff3d4;line-height:1.35;overflow-wrap:anywhere}
+.loot-x{flex:none;width:30px;height:30px;border:1.5px solid #e08e76;border-radius:0;clip-path:var(--clip-octagon);background:linear-gradient(180deg,#9c3125,#631b13);color:#ffebd6;font-size:17px;line-height:1;cursor:pointer}
+.loot-x:hover{background:linear-gradient(180deg,#b53a2c,#7d2218);color:#fff}
+.loot-meta{margin:0;font-size:10.5px;color:var(--ink-2);line-height:1.55;font-weight:600}
 
-/* 进度条：品牌蓝 → 天空蓝渐变 */
-.loot-progress{flex:none;height:7px;border:1px solid var(--line-2);border-radius:4px;background:var(--surface-sunken);overflow:hidden}
-.loot-progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--brand),var(--sky));transition:width .22s linear}
+/* 进度条：琥珀金 → 翠林绿 */
+.loot-progress{flex:none;height:8px;border:1.5px solid #6e4823;border-radius:0;clip-path:var(--clip-card);background:#2b190c;overflow:hidden}
+.loot-progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,#f59e0b,#22c55e);transition:width .22s linear}
 
-/* 物品格：列数由 --cols 决定（服务端给 3 或 4 列） */
-.loot-grid{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:7px;overflow:auto;min-height:0;padding:1px}
+/* 物品格：切角深色木匣凹槽 */
+.loot-grid{display:grid;grid-template-columns:repeat(var(--cols,3),1fr);gap:7px;overflow:auto;min-height:0;padding:8px;background:#2e1b0d;border:2px solid #8c5e32;border-radius:0;clip-path:var(--clip-plaque);box-shadow:inset 0 3px 8px rgba(0,0,0,.5)}
 .loot-grid[hidden]{display:none}
-.loot-cell{position:relative;aspect-ratio:1/1;border:1px solid var(--line);border-radius:var(--r-sm);
-  background:var(--surface-2);display:flex;align-items:center;justify-content:center;
-  box-shadow:inset 0 0 0 1px #ffffff;overflow:hidden}
+.loot-cell{position:relative;aspect-ratio:1/1;border:2px solid #7a522c;border-radius:0;clip-path:var(--clip-card);
+  background:linear-gradient(180deg,#4d301a,#382211);display:flex;align-items:center;justify-content:center;
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.55);overflow:hidden}
 .loot-cell-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:100%;height:100%;padding:4px}
-.loot-q{font-size:17px;font-weight:700;color:var(--line-strong);font-family:ui-monospace,SFMono-Regular,monospace}
-/* 未翻开：斜纹用浅灰，比原来的深蓝纹路亮得多 */
-.loot-cell.is-hidden{background:repeating-linear-gradient(135deg,var(--surface-3) 0 7px,var(--surface-sunken) 7px 14px)}
-.loot-cell.is-hidden::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 35%,#ffffffb8 50%,transparent 65%);
+.loot-q{font-size:18px;font-weight:800;color:#cfa46e;font-family:ui-monospace,SFMono-Regular,monospace}
+.loot-cell.is-hidden{background:repeating-linear-gradient(135deg,#472b16 0 7px,#382110 7px 14px)}
+.loot-cell.is-hidden::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 35%,#ffdf9e38 50%,transparent 65%);
   transform:translateX(-120%);animation:loot-sheen 2.6s ease-in-out infinite}
 @keyframes loot-sheen{0%,55%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
 .loot-cell.is-revealing{animation:loot-flip .26s ease-out}
 @keyframes loot-flip{0%{transform:scale(.82) rotateY(38deg);opacity:.35}100%{transform:scale(1) rotateY(0);opacity:1}}
 .loot-icon{width:34px;height:34px;image-rendering:pixelated;display:block}
-.loot-name{font-size:9.5px;line-height:1.2;color:var(--ink-2);text-align:center;overflow-wrap:anywhere;max-width:100%}
-.loot-badge{font-size:9px;font-family:ui-monospace,SFMono-Regular,monospace;color:var(--mint-dk);font-weight:700}
-.loot-cell.is-empty{opacity:.5}
-.loot-cell.is-empty .loot-name{color:var(--ink-3)}
+.loot-name{font-size:9.5px;line-height:1.2;color:#f7e5c4;text-align:center;overflow-wrap:anywhere;max-width:100%;font-weight:600}
+.loot-badge{font-size:9px;font-family:ui-monospace,SFMono-Regular,monospace;color:#6ee7a0;font-weight:800}
+.loot-cell.is-empty{opacity:.48}
+.loot-cell.is-empty .loot-name{color:#b5946d}
 
-/* 稀有度：五档全部换成鲜艳描边 + 同色浅底微光，白底上层次分明 */
-.loot-cell.r-common{border-color:var(--line-strong)}
-.loot-cell.r-uncommon{border-color:var(--mint);box-shadow:inset 0 0 14px #0fa97426}
-.loot-cell.r-rare{border-color:var(--sky);box-shadow:inset 0 0 16px #1ba7e033}
-.loot-cell.r-epic{border-color:#8b5cf6;box-shadow:inset 0 0 18px #8b5cf640}
-.loot-cell.r-legendary{border-color:var(--sun);box-shadow:inset 0 0 20px #ff9e2c4d}
-.loot-cell.r-epic .loot-name{color:#6d3fd4}
-.loot-cell.r-legendary .loot-name{color:#a85a00}
+/* 稀有度边框 */
+.loot-cell.r-common{border-color:#9e7648}
+.loot-cell.r-uncommon{border-color:#2dd47b;box-shadow:inset 0 0 12px #10b98140}
+.loot-cell.r-rare{border-color:#38bdf8;box-shadow:inset 0 0 14px #0ea5e94d}
+.loot-cell.r-epic{border-color:#c084fc;box-shadow:inset 0 0 16px #a855f759}
+.loot-cell.r-legendary{border-color:#fbbf24;box-shadow:inset 0 0 18px #f59e0b66}
+.loot-cell.r-epic .loot-name{color:#e9d5ff}
+.loot-cell.r-legendary .loot-name{color:#fde68a}
 
-.loot-status{margin:0;font-size:11px;line-height:1.7;color:#a85a00;min-height:18px;background:var(--sun-soft);border-radius:6px;padding:6px 9px;font-weight:500}
-.loot-summary{margin:0;padding:9px 10px;border:1px solid var(--mint-line);border-radius:var(--r-sm);background:var(--mint-soft);font-size:11px;line-height:1.7;color:var(--ink)}
+.loot-status{margin:0;font-size:11px;line-height:1.65;color:#7a3e00;min-height:18px;background:var(--sun-soft);border:1px solid var(--sun-line);border-radius:5px;padding:6px 9px;font-weight:600}
+.loot-summary{margin:0;padding:8px 10px;border:1.5px solid var(--mint-line);border-radius:var(--r-sm);background:var(--mint-soft);font-size:11px;line-height:1.65;color:var(--ink)}
 .loot-summary[hidden]{display:none}
-.loot-summary-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.loot-summary-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}
 .loot-summary-head strong{color:var(--mint-dk);font-size:12px;font-weight:800}
-.loot-sum-chip{color:#a85a00;font-family:ui-monospace,monospace;font-weight:700}
-.loot-sum-clue{color:var(--brand-dk);font-family:ui-monospace,monospace;font-weight:700}
+.loot-sum-chip{color:#8a4400;font-family:ui-monospace,monospace;font-weight:800}
+.loot-sum-clue{color:var(--brand-dk);font-family:ui-monospace,monospace;font-weight:800}
 .loot-sum-items{display:flex;flex-wrap:wrap;gap:5px}
-.loot-sum-item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--line-2);border-radius:var(--r-pill);color:var(--ink-2);font-size:10px;background:var(--surface)}
-.loot-sum-item .dot{width:6px;height:6px;border-radius:50%;background:var(--line-strong)}
+.loot-sum-item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--line-2);border-radius:4px;color:var(--ink);font-size:10px;background:#faf0dc;font-weight:600}
+.loot-sum-item .dot{width:6px;height:6px;border-radius:2px;background:var(--line-strong)}
 .loot-sum-item.r-uncommon .dot{background:var(--mint)}
 .loot-sum-item.r-rare .dot{background:var(--sky)}
 .loot-sum-item.r-epic .dot{background:#8b5cf6}
 .loot-sum-item.r-legendary .dot{background:var(--sun)}
 .loot-sum-empty{color:var(--ink-3);font-size:10px}
-/* 主操作按钮：品牌蓝实心（开始搜索 / 全部拾取） */
 .loot-actions{display:flex;gap:8px;flex:none}
-.loot-actions button{flex:1;min-height:42px;border:1px solid var(--brand-dk);border-radius:var(--r-sm);
-  background:linear-gradient(180deg,var(--brand),var(--brand-dk));color:#fff;font-size:12px;font-weight:700;cursor:pointer;
-  box-shadow:0 1px 2px #4a5fe833,0 8px 18px -10px var(--brand)}
-.loot-actions button:hover:not(:disabled){background:linear-gradient(180deg,#5c70f2,var(--brand));border-color:var(--brand)}
+.loot-actions button{flex:1;min-height:40px;border:1.5px solid #4d1e05;border-radius:var(--r-sm);
+  background:linear-gradient(180deg,#b8561d,var(--brand-dk));color:#fff8eb;font-size:12px;font-weight:800;cursor:pointer;
+  box-shadow:inset 0 1px 0 #ffbb8866,0 2px 0 #3b1603}
+.loot-actions button:hover:not(:disabled){background:linear-gradient(180deg,#cc6326,#8a390d)}
 .loot-actions button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
-/* 「全部拾取」用薄荷绿，提示"这是收获" */
-.loot-actions #loot-take{background:linear-gradient(180deg,#25c78b,var(--mint));border-color:var(--mint-dk);color:#fff;box-shadow:0 1px 2px #0fa97433,0 8px 18px -10px var(--mint)}
-.loot-actions #loot-take:hover:not(:disabled){background:linear-gradient(180deg,#3dd79a,#12b27c);border-color:var(--mint-dk)}
+.loot-actions #loot-take{background:linear-gradient(180deg,#269955,var(--mint));border-color:#0b4222;color:#fff8eb;box-shadow:inset 0 1px 0 #8cf5b466,0 2px 0 #083018}
+.loot-actions #loot-take:hover:not(:disabled){background:linear-gradient(180deg,#2eb062,#146937)}
 .loot-actions #loot-take.is-ready{animation:loot-ready 1.6s ease-in-out infinite}
-@keyframes loot-ready{0%,100%{box-shadow:0 0 0 0 #0fa97400}50%{box-shadow:0 0 0 4px #0fa97455}}
+@keyframes loot-ready{0%,100%{box-shadow:0 0 0 0 #19784100}50%{box-shadow:0 0 0 4px #19784166}}
 
 @media(max-width:850px){
-  .loot-panel{width:300px;padding:12px}
+  .loot-panel{width:308px;padding:12px}
   .loot-name{font-size:9px}
   .loot-icon{width:28px;height:28px}
   .zone-banner{gap:6px;padding:5px 10px;font-size:10px}
@@ -127,86 +123,87 @@
   .loot-actions #loot-take.is-ready{animation:none}
 }
 
-/* ---------- 小游戏：坦克对决面板 ---------- */
-/* 入口按钮压在地图上，采用暖木牌底；面板本体白底 */
-.minigame-toggle{position:absolute;right:12px;bottom:64px;z-index:6;padding:8px 12px;font-size:12px;
-  border:1px solid #ad8052;border-radius:var(--r-sm);background:#3d2817e8;color:#ffe6b0;cursor:pointer;font-weight:600;box-shadow:0 4px 12px -4px rgba(36,20,8,0.45)}
-.minigame-toggle:hover{background:#523720;border-color:#ffd268;color:#fff8eb}
-.minigame-panel{position:absolute;right:12px;top:12px;width:340px;max-width:calc(100% - 24px);z-index:26;
-  padding:15px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);color:var(--ink);box-shadow:var(--sh-3)}
+/* ---------- 小游戏：坦克对决与卡牌对决异形藤蔓木盘 ---------- */
+.minigame-toggle{position:absolute;right:14px;bottom:48px;z-index:12;padding:7px 13px;font-size:11.5px;
+  border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-banner);background:linear-gradient(180deg,#4a2e19eb,#2e1b0deb);color:#ffe6b0;cursor:pointer;font-weight:700;box-shadow:inset 0 1px 0 #ffdf9e33;filter:drop-shadow(0 4px 10px rgba(18,9,3,.55))}
+.minigame-toggle:hover{background:linear-gradient(180deg,#5e3b20,#3d2412);border-color:#ffd268;color:#fff8eb}
+.minigame-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);right:auto;width:376px;max-width:calc(100% - 24px);z-index:26;
+  padding:8px 10px;border:24px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 28px / 0 round;border-radius:0;background:transparent;color:var(--ink);box-shadow:none;filter:var(--sh-3)}
 .minigame-panel[hidden]{display:none}
-.mg-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px}
-.mg-head small{font-size:9px;letter-spacing:.16em;color:var(--brand);font-weight:700}
-.mg-head h2{margin:2px 0 0;font-size:15px;color:var(--ink)}
-.mg-close{width:30px;height:30px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface-2);color:var(--ink-2);font-size:16px;cursor:pointer}
-.mg-close:hover{background:var(--coral-soft);border-color:var(--coral-line);color:var(--coral-dk)}
-.mg-note{font-size:11px;color:var(--ink-3);line-height:1.7;margin:0 0 8px}
-.mg-foe{display:block;width:100%;margin:6px 0;padding:9px;font-size:12px;border:1px solid var(--sky-line);border-radius:var(--r-sm);background:var(--sky-soft);color:var(--sky-dk);cursor:pointer;font-weight:600}
-.mg-foe:hover{background:#d3f1fd;border-color:var(--sky)}
-.mg-board{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 10px}
+.mg-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;background-color:#3a2211;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='28' viewBox='0 0 64 28'><path d='M0 14 Q16 5 32 14 T64 14' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.22'/><path d='M12 10 L16 7 L14 12 Z M44 18 L48 15 L46 20 Z' fill='%2343a047' opacity='.28'/><polygon points='32,3 35,6 32,9 29,6' fill='%23ffd257' opacity='.22'/></svg>"),linear-gradient(180deg,#4d2f18,#2d190b);border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-banner);padding:8px 15px;color:#ffefc7}
+.mg-head small{font:800 9px ui-monospace,monospace;letter-spacing:.16em;color:#ffd06b;display:block}
+.mg-head small::before{content:'✦ 🌿 ';color:#68d372}
+.mg-head small::after{content:' 🌿 ✦';color:#68d372}
+.mg-head h2{margin:2px 0 0;font-size:15px;color:#fff3d4}
+.mg-close{width:30px;height:30px;border:1.5px solid #e08e76;border-radius:0;clip-path:var(--clip-octagon);background:linear-gradient(180deg,#9c3125,#631b13);color:#ffebd6;font-size:16px;cursor:pointer}
+.mg-close:hover{background:linear-gradient(180deg,#b53a2c,#7d2218);color:#fff}
+.mg-note{font-size:11px;color:var(--ink-2);line-height:1.65;margin:0 0 8px}
+.mg-foe{display:block;width:100%;margin:6px 0;padding:9px;font-size:12px;border:1.5px solid var(--line-strong);border-radius:0;clip-path:var(--clip-card);background:#faf0dc;color:var(--brand-dk);cursor:pointer;font-weight:700}
+.mg-foe:hover{background:var(--sun-soft);border-color:var(--brand)}
+.mg-board{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:6px 0 10px;padding:8px 10px;background:#faf0dc;border:1.5px solid var(--line);border-radius:0;clip-path:var(--clip-plaque)}
 .mg-side{display:flex;flex-direction:column;gap:2px;font-size:12px;flex:1;color:var(--ink)}
 .mg-side.foe{text-align:right;align-items:flex-end}
 .mg-side small{color:var(--ink-3);font-size:10px}
-.mg-hp{font-family:ui-monospace,monospace;letter-spacing:1px;color:var(--brand-dk);font-weight:700}
-.mg-ammo{font-size:10px;color:#a85a00;font-weight:600}
-.mg-vs{text-align:center;font-size:11px;color:var(--ink-3);font-weight:700}
-.mg-status{font-size:11px;color:#a85a00;min-height:16px;margin:4px 0;font-weight:600}
-.mg-log{max-height:96px;overflow:auto;margin:4px 0 8px;padding-left:18px;font-size:10px;color:var(--ink-2);line-height:1.7}
+.mg-hp{font-family:ui-monospace,monospace;letter-spacing:1px;color:var(--brand-dk);font-weight:800}
+.mg-ammo{font-size:10px;color:#8a4400;font-weight:700}
+.mg-vs{text-align:center;font-size:11px;color:var(--ink-3);font-weight:800}
+.mg-status{font-size:11px;color:#8a4400;min-height:16px;margin:4px 0;font-weight:700}
+.mg-log{max-height:96px;overflow:auto;margin:4px 0 8px;padding-left:18px;font-size:10px;color:var(--ink-2);line-height:1.65}
 .mg-actions{display:flex;gap:6px}
-.mg-actions button{flex:1;min-height:38px;border:1px solid var(--brand-line);border-radius:var(--r-sm);background:var(--brand-soft);color:var(--brand-dk);font-size:12px;font-weight:600;cursor:pointer}
-.mg-actions button:hover{background:#e0e5ff;border-color:var(--brand)}
+.mg-actions button{flex:1;min-height:38px;border:1.5px solid #875d2c;border-radius:0;clip-path:var(--clip-card);background:linear-gradient(180deg,#faeccb,#dfc28f);color:var(--ink);font-size:12px;font-weight:700;cursor:pointer}
+.mg-actions button:hover{background:linear-gradient(180deg,#fff4d9,#ebd09e);border-color:var(--brand)}
 
-/* ---------- 背包：画面正中的矩形网格仓库 ---------- */
-.exploration.bag-mode{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(760px,94vw);
-  max-height:min(76vh,640px);overflow:auto;z-index:34;box-shadow:var(--sh-3)}
+/* ---------- 背包：画面正中的像素 RPG 异形藤蔓木格储物箱 ---------- */
+.exploration.bag-mode{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(768px,94vw);
+  max-height:min(80vh,660px);overflow:auto;z-index:34;filter:var(--sh-3)}
 .bag-wrap{display:flex;gap:12px;align-items:flex-start;margin-top:8px}
 .bag-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:1;min-width:0}
-/* 背包格：白底细边，hover 品牌蓝，选中阳光橙 */
+.bag-grid>.panel-note{grid-column:1/-1;text-align:center;padding:12px 6px}
+/* 背包格：切角深色樟木内凹槽 + 黄铜选中边框 */
 .bag-cell{position:relative;aspect-ratio:1;display:flex;align-items:center;justify-content:center;
-  border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface-2);cursor:pointer;padding:6px}
-.bag-cell:hover{border-color:var(--brand);background:var(--brand-soft)}
-.bag-cell.active{border-color:var(--sun);background:var(--sun-soft);box-shadow:inset 0 0 0 1px #ff9e2c4d}
+  border:2px solid #7a522c;border-radius:0;clip-path:var(--clip-card);background:linear-gradient(180deg,#4d301a,#382211);cursor:pointer;padding:6px;
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.55),0 1px 0 rgba(255,223,158,.15)}
+.bag-cell:hover{border-color:#f0b24a;background:linear-gradient(180deg,#5e3b20,#472b16)}
+.bag-cell.active{border-color:#ffd257;background:linear-gradient(180deg,#6e4423,#523118);box-shadow:inset 0 0 8px rgba(255,186,44,.45),0 0 0 1px #ffd257}
 .bag-cell canvas{width:34px;height:34px;image-rendering:pixelated}
-.bag-count{position:absolute;right:4px;bottom:2px;font-size:10px;color:var(--ink);font-family:ui-monospace,monospace;font-weight:700}
-.bag-rarity{position:absolute;left:0;right:0;bottom:0;height:3px;border-radius:0 0 var(--r-sm) var(--r-sm)}
-.bag-rarity.r-common{background:var(--line-strong)}
-.bag-rarity.r-uncommon{background:var(--mint)}
-.bag-rarity.r-rare{background:var(--sky)}
-.bag-rarity.r-epic{background:#8b5cf6}
-.bag-rarity.r-legendary{background:var(--sun)}
-.bag-detail{width:220px;flex:0 0 220px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);padding:10px}
+.bag-count{position:absolute;right:5px;bottom:4px;font-size:10px;color:#fff4d4;text-shadow:1px 1px 0 #1a0d04;font-family:ui-monospace,monospace;font-weight:800}
+.bag-rarity{position:absolute;left:0;right:0;bottom:0;height:3px}
+.bag-rarity.r-common{background:#9e7648}
+.bag-rarity.r-uncommon{background:#2dd47b}
+.bag-rarity.r-rare{background:#38bdf8}
+.bag-rarity.r-epic{background:#c084fc}
+.bag-rarity.r-legendary{background:#fbbf24}
+.bag-detail{width:228px;flex:0 0 228px;border:2px solid #9c7144;border-radius:0;clip-path:var(--clip-plaque);background:linear-gradient(180deg,#faeed5,#ead6b0);padding:10px 11px;color:var(--ink);box-shadow:inset 0 1px 0 #fff9eb}
 .bag-detail[hidden]{display:none}
 .bag-detail-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.bag-detail-head strong{display:block;font-size:13px;color:var(--ink);font-weight:700}
-.bag-detail-head small{color:var(--ink-3);font-size:10px}
-.bag-detail-head .icon-button{margin-left:auto}
-.bag-detail-desc{font-size:11px;line-height:1.7;color:var(--ink-2);margin:4px 0 8px}
+.bag-detail-head strong{display:block;font-size:13px;color:var(--ink);font-weight:800}
+.bag-detail-head small{color:var(--ink-2);font-size:10px;font-weight:600}
+.bag-detail-head .icon-button{margin-left:auto;width:26px;height:26px;font-size:15px}
+.bag-detail-desc{font-size:11px;line-height:1.65;color:var(--ink-2);margin:4px 0 8px}
 .bag-detail .bag-actions{display:flex;gap:6px}
-.bag-detail .bag-actions button{flex:1;min-height:30px;border:1px solid var(--brand-line);border-radius:7px;background:var(--brand-soft);color:var(--brand-dk);font-size:11px;font-weight:600;cursor:pointer}
+.bag-detail .bag-actions button{flex:1;min-height:30px;font-size:11px;font-weight:800;cursor:pointer}
 
-/* 物品详情：图标固定 28px，标题单行省略，避免撑破侧栏 */
 .bag-detail-head canvas{width:28px;height:28px;flex:0 0 28px;image-rendering:pixelated}
 .bag-detail-head>div{min-width:0;flex:1}
 .bag-detail-head strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* ---------- 卡牌对决 ---------- */
-.spire-toggle{right:120px}
+.spire-toggle{right:116px}
 .spire-panel{width:420px}
 .spire-board{display:grid;gap:6px;margin-bottom:10px;font-size:12px}
-/* 敌人条：珊瑚红淡底（危险语义），深红字 */
-.spire-enemy{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--coral-line);border-radius:var(--r-sm);background:var(--coral-soft)}
-.spire-enemy strong{color:var(--coral-dk);font-size:13px;font-weight:700}
-.spire-enemy small{color:var(--ink-3);font-size:10px}
-.spire-hp{margin-left:auto;font-family:ui-monospace,monospace;color:var(--coral-dk);font-weight:700}
-.spire-tag{font-size:10px;padding:1px 7px;border-radius:var(--r-pill);border:1px solid var(--coral-line);color:var(--coral-dk);font-weight:600}
-.spire-self{display:flex;flex-wrap:wrap;gap:10px;color:var(--ink-2);font-size:11px}
+.spire-enemy{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--coral-line);border-radius:var(--r-sm);background:var(--coral-soft)}
+.spire-enemy strong{color:var(--coral-dk);font-size:13px;font-weight:800}
+.spire-enemy small{color:var(--ink-2);font-size:10px}
+.spire-hp{margin-left:auto;font-family:ui-monospace,monospace;color:var(--coral-dk);font-weight:800}
+.spire-tag{font-size:10px;padding:1px 7px;border-radius:4px;border:1px solid var(--coral-line);color:var(--coral-dk);font-weight:700}
+.spire-self{display:flex;flex-wrap:wrap;gap:10px;color:var(--ink-2);font-size:11px;font-weight:600}
 .spire-hand{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}
 .spire-card{position:relative;display:flex;flex-direction:column;gap:2px;padding:8px 8px 6px;text-align:left;
-  border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--surface-2);color:var(--ink);cursor:pointer}
-.spire-card:hover{border-color:var(--brand);background:var(--brand-soft)}
+  border:1.5px solid var(--line-strong);border-radius:var(--r-sm);background:#faf0dc;color:var(--ink);cursor:pointer}
+.spire-card:hover{border-color:var(--brand);background:var(--sun-soft)}
 .spire-card.costly{opacity:.45;cursor:not-allowed}
-.spire-card strong{font-size:12px;font-weight:700}
-.spire-card small{font-size:10px;color:var(--ink-3);line-height:1.4}
-.spire-card .cost{position:absolute;right:6px;top:4px;font-size:10px;color:#a85a00;font-family:ui-monospace,monospace;font-weight:700}
-.spire-card.type-attack{border-color:var(--coral-line)}
-.spire-card.type-block{border-color:var(--sky-line)}
+.spire-card strong{font-size:12px;font-weight:800}
+.spire-card small{font-size:10px;color:var(--ink-2);line-height:1.4}
+.spire-card .cost{position:absolute;right:6px;top:4px;font-size:10px;color:#8a4400;font-family:ui-monospace,monospace;font-weight:800}
+.spire-card.type-attack{border-color:var(--coral)}
+.spire-card.type-block{border-color:var(--sky)}

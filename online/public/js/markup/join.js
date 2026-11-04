@@ -5,10 +5,18 @@
 (function () {
   const html = `<div id="join-page" class="join-overlay" hidden>
     <form id="join-form" class="join-panel">
-      <span class="eyebrow">LAN PLAYTEST</span>
-      <h2>加入办公室</h2>
-      <p id="join-hint">昵称可留空，留空由系统分配虚构姓名。第一位加入者是坏人，其后全部是好人。启用 CAS 单点登录后以姓名直接进局。</p>
-      <input id="nickname" maxlength="8" placeholder="昵称（可留空）" autocomplete="off" spellcheck="false">
+      <div class="join-badge-row">
+        <span class="eyebrow">SID HUNTER · ANNUAL TOURNAMENT</span>
+        <span class="join-tag">5天累计积分赛</span>
+      </div>
+      <h2>进入年会大厦现场</h2>
+      <p id="join-hint">昵称可留空（系统将随机分配代号）。全员凭三段身份码（S-ID）展开阵营推理博弈，累计总分前 100 名获奖。</p>
+      <div class="join-feature-strip" aria-hidden="true">
+        <span><b>调查员</b> · 调查属性 / 指认</span>
+        <span><b>潜伏者</b> · 公开身份码 / 击杀</span>
+        <span><b>参与即得分</b> · 首搜+5 / 首游+5</span>
+      </div>
+      <input id="nickname" maxlength="8" placeholder="输入代号昵称（可留空随机）" autocomplete="off" spellcheck="false">
       <button type="submit" id="join-submit">进入办公室</button>
       <small id="join-error"></small>
     </form>

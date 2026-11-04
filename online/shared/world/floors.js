@@ -53,6 +53,16 @@
   const OUTLINE_6F = [[0, 0], [1500, 0], [1500, 760], [1400, 760], [1400, 1000], [420, 1000], [420, 840], [260, 840], [260, 640], [140, 640], [140, 480], [0, 480]];
   const OUTLINE_7F = [[0, 0], [1500, 0], [1500, 580], [1380, 580], [1380, 1000], [120, 1000], [120, 580], [0, 580]];
   const FULL_RECT = OUTLINE_1F, L24 = OUTLINE_2F, L56 = OUTLINE_5F;
+  // 1F 试点：以「2× 世界像素」直接写成品尺寸，换算回 1500×1000 设计坐标。
+  // visualRect 会把非容器 ×1.35/S、容器 ×1/S 缩放，这里预先反算，保证最终 rect = 所写 px。
+  const P1 = (type, label, x, y, w, h, flag) => {
+    const mul = (typeof flag === 'string' && flag.indexOf('container:') === 0) ? 1 : 1.35;
+    const cx = x + w / 2, cy = y + h / 2, dw = w * 2 / mul, dh = h * 2 / mul;
+    const row = [type, label, (cx - dw / 2) / 1.92, (cy - dh / 2) / 0.8, (cx + dw / 2) / 1.92, (cy + dh / 2) / 0.8];
+    if (flag) row.push(flag);
+    return row;
+  };
+  const PX1 = (x, y) => [x / 1.92, y / 0.8];
 
   // 点是否在楼面轮廓内（本地版本，建造期 FLOORS 还没注册，不能调 inFloor）。
   const pointInPoly = (poly, x, y) => {
@@ -309,11 +319,45 @@
   const CONTAINER_NAMES = {};
   const FLOORS = {};
   const NPCS = [];
+  // ===== 美术层布局（layouts/fN.js）：存在即接管该层的家具/墙/出生点/NPC/房门，楼层轮廓与 id 契约不变 =====
+  // 布局以 2× 世界像素书写最终尺寸；这里换算回设计坐标后走原建造流程（碰撞/容器 id/电梯厅全部同源）。
+  const LAYOUTS = (typeof module !== 'undefined' && module.exports && typeof require === 'function')
+    ? require('./layouts/index.js')
+    : ((typeof window !== 'undefined' ? window : globalThis).SID_LAYOUTS || {});
+  const LOBBY_DOORS = {};
+  for (const spec of FLOOR_SPECS) {
+    const L = LAYOUTS[spec.id];
+    if (!L) continue;
+    spec.lobby = true;
+    spec.wallBase = L.wallBase || 112;
+    // 楼层外轮廓可由布局覆盖（2× 世界像素书写，直角多边形），每层独立形状。
+    if (Array.isArray(L.outline)) spec.outline = L.outline.map(([x, y]) => [x / 1.92, y / 0.8]);
+    spec.maze = null;
+    spec.furniture = L.furniture.map(r => P1(r[0], r[1], r[2], r[3], r[4], r[5], r[6]));
+    // style：'fence' | 'hedge' | 'glass'（矮隔断）/ 'house'（独立小建筑，屋顶 + 立面 + 嵌墙门）；skin：主题外观参数，仅渲染用。
+    spec.walls = (L.walls || []).map(w => w.o === 'h'
+      ? ['h', (w.y + (w.t || 16) / 2) / 0.8, w.x1 / 1.92, w.x2 / 1.92, { t: (w.t || 16) / 0.8, face: w.face || 60, style: w.style, skin: w.skin, open: (w.open || []).map(([a, b]) => [a / 1.92, b / 1.92]) }]
+      : ['v', (w.x + (w.t || 16) / 2) / 1.92, w.y1 / 0.8, w.y2 / 0.8, { t: (w.t || 16) / 1.92, face: w.face || 60, style: w.style, skin: w.skin, open: (w.open || []).map(([a, b]) => [a / 0.8, b / 0.8]) }]);
+    spec.spawns = L.spawns.map(([x, y]) => PX1(x, y));
+    const byslug = Object.fromEntries((spec.npcs || []).map(n => [n.slug, n]));
+    spec.npcs = (L.npcs || []).map(n => ({ ...(byslug[n.slug] || {}), ...n, x: n.x / 1.92, y: n.y / 0.8 }));
+    for (const [slug, p] of Object.entries(L.rooms || {})) LOBBY_DOORS[slug] = [p[0], p[1]];
+  }
+  // 美术层楼层的碰撞块统一为「贴前沿的底部条带」——画什么撞什么，不再走旧工位岛/主题精灵的特例。
+  function lobbyBlocks(f) {
+    const { x, y, w, h, type } = f;
+    if (type === 'pillar') return [{ x, y, w, h }];
+    if (type === 'fountain') return [{ x: x + 8, y: y + h - 40, w: w - 16, h: 38 }];
+    if (type === 'plant') { const d = Math.min(16, h); return [{ x: x + Math.round(w * 0.2), y: y + h - d, w: Math.round(w * 0.6), h: d }]; }
+    const d = Math.min(24, h);
+    return [{ x: x + 4, y: y + h - d, w: Math.max(4, w - 8), h: d }];
+  }
   (function buildFloors() {
     for (const spec of FLOOR_SPECS) {
       const floor = {
         id: spec.id, name: spec.name, source: spec.source,
         width: FLOOR_W, height: FLOOR_H, zones: spec.zones.slice(),
+        ...(spec.lobby ? { lobby: true, wallBase: spec.wallBase } : {}),
         polygon: spec.outline.map(([x, y]) => ({ x: nX(x), y: nY(y) })),
         furniture: [], walls: [], doors: [], spawnPoints: [], portals: [], npcs: []
       };
@@ -325,7 +369,8 @@
         for (const w of maze.walls) floor.walls.push({ ...w });
       } else {
         spec.walls.forEach((w, i) => {
-          const [orient, fixed, a1, a2] = w, t = 7, isH = orient === 'h';
+          // 第 5 元可选：{ t 厚度(设计单位), face 立面高(px), open [[a1,a2],…] 显式门洞(设计单位) }
+          const [orient, fixed, a1, a2, wopt] = w, opt = wopt || {}, t = opt.t || 7, isH = orient === 'h';
           const toPx = isH ? nX : nY;
           const nFixed = isH ? nY : nX;
           const halfPx = isH ? DOOR_HALF_PX_H : DOOR_HALF_PX_V;
@@ -342,9 +387,23 @@
             if (end <= start) return;
             const x = isH ? start : near, y = isH ? near : start;
             const ww = isH ? end - start : far - near, hh = isH ? far - near : end - start;
-            floor.walls.push({ id: `f${spec.id}:wall:${i}:${segment++}`, x, y, w: ww, h: hh, type: 'wall',
-              footprint: { x, y, w: ww, h: hh }, depth: y + hh });
+            const wall = { id: `f${spec.id}:wall:${i}:${segment++}`, x, y, w: ww, h: hh, type: 'wall',
+              footprint: { x, y, w: ww, h: hh }, depth: y + hh };
+            if (opt.face) wall.face = opt.face;
+            if (opt.style) wall.style = opt.style;
+            if (opt.skin) wall.skin = opt.skin;
+            if (spec.lobby) wall.lobby = true;
+            floor.walls.push(wall);
           };
+          if (Array.isArray(opt.open)) {
+            for (const [o1, o2] of opt.open.slice().sort((p, q) => p[0] - q[0])) {
+              const s = toPx(o1), e = toPx(o2);
+              pushWall(cursor, s);
+              floor.doors.push({ id: `f${spec.id}:door:${i}:${segment}`, orientation: orient,
+                x: isH ? Math.round((s + e) / 2) : nX(fixed), y: isH ? nY(fixed) : Math.round((s + e) / 2), width: e - s });
+              cursor = e;
+            }
+          }
           for (const center of openings.filter(v => v > a1 + guard && v < a2 - guard)) {
             const c = toPx(center);
             pushWall(cursor, c - halfPx);
@@ -357,7 +416,23 @@
       }
 
       // 2) 建造家具：使用完整 3/4 视觉包围盒（含向上立面高度 56px 与北侧椅背）进行零重叠校验
-      const rows = spec.furniture.concat((DRESSING && DRESSING[spec.id]) || []);
+      const rows = spec.lobby ? spec.furniture.slice() : spec.furniture.concat((DRESSING && DRESSING[spec.id]) || []);
+      // 美术层楼层：每条「朝南的水平外轮廓边」都立一段 wallBase 高的实墙（墙带），渲染由北墙画法负责。
+      if (spec.lobby) {
+        const poly = floor.polygon, bands = [];
+        for (let k = 0; k < poly.length; k++) {
+          const a = poly[k], b = poly[(k + 1) % poly.length];
+          if (a.y !== b.y) continue;
+          const x1 = Math.min(a.x, b.x), x2 = Math.max(a.x, b.x);
+          if (x2 - x1 < 8 || !pointInPoly(poly, (x1 + x2) / 2, a.y + 2)) continue;
+          bands.push({ x: x1, y: a.y, w: x2 - x1, h: spec.wallBase });
+        }
+        bands.sort((p, q) => p.y - q.y || p.x - q.x);
+        floor.bands = bands;
+        bands.forEach((bd, k) => floor.walls.push({ id: `f${spec.id}:wall:north${k ? ':' + k : ''}`, x: bd.x, y: bd.y, w: bd.w, h: bd.h, type: 'wall',
+          footprint: { x: bd.x, y: bd.y, w: bd.w, h: bd.h }, depth: bd.y + bd.h, lobby: true, northBand: true }));
+      }
+      const inBand = (r) => (floor.bands || []).some(b => r.x < b.x + b.w && r.x + r.w > b.x && r.y < b.y + b.h + 2 && r.y + r.h > b.y);
       const fitTheme = (f) => {
         const fit = THEME_PROP && THEME_PROP[spec.id] && THEME_PROP[spec.id][f.type];
         if (!fit || !fit.prop || fit.repeat) return;
@@ -385,7 +460,7 @@
         const tall = (type === 'mat' || type === 'stage') ? r.h + 6 : Math.max(r.h + 10, 56);
         return { x: r.x - 10, y: by - tall, w: r.w + 20, h: tall + 8 };
       };
-      const wallVisBoxes = floor.walls.map(w => ({ x: w.x - 10, y: w.y - 30, w: w.w + 20, h: w.h + 38 }));
+      const wallVisBoxes = floor.walls.filter(w => !w.northBand).map(w => ({ x: w.x - 10, y: w.y - (w.face || 30), w: w.w + 20, h: w.h + (w.face || 30) + 8 }));
       const npcVisBoxes = (spec.npcs || []).map(n => ({ x: nX(n.x) - 42, y: nY(n.y) - 68, w: 84, h: 80 }));
       const placedVisBoxes = [];
       const inPolyRect = (r) => (
@@ -396,7 +471,9 @@
       );
       const isVisClear = (r, type) => {
         const vb = visBoxOf(r, type);
-        if (vb.y < 58 || r.x < 12 || r.x + r.w > FLOOR_W - 12 || r.y + r.h > FLOOR_H - 10) return false;
+        // 美术层楼层：靠墙家具允许在视觉上叠到北墙前（画在墙之后），只要求落地矩形在墙脚以南。
+        if (spec.lobby ? inBand(r) : (vb.y < 58)) return false;
+        if (r.x < 12 || r.x + r.w > FLOOR_W - 12 || r.y + r.h > FLOOR_H - 10) return false;
         if (!inPolyRect(r)) return false;
         if (wallVisBoxes.some(wb => overlapArea(vb, wb) > 0)) return false;
         if (type !== 'reception' && npcVisBoxes.some(nb => overlapArea(vb, nb) > 0)) return false;
@@ -447,7 +524,8 @@
         const f = { id, floorId: spec.id, x: r.x, y: r.y, w: r.w, h: r.h, type, label,
           footprint: { x: r.x, y: r.y + r.h - footHeight, w: r.w, h: footHeight }, depth: r.y + r.h };
         f.blocks = blocksFor(f);
-        fitTheme(f);
+        if (spec.lobby) { f.blocks = lobbyBlocks(f); f.footprint = { ...f.blocks[0] }; }
+        else fitTheme(f);
         if (label === '东侧电梯厅') { f.architecturalPlaceholder = true; f.blocks = []; f.footprint = null; f.w = 0; f.h = 0; }
         if (container) f.container = container;
         floor.furniture.push(f);
@@ -497,7 +575,10 @@
         const approachX = edgeX + (side === 'left' ? 28 : -28);
         // The west entrance must avoid conference walls/core cabinets. Pick a genuine free corridor.
         let entryY = null;
-        for (const cy of [100, 96, 108, 92, 80, 120, 140, 156, 176, 200]) {
+        // 美术层楼层外轮廓各异：两侧入口可能在更低处，候选高度向南延伸（既有楼层仍优先命中原高度）。
+        const entryCands = [100, 96, 108, 92, 80, 120, 140, 156, 176, 200];
+        if (spec.lobby) for (let cy = 220; cy <= FLOOR_H - 60; cy += 20) entryCands.push(cy);
+        for (const cy of entryCands) {
           let safe = true;
           for (let x = side === 'left' ? 0 : FLOOR_W - 48; x <= (side === 'left' ? 48 : FLOOR_W); x += 4) {
             for (let y = cy - 12; y <= cy + 12; y += 4) {
@@ -811,7 +892,7 @@
     if (TMJ && TMJ.active(floorId)) return { minX: -72 * FLOOR_SCALE + 12, maxX: FLOOR_W + 72 * FLOOR_SCALE - 12, minY: 72, maxY: FLOOR_H - 24 };
     // 注意：minY 不能抬到墙带之下 —— 电梯厅在楼板外的 y≈32..128，抬 minY 会把整条西/东通道封死。
     // "不能上墙"改用一条只覆盖楼板区域的隐形墙带（见 floorBlockers）。
-    return { minX: f.worldBounds.minX + 12, maxX: f.worldBounds.maxX - 12, minY: 72, maxY: f.height - 24 };
+    return { minX: f.worldBounds.minX + 12, maxX: f.worldBounds.maxX - 12, minY: f.wallBase ? f.wallBase + 14 : 72, maxY: f.height - 24 };
   }
   function cameraBounds(floorId, viewW, viewH, x, y) {
     const b = floorById(floorId).worldBounds, w = b.maxX - b.minX, h = b.maxY - b.minY;
@@ -832,7 +913,7 @@
     if (!facingOk) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 K' };
     return { inReach: true, facingOk: true, allowed: true, reason: '' };
   }
-  return { FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout };
+  return { LOBBY_DOORS, LAYOUTS, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout };
 });
 
 

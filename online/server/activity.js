@@ -68,6 +68,15 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     room.room.nextClueAt=isActive()&&!paused&&!error&&clueSchedule.nextAt&&clueSchedule.nextAt<session.endsAt
       ?clueSchedule.nextAt:0;
   }
+  function syncHistorical(){
+    const today=dayOf(now());
+    const priorList=results.filter(r=>r&&r.day&&r.day<today);
+    const ranked=sumRanking(priorList);
+    room.room.historicalRanking=ranked.slice(0,100).map(r=>({rank:r.rank,name:r.name,score:r.score,days:r.days}));
+    const scoreMap={};
+    for(const r of ranked)scoreMap[`name:${r.name}`]=r.score;
+    room.room.historicalScores=scoreMap;
+  }
   function resultForSession(reason){
     const ranking=room.room.players.filter(p=>!p.npc).map(p=>({
       key:createHash('sha256').update(p.empNo?'employee:'+p.empNo:'guest:'+(p.participantKey||p.sessionId||room.room.roundId+':'+p.id)).digest('hex'),
@@ -84,7 +93,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     const result=resultForSession(reason),done={...session,settled:true,pausedAt:0};
     const saved={...record(),session:done};
     if(!store.enabled||!store.archiveSession(result,saved)){error='场次结算保存失败，已冻结；不能开新场覆盖旧数据';block(error);return false;}
-    session=done;room.room.pausedAt=0;results=readResults();lastSave=now();error='';return true;
+    session=done;room.room.pausedAt=0;results=readResults();syncHistorical();lastSave=now();error='';return true;
   }
   function retainLegacy(){
     if(session||!room.room.players.length)return true;
@@ -105,6 +114,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     // 手动场重叠的自动场视为已占用，不在手动场结束后偷偷插入同一时段。
     if(source==='manual')for(const s of plan.slots){if(at(planDay,s.startTime)<endsAt&&at(planDay,s.endTime)>startedAt)consumed.push(`${planDay}:${s.id}`);}
     room.setChargeInterval(config.chargeIntervalMs);clueSchedule={nextAt:now()+config.clueIntervalMs,lastAt:0,lastCount:0};revision++;
+    results=readResults();syncHistorical();
     if(!persist())return{ok:false,error};
     return{ok:true,session:{...session}};
   }
@@ -121,6 +131,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     const t=now(),today=dayOf(t);
     // 先把「下次公布线索」的时间同步给公共快照，后面的每个 return 分支都不会让它变脏。
     syncNextClueAt();
+    syncHistorical();
     if(error&&t-lastAttempt<1000){block(error);return;}lastAttempt=t;
     if(!store.enabled){error='存档不可用，不能开始或继续场次';block(error);return;}
     // 结束时间优先于暂停与定时公布；暂停不能延长本场。
@@ -220,6 +231,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   }
   function sumRanking(list){const totals=new Map();for(const r of [...list].sort((a,b)=>a.startedAt-b.startedAt))for(const p of r.ranking||[]){const v=totals.get(p.key)||{key:p.key,name:p.name,score:0,sessions:0,daysSet:new Set()};v.name=p.name;v.score+=p.score;v.sessions++;v.daysSet.add(r.day);totals.set(p.key,v);}
     return[...totals.values()].sort((a,b)=>b.score-a.score||a.key.localeCompare(b.key)).map((v,i)=>{const{daysSet,...rest}=v;return{...rest,rank:i+1,days:daysSet.size};});}
+  syncHistorical();
   function state(){
     const active=isActive(),paused=!!(active&&session.pausedAt),today=dayOf(now());
     return{config:clone(config),templates:TEMPLATES,revision,day:session?.day||null,active,settled:!!session?.settled,paused,currentRoundId:room.room.roundId,session:session?{...session}:null,

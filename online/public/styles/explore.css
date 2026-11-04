@@ -1,25 +1,26 @@
 /* 探索 HUD 与线索背包 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
-/* 明亮化：探索面板白卡片；线索用阳光橙、NPC 用天空蓝区分。 */
-.exploration-hud{position:absolute;left:18px;top:58px;max-width:245px;max-height:34%;overflow:auto;padding:9px 11px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:#ffffffe8;z-index:3;font-size:10px;color:var(--ink-2);box-shadow:var(--sh-1)}
-#cover-status{color:var(--ink-2)}
+/* 像素 RPG 异形藤蔓雕花储物箱与火漆情报卷轴风格 */
+.exploration-hud{position:absolute;left:14px;top:96px;max-width:245px;max-height:34%;overflow:auto;padding:9px 11px;border:2px solid #966c40;border-radius:0;clip-path:var(--clip-plaque);background:#362112eb;z-index:8;font-size:10px;color:#f5e4cc;box-shadow:0 6px 16px rgba(15,8,3,.55)}
+#cover-status{color:#e6ccb0}
 .nearby-items{display:flex;flex-direction:column;gap:5px;margin-top:6px}
-.nearby-items button{font-size:10px;padding:6px 9px;text-align:left}
+.nearby-items button{font-size:10.5px;padding:6px 10px;text-align:left}
 #nearby-empty{line-height:1.6;margin-top:5px}
-.exploration{right:12px;top:12px;width:320px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);padding:17px;z-index:21;border-color:var(--line);color:var(--ink)}
+.exploration{right:12px;top:12px;width:368px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);padding:10px 12px;z-index:21;color:var(--ink)}
 .exploration>.panel-heading{flex:none;margin-bottom:10px}
 .exploration-body{overflow:auto;min-height:0;overscroll-behavior:contain}
-.exploration #exploration-close{flex:none;min-width:44px;min-height:44px}
-/* 筹码余额：薄荷绿淡底，像"钱包" */
-.exploration-balance{padding:9px 11px;background:var(--mint-soft);border:1px solid var(--mint-line);border-radius:var(--r-sm);font-size:12px;color:var(--mint-dk);font-weight:500}
-.exploration-balance strong{color:var(--mint-dk);font-weight:800}
-.search-state{font-size:12px;color:#a85a00;line-height:1.7;margin:8px 0;background:var(--sun-soft);border-radius:6px;padding:6px 9px}
-.npc-dialogue{font-size:12px;line-height:1.8;color:var(--ink-2);margin:8px 0;background:var(--sky-soft);border-left:3px solid var(--sky);border-radius:0 6px 6px 0;padding:8px 10px}
-#exploration-action{width:100%;min-height:44px;border-color:var(--brand-dk);background:linear-gradient(180deg,var(--brand),var(--brand-dk));color:#fff;font-weight:600;box-shadow:0 1px 2px #4a5fe833,0 8px 18px -10px var(--brand)}
-#exploration-action:hover:not(:disabled){background:linear-gradient(180deg,#5c70f2,var(--brand))}
+.exploration #exploration-close{flex:none;min-width:34px;min-height:34px}
+/* 筹码余额：游戏内切角钱袋铭牌 */
+.exploration-balance{padding:8px 12px;background-color:#2e1b0e;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='24' viewBox='0 0 56 24'><path d='M0 12 Q14 4 28 12 T56 12' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.2'/><path d='M10 8 L14 5 L12 10 Z M38 15 L42 12 L40 17 Z' fill='%2343a047' opacity='.26'/></svg>"),linear-gradient(180deg,#3d2514,#29180b);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-plaque);font-size:12px;color:#f7e5c4;font-weight:600;box-shadow:inset 0 1px 0 #ffdf9e2e}
+.exploration-balance strong{color:#ffd86b;font:900 14px ui-monospace,monospace}
+.search-state{font-size:11.5px;color:#7a3e00;line-height:1.65;margin:8px 0;background:var(--sun-soft);border:1px solid var(--sun-line);border-radius:0;clip-path:var(--clip-card);padding:6px 10px;font-weight:600}
+.npc-dialogue{font-size:12px;line-height:1.75;color:var(--ink);margin:8px 0;background:#faf0dc;border:1.5px solid var(--line-2);border-left:4px solid var(--brand);border-radius:0;clip-path:var(--clip-card);padding:8px 10px;font-weight:500}
+#exploration-action{width:100%;min-height:42px;border-color:#4d1e05;background:linear-gradient(180deg,#b8561d,var(--brand-dk));color:#fff8eb;font-weight:700;border-radius:0;clip-path:var(--clip-banner);box-shadow:inset 0 1px 0 #ffbb8866}
+#exploration-action:hover:not(:disabled){background:linear-gradient(180deg,#cc6326,#8a390d)}
 .clue-list{display:grid;gap:8px}
-.clue-card{padding:11px;border:1px solid var(--sun-line);border-radius:var(--r-sm);background:var(--sun-soft);overflow-wrap:anywhere}
-.clue-card strong{font-size:12px;color:#8a4a00;font-weight:700}
-.clue-card p{font-size:12px;line-height:1.8;margin:7px 0;color:var(--ink)}
-.clue-card small{font-size:10px;color:#a8672a}
-@media(max-width:850px){.exploration-hud{left:10px;top:49px;max-width:195px;max-height:30%}.exploration{width:288px}.toolbar-right{flex-wrap:wrap}}
+/* 线索卡片：切角火漆密信羊皮卡 */
+.clue-card{padding:10px 12px;border:1.5px solid #b5854b;border-left:4px solid var(--brand);border-radius:0;clip-path:var(--clip-plaque);background:linear-gradient(180deg,#fbf1dc,#edd8b1);overflow-wrap:anywhere;box-shadow:inset 0 1px 0 #fff9eb}
+.clue-card strong{font-size:12px;color:var(--brand-dk);font-weight:800}
+.clue-card p{font-size:12px;line-height:1.75;margin:5px 0;color:var(--ink);font-weight:600}
+.clue-card small{font-size:10px;color:var(--ink-3)}
+@media(max-width:850px){.exploration-hud{left:10px;top:88px;max-width:195px;max-height:30%}.exploration{width:316px}.toolbar-right{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}

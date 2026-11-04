@@ -62,21 +62,45 @@
     rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, rpsRoundMs: 10000,
     attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000
   };
-  // 结束规则：仅三种结束方式——存活淘汰至 endRemainingPlayers、坏人全灭、时间到。
+  // 结束规则：按《年会对抗游戏业务方案.md》§一，默认按每日配置截止或管理员结算，不因剩100人或坏人全灭自动结束（100是获奖人数）。
   const RULES = { endRemainingPlayers: 100, timeLimitMs: 2 * 60 * 60 * 1000 };
-  // 所有游戏行为记分表（服务端权威）。
-  const SCORE = { search: 2, exchange: 1, clue: 2, rpsWin: 2, rpsDraw: 1, rpsLose: 0, interactHit: 1, probe: 3, spy: 2, accuseHit: 8, kill: 10, wheelPrize: 0 };
+  // 所有游戏行为记分表（服务端权威，见《年会对抗游戏业务方案.md》§九）：
+  // 对抗分：好人指认坏人新公开一段 +10；坏人公开好人新一段 +2；坏人击杀好人 +5（击杀坏人 0）。
+  // 参与分：当天首次有效搜索 +5；当天首次正常完成指定小游戏 +5。
+  // 存活分：从当天首次加入起，每满 30 分钟存活 +1。
+  // 调查属性、重复小游戏/搜索、锤击、转盘、出售不增加排名分。
+  const SCORE = {
+    accuseHit: 10,
+    spy: 2,
+    kill: 5,
+    firstSearch: 5,
+    firstMinigame: 5,
+    survivalTick: 1,
+    survivalIntervalMs: 30 * 60 * 1000,
+    search: 0,
+    exchange: 0,
+    clue: 0,
+    rpsWin: 0,
+    rpsDraw: 0,
+    rpsLose: 0,
+    interactHit: 0,
+    probe: 0,
+    wheelPrize: 0
+  };
+  // 转盘配置（见《年会对抗游戏业务方案.md》§十一：保留探索和小游戏，但关闭变阵营、重抽身份码等破坏线索的转盘奖励）。
   const WHEEL = {
     slotCount: 10,
     spinCosts: [0, 1, 2, 4, 6, 9, 12, 16, 20, 25, 30, 36, 42, 49, 56, 64],
     chipAmounts: [0, 1, 2, 3, 5, 8],
     specialCount: { good: 2, bad: 2 },
-    specials: { good: ['clue'], bad: ['reform', 'rebirth'] }
+    specials: { good: ['clue'], bad: ['jackpot', 'bounty'] }
   };
   const WHEEL_ITEMS = {
-    clue:    { key: 'clue',    label: '线索券',     desc: '获取一名坏人的一条线索',   color: '#3B82F6', glyph: '?' },
-    reform:  { key: 'reform',  label: '洗心革面券', desc: '将自己由坏人转换为好人',   color: '#22C55E', glyph: '♻' },
-    rebirth: { key: 'rebirth', label: '轮回券',     desc: '重新随机自己的身份特征',   color: '#EF4444', glyph: '↻' }
+    clue:    { key: 'clue',    label: '线索券',     desc: '获取一条尚未掌握的线索',   color: '#3B82F6', glyph: '?' },
+    jackpot: { key: 'jackpot', label: '筹码福袋',   desc: '额外获得 6 枚游戏筹码',     color: '#10B981', glyph: '★' },
+    bounty:  { key: 'bounty',  label: '潜伏补给券', desc: '额外获得 4 枚游戏筹码',     color: '#8B5CF6', glyph: '◆' },
+    reform:  { key: 'reform',  label: '洗心革面券', desc: '已停用（保护身份线索）',   color: '#22C55E', glyph: '♻' },
+    rebirth: { key: 'rebirth', label: '轮回券',     desc: '已停用（保护身份线索）',   color: '#EF4444', glyph: '↻' }
   };
   const WHEEL_CHIP_COLOR = '#F59E0B';
   // 第 priorSpins 次转动的费用（priorSpins<=0 即首次 → spinCosts[0]）。
@@ -115,5 +139,3 @@
   const FLOOR_FOG = { 5: { radius: 180 } };
   return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome };
 });
-
-

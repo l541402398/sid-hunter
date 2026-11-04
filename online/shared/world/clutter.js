@@ -46,6 +46,8 @@
     const list = THEME_CLUTTER[key];
     const floor = FLOORS[fid];
     if (!floor || !Array.isArray(list) || !list.length) continue;
+    // 1F 试点为手工布置的完整陈设，不再叠加锚点式散件。
+    if (floor.lobby) continue;
 
     // 既有家具与墙体的完整视觉矩形（含向上延伸高度），确保持久零堆叠
     const occupiedVisuals = floor.furniture.filter(f => !f.architecturalPlaceholder)

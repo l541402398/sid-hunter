@@ -202,7 +202,7 @@
   let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
   let wheelSpinFlight = null, wheelResult = '';
   let playerCache = new Map(), skinCache = new Map(), rosterCache = [];
-  let rulesInfo = null, finishReason = '', rankingList = null, achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
+  let rulesInfo = null, finishReason = '', rankingList = null, historicalRanking = [], achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
   // 下一次「系统公布线索」的服务端时间戳（0 = 本场没有下一次）。只用来显示倒计时，
   // 不含任何线索内容，所以放在公共快照里也不构成泄露。
   let nextClueAt = 0;
@@ -436,6 +436,7 @@
     if (s.rules) rulesInfo = s.rules;
     nextClueAt = Number(s.nextClueAt) || 0;
     rankingList = Array.isArray(s.ranking) ? s.ranking : null;
+    historicalRanking = Array.isArray(s.historicalRanking) ? s.historicalRanking : [];
     achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
     achievementLeaders = Array.isArray(s.achievementLeaders) ? s.achievementLeaders : [];
     if (typeof s.finishReason === 'string') finishReason = s.finishReason;
@@ -658,8 +659,9 @@
     if (!p) { clearPrivate(); $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
     const orgLine = targetOrgLine(p);
-    const status = orgLine || (p.alive ? '存活 · 公开档案' : '已淘汰 · 可查看，不可操作');
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div><h2>${escapeText(p.name)}</h2><p class="sid">${sidHTML(p.sid)}</p><p class="status">${status}${p.id === selfId() ? ' · 自己' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><button id="target-invite-minigame" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>小游戏</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '发送邀请，对方同意后开始十秒猜拳'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">中央操作窗 · 展开期间请注意周围视线 · 切出页面自动隐藏</p>`;
+    const status = orgLine || (p.alive ? '在场存活 · 公开档案' : '已出局 · 积分保留');
+    const prog = sidProgressInfo(p.sid);
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '存活' : '已出局'}</span></div><div class="target-sid-row"><p class="sid">${sidHTML(p.sid)}</p><span class="sid-progress-pill ${prog.allPublic ? 'is-full' : ''}">已公开 ${prog.revealedCount}/3 段</span></div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><button id="target-invite-minigame" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>小游戏对战</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '近距离发起互动，每日首次完成小游戏可得 +5 参与分'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     const minigameBtn = $('target-invite-minigame');
     if (minigameBtn) minigameBtn.onclick = () => { if (SID.minigame) SID.minigame.open({ opponentId: p.id }); };
@@ -676,17 +678,22 @@
         $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true');
       }
     };
-    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}`; updateSkillStatus(); }
+    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}（已公开 ${prog.revealedCount}/3 段身份码）`; updateSkillStatus(); }
   }
-  // ---------- 私密操作（点击展开，不再依赖 Shift） ----------
+  // ---------- 私密操作（双阵营专属 2 技能 · 移除手输码一键击杀） ----------
   function holding() { return privateOpen; }
   const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - (gamePausedAt || serverNow())) / 1000));
-  const skillNames = { probe: '探查', accuse: '指认', spy: '刺探', kill: '击杀' };
+  function sidProgressInfo(sidStr) {
+    const parts = String(sidStr || '***-***-***').split('-');
+    const revealedCount = parts.filter(seg => seg && seg !== MASK).length;
+    return { revealedCount, total: 3, allPublic: revealedCount === 3 };
+  }
+  const skillNames = { probe: '调查属性', accuse: '指认', spy: '公开身份码', kill: '击杀' };
   const skillEffects = {
-    probe: '随机公开目标一条未公开的隐藏属性。',
-    accuse: '指认坏人扣1血；指认错误公开自己一段SID。',
-    spy: '公开目标一段未公开的SID。',
-    kill: '输入目标完整SID，精确匹配即淘汰目标。'
+    probe: '随机公开目标 1 项未公开隐藏属性（0分）；对方属性已全部公开时不消耗次数。',
+    accuse: '指认潜伏者公开其 1 段身份码并 +10 分（满 3 段直接出局）；误指好人公开自己 1 段身份码。',
+    spy: '目标为好人公开其 1 段身份码并 +2 分；目标为坏人双方身份码均不变（消耗 1 次，0分）。',
+    kill: '目标三段身份码全部公开时显示；无需手动输入身份码，确认后直接令目标出局（击杀好人 +5 分）。'
   };
   let skillFlight = null;
   const skillRecoveryTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
@@ -700,24 +707,34 @@
   }
   function availableSkills() {
     if (!me) return [];
-    const allowed = me.faction === 'bad' ? ['probe', 'accuse', 'spy', 'kill'] : ['probe', 'accuse'];
+    const allowed = me.faction === 'bad' ? ['spy', 'kill'] : ['probe', 'accuse'];
     return allowed.filter(id => me.skills[id]);
   }
+  function isTargetSidAllPublic(p) {
+    if (!p || !p.sid) return false;
+    return !String(p.sid).split('-').includes(MASK);
+  }
   function hasUnknown(p, id) {
-    return id === 'probe' ? Object.keys(traitNames).some(k => p.traits[k] === MASK)
-      : id === 'spy' ? String(p.sid).split('-').includes(MASK) : true;
+    if (!p) return false;
+    if (id === 'probe') return Object.keys(traitNames).some(k => p.traits[k] === MASK);
+    if (id === 'spy' || id === 'accuse') return !isTargetSidAllPublic(p);
+    if (id === 'kill') return isTargetSidAllPublic(p);
+    return true;
   }
   function canTarget(p) { return !!(p && me && p.id !== me.id && p.alive && me.alive && !finished && !gameClosed); }
   function skillStatus(id, skill) {
-    const state = finished || !me?.alive ? '已冻结' : skill.chargesRemaining > 0 ? '可连续使用' : '等待恢复';
-    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${state} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '储存已满'}`;
+    const state = finished || !me?.alive ? '已冻结' : skill.chargesRemaining > 0 ? '可使用' : '恢复中';
+    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${state} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '次数已满'}`;
   }
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
-    $('private-dialog-target').textContent = `目标：${p.name}`;
+    const prog = sidProgressInfo(p.sid);
+    $('private-dialog-target').textContent = `目标：${p.name}（已公开 ${prog.revealedCount}/3 段身份码）`;
     const ids = availableSkills();
-    host.innerHTML = `<div class="private-block"><p class="private-title">${me.faction === 'good' ? '好人' : '坏人'}技能 · 私密操作已展开</p><div class="skill-row">${ids.map(id => `<div class="private-skill"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'probe' || id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看次数恢复说明</summary><p id="skill-info" class="skill-info"></p></details></div>`;
+    const factionLabel = me.faction === 'good' ? '调查员（好人）专属技能' : '潜伏者（坏人）专属技能';
+    const renderedSid = typeof sidHTML === 'function' ? sidHTML(p.sid) : escapeText(p.sid);
+    host.innerHTML = `<div class="private-block"><div class="private-banner-row"><p class="private-title">${factionLabel} · 仅本人可见</p><span class="private-target-sid">${renderedSid}</span></div><div class="skill-row">${ids.map(id => `<div class="private-skill" id="skill-card-${id}"${id === 'kill' && (!canTarget(p) || !isTargetSidAllPublic(p)) ? ' hidden' : ''}><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'probe' || id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><p id="kill-lock-hint" class="kill-lock-hint"${me.faction === 'bad' && (!canTarget(p) || !isTargetSidAllPublic(p)) ? '' : ' hidden'}>提示：当目标三段身份码全部公开（3/3）且存活时，此处将自动显示【击杀】按钮（无需手输身份码）。</p><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能次数与恢复计时</summary><p id="skill-info" class="skill-info"></p></details></div>`;
     for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
@@ -725,14 +742,21 @@
     if (!holding() || !me) return;
     const p = selected(), info = $('skill-info'); if (!info || !p) return;
     const ids = availableSkills();
-    info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : '自己或已淘汰目标不可操作。 ') : '')
-      + ids.map(id => skillStatus(id, me.skills[id])).join('；')
-      + (me.legacy ? '；运行中服务仍是旧技能版本，四技能需主持人安排重启后生效。' : '');
+    info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : '自己或已出局目标不可操作。 ') : '')
+      + ids.map(id => skillStatus(id, me.skills[id])).join('；');
+    const killCard = $('skill-card-kill'), killHint = $('kill-lock-hint');
+    const showKill = me.faction === 'bad' && canTarget(p) && isTargetSidAllPublic(p);
+    if (killCard) killCard.hidden = !showKill;
+    if (killHint) killHint.hidden = me.faction !== 'bad' || showKill;
+    if (pending && pending.kind === 'kill' && !showKill) { pending = null; renderConfirmation(); }
     for (const id of ids) {
       const skill = me.skills[id], button = $(id);
       if (button) {
         const [label, recovery = ''] = skillButtonText(id, skill).split('\n');
-        const caption = skillFlight?.kind === id ? '正在提交…' : recovery;
+        const allDoneHint = canTarget(p) && !hasUnknown(p, id)
+          ? (id === 'probe' ? '属性已全公开' : id === 'kill' ? '需三段全公开' : '身份码已全公开')
+          : '';
+        const caption = skillFlight?.kind === id ? '正在提交…' : (recovery || allDoneHint);
         const nameSlot = $(`${id}-label`), timerSlot = $(`${id}-timer`);
         if (nameSlot.textContent !== label) nameSlot.textContent = label;
         if (timerSlot.textContent !== caption) timerSlot.textContent = caption;
@@ -749,9 +773,18 @@
   function renderConfirmation() {
     const host = $('confirm-host'); if (!host || !me) return; host.replaceChildren();
     if (!holding() || !pending) return;
+    const p = selected();
+    const targetName = p ? escapeText(p.name) : '该目标';
     const k = pending.kind;
-    host.innerHTML = `<div class="confirm-box"><p>${k === 'probe' ? '公开目标一项未知隐藏属性，消耗一次探查。' : k === 'spy' ? '公开目标一段未知S-ID，消耗一次刺探。' : k === 'accuse' ? '确认指认该目标？消耗1次；错指认会公开自己一段S-ID。' : '手动输入目标完整S-ID。示例格式：K8Q-2T9-6R4（仅示例）；严格大写精确匹配，不自动填入。可自由输入或粘贴。'}</p>${k === 'kill' ? '<input id="sid-input" aria-label="输入目标完整S-ID" autocomplete="off" spellcheck="false" placeholder="XXX-XXX-XXX" maxlength="11">' : ''}<button id="confirm" class="${k === 'probe' || k === 'accuse' ? 'skill-blue' : 'skill-red'}">确认${skillNames[k]}</button> <button id="cancel">取消</button></div>`;
-    $('confirm').onclick = () => commit($('sid-input') ? $('sid-input').value : '');
+    const confirmCopy = k === 'probe'
+      ? `确认对「${targetName}」使用【调查属性】？将随机公开对方 1 项未公开属性，消耗 1 次机会。`
+      : k === 'accuse'
+        ? `确认对「${targetName}」发起【指认】？若对方为潜伏者将公开其 1 段身份码并 +10 分（第 3 段直接出局）；若误指好人将公开您自己 1 段身份码。`
+        : k === 'spy'
+          ? `确认对「${targetName}」使用【公开身份码】？若对方为好人将公开其 1 段身份码并 +2 分；若为同阵营坏人则双方身份码不变（消耗 1 次）。`
+          : `确认直接【击杀】「${targetName}」？对方三段身份码已全部公开，无需输入身份码，确认后消耗 1 次机会令其立即出局。`;
+    host.innerHTML = `<div class="confirm-box"><p>${confirmCopy}</p><div class="confirm-actions"><button id="confirm" class="${k === 'probe' || k === 'accuse' ? 'skill-blue' : 'skill-red'}">确认${skillNames[k]}</button><button id="cancel" type="button">取消</button></div></div>`;
+    $('confirm').onclick = () => commit('');
     $('cancel').onclick = () => { pending = null; renderConfirmation(); };
     updateSkillStatus();
   }
@@ -762,13 +795,12 @@
     const requested = pending.kind;
     const skill = me.legacy ? (requested === 'spy' ? 'probe' : requested === 'accuse' || requested === 'kill' ? 'action' : requested) : requested;
     const body = { commandId: commandId(), skill, targetId: p.id };
-    if (pending.kind === 'kill') body.sid = String(input || '');
+    if (pending.kind === 'kill' && input) body.sid = String(input);
     const generation = privateGeneration, session = sessionGeneration;
     const request = { kind: requested };
     skillFlight = request; updateSkillStatus();
     const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，结果未确认' }));
     if (skillFlight === request) skillFlight = null;
-    // 只采纳不早于当前快照的资源响应；不乐观增加次数，也不覆盖新会话。
     if (session === sessionGeneration && result.skills && Number(result.serverTime) >= serverTime && me) {
       me = { ...me, skills: result.skills };
     }
@@ -776,6 +808,7 @@
     privateResult = !result.ok && /冷却中/.test(result.error || '')
       ? '当前后台仍在执行旧版技能冷却规则，需要手动重启服务后生效（仅刷新页面无效）。本次未自动重试。'
       : result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
+    if (privateResult && typeof showToast === 'function') showToast(privateResult);
     pending = null;
     renderConfirmation(); renderResult(); updateSkillStatus();
     lastTargetSig = '';
@@ -789,14 +822,14 @@
     if (returnFocus) $('my-info').focus({ preventScroll: true });
   }
   const eyeIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path class="eye-slash" d="M3 3 21 21" stroke="currentColor" stroke-width="2"/></svg>';
-  const personalFields = { identity: '身份详情', sid: 'S-ID', ...traitNames };
+  const personalFields = { identity: '身份详情', sid: '身份码 S-ID', ...traitNames };
   function renderMine() {
     const host = $('mine');
     if (!mineOpen || !me) { closeMine(); return; }
     host.hidden = false;
     // Build eyes once; snapshot refreshes update only value slots, never focusable controls.
     if (!host.childElementCount) {
-      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE / CLICK TO REVEAL</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${['sid', ...Object.keys(traitNames)].map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">${id === 'sid' ? '***-***-***' : '***'}</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认隐藏。各眼睛独立切换；关闭、切出页面或进入规则页会清空显示。身份眼睛同时隐藏血量和技能信息，避免通过技能数量推断好坏身份。</p>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-score-card" class="mine-score-card"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${['sid', ...Object.keys(traitNames)].map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">${id === 'sid' ? '***-***-***' : '***'}</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
       host.querySelectorAll('[data-field]').forEach(button => button.onclick = () => {
         const id = button.dataset.field;
@@ -804,9 +837,15 @@
         renderMine();
       });
     }
+    const selfP = selfPlayer();
+    const pubProg = sidProgressInfo(selfP ? selfP.sid : '***-***-***');
     $('mine-name').textContent = `我的信息 · ${me.name}`;
-    $('mine-alive').textContent = (me.alive ? '存活' : '已淘汰') + ` · 本人档案 · 分数 ${typeof me.score === 'number' ? me.score : 0}`;
-    const colors = selfPlayer() ? selfPlayer().colors : {};
+    $('mine-alive').textContent = `${me.alive ? '在场存活' : '已出局（今日积分保留）'} · 对外已公开 ${pubProg.revealedCount}/3 段身份码 · 今日总分 ${typeof me.score === 'number' ? me.score : 0}`;
+    const bd = me.scoreBreakdown || { participate: 0, survival: 0, combat: me.score || 0 };
+    const hist = Number(me.historicalScore) || 0;
+    const scoreHTML = `<div class="mine-score-item total"><span>今日总分</span><strong>${typeof me.score === 'number' ? me.score : 0}</strong></div><div class="mine-score-item hist"><span>昨日累计</span><strong>${hist}</strong></div><div class="mine-score-item"><span>参与分</span><strong>${bd.participate || 0}<em>/10</em></strong></div><div class="mine-score-item"><span>存活分</span><strong>${bd.survival || 0}</strong></div><div class="mine-score-item"><span>对抗分</span><strong>${bd.combat || 0}</strong></div>`;
+    if ($('mine-score-card') && $('mine-score-card').innerHTML !== scoreHTML) $('mine-score-card').innerHTML = scoreHTML;
+    const colors = selfP ? selfP.colors : {};
     const colorHTML = Object.entries(colors).map(([k,c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${escapeText(c[0])}</div>`).join('');
     if ($('mine-colors').innerHTML !== colorHTML) $('mine-colors').innerHTML = colorHTML;
     for (const id of Object.keys(personalFields)) {
@@ -814,13 +853,13 @@
       eye.setAttribute('aria-pressed', String(revealed));
       eye.setAttribute('aria-label', `${revealed ? '隐藏' : '显示'}${personalFields[id]}`);
       const html = !revealed ? (id === 'sid' ? '***-***-***' : id === 'identity' ? '已隐藏' : '***')
-        : id === 'sid' ? sidHTML(me.sid) : escapeText(id === 'identity' ? (me.faction === 'good' ? '好人' : '坏人') : me.traits[id]);
+        : id === 'sid' ? sidHTML(me.sid) : escapeText(id === 'identity' ? (me.faction === 'good' ? '调查员（好人）' : '潜伏者（坏人）') : me.traits[id]);
       if (value.innerHTML !== html) value.innerHTML = html;
     }
     const details = $('mine-identity-details');
     if (!revealedFieldIds.has('identity')) details.replaceChildren();
     else {
-      const html = `<div class="secret-line"><span>血量</span><strong>${me.hp}</strong></div><div class="mine-resources">${availableSkills().map(id => `<p>${escapeText(skillStatus(id, me.skills[id]))}</p>`).join('')}</div>`;
+      const html = `<div class="mine-resources">${availableSkills().map(id => `<p>${escapeText(skillStatus(id, me.skills[id]))}</p>`).join('')}</div>`;
       if (details.innerHTML !== html) details.innerHTML = html;
     }
   }
@@ -834,7 +873,7 @@
     rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
     rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
     rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
-    rulesInfo = null; finishReason = ''; rankingList = null; finishShown = false; lastRankingSig = '';
+    rulesInfo = null; finishReason = ''; rankingList = null; historicalRanking = []; finishShown = false; lastRankingSig = '';
     wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
     nearbySig = ''; $('nearby-items').replaceChildren();
     $('copy-toast').hidden = true; $('copy-toast').textContent = ''; clearTimeout(toastTimer);
@@ -1040,13 +1079,14 @@
     const host = $('bag-detail'); if (!host) return;
     const def = itemDef(key); if (!def) { host.hidden = true; return; }
     const rar = WORLD.LOOT.RARITY && WORLD.LOOT.RARITY[def.rarity];
+    const rarLabel = (rar && (rar.label || rar.name)) || ({ common: '普通', uncommon: '精良', rare: '稀有', epic: '史诗', legendary: '传说' }[def.rarity]) || def.rarity || '普通';
     host.hidden = false;
     host.replaceChildren();
     const head = document.createElement('div'); head.className = 'bag-detail-head';
     head.append(itemIconCanvas(key, 28));
     const title = document.createElement('div');
     const name = document.createElement('strong'); name.textContent = def.label;
-    const sub = document.createElement('small'); sub.textContent = `${rar ? rar.label : def.rarity || ''} · 数量 ${count}`;
+    const sub = document.createElement('small'); sub.textContent = `${rarLabel} · 数量 ${count}`;
     title.append(name, sub); head.append(title);
     const close = document.createElement('button'); close.type = 'button'; close.className = 'icon-button';
     close.textContent = '×'; close.setAttribute('aria-label', '关闭物品详情');
@@ -1324,7 +1364,7 @@
     const button = $('wheel-spin');
     button.disabled = busy || !me.alive || finished || selfDisabled() || cost > chips;
     button.textContent = busy ? '转动中…' : '转动转盘';
-    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率。首次免费，之后次数越多越贵（费用见 WHEEL.spinCosts）。${me.faction === 'good' ? '好人转盘含线索券。' : '坏人转盘含洗心革面券与轮回券。'}`;
+    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率。首次免费，之后次数越多越贵。${me.faction === 'good' ? '调查员转盘含坏人线索券。' : '潜伏者转盘含高额筹码福袋与补给券。'}`;
   }
   function drawWheel(slots, angle) {
     const canvasEl = $('wheel-canvas'); if (!canvasEl) return;
@@ -1483,36 +1523,43 @@
   }
   function finishReasonText(reason) {
     return reason === 'aliveFloor' ? '存活人数已淘汰至剩余 100 人'
-      : reason === 'badWiped' ? '坏人全灭'
-        : reason === 'timeUp' ? '时间到（2 小时）'
-          : reason === 'host' ? '主持人结束了游戏' : '游戏已结束';
+      : reason === 'badWiped' ? '潜伏者（坏人）已全部出局'
+        : reason === 'timeUp' ? '今日场次到点结算'
+          : reason === 'host' ? '管理员结算了本场对局' : '本场对局已结束';
   }
   function rankingRowHTML(entry, index) {
     const rank = entry.rank != null ? entry.rank : index + 1;
-    const p = players.find(pl => pl.id === entry.id);
+    const p = entry.id != null ? players.find(pl => pl.id === entry.id) : players.find(pl => pl.name === entry.name);
     const name = entry.name || (p ? p.name : '玩家');
-    const out = entry.alive === false ? '<span class="out-label">淘汰</span>' : '';
-    return `<div class="ranking-row" data-player="${escapeText(entry.id)}"><span class="ranking-rank">${rank}</span>${p ? portrait(p) : ''}<span class="ranking-name">${escapeText(name)}</span>${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
+    const out = entry.alive === false ? '<span class="out-label">出局</span>' : '';
+    const daysBadge = entry.days ? `<span class="ranking-days-badge">${entry.days}天</span>` : '';
+    return `<div class="ranking-row" ${entry.id != null ? `data-player="${escapeText(entry.id)}"` : ''}><span class="ranking-rank">${rank}</span>${p ? portrait(p) : ''}<span class="ranking-name">${escapeText(name)}</span>${daysBadge}${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
   }
-  function renderRankingRows(host, list) {
+  function renderRankingRows(host, list, emptyMsg) {
     if (!host) return;
-    host.innerHTML = list.length ? list.map(rankingRowHTML).join('') : '<p class="panel-note">暂无排名数据。</p>';
+    host.innerHTML = list.length ? list.map(rankingRowHTML).join('') : `<div class="ranking-empty-card"><strong>${emptyMsg || '暂无历史榜，明日展示首日榜'}</strong><p>局内实时隐藏他人今日得分，杜绝通过分数变化反推身份；每日场次结算后计入五日累计总榜（前 100 名获奖）。</p></div>`;
   }
   function updateRankingHeader() {
     const rules = $('ranking-rules'); if (!rules) return;
     const endsAt = rulesInfo && rulesInfo.endsAt, left = endsAt ? Math.max(0, endsAt - serverNow()) : null;
-    rules.textContent = `结束方式：存活淘汰至剩余 ${RULES.endRemainingPlayers} 人 / 坏人全灭 / 时间到（2 小时）`
-      + (left != null ? ` · 距时间到还有 ${formatDuration(left)}` : '')
-      + (finished ? ` · 已结束：${finishReasonText(finishReason)}` : '');
+    rules.textContent = `5天累计积分赛（前 100 名获奖）· 按每日截止时间或管理员结算`
+      + (left != null && !finished ? ` · 距本场截止还有 ${formatDuration(left)}` : '')
+      + (finished ? ` · 已结算：${finishReasonText(finishReason)}` : '');
   }
-  // 双榜：筹码榜（经济）与成就榜（参与度）。成就点只公开"点数"，不含私密数据。
+  // 个人实时积分卡片 + 截至昨日累计总榜（前100名） / 成就榜
   function ensureRankingTabs() {
-    if ($('ranking-tabs')) return;
     const anchor = $('ranking-items'); if (!anchor || !anchor.parentNode) return;
+    if (!$('ranking-self-summary')) {
+      const selfCard = document.createElement('div');
+      selfCard.id = 'ranking-self-summary';
+      selfCard.className = 'ranking-self-summary';
+      anchor.parentNode.insertBefore(selfCard, anchor);
+    }
+    if ($('ranking-tabs')) return;
     const bar = document.createElement('div');
     bar.id = 'ranking-tabs'; bar.className = 'ranking-tabs'; bar.setAttribute('role', 'tablist');
-    bar.innerHTML = '<button type="button" data-tab="score" role="tab">筹码榜</button>'
-      + '<button type="button" data-tab="achievement" role="tab">成就榜</button>';
+    bar.innerHTML = '<button type="button" data-tab="score" role="tab">截至昨日累计总榜（Top 100）</button>'
+      + '<button type="button" data-tab="achievement" role="tab">互动成就榜</button>';
     bar.querySelectorAll('button').forEach(b => {
       b.onclick = () => { rankingTab = b.dataset.tab; lastRankingSig = ''; syncRanking(); };
     });
@@ -1522,13 +1569,17 @@
     const host = $('ranking'); if (!host || host.hidden) return;
     updateRankingHeader();
     ensureRankingTabs();
-    const rankSource = rosterCache.length ? rosterCache : players;
-    const sorted = rankSource.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
-    const sig = JSON.stringify([finishReason, aliveCount, rankingTab,
-      players.map(p => [p.id, p.name, p.score || 0, p.alive]), rankingList, achievementList, achievementLeaders]);
+    const bd = me?.scoreBreakdown || { participate: 0, survival: 0, combat: selfScore() };
+    const histScore = Number(me?.historicalScore) || 0;
+    const sig = JSON.stringify([finishReason, aliveCount, rankingTab, selfScore(), bd, histScore,
+      me?.firstSearchDone, me?.firstMinigameDone, historicalRanking, rankingList, achievementList, achievementLeaders]);
     if (sig === lastRankingSig) return;
     lastRankingSig = sig;
     $('ranking-alive').textContent = aliveCount;
+    const selfBox = $('ranking-self-summary');
+    if (selfBox) {
+      selfBox.innerHTML = `<div class="ranking-self-head"><span class="ranking-self-badge">MY TODAY SCORE · 我的今日实时积分（仅自己可见）</span><span class="ranking-self-state ${me?.alive !== false ? 'is-alive' : 'is-out'}">${me?.alive !== false ? '在场计分中' : '已出局 · 今日积分保留'}</span></div><div class="ranking-self-grid"><div class="ranking-self-cell primary"><span>今日总分</span><strong>${selfScore()}</strong><em class="cell-sub">参与+存活+对抗</em></div><div class="ranking-self-cell hist"><span>截至昨日累计</span><strong>${histScore}</strong><em class="cell-sub">历史已结算场次</em></div><div class="ranking-self-cell"><span>参与分</span><strong>${bd.participate || 0}<small>/10</small></strong><em class="cell-sub">首搜 ${me?.firstSearchDone ? '✓' : '0/5'} · 首游 ${me?.firstMinigameDone ? '✓' : '0/5'}</em></div><div class="ranking-self-cell"><span>存活分</span><strong>${bd.survival || 0}</strong><em class="cell-sub">每满30分钟 +1</em></div><div class="ranking-self-cell"><span>对抗分</span><strong>${bd.combat || 0}</strong><em class="cell-sub">指认/公开/击杀</em></div></div>`;
+    }
     const tabs = $('ranking-tabs');
     if (tabs) tabs.querySelectorAll('button').forEach(b => {
       const on = b.dataset.tab === rankingTab;
@@ -1538,13 +1589,13 @@
     if (rankingTab === 'achievement') {
       const list = (achievementList && achievementList.length) ? achievementList
         : achievementLeaders.map(r => ({ ...r, score: r.points || 0 }));
-      renderRankingRows($('ranking-items'), list);
+      renderRankingRows($('ranking-items'), list, '暂无互动成就记录');
       return;
     }
-    const source = rankingList && rankingList.length
-      ? rankingList
-      : sorted.map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, score: p.score || 0, alive: p.alive }));
-    renderRankingRows($('ranking-items'), source);
+    const source = (finished && rankingList && rankingList.length)
+      ? rankingList.slice(0, 100)
+      : (historicalRanking && historicalRanking.length ? historicalRanking.slice(0, 100) : []);
+    renderRankingRows($('ranking-items'), source, '暂无历史榜，明日展示首日榜');
   }
   function openRanking() {
     const host = $('ranking'); if (!host) return;
@@ -2309,7 +2360,12 @@
     sofa: { padX: 24, padUp: 52, padDown: 24 },
     mat: { padX: 20, padUp: 24, padDown: 16 },
     stage: { padX: 20, padUp: 32, padDown: 20 },
-    wall: { padX: 4, padUp: 24, padDown: 6 }
+    wall: { padX: 4, padUp: 24, padDown: 6 },
+    // 1F 试点专属陈设：立柱/摊位/落地灯/喷泉向上生长更高
+    pillar: { padX: 12, padUp: 100, padDown: 12 },
+    stall: { padX: 14, padUp: 80, padDown: 12 },
+    floorlamp: { padX: 24, padUp: 80, padDown: 8 },
+    fountain: { padX: 12, padUp: 40, padDown: 14 }
   };
   const furnitureFace = type => (FURN_FACE[type] == null ? 24 : FURN_FACE[type]);
   const furniturePad = type => FURN_PAD[type] || FURN_PAD.default;
@@ -2855,6 +2911,7 @@
   bakeSprites();
   if (SCENE) SCENE.ready.then(() => { chunkClear(); bakeSprites(); draw(); });
   function drawWallPanel(f) {
+    if (f.lobby && window.SID_LOBBY) { window.SID_LOBBY.wall(ctx, f); return; }
     const x = Math.round(f.x), y = Math.round(f.y), w = Math.round(f.w), h = Math.round(f.h);
     const elev = 18;
     rect(x + 2, y + h, w, 4, 'rgba(28,15,6,0.32)');
@@ -3237,6 +3294,12 @@
   function drawRoomDoors() {
     const self = selfPlayer();
     const t = performance.now() / 1000;
+    const lobbyFloor = WORLD.floorById(floorId);
+    if (lobbyFloor && lobbyFloor.lobby && window.SID_LOBBY) {
+      // 1F 试点：门已嵌在墙里（由墙体绘制），这里只画门垫与可进入提示。
+      for (const room of zoneRooms) window.SID_LOBBY.doorMat(ctx, room, !!(self && Math.hypot(self.x - room.door.x, self.y - room.door.y) <= WORLD.ROOM_ENTER_PAD), t);
+      return;
+    }
     for (const room of zoneRooms) {
       const x = room.door.x, y = room.door.y;
       // 3/4 视角星露谷原木拱门门廊（紧凑 56×44px，不画突兀的宽墙块）
@@ -3301,7 +3364,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, cssW, cssH);
-    ctx.fillStyle = '#362417'; ctx.fillRect(0, 0, cssW, cssH);
+    ctx.fillStyle = (f && f.lobby && window.SID_LOBBY && !zoneId) ? window.SID_LOBBY.PAL.voidC : '#362417'; ctx.fillRect(0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
     if (currentRoom) {
       // 需求①：房间是独立空间 —— 外围铺温暖木纹画框衬底，内部画小屋自己的地面与墙。
@@ -3331,6 +3394,8 @@
       ensureChunks(c0x, c0y, c1x, c1y, floorId);
       for (let cy = c0y; cy <= c1y; cy++) for (let cx = c0x; cx <= c1x; cx++) ctx.drawImage(chunkGet(cx, cy, floorId), cx * CHUNK, cy * CHUNK);
       ctx.restore();
+      // 1F 试点：楼板外沿压顶 + 内侧 AO，取代平涂空洞。
+      if (f.lobby && window.SID_LOBBY) window.SID_LOBBY.edges(ctx, f);
       // 任务7：后墙墙带 + 窗户 + 标语展示区（先于家具/角色绘制，作纯背景）。
       // 逐层"世界风格"主题：改由共享 scene.js 按主题绘制墙带材质/配色/墙饰；未就绪时回退原生画法。
       if (!(SCENE && SCENE.wall(ctx, f))) drawBackWall(f);
@@ -3371,7 +3436,7 @@
           continue;
         }
         // 后墙墙带（y<WALL_Y）是纯背景：只对可能画进墙带的家具裁剪，避免"家具/装饰被画到墙上"。
-        const clipWall = f2.y - 24 < WALL_Y;
+        const clipWall = !f.lobby && f2.y - 24 < WALL_Y;
         if (clipWall) { ctx.save(); ctx.beginPath(); ctx.rect(camX - 400, WALL_Y, viewW + 800, viewH + 600); ctx.clip(); }
         const pad = furniturePad(f2.type);
         // 旧容器 sprite 是按旧楼层家具尺寸烘的；搬到 TMJ 房间后大件会显得像巨型柜台。
@@ -3696,6 +3761,15 @@
   $('roster-toggle').onclick = () => { closePendingPlayers(); toggle('roster', 'roster-toggle'); };
   $('roster-close').onclick = () => toggle('roster', 'roster-toggle');
   $('search').oninput = renderRoster;
+  function toggleLogs(forceOpen) {
+    const host = $('logs'), btn = $('logs-toggle');
+    if (!host) return;
+    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : host.hidden;
+    host.hidden = !nextOpen;
+    if (btn) btn.setAttribute('aria-expanded', String(nextOpen));
+  }
+  if ($('logs-toggle')) $('logs-toggle').onclick = () => toggleLogs();
+  if ($('logs-close')) $('logs-close').onclick = () => toggleLogs(false);
   // ---------- 匿名坏人线索池（dev 分支并入）：只消费服务端的匿名投影，不推断身份 ----------
   function renderBadPool() {
     const sig = JSON.stringify([badPoolAvailable, badSlots]);
@@ -3852,6 +3926,7 @@
       if (dismissFloorNotice()) { e.preventDefault(); return; }
       if (!$('finish-overlay').hidden) { hideFinish(); return; }
       if (wheelOpen) { closeWheel(); return; }
+      if (!$('ranking').hidden) { closeRanking(); return; }
       if (!$('games').hidden) { e.preventDefault(); exitRps(); return; }
       clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return;
     }
@@ -3872,6 +3947,16 @@
     // 电梯过渡进行中：忽略移动 / K / J，避免在换层中途驱动旧层或重复发起。
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return;
     if (isTyping()) return;
+    // 游戏内 HUD 面板快捷键（B 背包 / L 排行榜 / R 玩家名单 / P 待加入 / M 我的信息 / G 公共日志 / H 规则 / C 坏人线索）
+    if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.code === 'KeyL') { e.preventDefault(); if ($('ranking').hidden) openRanking(); else closeRanking(); return; }
+      if (e.code === 'KeyR') { e.preventDefault(); $('roster-toggle')?.click(); return; }
+      if (e.code === 'KeyP') { e.preventDefault(); $('pending-toggle')?.click(); return; }
+      if (e.code === 'KeyM') { e.preventDefault(); $('my-info')?.click(); return; }
+      if (e.code === 'KeyG') { e.preventDefault(); toggleLogs(); return; }
+      if (e.code === 'KeyH') { e.preventDefault(); $('rules-toggle')?.click(); return; }
+      if (e.code === 'KeyC') { e.preventDefault(); $('bad-toggle')?.click(); return; }
+    }
     // B：随时开关背包（画布正中弹出）。
     if (e.code === 'KeyB' && !e.repeat) {
       e.preventDefault();

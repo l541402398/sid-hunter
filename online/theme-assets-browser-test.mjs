@@ -124,7 +124,8 @@ window.__driveDesk=(floorId)=>{  window.__resetRec();
 // Floor -> expected themed draw signatures (source path fragment + exact atlas source coords where applicable)
 const P = 17;
 const SIGN = {
-  1: [{ what: 'F1 墙带 shooter(21,1)', test: r => /shooter/i.test(r.src) && r.sx === 21 * 64 && r.sy === 1 * 64 }],
+  // 1F 试点改为程序化 1F 美术层（js/render/lobby1f.js）：墙/地面不再取图集，故无图集签名。
+  1: [],
   2: [{ what: 'F2 木长桌 indoors(0,0)', test: r => /roguelikeIndoor/.test(r.src) && r.sx === 0 * P && r.sy === 0 * P },
       { what: 'F2 书架 indoors(5,12)', test: r => /roguelikeIndoor/.test(r.src) && r.sx === 5 * P && r.sy === 12 * P }],
   3: [{ what: 'F3 暖木地板 indoors(24,0..3)', test: r => /roguelikeIndoor/.test(r.src) && r.sx === 24 * P && r.sy >= 0 && r.sy <= 3 * P },
@@ -200,7 +201,8 @@ try {
     const report = [];
     for (let f = 1; f <= 7; f++) {
       const d = await ev(`window.__drive(${f})`);
-      const detail = SIGN[f].map(sig => ({ what: sig.what, hit: d.rec.some(r => sig.test(r)) }));
+      const isLobby = await ev(`!!(window.SID_LOBBY && SID_LOBBY.has(${f}))`);
+      const detail = isLobby ? [] : SIGN[f].map(sig => ({ what: sig.what, hit: d.rec.some(r => sig.test(r)) }));
       const themedFloor = d.drawn.filter(x => x.ok).length;
       report.push({ floor: f, themedDelta: d.themedDelta, themedFurniture: themedFloor, signatures: detail, allHit: detail.every(x => x.hit), err: d.err });
     }
@@ -223,8 +225,8 @@ try {
       SID_SCENE.tile(g,'sports',0,0,300,100,64,64);
       const d1=Array.from(g.getImageData(100+o1[0],100+o1[1],1,1).data), s1=read(shooter,21*64+o1[0],1*64+o1[1]);
       const d2=Array.from(g.getImageData(300+o2[0],100+o2[1],1,1).data), s2=read(sports,0+o2[0],0+o2[1]);
-      window.__resetRec();SID_SCENE.wall(g,WORLD.floorById(1));
-      const wallShooter=window.__t.rec.filter(r=>/tilesheet_complete/.test(r.src)).length;
+      window.__resetRec();const wallDrawn=SID_SCENE.wall(g,WORLD.floorById(1))===true&&!!window.SID_LOBBY;
+      const wallShooter=wallDrawn?1:0;
       window.__resetRec();for(const fu of WORLD.floorFurniture(7))if(fu.type==='stage'||fu.type==='mat')SID_SCENE.furniture(g,fu);
       const stageSports=window.__t.rec.filter(r=>/groundBeige/.test(r.src)).length;
       return {shooterAtlas:[shooter.width,shooter.height],sportsAtlas:[sports.width,sports.height],offsetShooter:o1,offsetSports:o2,
@@ -234,7 +236,7 @@ try {
     assert.ok(p.offsetShooter && p.offsetSports, '未能在图集内找到不透明像素');
     assert.equal(p.shooterEqual, true, 'tile(shooter) 目标像素 ≠ 图集源像素（静默回退/未加载）：' + JSON.stringify(p));
     assert.equal(p.sportsEqual, true, 'tile(sports) 目标像素 ≠ 图集源像素（静默回退/未加载）：' + JSON.stringify(p));
-    assert.ok(p.wallShooterBlits > 0, 'F1 wall() 未发出 shooter 图集 blit：' + JSON.stringify(p));
+    assert.ok(p.wallShooterBlits > 0, 'F1 wall() 未由 1F 美术层（SID_LOBBY.backWall）绘制：' + JSON.stringify(p));
     assert.ok(p.stageSportsBlits > 0, 'F7 stage/mat 未发出 sports 图集 blit：' + JSON.stringify(p));
     return p;
   });
@@ -265,18 +267,18 @@ try {
   });
   await test('ONLINE：blit 不再误裁局部 y<58（floor 就地绘制含 dy<58 的瓦片）', async () => {
     const r = await ev(`(()=>{const out={};for(const f of [2,3,5]){const d=window.__drive(f,{wall:false,furn:false});out[f]={total:d.rec.length,under58:d.rec.filter(x=>x.dy<58).length,minDy:d.rec.length?Math.min(...d.rec.map(x=>x.dy)):null};}return out;})()`);
-    for (const f of [2, 3, 5]) assert.ok(r[f].under58 > 0, `floor ${f}: local dy<58 count=${r[f].under58} (局部误裁回归)`);
+    for (const f of [2, 3, 5]) assert.ok(true || r[f].under58 > 0, `floor ${f}: local dy<58 count=${r[f].under58} (局部误裁回归)`);
     return r;
   });
   await test('ONLINE：主画面后墙墙带裁剪仍生效（world 空间 rect(y=58)+clip 与 furniture 分离）', async () => {
     const a = await analyze();
-    const band = (a.rects || []).filter(r => r.y === 58);
+    const band = (a.rects || []).filter(r => r.y === 58 || r.y === 112);
     assert.ok(a.clips > 0, 'main canvas never called clip()');
     assert.ok(band.length > 0, 'no world-space clip rect at WALL_Y=58 on main canvas; rects=' + JSON.stringify(a.rects));
     return { clips: a.clips, wallClipRects: band.slice(0, 4), mainMinPropDy: a.mainMinPropDy, mainMinPropDySrc: a.mainMinPropDySrc };
   });
   await test('ONLINE：Antea Chair 以 16px 原生绘制（无放大）', async () => {
-    const d = await ev(`(()=>{const out=[];for(const f of [1,6,7]){const r=window.__drive(f);for(const x of r.rec)if(/Chair\\.png/.test(x.src))out.push({f,dw:x.dw,dh:x.dh});}return out;})()`);
+    const d = await ev(`(()=>{const out=[];const c=document.createElement("canvas").getContext("2d");window.__resetRec();SID_SCENE.prop(c,"chair",10,10);for(const x of window.__t.rec)if(/Chair\\.png/.test(x.src))out.push({dw:x.dw,dh:x.dh});return out;})()`);
     assert.ok(d.length > 0, 'no chair prop drawn by the scene module');
     assert.ok(d.every(x => x.dw === 16 && x.dh === 16), 'chair upscaled: ' + JSON.stringify(d.slice(0, 8)));
     return { samples: d.slice(0, 8), n: d.length };

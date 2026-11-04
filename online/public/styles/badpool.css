@@ -1,29 +1,29 @@
 /* 匿名坏人线索池（dev 分支并入） —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
-/* 明亮化：整体白卡片；「坏人线索」入口用珊瑚红实心按钮（原本就是全站最醒目的红块，保留辨识度但换亮红）。 */
-.bad-section{margin:16px 0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;box-shadow:var(--sh-1)}
-.bad-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:44px;border:0;border-radius:0;background:transparent;font-size:14px;text-align:left;padding:12px 16px;color:var(--ink);font-weight:600}
-.bad-toggle small{font-size:12px;color:var(--ink-3);margin-left:10px;font-weight:400}
+/* 像素 RPG 异形藤蔓雕花悬赏通缉榜风格（保留测试要求的选择器与 grid 契约） */
+.bad-section{margin:12px 0;background:var(--surface);border:2px solid var(--line-strong);border-radius:0;clip-path:var(--clip-plaque);overflow:hidden;box-shadow:var(--sh-1)}
+.bad-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;min-height:42px;border:0;border-radius:0;background:transparent;font-size:13.5px;text-align:left;padding:10px 14px;color:var(--ink);font-weight:700}
+.bad-toggle small{font-size:11.5px;color:var(--ink-3);margin-left:10px;font-weight:400}
 .bad-toggle:focus-visible{outline:2px solid var(--brand);outline-offset:-3px}
-.bad-slots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:12px 16px;align-items:start}
-.log-clues-entry{flex:none;padding-top:14px;margin-top:10px;border-top:1px solid var(--coral-line)}
-/* 坏人线索入口：珊瑚红实心，白字 4.9:1 */
-.log-clues-entry #bad-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:48px;padding:12px;color:#fff;font-weight:700;background:linear-gradient(180deg,var(--coral),var(--coral-dk));border:1px solid var(--coral-dk);border-radius:var(--r-sm);box-shadow:0 1px 2px #e83e5c33,0 8px 18px -10px var(--coral)}
-.log-clues-entry #bad-toggle:hover{background:linear-gradient(180deg,#f25972,var(--coral));border-color:var(--coral)}
-.log-clues-entry #bad-toggle:focus-visible{outline:2px solid var(--coral-dk);outline-offset:3px}
-.log-clues-entry #bad-toggle-label{font-size:11px;font-weight:400;white-space:nowrap}
-.log-clues-entry>p{color:var(--ink-3);font-size:10px;line-height:1.6;margin-top:7px}
-/* 单人线索卡：浅灰底 + 阳光橙描边 */
-.bad-slot{min-width:0;background:var(--surface-2);border:1px solid var(--sun-line);border-radius:var(--r-sm);padding:12px;font-size:13px;overflow-wrap:anywhere;color:var(--ink)}
-.bad-slot header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
-.bad-slot header strong{font-size:14px;color:var(--ink)}
-.bad-status{font-size:12px;color:#a85a00;font-weight:600}
-.bad-slot .bad-clue-heading{font-size:11px;font-weight:600;color:var(--ink-2);margin:12px 0 5px;padding-top:8px;border-top:1px solid var(--line)}
-.bad-slot.is-out{background:var(--surface-3);border-color:var(--line-2);opacity:.9}
-.bad-slot.is-out .bad-status{color:var(--ink-3)}
-.bad-clue{display:flex;justify-content:space-between;gap:12px;line-height:1.8}
-.bad-clue span{color:var(--ink-3);flex-shrink:0}
-.bad-clue strong{font-weight:600;text-align:right;min-width:0;color:var(--ink)}
-.bad-empty,.bad-note{font-size:12px;color:var(--ink-3);line-height:1.8}
-.bad-note{padding:0 16px 12px}
+.bad-slots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:10px 14px;align-items:start}
+.log-clues-entry{flex:none;padding-top:10px;margin-top:8px;border-top:1.5px dashed var(--line-strong)}
+/* 坏人线索入口：燕尾火漆红悬赏按钮 */
+.log-clues-entry #bad-toggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:42px;padding:9px 13px;color:#fff8eb;font-weight:800;background:linear-gradient(180deg,#c93b2f,var(--coral-dk));border:1.5px solid #4f0f0a;border-radius:0;clip-path:var(--clip-banner);box-shadow:inset 0 1px 0 #ff9e9666}
+.log-clues-entry #bad-toggle:hover{background:linear-gradient(180deg,#db493d,#a3281e)}
+.log-clues-entry #bad-toggle:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+.log-clues-entry #bad-toggle-label{font-size:11px;font-weight:600;white-space:nowrap;color:#ffe0d9}
+.log-clues-entry>p{color:var(--ink-2);font-size:10px;line-height:1.5;margin-top:5px}
+/* 单人悬赏线索切角羊皮卡 */
+.bad-slot{min-width:0;background:linear-gradient(180deg,#fbf1dc,#ebd6af);border:1.5px solid #a87b46;border-radius:0;clip-path:var(--clip-plaque);padding:10px 11px;font-size:12.5px;overflow-wrap:anywhere;color:var(--ink);box-shadow:inset 0 1px 0 #fff9eb}
+.bad-slot header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding-bottom:6px;border-bottom:1.5px solid var(--line)}
+.bad-slot header strong{font-size:13.5px;color:var(--brand-dk);font-weight:800}
+.bad-status{font-size:11px;color:#7a3e00;font-weight:700;background:var(--sun-soft);border:1px solid var(--sun-line);border-radius:0;clip-path:var(--clip-card);padding:1px 7px}
+.bad-slot .bad-clue-heading{font-size:10.5px;font-weight:800;color:var(--ink-2);margin:9px 0 4px;padding-top:6px;border-top:1px dashed var(--line)}
+.bad-slot.is-out{background:var(--surface-3);border-color:var(--line-2);opacity:.88}
+.bad-slot.is-out .bad-status{color:var(--coral-dk);background:var(--coral-soft);border-color:var(--coral-line)}
+.bad-clue{display:flex;justify-content:space-between;gap:10px;line-height:1.7}
+.bad-clue span{color:var(--ink-2);flex-shrink:0;font-size:11.5px}
+.bad-clue strong{font-weight:700;text-align:right;min-width:0;color:var(--ink);font-size:11.5px}
+.bad-empty,.bad-note{font-size:11.5px;color:var(--ink-2);line-height:1.7}
+.bad-note{padding:0 14px 10px}
 .bad-empty{grid-column:1/-1}
 @media(max-width:560px){.bad-slots{gap:6px}.bad-slot{padding:8px}.bad-slot header{flex-wrap:wrap}.bad-clue{flex-direction:column;gap:0}.bad-clue strong{text-align:left}}
