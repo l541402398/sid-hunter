@@ -44,7 +44,7 @@ CAS 地址按部署环境填写，保留地址中的 `{service}` 和 `{ticket}`�
 
 ## 发布
 
-部署任务用 `resource_group` 防止同时修改同一容器。项目 **Settings → CI/CD → Deployment safety** 开启 **Prevent outdated deployment jobs**，避免较早标签的慢流水线覆盖已部署的新版本（[GitLab 部署顺序说明](https://docs.gitlab.com/ci/environments/deployment_safety/#prevent-outdated-deployment-jobs)）。
+流水线使用旧版 GitLab 支持的 `only: tags`。同一时间只发布一个标签，等待这次部署完成后再发下一个，避免同时更新容器或旧版本覆盖新版本。
 
 先提交并推送 `.gitlab-ci.yml`、`ci/`、`Dockerfile`、`.dockerignore` 和相关代码修改，再给要部署的提交打标签：
 
