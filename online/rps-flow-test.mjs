@@ -298,7 +298,7 @@ await test('接受重校验距离/LOS/余额；旧 choice 不锁定', () => {
   x.x = y.x + 200; // 超出 INTERACT_RANGE
   assert.equal(accept(r2).ok, false);
   assert.equal(r2.room.challenges.size, 0);
-  assert.match(x.games.rpsResult.reason, /距离|家具|筹码|不在线|已淘汰/);
+  assert.match(x.games.rpsResult.reason, /距离|家具|金币|筹码|不在线|已淘汰/);
 });
 
 // ===== 11. 断线 setOffline 立即取消；淘汰/ finish/ reset =====

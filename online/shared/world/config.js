@@ -97,8 +97,8 @@
   };
   const WHEEL_ITEMS = {
     clue:    { key: 'clue',    label: '线索券',     desc: '获取一条尚未掌握的线索',   color: '#3B82F6', glyph: '?' },
-    jackpot: { key: 'jackpot', label: '筹码福袋',   desc: '额外获得 6 枚游戏筹码',     color: '#10B981', glyph: '★' },
-    bounty:  { key: 'bounty',  label: '潜伏补给券', desc: '额外获得 4 枚游戏筹码',     color: '#8B5CF6', glyph: '◆' },
+    jackpot: { key: 'jackpot', label: '金币福袋',   desc: '额外获得 6 枚游戏金币',     color: '#10B981', glyph: '★' },
+    bounty:  { key: 'bounty',  label: '潜伏补给券', desc: '额外获得 4 枚游戏金币',     color: '#8B5CF6', glyph: '◆' },
     reform:  { key: 'reform',  label: '洗心革面券', desc: '已停用（保护身份线索）',   color: '#22C55E', glyph: '♻' },
     rebirth: { key: 'rebirth', label: '轮回券',     desc: '已停用（保护身份线索）',   color: '#EF4444', glyph: '↻' }
   };
@@ -113,8 +113,8 @@
     const step = costs[costs.length - 1] - costs[costs.length - 2];
     return last + step * (spins - (costs.length - 1));
   }
-  // 顺序确定（不随机）：先放 specialCount[faction] 个特殊券，其余槽位用 chipAmounts 循环填充筹码项。
-  // 筹码索引偏移为 pool.length - specialCount，保证筹码数量随槽位变化、可见“不同数量的筹码”。
+  // 顺序确定（不随机）：先放 specialCount[faction] 个特殊券，其余槽位用 chipAmounts 循环填充金币项。
+  // 金币索引偏移为 pool.length - specialCount，保证金币数量随槽位变化、可见“不同数量的金币”。
   function buildWheelPool(faction, wheel = WHEEL) {
     const pool = [];
     const specialCount = wheel.specialCount[faction] || 0;
@@ -126,7 +126,7 @@
     const chipBase = pool.length - specialCount;
     for (let i = pool.length; i < wheel.slotCount; i++) {
       const amount = wheel.chipAmounts[(i - chipBase) % wheel.chipAmounts.length];
-      pool.push({ kind: 'chips', amount, label: `${amount} 筹码`, color: WHEEL_CHIP_COLOR, glyph: '●' });
+      pool.push({ kind: 'chips', amount, label: `${amount} 金币`, color: WHEEL_CHIP_COLOR, glyph: '●' });
     }
     return pool;
   }

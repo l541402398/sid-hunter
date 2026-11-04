@@ -47,10 +47,10 @@
   const PASSIVE_KINDS = {
     speed:  { key: 'speed',  name: '轻身', cap: 40, desc: n => `移动速度 +${n}%` },
     search: { key: 'search', name: '眼力', cap: 2,  desc: n => `每次搜索多翻 ${n} 件` },
-    sell:   { key: 'sell',   name: '行情', cap: 50, desc: n => `卖出物品的筹码 +${n}%` },
+    sell:   { key: 'sell',   name: '行情', cap: 50, desc: n => `卖出物品的金币 +${n}%` },
     stun:   { key: 'stun',   name: '硬朗', cap: 50, desc: n => `被 J 键命中时眩晕时长 -${n}%` },
     luck:   { key: 'luck',   name: '手气', cap: 50, desc: n => `开出稀有物品的概率 +${n}%` },
-    clue:   { key: 'clue',   name: '人脉', cap: 1,  desc: n => `NPC 线索兑换便宜 ${n} 筹码` }
+    clue:   { key: 'clue',   name: '人脉', cap: 1,  desc: n => `NPC 线索兑换便宜 ${n} 金币` }
   };
   const PASSIVE_ORDER = ['speed', 'search', 'sell', 'stun', 'luck', 'clue'];
   // 稀有度 → 被动数值（search/clue 是整数件，其余是百分比）
@@ -137,7 +137,7 @@
     disc:      { key: 'disc',      label: '加密光盘',   icon: 'disc',      rarity: 'epic', value: 12, desc: '盘面手写着"仅此一份"。' },
     // —— 传说 ——
     vaultkey:  { key: 'vaultkey',  label: '保险库钥匙', icon: 'vaultkey',  rarity: 'legendary', value: 25, art: 'skull', desc: '钥匙柄上刻着 6F。' },
-    chipcase:  { key: 'chipcase',  label: '筹码箱',     icon: 'chipbox',   rarity: 'legendary', value: 30, desc: '打开时发出很轻的一声"咔"。' },
+    chipcase:  { key: 'chipcase',  label: '金币箱',     icon: 'chipbox',   rarity: 'legendary', value: 30, desc: '打开时发出很轻的一声"咔"。' },
     // —— 4F 地牢层的奇幻战利品（真实素材图标：0x72 药水 + Pixelfrog 宝藏） ——
     potionRed:   { key: 'potionRed',   label: '红色药剂', icon: 'potion', rarity: 'uncommon', value: 2, art: 'flaskR', desc: '标签上写着"勿饮"。' },
     potionGreen: { key: 'potionGreen', label: '绿色药剂', icon: 'potion', rarity: 'uncommon', value: 2, art: 'flaskG', desc: '闻起来像薄荷与铁锈。' },
@@ -181,8 +181,8 @@
     energyDrink: { key: 'energyDrink', label: '能量饮料',   icon: 'mug',    rarity: 'common',    value: 1, price: 4, kind: 'consumable', use: { effect: 'speed', durationMs: 10000 }, desc: '便利店里最提神的那一罐。', shop: true },
     portableShield:{ key: 'portableShield', label: '便携护盾', icon: 'chip', rarity: 'uncommon', value: 2, price: 6, kind: 'consumable', use: { effect: 'shield', durationMs: 8000 }, desc: '贴片式，撕开就能用。', shop: true },
     focusLens:   { key: 'focusLens',   label: '专注镜片',   icon: 'camera', rarity: 'uncommon',  value: 2, price: 5, kind: 'consumable', use: { effect: 'focus' }, desc: '戴上之后，柜子里的东西好像变多了。', shop: true },
-    // —— 特殊：直接筹码 / 线索券（不占物品叙述，但同样占格） ——
-    chips:     { key: 'chips',     label: '筹码',       icon: 'chips',     rarity: 'uncommon', value: 0, desc: '可以直接使用的赌场筹码。' },
+    // —— 特殊：直接金币 / 线索券（不占物品叙述，但同样占格） ——
+    chips:     { key: 'chips',     label: '金币',       icon: 'chips',     rarity: 'uncommon', value: 0, desc: '可以直接使用的游戏金币。' },
     clue:      { key: 'clue',      label: '线索券',     icon: 'clue',      rarity: 'rare', value: 0, desc: '可换取一名坏人的线索。' }
   };
 
@@ -361,7 +361,7 @@
   // 格子内容的可下发形态（不含任何未揭示信息）。
   function describeSlot(slot) {
     if (!slot) return { kind: 'empty' };
-    if (slot.kind === 'chips') return { kind: 'chips', label: `${slot.amount} 筹码`, amount: slot.amount,
+    if (slot.kind === 'chips') return { kind: 'chips', label: `${slot.amount} 金币`, amount: slot.amount,
       rarity: 'uncommon', color: RARITY.uncommon.color, icon: 'chips' };
     if (slot.kind === 'clue') return { kind: 'clue', label: '线索券', rarity: 'rare',
       color: RARITY.rare.color, icon: 'clue', desc: '可换取一名坏人的线索。' };

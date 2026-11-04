@@ -14,9 +14,9 @@ h2{font-size:16px;letter-spacing:.5px;font-weight:800;margin:2px 0 0;color:var(-
 /* 关闭按钮：八角火漆印章造型 */
 .icon-button{border:1.5px solid #e08e76;background:linear-gradient(180deg,#9c3125,#631b13);box-shadow:inset 0 1px 0 #ffad9e59;font-size:18px;line-height:1;padding:0;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;color:#ffebd6;border-radius:0;clip-path:var(--clip-octagon)}
 .icon-button:hover:not(:disabled){color:#ffffff;background:linear-gradient(180deg,#b53a2c,#7d2218);border-color:#ffae96}
-/* 左上角玩家名单 / 待加入面板：在顶栏下方游戏画面内展开 */
-.roster{left:10px;top:100px;bottom:46px;width:282px;padding:8px 10px;z-index:18}
-@media(max-height:600px){.roster{top:84px;bottom:10px}}
+/* 左上角玩家名单面板：在单行顶栏下方游戏画面内展开 */
+.roster{left:10px;top:50px;bottom:46px;width:282px;padding:8px 10px;z-index:18}
+@media(max-height:600px){.roster{top:46px;bottom:10px}}
 /* 右侧游戏内公共日志浮层：同款藤蔓雕花异形羊皮卷 */
 .logs{display:flex;flex-direction:column;min-width:0;padding:8px 10px;background:transparent;border:24px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 30px / 0 round;border-radius:0;box-shadow:none;filter:var(--sh-3);overflow:hidden}
 .log-head-actions{display:inline-flex;align-items:center;gap:6px;flex:none}

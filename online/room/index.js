@@ -677,6 +677,7 @@ function createRoom(options = {}) {
       games: gamesProjection(p),
       combat: combatProjection(p),
       skills: Object.fromEntries(Object.entries(p.skills).map(([id, skill]) => [id, { ...skill }])),
+      accusedToday: accusedTodayList(p, t).slice(),
       skillsFrozenAt: p.skillsFrozenAt, // dev 分支并入：仅私密下发，公有不泄露
       pending: (room.pending.get(p.id) || []).map(projectEvent),
       // dev 分支并入：离线期间被敲 / 被鬼吓的次数，只在本人的私密摘要里，不写公共日志。
@@ -962,9 +963,23 @@ function createRoom(options = {}) {
     log(`${target.name}的${WORLD.TRAIT_NAMES[key]}已公开：${target.traits[key]}。`, { subjectPlayerId: target.id });
     return { ok: true, kind: 'probe', resultText: `调查成功：${target.name}的${WORLD.TRAIT_NAMES[key]}是「${target.traits[key]}」，已公开。`, targetId: target.id };
   }
+  function accuseDayKey(t) {
+    return new Date((Number.isFinite(t) ? t : now()) + 8 * 3600000).toISOString().slice(0, 10);
+  }
+  function accusedTodayList(p, t) {
+    if (!p.accusedByDay) p.accusedByDay = {};
+    const d = accuseDayKey(t);
+    if (!Array.isArray(p.accusedByDay[d])) p.accusedByDay[d] = [];
+    return p.accusedByDay[d];
+  }
   function doAccuse(actor, target, t) {
+    const todayList = accusedTodayList(actor, t);
+    if (todayList.includes(target.id)) {
+      return reject('今日已指认过该目标，每天对同一人只能指认一次，本次未消耗机会。');
+    }
     const nextIdx = target.sid.revealed.findIndex(x => !x);
     if (nextIdx < 0) return reject('对方身份码已全部公开，本次未消耗机会。');
+    todayList.push(target.id);
     if (target.faction === 'bad') {
       target.sid.revealed[nextIdx] = true;
       if (!target.npc) award(actor, 'accuseHit', 'combat');
@@ -1032,7 +1047,7 @@ function createRoom(options = {}) {
       checkFinish(t);
     }
     // 立即回传本人的最新技能资源，连续使用无需等待下一帧SSE。
-    return { ...resolved, serverTime: t, skills: Object.fromEntries(
+    return { ...resolved, serverTime: t, accusedToday: accusedTodayList(actor, t).slice(), skills: Object.fromEntries(
       Object.entries(actor.skills).map(([id, state]) => [id, { ...state }])) };
   }
   function explorationProjection(p) {
@@ -1133,18 +1148,18 @@ function createRoom(options = {}) {
       } else {
         const amount = reward.kind === 'chips' ? reward.amount : 2;
         actor.exploration.chips += amount;
-        resultText = `搜索完成：获得${amount}筹码${reward.kind === 'clue' ? '（暂无可用线索）' : ''}。`;
+        resultText = `搜索完成：获得${amount}金币${reward.kind === 'clue' ? '（暂无可用线索）' : ''}。`;
       }
       actor.exploration.searched.push(entity.id);
       award(actor, 'search');
       awardFirstSearch(actor);
       gainAchievement(actor, 'search');
     } else {
-      // 背包「人脉」被动：NPC 线索兑换便宜 N 筹码（最低 0）。
+      // 背包「人脉」被动：NPC 线索兑换便宜 N 金币（最低 0）。
       const clueCost = Math.max(0, entity.cost - (passivesOf(actor).clue || 0));
-      if (actor.exploration.chips < clueCost) return fail(`筹码不足，需要${clueCost}筹码`);
+      if (actor.exploration.chips < clueCost) return fail(`金币不足，需要${clueCost}金币`);
       const clue = availableClue(actor, entity.name);
-      if (!clue) return fail('暂无尚未拥有的隐藏线索，不扣筹码');
+      if (!clue) return fail('暂无尚未拥有的隐藏线索，不扣金币');
       actor.exploration.chips -= clueCost;
       actor.exploration.clues.push(clue);
       resultText = `兑换完成：${clue.text}`;
@@ -1199,7 +1214,7 @@ function createRoom(options = {}) {
       const mySel = challenge.selections[p.id];
       p.games.rpsPending = null;
       p.games.rpsUntil = t + playConfig.rpsCooldownMs;
-      p.games.lastResult = `猜拳已取消：${text}，不扣筹码。`;
+      p.games.lastResult = `猜拳已取消：${text}，不扣金币。`;
       p.games.rpsResult = {
         id: challenge.id, status: 'cancelled',
         ownChoice: mySel ? mySel.choice : null,
@@ -1209,7 +1224,7 @@ function createRoom(options = {}) {
       };
     }
   }
-  // 截止结算：仅当双方都已选且仍存活/在线/筹码足够才结算；否则取消（未选齐则反馈谁未选）。
+  // 截止结算：仅当双方都已选且仍存活/在线/金币足够才结算；否则取消（未选齐则反馈谁未选）。
   // 进入选择阶段后锁定双方，不重新限制距离与视线。
   function settleChallenge(challenge, t) {
     const from = find(challenge.fromId), to = find(challenge.toId);
@@ -1235,7 +1250,7 @@ function createRoom(options = {}) {
         p.games.rpsPending = null;
         p.games.rpsUntil = t + playConfig.rpsCooldownMs;
         const change = p.id === challenge.fromId ? delta : -delta;
-        p.games.lastResult = `猜拳结算：你出${labels[mine.choice]}，${p.id === challenge.fromId ? to.name : from.name}出${labels[opp.choice]}；${change === 0 ? '平局' : change > 0 ? '你获胜' : '你落败'}，筹码${change > 0 ? '+' : ''}${change}。`;
+        p.games.lastResult = `猜拳结算：你出${labels[mine.choice]}，${p.id === challenge.fromId ? to.name : from.name}出${labels[opp.choice]}；${change === 0 ? '平局' : change > 0 ? '你获胜' : '你落败'}，金币${change > 0 ? '+' : ''}${change}。`;
         p.games.rpsResult = {
           id: challenge.id, status: 'resolved',
           ownChoice: mine.choice, opponentChoice: opp.choice,
@@ -1246,7 +1261,7 @@ function createRoom(options = {}) {
       }
       return;
     }
-    if (!valid) { cancelChallenge(challenge, t, '结算条件不满足（在线、存活或筹码不足）'); return; }
+    if (!valid) { cancelChallenge(challenge, t, '结算条件不满足（在线、存活或金币不足）'); return; }
     const reason = p => {
       const meChose = p.id === challenge.fromId ? fromChose : toChose;
       const otherChose = p.id === challenge.fromId ? toChose : fromChose;
@@ -1286,7 +1301,7 @@ function createRoom(options = {}) {
     if (from.floorId !== to.floorId) return '双方不在同一楼层';
     if (WORLD.distanceToEntity(from, to) > WORLD.INTERACT_RANGE) return '距离太远，请靠近后再试';
     if (!WORLD.lineClear(from, to, floorBlockers(from.floorId))) return '家具挡住了猜拳双方';
-    if (from.exploration.chips < playConfig.rpsStake || to.exploration.chips < playConfig.rpsStake) return '双方都需要至少1筹码';
+    if (from.exploration.chips < playConfig.rpsStake || to.exploration.chips < playConfig.rpsStake) return '双方都需要至少1金币';
     return '';
   }
   function play(sessionId, body) {
@@ -1320,7 +1335,7 @@ function createRoom(options = {}) {
       // 单局连续对局：同一 NPC 可反复转动，费用随已转次数阶梯上升。
       const spins = actor.games.wheelSpins[entity.id] || 0;
       const cost = WORLD.wheelSpinCost(spins);
-      if (actor.exploration.chips < cost) return fail(`筹码不足：第${spins + 1}次转动需要${cost}筹码`);
+      if (actor.exploration.chips < cost) return fail(`金币不足：第${spins + 1}次转动需要${cost}金币`);
       actor.exploration.chips -= cost;
       const pool = WORLD.buildWheelPool(actor.faction);
       const slotIndex = wheelRandomInt(pool.length);
@@ -1328,7 +1343,7 @@ function createRoom(options = {}) {
       let resultText;
       if (item.kind === 'chips') {
         actor.exploration.chips += item.amount;
-        resultText = `转盘第${spins + 1}次：获得${item.amount}筹码（花费${cost}筹码）。`;
+        resultText = `转盘第${spins + 1}次：获得${item.amount}金币（花费${cost}金币）。`;
       } else if (item.key === 'clue') {
         const clue = availableBadClue(actor);
         if (clue) {
@@ -1336,14 +1351,14 @@ function createRoom(options = {}) {
           resultText = `转盘第${spins + 1}次：线索券获得${clue.text}`;
         } else {
           actor.exploration.chips += 2;
-          resultText = `转盘第${spins + 1}次：线索券暂无可用的坏人线索，补偿2筹码。`;
+          resultText = `转盘第${spins + 1}次：线索券暂无可用的坏人线索，补偿2金币。`;
         }
       } else if (item.key === 'jackpot') {
         actor.exploration.chips += 6;
-        resultText = `转盘第${spins + 1}次：筹码福袋，获得6筹码（花费${cost}筹码）。`;
+        resultText = `转盘第${spins + 1}次：金币福袋，获得6金币（花费${cost}金币）。`;
       } else if (item.key === 'bounty') {
         actor.exploration.chips += 4;
-        resultText = `转盘第${spins + 1}次：潜伏补给券，获得4筹码（花费${cost}筹码）。`;
+        resultText = `转盘第${spins + 1}次：潜伏补给券，获得4金币（花费${cost}金币）。`;
       } else if (item.key === 'reform') {
         if (actor.faction === 'bad') {
           actor.faction = 'good';
@@ -1352,7 +1367,7 @@ function createRoom(options = {}) {
           resultText = `转盘第${spins + 1}次：洗心革面券，你由坏人转换为好人。`;
         } else {
           actor.exploration.chips += 2;
-          resultText = `转盘第${spins + 1}次：洗心革面券（无效果），补偿2筹码。`;
+          resultText = `转盘第${spins + 1}次：洗心革面券（无效果），补偿2金币。`;
         }
       } else {
         // rebirth：重新随机身份特征（颜色、隐藏属性、S-ID），并重置公开状态。
@@ -1412,7 +1427,7 @@ function createRoom(options = {}) {
         const reason = rpsValidation(from, to);
         if (reason) {
           cancelChallenge(challenge, t, reason);
-          return fail(`猜拳已取消：${reason}，不扣筹码。`);
+          return fail(`猜拳已取消：${reason}，不扣金币。`);
         }
         // 接受设共同 startedAt 与 deadline=t+rpsRoundMs，phase 进入 selecting；截止前不结算。
         challenge.phase = 'selecting';
@@ -1791,7 +1806,7 @@ function createRoom(options = {}) {
     room.searchSessions.delete(s.id);
     actor.input = { up: false, down: false, left: false, right: false };
     const parts = [];
-    if (gained.chips) parts.push(`${gained.chips} 筹码`);
+    if (gained.chips) parts.push(`${gained.chips} 金币`);
     if (gained.clues) parts.push(`${gained.clues} 条线索`);
     if (gained.items.length) parts.push(`${gained.items.length} 件物品`);
     return { ok: true, resultText: parts.length ? `搜索完成：获得${parts.join('、')}。` : '搜索完成：只翻出一堆没用的东西。',
@@ -1802,7 +1817,7 @@ function createRoom(options = {}) {
   // 第二轮：道具经济 —— 使用 / 出售 / 购买
   // ============================================================
   // 设计意图：搜到的东西不再是"到手即折现的数字"，而是**资产**：
-  //   · 卖掉 → 换筹码（再去 NPC 换线索 / 转盘 / 买道具）
+  //   · 卖掉 → 换金币（再去 NPC 换线索 / 转盘 / 买道具）
   //   · 用掉 → 换一段时间的战力（疾行 / 护体）或一次更好的搜索（专注）
   // 所有判定与计时都在服务端；客户端只提交 itemKey 并渲染返回的 items/buffs。
   function itemDef(key) { return WORLD.LOOT.ITEMS[String(key || '')] || null; }
@@ -1873,7 +1888,7 @@ function createRoom(options = {}) {
     addItem(actor, def.key, -want);
     actor.exploration.chips += unit * want;
     room.processed.set(commandId, t);
-    return economyResponse(actor, true, `卖出「${def.label}」×${want}，获得 ${unit * want} 筹码。`, { sold: def.key, count: want, gained: unit * want });
+    return economyResponse(actor, true, `卖出「${def.label}」×${want}，获得 ${unit * want} 金币。`, { sold: def.key, count: want, gained: unit * want });
   }
   function buyItem(sessionId, body) {
     const g = economyGuard(sessionId, body);
@@ -1884,11 +1899,11 @@ function createRoom(options = {}) {
     if (!def || !def.shop) return fail('这件商品不在售');
     const price = Math.max(1, Number(def.price) || 0);
     const want = Math.max(1, Math.min(5, Math.floor(Number(body.count) || 1)));
-    if (actor.exploration.chips < price * want) return fail(`筹码不足：需要 ${price * want}，当前 ${actor.exploration.chips}`);
+    if (actor.exploration.chips < price * want) return fail(`金币不足：需要 ${price * want}，当前 ${actor.exploration.chips}`);
     actor.exploration.chips -= price * want;
     addItem(actor, def.key, want);
     room.processed.set(commandId, t);
-    return economyResponse(actor, true, `买入「${def.label}」×${want}，花费 ${price * want} 筹码。`, { bought: def.key, count: want, spent: price * want });
+    return economyResponse(actor, true, `买入「${def.label}」×${want}，花费 ${price * want} 金币。`, { bought: def.key, count: want, spent: price * want });
   }
 
   // ===== 小游戏 =====

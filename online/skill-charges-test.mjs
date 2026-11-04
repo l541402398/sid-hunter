@@ -18,14 +18,17 @@ function fixture() {
 function use(r, actor, skill, target = 2, extra = {}) {
   return r.useSkill(r.find(actor).sessionId, { commandId: 'charges-' + (++seq), skill, targetId: target, ...extra });
 }
-await test('坏人新建/重开3血，三次指认淘汰，重连不会恢复损失血量', () => {
+await test('坏人新建/重开3血，三次不同好人指认淘汰，同一好人同日对同一人只能指认一次', () => {
   const r = fixture(), bad = r.find(0);
   assert.equal(bad.hp, 3);
   assert.equal(use(r, 1, 'accuse', 0).ok, true); assert.equal(bad.hp, 2); assert.equal(bad.alive, true);
+  const dup = use(r, 1, 'accuse', 0);
+  assert.equal(dup.ok, false); assert.match(dup.error, /今日已指认过/);
+  assert.equal(bad.hp, 2); assert.equal(r.find(1).skills.accuse.chargesRemaining, 1);
   r.setOffline(0); const reconnect = r.join(bad.sessionId, '不应重建');
   assert.equal(reconnect.player, bad); assert.equal(bad.hp, 2);
-  assert.equal(use(r, 1, 'accuse', 0).ok, true); assert.equal(bad.hp, 1); assert.equal(bad.alive, true);
-  assert.equal(use(r, 2, 'accuse', 0).ok, true); assert.equal(bad.hp, 0); assert.equal(bad.alive, false);
+  assert.equal(use(r, 2, 'accuse', 0).ok, true); assert.equal(bad.hp, 1); assert.equal(bad.alive, true);
+  assert.equal(use(r, 3, 'accuse', 0).ok, true); assert.equal(bad.hp, 0); assert.equal(bad.alive, false);
   r.reset(); assert.equal(r.join('new-round', '新局坏人').player.hp, 3);
 });
 await test('四项身份技能无短CD，恢复周期和挥锤CD不变', () => {
@@ -52,11 +55,11 @@ for (const [actor, skill] of [[0,'spy'],[0,'kill'],[1,'probe'],[1,'accuse']]) {
       assert.equal(first.skills[skill].chargesRemaining, 1); assert.equal(first.serverTime, t);
       const next = s.nextChargeAt;
       assert.equal(next, t + SKILL_CONFIG.chargeIntervalMs); assert.equal(s.cooldownUntil, 0);
-      const secondTarget = skill === 'kill' ? 3 : 2;
+      const secondTarget = (skill === 'kill' || skill === 'accuse') ? 3 : 2;
       const second = use(r, actor, skill, secondTarget); assert.equal(second.ok, true, JSON.stringify(second));
       assert.equal(s.chargesRemaining, 0); assert.equal(s.nextChargeAt, next);
       assert.equal(first.skills[skill].chargesRemaining, 1, 'response resources must be copies');
-      const thirdTarget = skill === 'kill' ? 4 : 2;
+      const thirdTarget = (skill === 'kill' || skill === 'accuse') ? 4 : 2;
       const third = use(r, actor, skill, thirdTarget); assert.equal(third.ok, false); assert.match(third.error, /次数用尽/);
       assert.equal(s.nextChargeAt, next);
     } finally { Date.now = now; }

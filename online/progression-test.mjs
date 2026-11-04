@@ -116,7 +116,7 @@ await test('转盘可重复：阶梯收费、计数递增、slots/slotIndex 结�
   p.exploration.chips = 0;
   const spinsBefore = p.games.wheelSpins[npc.id], scoreBefore = p.score, id = nonce();
   const fail = r.play(p.sessionId, { commandId: id, kind: 'wheel', entityId: npc.id });
-  assert.equal(fail.ok, false); assert.match(fail.error, /筹码不足/);
+  assert.equal(fail.ok, false); assert.match(fail.error, /金币不足|筹码不足/);
   assert.equal(r.room.processed.has(id), false);
   assert.equal(p.exploration.chips, 0); assert.equal(p.games.wheelSpins[npc.id], spinsBefore); assert.equal(p.score, scoreBefore);
 });

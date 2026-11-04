@@ -6,7 +6,7 @@
 //
 // 运营方式：管理页逐个勾选，或一键套用「第 1/2/3 天」预设。
 const MINIGAMES = {
-  rps:     { label: '猜拳对决',       desc: '两人 10 秒出拳，胜者拿筹码', players: '2 人', default: true },
+  rps:     { label: '猜拳对决',       desc: '两人 10 秒出拳，胜者拿金币', players: '2 人', default: true },
   spire:   { label: '卡牌对决',       desc: '杀戮尖塔式回合制（内容较多，后续开放）', players: '1–2 人', default: false },
   tank:    { label: '坦克大战',       desc: '俯视双人对射，先打中三次者胜', players: '2 人', default: false },
   parkour: { label: '多人趣味闯关',   desc: '蛋仔派对式竞速闯关', players: '2–8 人', default: false }

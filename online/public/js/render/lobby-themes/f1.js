@@ -82,7 +82,7 @@
     },
     faceDecor(g, wl, top, bottom, A) {
       const x0 = wl.x, x1 = wl.x + wl.w, has = (a, b) => x0 <= a && x1 >= b;
-      if (has(1220, 1250)) { A.R(g, 1214, top + 4, 124, 26, '#5b3a22'); A.R(g, 1218, top + 6, 116, 22, '#2f3b32'); A.text(g, '今日 · 可颂 / 拿铁', 1224, top + 13, '#f4ecd2', 9, 'left'); A.text(g, '鲜果烘焙 3 筹码', 1224, top + 23, '#ffd27a', 9, 'left'); }
+      if (has(1220, 1250)) { A.R(g, 1214, top + 4, 124, 26, '#5b3a22'); A.R(g, 1218, top + 6, 116, 22, '#2f3b32'); A.text(g, '今日 · 可颂 / 拿铁', 1224, top + 13, '#f4ecd2', 9, 'left'); A.text(g, '鲜果烘焙 3 金币', 1224, top + 23, '#ffd27a', 9, 'left'); }
       if (has(880, 960)) { A.sconce(g, 880, top + 2); A.frame(g, 920, top + 4, 40, 24, 'flower'); }
       if (has(1500, 1540)) A.sconce(g, 1520, top + 2);
       if (has(1880, 1990)) for (let i = 0; i < 8; i++) { const fx = 1880 + i * 12, c = ['#f06f6a', '#ffd25a', '#6fc3df', '#8fd07a'][i % 4]; A.R(g, fx, top + 4, 10, 2, '#7a4a26'); A.R(g, fx + 2, top + 6, 6, 4, c); A.R(g, fx + 4, top + 10, 2, 2, c); }

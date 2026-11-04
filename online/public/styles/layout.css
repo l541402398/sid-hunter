@@ -7,20 +7,19 @@
 ::-webkit-scrollbar-track{background:rgba(56,33,15,.12)}
 ::selection{background:var(--sun-soft);color:var(--brand-dk)}
 .shell{width:100vw;height:100dvh;margin:0;padding:0;overflow:hidden}
-.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:0;pointer-events:none}
-/* 左上角游戏铭牌：八角切边深胡桃木 + 鎏金藤蔓纹章 */
-.brand{pointer-events:auto;display:inline-flex;align-items:center;gap:10px;padding:6px 13px 6px 8px;background-color:#331e0feb;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='24' viewBox='0 0 48 24'><path d='M0 12 Q12 4 24 12 T48 12' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.2'/><path d='M8 8 L12 5 L10 10 Z M34 15 L38 12 L36 17 Z' fill='%2343a047' opacity='.28'/></svg>"),linear-gradient(180deg,#3d2514eb,#26160beb);border:2px solid #c99650;border-radius:0;clip-path:var(--clip-plaque);box-shadow:inset 0 1px 0 #ffdf9e3d;filter:drop-shadow(0 6px 14px rgba(12,6,2,.65))}
-.brand-mark{font:900 16px ui-monospace,monospace;letter-spacing:-1.5px;border:2px solid #693b0b;border-radius:0;clip-path:var(--clip-octagon);padding:4px 7px;color:#2e1603;
+.topbar{display:flex;justify-content:flex-start;align-items:center;gap:6px;padding:0;pointer-events:none;flex-wrap:nowrap}
+/* 左上角游戏铭牌：八角切边深胡桃木 + 鎏金藤蔓纹章（单行精简版） */
+.brand{pointer-events:auto;display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 6px;background-color:#331e0feb;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='24' viewBox='0 0 48 24'><path d='M0 12 Q12 4 24 12 T48 12' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.2'/><path d='M8 8 L12 5 L10 10 Z M34 15 L38 12 L36 17 Z' fill='%2343a047' opacity='.28'/></svg>"),linear-gradient(180deg,#3d2514eb,#26160beb);border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-plaque);box-shadow:inset 0 1px 0 #ffdf9e3d;filter:drop-shadow(0 4px 10px rgba(12,6,2,.6));white-space:nowrap}
+.brand-mark{font:900 13px ui-monospace,monospace;letter-spacing:-1px;border:1.5px solid #693b0b;border-radius:0;clip-path:var(--clip-octagon);padding:2px 5px;color:#2e1603;
   background:linear-gradient(180deg,#ffe082,#d48820);box-shadow:inset 0 1px 0 #fff8db}
 .brand-mark span{color:#8c1d13}
-h1{font-size:15px;letter-spacing:1px;font-weight:800;margin:0 0 2px;background:linear-gradient(90deg,#fff4cf,#ffc966);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none}
+h1{font-size:13.5px;letter-spacing:.8px;font-weight:800;margin:0;background:linear-gradient(90deg,#fff4cf,#ffc966);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;white-space:nowrap}
 p{margin:0}
-.brand p{font:9px ui-monospace,monospace;letter-spacing:1.4px;color:#cfb089}
-/* 右上角实时战况切角木牌胶囊 */
-.public-stats{pointer-events:auto;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;align-items:center;color:#ebd3b0;font-size:11px}
-.public-stats>span{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(180deg,#3b2414f0,#24150bf0);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-card);padding:4px 10px;box-shadow:inset 0 1px 0 #ffdf9e2e;filter:drop-shadow(0 4px 10px rgba(12,6,2,.55))}
-.public-stats b{color:#fff5dc;font:800 14px ui-monospace,monospace;margin-left:1px}
-.local-badge{color:#c9a982;font-size:10.5px}
+.brand p,.local-badge,.private-hint,#pending-toggle,#pending-players{display:none!important}
+/* 顶栏实时战况切角木牌胶囊 */
+.public-stats{pointer-events:auto;display:flex;flex-wrap:nowrap;justify-content:flex-start;gap:5px;align-items:center;color:#ebd3b0;font-size:11px;white-space:nowrap}
+.public-stats>span{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(180deg,#3b2414f0,#24150bf0);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-card);padding:4px 8px;box-shadow:inset 0 1px 0 #ffdf9e2e;filter:drop-shadow(0 4px 10px rgba(12,6,2,.55))}
+.public-stats b{color:#fff5dc;font:800 12.5px ui-monospace,monospace;margin-left:1px}
 .dot{display:inline-block;width:7px;height:7px;border-radius:1px;vertical-align:middle;box-shadow:0 0 0 1px #1e1107;transform:rotate(45deg)}
 .green{background:#43d17a}
 .gray{background:#9c8770}
@@ -39,12 +38,13 @@ p{margin:0}
   100%{box-shadow:inset 0 1px 0 #ffdf9e2e,0 4px 12px rgba(12,6,2,.55);background:linear-gradient(180deg,#573210f0,#381f08f0)!important}
 }
 @media(prefers-reduced-motion:reduce){.clue-chip.clue-flash{animation:none}}
-/* 游戏内顶部快捷雕花木牌工具栏 */
-.toolbar{pointer-events:none;display:flex;justify-content:space-between;align-items:center;margin-bottom:0;gap:8px}
-.toolbar-left,.toolbar-right{pointer-events:auto;display:flex;align-items:center;gap:6px;background-color:#2e1b0ee8;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='24' viewBox='0 0 56 24'><path d='M0 12 Q14 4 28 12 T56 12' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.18'/><path d='M10 8 L14 5 L12 10 Z M38 15 L42 12 L40 17 Z' fill='%2343a047' opacity='.24'/></svg>"),linear-gradient(180deg,#362112eb,#22140aeb);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-plaque);padding:5px 8px;box-shadow:inset 0 1px 0 #ffdf9e29;filter:drop-shadow(0 6px 14px rgba(12,6,2,.6))}
-.toolbar button{font-size:11.5px;padding:5px 10px;background:linear-gradient(180deg,#52341d,#382212);border:1.5px solid #ad8050;border-radius:0;clip-path:var(--clip-card);color:#f7e6c4;box-shadow:inset 0 1px 0 #ffdf9e33;font-weight:600}
+/* 游戏内顶部快捷雕花木牌工具栏（与顶栏合并为单行置顶） */
+.toolbar{pointer-events:none;display:flex;justify-content:flex-end;align-items:center;margin-bottom:0;gap:6px;flex-wrap:nowrap}
+.toolbar-left,.toolbar-right{pointer-events:auto;display:flex;align-items:center;gap:5px;flex-wrap:nowrap;white-space:nowrap;background-color:#2e1b0ee8;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='24' viewBox='0 0 56 24'><path d='M0 12 Q14 4 28 12 T56 12' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.18'/><path d='M10 8 L14 5 L12 10 Z M38 15 L42 12 L40 17 Z' fill='%2343a047' opacity='.24'/></svg>"),linear-gradient(180deg,#362112eb,#22140aeb);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-plaque);padding:3px 6px;box-shadow:inset 0 1px 0 #ffdf9e29;filter:drop-shadow(0 4px 10px rgba(12,6,2,.55))}
+.toolbar button{font-size:11px;padding:4px 8px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;background:linear-gradient(180deg,#52341d,#382212);border:1.5px solid #ad8050;border-radius:0;clip-path:var(--clip-card);color:#f7e6c4;box-shadow:inset 0 1px 0 #ffdf9e33;font-weight:600}
+#rules-toggle{padding:4px 7px;min-width:28px;justify-content:center}
 .toolbar button:hover:not(:disabled){background:linear-gradient(180deg,#694326,#4a2d18);border-color:#cfa068;color:#fff8e8}
-.toolbar button span{font:700 10.5px ui-monospace,monospace;color:#ffd479;padding-left:6px}
+.toolbar button span{font:700 10.5px ui-monospace,monospace;color:#ffd479;padding-left:4px}
 /* 展开态：鎏金高亮木牌 */
 .toolbar button[aria-expanded=true],.toolbar button[aria-pressed=true]{border-color:#f0b24a;background:linear-gradient(180deg,#7a4419,#542d0e);color:#fff3cf;box-shadow:inset 0 0 0 1px #ffd27866}
 .private-hint{font-size:10px;color:#c7a67e;margin:0 2px}

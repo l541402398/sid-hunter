@@ -364,14 +364,14 @@
     if (wl.style === 'fence' || wl.style === 'hedge' || wl.style === 'glass') return lowWall(g, wl, th);
     if (wl.style === 'house') return house(g, wl, th, fid, P);
     const x = Math.round(wl.x), y = Math.round(wl.y), w = Math.round(wl.w), h = Math.round(wl.h);
-    const face = wl.face || 60, T = 16;
+    const face = Math.min(wl.face || 34, 34), T = 12;
     if (w >= h) {
       const capY = y - face, faceTop = capY + T, bottom = y + h;
-      wallSurface(g, x, faceTop, w, bottom - faceTop - 26, P);
-      wainscot(g, x, bottom - 26, w, 26, P);
+      wallSurface(g, x, faceTop, w, Math.max(4, bottom - faceTop - 18), P);
+      wainscot(g, x, bottom - 18, w, 18, P);
       if (th.faceDecor) { g.save(); g.beginPath(); g.rect(x + 6, faceTop, w - 12, bottom - faceTop); g.clip(); th.faceDecor(g, wl, faceTop, bottom, API); g.restore(); }
       const doorsHere = roomsOn(fid).filter(r => r.door && r.door.x >= x + 24 && r.door.x <= x + w - 24 && Math.abs(r.door.y - (bottom + 20)) <= 16);
-      for (const r of doorsHere) embeddedDoor(g, r.door.x, bottom, 44, null, th.door);
+      for (const r of doorsHere) embeddedDoor(g, r.door.x, bottom, 36, null, th.door);
       R(g, x, capY, w, T, P.cap); R(g, x, capY, w, 2, P.capHi); R(g, x, capY + 2, w, 2, P.capTop); R(g, x, capY + T - 2, w, 2, P.capLo);
       for (const r of doorsHere) plaque(g, r.door.x, capY + 1, r.name.length > 7 ? r.name.slice(0, 7) + '…' : r.name, 0, th.plaquePal);   // 门牌挂在墙顶
       for (const ex of [x, x + w - 6]) { R(g, ex, capY, 6, bottom - capY, P.capLo); R(g, ex + (ex === x ? 0 : 4), capY, 2, bottom - capY, ex === x ? P.capHi : P.capLo); R(g, ex + 2, capY + 2, 2, bottom - capY - 4, P.cap); }
@@ -380,7 +380,7 @@
       const capTop = y - face, capBot = y + h - face;
       R(g, x, capTop, w, capBot - capTop, P.cap); R(g, x, capTop, 2, capBot - capTop, P.capHi); R(g, x + w - 2, capTop, 2, capBot - capTop, P.capLo);
       for (let sy = capTop + 24; sy < capBot - 8; sy += 48) R(g, x + 2, sy, w - 4, 2, P.capLo);
-      wallSurface(g, x, capBot, w, face - 26, P); wainscot(g, x, y + h - 26, w, 26, P);
+      wallSurface(g, x, capBot, w, Math.max(4, face - 18), P); wainscot(g, x, y + h - 18, w, 18, P);
       R(g, x, capBot, w, 2, P.capLo);
     }
     return true;
@@ -431,73 +431,69 @@
     return true;
   }
 
-  // ---------- 独立小建筑：屋顶（gable 坡顶 / flat 石砌柱廊 / cabin 船舱 / awning 条纹雨棚）+ 立面 + 嵌墙门 ----------
+  // ---------- 独立小建筑：紧凑微缩 3/4 屋顶（与碰撞盒对齐，避免遮挡北侧角色）+ 立面 + 嵌墙门 ----------
   function house(g, wl, th, fid, P0) {
     const x = Math.round(wl.x), y = Math.round(wl.y), w = Math.round(wl.w), h = Math.round(wl.h);
     const S = Object.assign({ kind: 'gable' }, th.house || {}, wl.skin || {});
     const P = Object.assign({}, P0, S.wall || {});
-    const bottom = y + h, top = y - (wl.face || 96), facadeH = S.facadeH || 62, fTop = bottom - facadeH;
+    const bottom = y + h, facadeH = Math.min(S.facadeH || 40, Math.max(36, h - 22)), fTop = bottom - facadeH, top = y - 10;
     // 地面投影
-    g.fillStyle = 'rgba(50,25,10,0.22)'; g.fillRect(x + 8, bottom, w, 8);
+    g.fillStyle = 'rgba(50,25,10,0.22)'; g.fillRect(x + 8, bottom, w, 6);
     // 立面
-    wallSurface(g, x, fTop, w, facadeH - 16, P);
-    R(g, x, bottom - 16, w, 16, P.wains); R(g, x, bottom - 16, w, 2, P.wainsHi); R(g, x, bottom - 4, w, 4, P.base);
+    wallSurface(g, x, fTop, w, facadeH - 12, P);
+    R(g, x, bottom - 12, w, 12, P.wains); R(g, x, bottom - 12, w, 2, P.wainsHi); R(g, x, bottom - 4, w, 4, P.base);
     const doors = roomsOn(fid).filter(r => r.door && r.door.x >= x + 20 && r.door.x <= x + w - 20 && Math.abs(r.door.y - (bottom + 20)) <= 16);
     // 立面窗：避开门
     for (let wx = x + 30; wx < x + w - 30; wx += 64) {
       if (doors.some(r => Math.abs(r.door.x - wx) < 46)) continue;
-      if (S.kind === 'cabin') { pxEllipse(g, wx, fTop + 22, 11, 11, '#8a8f96'); pxEllipse(g, wx, fTop + 22, 8, 8, '#7fc8e6'); R(g, wx - 4, fTop + 17, 3, 4, '#ffffff'); continue; }
-      R(g, wx - 14, fTop + 10, 28, 24, S.winFrame || '#6e4322'); R(g, wx - 12, fTop + 12, 24, 20, S.glass || '#a8dcef');
-      R(g, wx - 1, fTop + 12, 2, 20, S.winFrame || '#6e4322'); R(g, wx - 12, fTop + 21, 24, 2, S.winFrame || '#6e4322'); R(g, wx - 10, fTop + 14, 2, 6, '#ffffff');
-      if (S.flowerBox !== false) { R(g, wx - 15, fTop + 34, 30, 5, '#a2602f'); for (let i = 0; i < 4; i++) R(g, wx - 13 + i * 7, fTop + 31, 5, 4, ['#f06f6a', '#ffd25a', '#f5a0c8', '#ffffff'][i]); }
+      if (S.kind === 'cabin') { pxEllipse(g, wx, fTop + 18, 9, 9, '#8a8f96'); pxEllipse(g, wx, fTop + 18, 6, 6, '#7fc8e6'); R(g, wx - 3, fTop + 14, 2, 3, '#ffffff'); continue; }
+      R(g, wx - 13, fTop + 6, 26, 18, S.winFrame || '#6e4322'); R(g, wx - 11, fTop + 8, 22, 14, S.glass || '#a8dcef');
+      R(g, wx - 1, fTop + 8, 2, 14, S.winFrame || '#6e4322'); R(g, wx - 11, fTop + 14, 22, 2, S.winFrame || '#6e4322'); R(g, wx - 9, fTop + 10, 2, 4, '#ffffff');
+      if (S.flowerBox !== false) { R(g, wx - 14, fTop + 24, 28, 4, '#a2602f'); for (let i = 0; i < 4; i++) R(g, wx - 12 + i * 7, fTop + 21, 4, 3, ['#f06f6a', '#ffd25a', '#f5a0c8', '#ffffff'][i]); }
     }
-    for (const r of doors) embeddedDoor(g, r.door.x, bottom, 44, null, S.door || th.door);
+    for (const r of doors) embeddedDoor(g, r.door.x, bottom, 38, null, S.door || th.door);
     if (S.kind === 'flat') {
       // 石砌柱廊：壁柱 + 檐口齿饰 + 平顶女儿墙
-      for (let px = x + 4; px < x + w - 8; px += 56) { if (doors.some(r => Math.abs(r.door.x - (px + 6)) < 30)) continue; R(g, px, fTop, 12, facadeH - 4, S.column || '#e9dfc8'); R(g, px, fTop, 3, facadeH - 4, '#f8f2e4'); R(g, px + 9, fTop, 3, facadeH - 4, '#c9b994'); }
-      R(g, x - 6, top, w + 12, fTop - top - 14, S.roof || '#8c7a62'); R(g, x - 6, top, w + 12, 4, S.roofHi || '#b4a284');
-      for (let py = top + 6, r = 0; py < fTop - 22; py += 12, r++) for (let px = x - 4 + (r % 2 ? 12 : 0); px < x + w + 2; px += 24) {
-        const pw = Math.min(22, x + w + 4 - px); if (pw <= 2) continue;
-        R(g, px, py, pw, 10, hash(px, py) > 0.5 ? (S.roofLo || '#7c6a52') : (S.roof || '#8c7a62')); R(g, px, py, pw, 2, S.roofHi || '#b4a284');
+      for (let px = x + 4; px < x + w - 8; px += 56) { if (doors.some(r => Math.abs(r.door.x - (px + 6)) < 30)) continue; R(g, px, fTop, 10, facadeH - 4, S.column || '#e9dfc8'); R(g, px, fTop, 2, facadeH - 4, '#f8f2e4'); R(g, px + 8, fTop, 2, facadeH - 4, '#c9b994'); }
+      R(g, x - 4, top, w + 8, Math.max(8, fTop - top - 8), S.roof || '#8c7a62'); R(g, x - 4, top, w + 8, 3, S.roofHi || '#b4a284');
+      for (let py = top + 5, r = 0; py < fTop - 12; py += 9, r++) for (let px = x - 2 + (r % 2 ? 10 : 0); px < x + w + 2; px += 20) {
+        const pw = Math.min(18, x + w + 2 - px); if (pw <= 2) continue;
+        R(g, px, py, pw, 7, hash(px, py) > 0.5 ? (S.roofLo || '#7c6a52') : (S.roof || '#8c7a62')); R(g, px, py, pw, 2, S.roofHi || '#b4a284');
       }
       // 三角山花（正对首个门）
       const pc = doors.length ? doors[0].door.x : x + w / 2;
-      for (let i = 0; i < 10; i++) R(g, pc - 40 + i * 4, fTop - 18 - i * 2, 80 - i * 8, 2, S.cornice || '#e2d5b8');
-      R(g, x - 8, fTop - 14, w + 16, 14, S.cornice || '#e2d5b8'); R(g, x - 8, fTop - 14, w + 16, 2, '#f6efdd');
-      for (let px = x - 4; px < x + w + 4; px += 8) R(g, px, fTop - 6, 4, 4, '#b8a888');
-      R(g, x - 8, fTop - 2, w + 16, 2, 'rgba(40,20,8,0.3)');
+      for (let i = 0; i < 6; i++) R(g, pc - 30 + i * 5, fTop - 10 - i * 2, 60 - i * 10, 2, S.cornice || '#e2d5b8');
+      R(g, x - 6, fTop - 8, w + 12, 8, S.cornice || '#e2d5b8'); R(g, x - 6, fTop - 8, w + 12, 2, '#f6efdd');
+      for (let px = x - 2; px < x + w + 2; px += 8) R(g, px, fTop - 4, 4, 2, '#b8a888');
+      R(g, x - 6, fTop - 2, w + 12, 2, 'rgba(40,20,8,0.3)');
     } else if (S.kind === 'cabin') {
       // 船舱：圆角舱顶 + 甲板护栏 + 救生圈
-      R(g, x - 4, top + 14, w + 8, fTop - top - 14, S.roof || '#f4efe4'); R(g, x - 4, top + 14, w + 8, 3, '#ffffff');
-      for (let py = top + 22; py < fTop - 6; py += 10) R(g, x, py, w, 2, S.roofLo || '#d8d0bc');
-      for (let px = x - 2; px < x + w; px += 24) R(g, px, top, 4, 16, S.rail || '#a8723f');
-      R(g, x - 4, top, w + 8, 4, S.rail || '#a8723f');
-      R(g, x - 6, fTop - 6, w + 12, 6, S.trim || '#385e7a'); R(g, x - 6, fTop - 6, w + 12, 2, '#5e8cae');
-      const lx = x + w - 30; pxEllipse(g, lx, top + 40, 12, 12, '#e0524a'); pxEllipse(g, lx, top + 40, 8, 8, '#ffffff'); pxEllipse(g, lx, top + 40, 4, 4, S.roof || '#f4efe4');
+      R(g, x - 4, top + 8, w + 8, Math.max(8, fTop - top - 8), S.roof || '#f4efe4'); R(g, x - 4, top + 8, w + 8, 2, '#ffffff');
+      for (let py = top + 14; py < fTop - 4; py += 8) R(g, x, py, w, 2, S.roofLo || '#d8d0bc');
+      for (let px = x - 2; px < x + w; px += 24) R(g, px, top, 3, 10, S.rail || '#a8723f');
+      R(g, x - 4, top, w + 8, 3, S.rail || '#a8723f');
+      R(g, x - 5, fTop - 5, w + 10, 5, S.trim || '#385e7a'); R(g, x - 5, fTop - 5, w + 10, 2, '#5e8cae');
+      const lx = x + w - 26; pxEllipse(g, lx, top + 20, 8, 8, '#e0524a'); pxEllipse(g, lx, top + 20, 5, 5, '#ffffff'); pxEllipse(g, lx, top + 20, 2, 2, S.roof || '#f4efe4');
     } else if (S.kind === 'awning') {
       // 售亭：平顶 + 条纹雨棚 + 招牌
-      R(g, x - 4, top + 10, w + 8, fTop - top - 30, S.roof || '#efe6d2'); R(g, x - 4, top + 10, w + 8, 3, '#fffaf0');
-      R(g, x - 4, top + 6, w + 8, 4, S.roofLo || '#b8a888');
-      R(g, x - 4, top + 10, 4, fTop - top - 30, S.roofLo || '#b8a888'); R(g, x + w, top + 10, 4, fTop - top - 30, S.roofLo || '#b8a888');
-      for (let py = top + 18; py < fTop - 28; py += 8) for (let px = x + 6 + ((py / 8) % 2) * 6; px < x + w - 6; px += 14) R(g, px, py, 2, 2, S.roofLo || '#d8ccb4');
-      { const vx = x + 18; R(g, vx, top + 16, 26, 16, '#c9ced4'); R(g, vx, top + 16, 26, 2, '#eef1f4'); R(g, vx + 4, top + 22, 18, 2, '#8a9096'); R(g, vx + 4, top + 26, 18, 2, '#8a9096'); }
-      if (S.potPlants !== false) for (let px = x + w - 30; px > x + 60; px -= 70) { R(g, px, top + 24, 14, 10, '#c9714a'); R(g, px + 2, top + 16, 10, 8, '#5fa356'); }
+      R(g, x - 4, top + 4, w + 8, Math.max(8, fTop - top - 16), S.roof || '#efe6d2'); R(g, x - 4, top + 4, w + 8, 2, '#fffaf0');
+      R(g, x - 4, top + 2, w + 8, 3, S.roofLo || '#b8a888');
       const a = S.stripes || ['#e05a4c', '#fdf3e0'];
-      for (let px = x - 10, i = 0; px < x + w + 10; px += 14, i++) { R(g, px, fTop - 22, 14, 18, a[i % 2]); R(g, px + 2, fTop - 4, 10, 4, a[i % 2]); }
-      R(g, x - 10, fTop - 24, w + 20, 3, '#7a3a2c'); R(g, x - 8, fTop + 2, w + 16, 4, 'rgba(40,20,8,0.22)');
+      for (let px = x - 6, i = 0; px < x + w + 6; px += 12, i++) { R(g, px, fTop - 14, 12, 11, a[i % 2]); R(g, px + 1, fTop - 3, 10, 3, a[i % 2]); }
+      R(g, x - 6, fTop - 16, w + 12, 2, '#7a3a2c'); R(g, x - 6, fTop + 1, w + 12, 3, 'rgba(40,20,8,0.22)');
     } else {
       // gable 坡顶：木瓦逐行错缝 + 屋脊 + 檐口
-      const rTop = top + 6, rBot = fTop - 4, roof = S.roof || '#b5523f', roofLo = S.roofLo || '#8e3b2e', roofHi = S.roofHi || '#d06f58';
-      for (let ry = rTop, r = 0; ry < rBot; ry += 8, r++) {
-        R(g, x - 10, ry, w + 20, 8, r % 2 ? roof : roofHi);
-        for (let px = x - 10 + (r % 2 ? 8 : 0); px < x + w + 10; px += 16) R(g, px, ry, 2, 8, roofLo);
-        R(g, x - 10, ry + 6, w + 20, 2, roofLo);
+      const rTop = top + 4, rBot = fTop - 3, roof = S.roof || '#b5523f', roofLo = S.roofLo || '#8e3b2e', roofHi = S.roofHi || '#d06f58';
+      for (let ry = rTop, r = 0; ry < rBot; ry += 6, r++) {
+        R(g, x - 6, ry, w + 12, 6, r % 2 ? roof : roofHi);
+        for (let px = x - 6 + (r % 2 ? 7 : 0); px < x + w + 6; px += 14) R(g, px, ry, 2, 6, roofLo);
+        R(g, x - 6, ry + 5, w + 12, 1, roofLo);
       }
-      R(g, x - 12, top, w + 24, 8, S.ridge || '#6e2e24'); R(g, x - 12, top, w + 24, 2, roofHi);
-      R(g, x - 12, rBot, w + 24, 6, S.eave || '#5e3519'); R(g, x - 8, rBot + 6, w + 16, 4, 'rgba(40,20,8,0.3)');
-      if (S.chimney !== false) { const cx = x + Math.round(w * 0.72); R(g, cx, top - 18, 16, 22, '#9a6a52'); R(g, cx - 2, top - 20, 20, 4, '#6e4a3a'); }
+      R(g, x - 8, top, w + 16, 5, S.ridge || '#6e2e24'); R(g, x - 8, top, w + 16, 2, roofHi);
+      R(g, x - 8, rBot, w + 16, 4, S.eave || '#5e3519'); R(g, x - 6, rBot + 4, w + 12, 3, 'rgba(40,20,8,0.28)');
+      if (S.chimney !== false) { const cx = x + Math.round(w * 0.72); R(g, cx, top - 8, 12, 10, '#9a6a52'); R(g, cx - 1, top - 10, 14, 3, '#6e4a3a'); }
     }
-    for (const r of doors) plaque(g, r.door.x, fTop - (S.kind === 'awning' ? 40 : 18), r.name.length > 7 ? r.name.slice(0, 7) + '…' : r.name, 0, th.plaquePal);
+    for (const r of doors) plaque(g, r.door.x, fTop - (S.kind === 'awning' ? 22 : 12), r.name.length > 7 ? r.name.slice(0, 7) + '…' : r.name, 0, th.plaquePal);
     // 两侧山墙阴影
     R(g, x, fTop, 3, facadeH, 'rgba(255,255,255,0.18)'); R(g, x + w - 4, fTop, 4, facadeH, 'rgba(40,20,8,0.25)');
     return true;

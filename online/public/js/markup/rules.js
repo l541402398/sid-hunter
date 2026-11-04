@@ -84,10 +84,10 @@
           </div>
           <div class="rule-note playtest">
             <h4>容器翻找与 NPC 大转盘</h4>
-            <p>在 1F–7F 靠近文件柜、储物箱或独立房间容器按 <kbd>K</kbd> 翻找筹码、道具与私密线索；找 NPC 兑换私密线索或转动幸运大转盘赢取高额筹码福袋（不改变阵营与身份码）。</p>
+            <p>在 1F–7F 靠近文件柜、储物箱或独立房间容器按 <kbd>K</kbd> 翻找金币、道具与私密线索；找 NPC 兑换私密线索或转动幸运大转盘赢取高额金币福袋（不改变阵营与身份码）。</p>
           </div>
         </div>
-        <div class="mini-flow"><span>靠近容器/房间按K</span><b>→</b><span>翻找筹码与私密线索</span><b>→</b><span>NPC兑换或转盘抽奖</span></div>
+        <div class="mini-flow"><span>靠近容器/房间按K</span><b>→</b><span>翻找金币与私密线索</span><b>→</b><span>NPC兑换或转盘抽奖</span></div>
       </section>
 
       <section class="rule-section">

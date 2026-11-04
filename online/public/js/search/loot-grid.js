@@ -256,7 +256,7 @@
       els.summary.replaceChildren();
       const head = h('div', 'loot-summary-head');
       head.append(h('strong', '', '收获清单'));
-      if (gained.chips) head.append(h('span', 'loot-sum-chip', '+' + gained.chips + ' 筹码'));
+      if (gained.chips) head.append(h('span', 'loot-sum-chip', '+' + gained.chips + ' 金币'));
       if (gained.clues) head.append(h('span', 'loot-sum-clue', '+' + gained.clues + ' 线索'));
       els.summary.append(head);
       const list = h('div', 'loot-sum-items');

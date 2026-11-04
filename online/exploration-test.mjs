@@ -91,7 +91,7 @@ await test('02 现有家具坐标不变，稳定独立 id、9 个中性命名容
   }
   const second = WORLD.makeFurniture(); second[0].footprint.y = -1;
   assert.notEqual(furniture[0].footprint.y, -1);
-  assert.deepEqual(WORLD.NPCS.map(n => [n.id, n.name, n.x, n.y, n.cost]), [['npc-reception', '接待员小禾', 520, 285, 3], ['npc-archive', '档案员阿卷', 3300, 360, 3]]);
+  assert.deepEqual(WORLD.NPCS.map(n => [n.id, n.name, n.x, n.y, n.cost]), [['npc-reception', '数字员工JULI', 520, 285, 3], ['npc-archive', '档案员阿卷', 3300, 360, 3]]);
   for (const n of WORLD.NPCS) { assert.ok(n.dialogue); assert.ok(!('color' in n)); }
 });
 await test('03 身体/脚可进入视觉上部，底部足迹阻挡且严格接触边界不阻挡', () => {
