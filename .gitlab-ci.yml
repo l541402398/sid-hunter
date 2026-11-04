@@ -12,7 +12,8 @@ docker-image:
   stage: docker-image
   only:
     - tags
-  image: docker:28-dind
+  # shortcut: 仓库 HTTPS 超时需回退 HTTP，暂用 26.1.4；仓库启用 HTTPS 后再升级。
+  image: docker:26.1.4-dind
   variables:
     DOCKER_HOST: "unix:///tmp/sid-docker.sock"
     DOCKER_TLS_CERTDIR: ""
