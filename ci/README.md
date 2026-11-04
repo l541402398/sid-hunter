@@ -12,6 +12,8 @@
 
 在项目 **Settings → CI/CD → Variables** 中逐项添加。每项类型都选普通的 **Variable**，**Key** 填下列变量名，**Value** 直接填原值，不额外添加外层引号。
 
+若有 **Environment scope**，保持默认的 `*`。部署直接调用更新容器 API，不创建 GitLab 环境。
+
 不要填写整段 `KEY=VALUE`；`PROFILE_API_HEADERS` 填 JSON 本身即可。不需要上传配置文件或填写 `.env` 路径。
 
 以下 6 项必填：

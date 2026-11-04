@@ -59,8 +59,6 @@ deploy:
     - tags
   image: node:22-alpine
   # shortcut: 旧 GitLab 不支持部署资源锁，需逐个发布标签；升级后再启用资源锁。
-  environment:
-    name: production
   script:
     - node --test ci/deploy-test.mjs
     - node ci/deploy.mjs
