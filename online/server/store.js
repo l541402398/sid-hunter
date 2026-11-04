@@ -8,7 +8,7 @@
 //       1) rounds  —— 每局结束时的结算快照（结束方式、时间、名次），供管理页在重启后仍能看到上局排名；
 //       2) players —— 每 60 秒一次的在局玩家进度快照（分数/筹码/道具），进程意外崩掉时最多丢 1 分钟。
 //
-// 依赖：Node 22.5+ 的内置 `node:sqlite`（零 npm 依赖），首次加载会打印 Experimental 警告。
+// 依赖：Node 22.13+ 的内置 `node:sqlite`（零 npm 依赖，无需实验开关），首次加载会打印 Experimental 警告。
 // 若运行环境没有该模块，自动降级为「不持久化」而不是让服务起不来。
 const fs = require('fs');
 const path = require('path');

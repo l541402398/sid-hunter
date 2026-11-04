@@ -22,7 +22,9 @@ HOST=127.0.0.1 PORT=8788 SID_SSO=0 node online/server.js
 # SID_SSO=0 仅用于本地昵称试玩，正式环境不要沿用
 ```
 
-要求 Node.js 22.5+（内置 SQLite）。玩家页面底部不再显示「操作与联机说明」「管理员面板」入口或开发危险操作面板；管理员直接输入 `/manager` 地址访问，原有管理员鉴权保留；游戏启闭、起止时间与技能恢复不再依赖 `SID_DEV` / `SID_DURATION_MS`。监听地址与 CAS 等基础设施配置仍保留。
+要求 Node.js 22.13+（内置 SQLite，无需实验开关）。玩家页面底部不再显示「操作与联机说明」「管理员面板」入口或开发危险操作面板；管理员直接输入 `/manager` 地址访问，原有管理员鉴权保留；游戏启闭、起止时间与技能恢复不再依赖 `SID_DEV` / `SID_DURATION_MS`。监听地址与 CAS 等基础设施配置仍保留。
+
+GitLab 发布：推送标签后自动构建镜像并更新 `sid` 容器，保留存档卷。首次使用先按 [标签部署说明](ci/README.md) 配置仓库凭据、部署 Token 和运行环境变量。
 
 ### 新人物前端接入（V2 2026-10-20 / V3 卡通化 / V4 星露谷风 Q版 2026-10-21）
 
@@ -169,6 +171,7 @@ node online/score-export-test.mjs
 
 ```bash
 # 服务端（零依赖，直接 node 运行）
+node online/healthcheck-test.mjs           # Docker 健康检查、存档故障与恢复
 node online/rps-flow-test.mjs              # 新猜拳状态机、隐私与截止边界
 node online/mechanics-test.mjs             # 机制：29 项
 node online/exploration-test.mjs           # 探索/兑换/重置：25 项

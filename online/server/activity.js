@@ -249,6 +249,6 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     const original=room[name];if(typeof original==='function')room[name]=(...args)=>{const reason=guard();return reason?{ok:false,error:reason,closed:true}:original(...args);};
   }
   const originalIntent=room.setIntent;room.setIntent=(id,input)=>{const reason=guard();if(reason&&input&&['up','down','left','right'].some(k=>input[k]))return false;return originalIntent(id,input);};
-  return{tick,state,saveConfig,addNpc,guard,persist,settle,pause,resume,finishSession,startManual,control};
+  return{tick,state,saveConfig,addNpc,guard,persist,settle,pause,resume,finishSession,startManual,control,isReady:()=>!!store.enabled&&!error};
 }
 module.exports={createActivity,TEMPLATES,dayOf,at,validateConfig};

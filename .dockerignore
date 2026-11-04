@@ -1,0 +1,37 @@
+# 本地智能体状态与密钥，绝不进镜像
+.workbuddy/
+.codebuddy/
+.git/
+.env
+.env.*
+!.env.example
+
+# 验收产物与日志（体积大头，运行时不需要）
+outputs/
+*.log
+*.pid
+*.pid.lock
+*.key
+*.pem
+
+# 离线试玩版：由浏览器直接打开本地文件运行，服务端不引用
+demo/
+
+# 文档与设计稿、历史素材，服务端不引用
+design/
+sid-hunter-main-ui_assets/
+*.miora
+*.md
+楼层/
+tools/
+
+# 本地 SQLite 持久化（挂卷注入，镜像内不留运行时数据）
+online/.data/
+
+# 浏览器测试脚本截图与报告
+online/*.png
+online/*.jpg
+online/*results*.json
+online/*report*.json
+
+node_modules/
