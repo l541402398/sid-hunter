@@ -4,6 +4,8 @@
 
 推送 Git 标签时，`.gitlab-ci.yml` 构建并推送 `dockeropen.x/hbsun/sid-hunter:<标签>`，再更新容器 `sid`（ID `281`）。例如标签 `v1.0.0` 对应镜像 `dockeropen.x/hbsun/sid-hunter:v1.0.0`。普通分支推送不触发流水线。
 
+构建使用内网镜像源 `http://dockerg.x` 下载 `node:22-alpine` 基础镜像，项目镜像仍推送到 `dockeropen.x`。
+
 每次部署保留数据卷 `393`，挂载到 `/app/online/.data`。启动指令为空，沿用镜像的启动命令。更新会重启服务，CAS 和管理员会话需要重新登录。
 
 ## GitLab 变量

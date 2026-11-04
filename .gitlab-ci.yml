@@ -4,8 +4,8 @@ stages:
 
 variables:
   IMAGE_NAME: "dockeropen.x/hbsun/sid-hunter"
-  NO_PROXY: "localhost,127.0.0.1,dockeropen.x,172.26.14.1"
-  no_proxy: "localhost,127.0.0.1,dockeropen.x,172.26.14.1"
+  NO_PROXY: "localhost,127.0.0.1,dockeropen.x,dockerg.x,172.26.14.1"
+  no_proxy: "localhost,127.0.0.1,dockeropen.x,dockerg.x,172.26.14.1"
 
 # 沿用现有项目在任务内启动 dockerd 的方式，Runner 必须启用 privileged。
 docker-image:
@@ -26,7 +26,9 @@ docker-image:
         echo 'Git 标签必须是合法 Docker 标签，例如 v1.0.0；不能包含斜杠。'
         exit 1
       }
-      dockerd --host="$DOCKER_HOST" --dns=172.26.1.250 --insecure-registry=dockeropen.x >/tmp/dockerd.log 2>&1 &
+      dockerd --host="$DOCKER_HOST" --dns=172.26.1.250 \
+        --registry-mirror=http://dockerg.x \
+        --insecure-registry=dockerg.x --insecure-registry=dockeropen.x >/tmp/dockerd.log 2>&1 &
       attempts=0
       until docker info >/dev/null 2>&1; do
         attempts=$((attempts + 1))
