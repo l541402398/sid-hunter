@@ -28,15 +28,44 @@
     windows: [560, 820, 1100, 1700, 2050, 2400, 2700], windowStyle: "arch",
     sconces: [200, 700, 1250, 1600, 2300, 2560],
     frames: [[880, "flower"], [1800, "land"], [2780, "flower"]],
-    plaque: { x: 1180, text: "阳光花房层 · 四季常青", w: 168 },
+    plaque: { x: 1180, text: "云端花房层 · 彩虹花洲", w: 168 },
     exterior(g, f, A, a) {
-      // 花房外的野花草甸 + 小池塘
-      A.R(g, a.x, a.y, a.w, a.h, "#78b860");
-      const fl = ["#f06f6a", "#ffd25a", "#ffffff", "#b98ae8", "#f5a0c8"];
-      for (let y = a.y; y < a.y + a.h; y += 12) for (let x = a.x; x < a.x + a.w; x += 12) { const k = A.hash(x + 11, y + 5); if (k < 0.4) A.R(g, x + 4, y + 4, 2, 5, "#5e9e48"); else if (k > 0.95) A.R(g, x + 5, y + 5, 4, 4, fl[Math.floor(k * 991) % fl.length]); }
-      A.pxEllipse(g, 400, 700, 150, 60, "#3f7a3a"); A.pxEllipse(g, 400, 700, 140, 54, "#5fa8d0"); A.pxEllipse(g, 380, 694, 90, 30, "#7cc4e4");
-      for (const [px, py] of [[340, 690], [450, 712]]) { A.pxEllipse(g, px, py, 12, 6, "#4c9a44"); A.R(g, px - 2, py - 4, 4, 4, "#f5a0c8"); }
-      for (const [tx, ty] of [[1300, 60], [2400, 120], [700, 740], [1500, 760]]) { if (ty < 0) continue; A.pxEllipse(g, tx, ty + 18, 30, 8, "rgba(30,50,20,0.3)"); A.R(g, tx - 4, ty - 8, 8, 26, "#6e4322"); A.pxEllipse(g, tx, ty - 24, 28, 22, "#4c8c46"); A.pxEllipse(g, tx - 6, ty - 30, 16, 12, "#66b25a"); }
+      // 云端彩虹阶梯花房：晴空云海 + 跨越天际的像素彩虹拱桥 + 漂浮繁花小云岛
+      const sky = ["#7cc2ea", "#94d0f2", "#aee0f8", "#caecf8"];
+      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + Math.floor(i * a.h / 4), a.w, Math.ceil(a.h / 4) + 2, sky[i]);
+      // 横跨南侧云湾的七色彩虹拱带
+      const rb = ["#f47b7b", "#f9ad6a", "#f9de6a", "#82d486", "#6ec4ec", "#968ce4"];
+      for (let i = 0; i < rb.length; i++) {
+        A.pxEllipse(g, 960, 820 + i * 10, 560 - i * 10, 220 - i * 8, rb[i]);
+      }
+      A.pxEllipse(g, 960, 880, 490, 165, "#aee0f8");
+      // 绵密蓬松的云朵群（包裹阶梯花房四周与电梯厅两侧）
+      for (const [cx, cy, s] of [
+        [-180, 140, 1.3], [-120, 580, 1.4], [260, 680, 1.5], [760, 740, 1.4],
+        [1420, 780, 1.5], [2980, 180, 1.3], [3040, 620, 1.4], [1440, -90, 1.5]
+      ]) {
+        A.pxEllipse(g, cx, cy + 12 * s, 94 * s, 26 * s, "#c2def2");
+        A.pxEllipse(g, cx - 34 * s, cy, 56 * s, 32 * s, "#ffffff");
+        A.pxEllipse(g, cx + 24 * s, cy - 8 * s, 62 * s, 36 * s, "#fffdf6");
+        A.pxEllipse(g, cx + 58 * s, cy + 4 * s, 38 * s, 22 * s, "#f2f9fe");
+      }
+      // 漂浮在云海中的两座袖珍繁花云岛（带天池与花树）
+      for (const [ix, iy, rx, ry] of [[420, 680, 150, 58], [1440, 760, 130, 48]]) {
+        A.pxEllipse(g, ix, iy + 14, rx + 8, ry + 6, "#f4f9fd");
+        A.pxEllipse(g, ix, iy + 6, rx, ry, "#8c7a64");
+        A.pxEllipse(g, ix, iy, rx - 4, ry - 4, "#6eb458");
+        A.pxEllipse(g, ix - 16, iy + 2, rx * 0.52, ry * 0.48, "#58a8d4");
+        A.pxEllipse(g, ix - 22, iy, rx * 0.36, ry * 0.32, "#82ccf0");
+        for (const [dx, dy, c] of [[-58, -12, "#f5a0c8"], [48, -8, "#ffd25a"], [68, 6, "#ffffff"], [-36, 16, "#b98ae8"]]) {
+          A.R(g, ix + dx, iy + dy, 5, 5, c);
+        }
+      }
+      for (const [tx, ty] of [[510, 666], [1520, 748], [-90, 110], [2970, 110]]) {
+        A.pxEllipse(g, tx, ty + 18, 30, 8, "rgba(30,50,20,0.26)");
+        A.R(g, tx - 4, ty - 8, 8, 26, "#6e4322");
+        A.pxEllipse(g, tx, ty - 24, 28, 22, "#e890b4");
+        A.pxEllipse(g, tx - 6, ty - 30, 16, 12, "#fbd0e0");
+      }
     },
     floorDecor(g, ox, oy, w, h, A) {
       // 台地交界石阶

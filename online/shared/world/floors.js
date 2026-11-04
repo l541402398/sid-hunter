@@ -598,6 +598,17 @@
         addWall('outer', side === 'left' ? hall.x : hall.x + hall.w - 4, hall.y, 4, hall.h);
         addWall('entry-north', edgeX - 2, hall.y, 4, 24);
         addWall('entry-south', edgeX - 2, entryY + 24, 4, 24);
+        floor.walls.push({
+          id: `${hall.id}:wall:lift`,
+          x: hall.x + 32,
+          y: hall.y,
+          w: 80,
+          h: Math.max(24, (entryY - 12) - hall.y),
+          type: 'wall',
+          invisible: true,
+          footprint: { x: hall.x + 32, y: hall.y, w: 80, h: Math.max(24, (entryY - 12) - hall.y) },
+          depth: entryY - 12
+        });
         floor.glassDoors.push({ id: `${hall.id}:glass`, hallId: hall.id, side, x: edgeX, y: entryY,
           opening: 48, footprint: { x: edgeX - 2, y: entryY - 24, w: 4, h: 48 }, depth: entryY + 24 });
         floor.portals.push({ id: `f${spec.id}:portal:${side}`, floorId: spec.id, side,
@@ -901,16 +912,15 @@
   }
   // 兼容旧接口：返回指定层（默认 1F）的家具，供仍按单层语义调用的代码使用。
   function makeFurniture(floorId = 1) { return floorFurniture(floorId); }
-  function portalAccess(actor, portal, range = INTERACT_RANGE) {
+  function portalAccess(actor, portal, range = 116) {
     if (!actor || !portal) return { inReach: false, facingOk: false, allowed: false, reason: '无可用电梯门' };
     if (actor.floorId !== portal.floorId || !inHall(portal.floorId, portal.side, actor.x, actor.y))
       return { inReach: false, facingOk: false, allowed: false, reason: '请穿过玻璃门进入电梯厅后乘梯' };
     const dx = portal.x - actor.x, dy = portal.y - actor.y, d = Math.hypot(dx, dy);
-    if (d > range) return { inReach: false, facingOk: false, allowed: false, reason: '距离电梯太远，请靠近后再按 K（64 像素以内）' };
+    if (d > range) return { inReach: false, facingOk: false, allowed: false, reason: '距离电梯太远，请靠近后再按 K' };
     if (d === 0) return { inReach: true, facingOk: true, allowed: true, reason: '' };
-    const f = facingVector(actor.spriteFacing);
-    const facingOk = (dx * f.x + dy * f.y) / d >= 0.5;
-    if (!facingOk) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 K' };
+    const facingAway = actor.spriteFacing === 'front' && Math.abs(dx) < 0.5 && Math.abs(dy + 14) < 0.5;
+    if (facingAway) return { inReach: true, facingOk: false, allowed: false, reason: '请面向电梯门后再按 K' };
     return { inReach: true, facingOk: true, allowed: true, reason: '' };
   }
   return { LOBBY_DOORS, LAYOUTS, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, nX, nY, nRect, FULL_RECT, L24, L56, FLOOR_SPECS, CONTAINER_IDS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, pruneDecorNear, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, inMainFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout };

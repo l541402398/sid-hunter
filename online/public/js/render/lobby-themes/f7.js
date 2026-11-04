@@ -28,15 +28,31 @@
     windows: [200, 640, 1200, 1420, 1720, 2120, 2780], windowStyle: "arch",
     sconces: [480, 860, 1560, 1960, 2380],
     frames: [[120, "sea"], [2000, "flower"], [2690, "sea"]],
-    plaque: { x: 1310, text: "云端露台层 · 晴空晚霞", w: 168 },
+    plaque: { x: 1310, text: "晚霞云巅层 · 云海露台", w: 168 },
     exterior(g, f, A, a) {
-      // 栈台之间的天空云海：浅蓝渐层 + 成团白云
-      const sky = ["#9fd4f0", "#b4def4", "#c8e8f8", "#dcf0fa"];
-      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + i * a.h / 4, a.w, a.h / 4 + 1, sky[i]);
-      for (const [cx, cy, s] of [[950, 660, 1.2], [1850, 700, 1], [500, 880, 1.4], [2400, 880, 1.3], [3000, 650, 1], [-150, 650, 1.1], [1300, 900, 1.5]]) {
-        A.pxEllipse(g, cx, cy + 10, 70 * s, 18 * s, "#cfe4f2"); A.pxEllipse(g, cx - 30 * s, cy, 40 * s, 24 * s, "#ffffff"); A.pxEllipse(g, cx + 20 * s, cy - 8 * s, 46 * s, 30 * s, "#ffffff"); A.pxEllipse(g, cx + 60 * s, cy + 4, 30 * s, 18 * s, "#f4fafe");
+      // 晚霞云巅露台：流金玫瑰晚霞天空 + 绯红鎏金云海 + 栈台间云端拱桥与祈愿天灯
+      const sky = ["#8498d8", "#b896d4", "#e49898", "#f6be88"];
+      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + Math.floor(i * a.h / 4), a.w, Math.ceil(a.h / 4) + 2, sky[i]);
+      // 远方霞光夕阳与流金云层
+      A.pxEllipse(g, 1440, 820, 180, 90, "rgba(255, 232, 156, 0.45)");
+      for (const [cx, cy, s] of [
+        [950, 650, 1.3], [1850, 680, 1.25], [100, 720, 1.4], [2760, 720, 1.4],
+        [500, 880, 1.5], [2400, 880, 1.4], [3020, 260, 1.2], [-160, 260, 1.2], [1400, 890, 1.6]
+      ]) {
+        A.pxEllipse(g, cx, cy + 12 * s, 82 * s, 22 * s, "#d898a8");
+        A.pxEllipse(g, cx - 32 * s, cy, 48 * s, 28 * s, "#fce2d4");
+        A.pxEllipse(g, cx + 22 * s, cy - 8 * s, 54 * s, 32 * s, "#fff4e6");
+        A.pxEllipse(g, cx + 56 * s, cy + 4 * s, 34 * s, 20 * s, "#ffe4c8");
       }
-      for (const [bx, by] of [[900, 600], [1760, 620], [1040, 760]]) { A.R(g, bx, by, 6, 2, "#5a6670"); A.R(g, bx + 6, by - 2, 6, 2, "#5a6670"); A.R(g, bx - 6, by - 2, 6, 2, "#5a6670"); }
+      // 飘浮在晚霞云海中的暖光祈愿天灯与归鸟
+      for (const [lx, ly] of [[920, 590], [1010, 720], [1810, 610], [1910, 730], [80, 620], [2780, 620]]) {
+        A.pxEllipse(g, lx, ly, 12, 12, "rgba(255, 220, 120, 0.32)");
+        A.R(g, lx - 4, ly - 5, 8, 10, "#ff9e58");
+        A.R(g, lx - 2, ly - 3, 4, 6, "#fff2a8");
+      }
+      for (const [bx, by] of [[900, 640], [1760, 650], [1040, 760]]) {
+        A.R(g, bx, by, 6, 2, "#6e4e68"); A.R(g, bx + 6, by - 2, 6, 2, "#6e4e68"); A.R(g, bx - 6, by - 2, 6, 2, "#6e4e68");
+      }
     },
     floorDecor(g, ox, oy, w, h, A) {
       const a = A.clipRect(ox, oy, w, h, { x: 1230, y: 230, w: 340, h: 150 });

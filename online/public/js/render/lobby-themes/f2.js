@@ -2,9 +2,9 @@
 // 2F · 晴空绿茵场 主题：西东枫木球馆地板 + 中央室内绿茵球场（白线/中圈/禁区）+ 南排更衣室与能量吧。
 (function (root) {
   const L = root.SID_LOBBY; if (!L) return;
-  const mapleA = { base: '#d49b5e', hi: '#e3ad72', lo: '#bf864c', gap: '#8e5d30', grain: '#b57b42' };
-  const mapleB = { base: '#c99054', hi: '#d8a166', lo: '#b47c44', gap: '#86562c', grain: '#a8703b' };
-  const turfP = { base: '#5aa64c', blade: '#4c9240', lo: '#448439', hi: '#74bf62' };
+  const mapleA = { base: '#d8aa72', hi: '#e0b47e', lo: '#cfa068', gap: '#b88854', grain: '#c69660' };
+  const mapleB = { base: '#cf9e66', hi: '#d8a872', lo: '#c4925c', gap: '#ae7e4c', grain: '#bc8c56' };
+  const turfP = { base: '#5aa64c', blade: '#529a45', lo: '#4a8e3e', hi: '#6cb45c' };
   const tileA = { tones: ['#e8dec4', '#dfd2b4', '#efe6cf', '#d6c7a6'], grout: '#b2a07c', hi: '#f7f0de', lo: '#c4b38e' };
 
   L.register(2, {
@@ -14,13 +14,12 @@
       base: '#5c361a', crown: '#c8d8e4', cap: '#6e4524', capHi: '#9e6c40', capLo: '#3e2412', capTop: '#84542e', style: 'panel'
     },
     fence: { post: "#f6f2ea", postLo: "#c9c0ac", rail: "#ece4d2", railLo: "#b8ac92" },
-    fence: { post: "#f6f2ea", postLo: "#c9c0ac", rail: "#ece4d2", railLo: "#b8ac92" },
     zones: [
-      { x: 0, y: 0, w: 720, h: 800, mat: "planks", pal: mapleA, seed: 21 },
+      { x: 0, y: 0, w: 720, h: 800, mat: "parquet", pal: mapleA, size: 32 },
       { x: 720, y: 0, w: 1480, h: 300, mat: "parquet", pal: mapleB, size: 32 },
       { x: 720, y: 300, w: 1480, h: 398, mat: "grass", pal: turfP, seed: 22 },
       { x: 720, y: 698, w: 1480, h: 102, mat: "tiles", pal: tileA, size: 32 },
-      { x: 2200, y: 0, w: 680, h: 800, mat: "planks", pal: mapleB, seed: 23 }
+      { x: 2200, y: 0, w: 680, h: 800, mat: "parquet", pal: mapleB, size: 32 }
     ],
     rugs: [
       { x: 330, y: 300, w: 280, h: 96, fill: "#2e6b4e", band: "#204e38", trim: "#f0c862", motif: "#fae08c", fringe: "#f4ead0" },
@@ -29,18 +28,50 @@
     windows: [150, 760, 1180, 1660, 2140, 2380, 2730], windowStyle: "square",
     sconces: [700, 1300, 1560, 2060],
     frames: [[340, "land"], [2620, "flower"]],
-    plaque: { x: 1460, text: "晴空绿茵场 · 友谊第一", w: 168 },
+    plaque: { x: 1460, text: "河洲绿茵场 · 碧波竞技", w: 168 },
     exterior(g, f, A, a) {
-      // 体育场看台：一排排彩色座椅 + 过道台阶
-      A.R(g, a.x, a.y, a.w, a.h, "#3d4a5c");
-      const cols = ["#d9534a", "#f2c14e", "#4f9cc8", "#f4f4f4"];
-      for (let y = a.y, r = 0; y < a.y + a.h; y += 20, r++) {
-        A.R(g, a.x, y + 16, a.w, 4, "#2a3442");
-        for (let x = a.x; x < a.x + a.w; x += 18) {
-          if (Math.floor(x / 18) % 12 === 0) { A.R(g, x, y, 18, 16, "#8e96a2"); continue; }
-          const c = cols[(Math.floor(x / 216) + r) % cols.length];
-          A.R(g, x + 3, y + 4, 12, 10, c); A.R(g, x + 3, y + 4, 12, 2, "rgba(255,255,255,0.35)");
+      // 碧波河洲绿茵岛：静谧宽阔的蔚蓝大河环绕绿茵球场岛，彻底消除高对比小色块造成的左侧视觉眩晕
+      A.R(g, a.x, a.y, a.w, a.h, "#4a9ec4");
+      // 柔和舒缓的宽幅河水色带与微波（低对比度大尺度，滚动时极其舒适）
+      for (let y = a.y + 18; y < a.y + a.h; y += 44) {
+        A.R(g, a.x, y, a.w, 16, "#54a8ce");
+        const off = ((Math.floor(y / 44) % 2) * 56);
+        for (let x = a.x + off; x < a.x + a.w; x += 112) {
+          A.R(g, x, y + 6, 36, 3, "#70bee0");
+          A.R(g, x + 10, y + 4, 16, 2, "#96d6f0");
         }
+      }
+      // 环绕球馆西、东、北侧的翠绿河洲草岸与浅滩鹅卵石带（平滑过渡左侧凹口）
+      A.R(g, -48, -28, 364, 856, "#d8cab0");
+      A.R(g, -36, -18, 344, 836, "#6cb05a");
+      A.R(g, 2564, -28, 364, 856, "#d8cab0");
+      A.R(g, 2576, -18, 344, 836, "#6cb05a");
+      // 左侧河湾内港与右侧河湾内港（圆润平静的碧蓝水湾 + 亲水木栈台）
+      for (const [wx, wy, ww, wh] of [[-180, 136, 464, 128], [-180, 580, 464, 196], [2596, 136, 464, 128], [2596, 580, 464, 196]]) {
+        A.R(g, wx - 6, wy - 6, ww + 12, wh + 12, "#c89660");
+        A.R(g, wx, wy, ww, wh, "#4fa4ca");
+        A.R(g, wx + 12, wy + 14, ww - 24, wh - 28, "#5cb0d6");
+      }
+      // 东西两侧电梯厅外延的河岸木栈桥码头
+      for (const [px, py, pw, ph] of [[-160, 40, 160, 96], [2880, 40, 160, 96], [80, 120, 140, 28], [80, 560, 140, 28], [2660, 120, 140, 28], [2660, 560, 140, 28]]) {
+        A.R(g, px, py, pw, ph, "#b8824c");
+        for (let tx = px; tx < px + pw; tx += 20) {
+          A.R(g, tx + 1, py + 2, 18, ph - 4, "#cc965e");
+          A.R(g, tx + 1, py + 2, 18, 2, "#e0ae76");
+        }
+      }
+      // 河湾上的白帆小艇与睡莲叶（宁静悠闲的水上视觉焦点）
+      for (const [bx, by] of [[140, 198], [180, 668], [-90, 420], [2710, 198], [2690, 668], [2970, 420]]) {
+        A.pxEllipse(g, bx, by + 6, 24, 8, "rgba(25,70,95,0.28)");
+        A.pxEllipse(g, bx, by + 2, 22, 7, "#8e5832");
+        A.pxEllipse(g, bx, by, 18, 5, "#c89058");
+        A.R(g, bx - 1, by - 22, 2, 22, "#6e4322");
+        A.R(g, bx + 1, by - 20, 12, 14, "#ffffff");
+        A.R(g, bx + 1, by - 10, 12, 3, "#f0c862");
+      }
+      for (const [lx, ly] of [[60, 220], [230, 176], [90, 630], [240, 710], [2640, 220], [2790, 640]]) {
+        A.pxEllipse(g, lx, ly, 14, 7, "#529c4a");
+        A.R(g, lx - 2, ly - 3, 5, 4, "#f6a4c4");
       }
     },
     floorDecor(g, ox, oy, w, h, A) {

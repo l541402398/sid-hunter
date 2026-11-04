@@ -28,14 +28,36 @@
     windows: [260, 640, 1000, 1500, 1840, 2520, 2760], windowStyle: "porthole",
     sconces: [800, 1240, 1700, 2060],
     frames: [[120, "sea"], [1100, "sea"]],
-    plaque: { x: 1650, text: "晴海甜品舱 · 甜蜜启航", w: 168 },
+    plaque: { x: 1650, text: "珊瑚甜品舱 · 晴海巡航", w: 168 },
     exterior(g, f, A, a) {
-      // 船身四周的晴海：海面色带 + 波纹 + 船舷白浪
-      A.R(g, a.x, a.y, a.w, a.h, "#3f8fc0");
-      for (let y = a.y; y < a.y + a.h; y += 14) for (let x = a.x + ((y / 14) % 2) * 20; x < a.x + a.w; x += 40) { const k = A.hash(x, y); if (k > 0.55) { A.R(g, x, y, 14, 2, "#6fb4dc"); A.R(g, x + 4, y - 2, 6, 2, "#9fd4ee"); } else if (k < 0.08) A.R(g, x, y, 8, 2, "#2f74a4"); }
-      g.save(); g.strokeStyle = "rgba(255,255,255,0.7)"; g.lineWidth = 6; g.setLineDash([10, 8]);
+      // 珊瑚晴海甜品号：澄澈宝石蓝海面 + 浅滩缤纷珊瑚礁群 + 船舷白浪 + 糖果浮标与海豚
+      A.R(g, a.x, a.y, a.w, a.h, "#3892c2");
+      // 浅海珊瑚礁碧波色块（柔美松石绿浅滩）
+      for (const [cx, cy, rx, ry] of [[240, 700, 210, 82], [2680, 680, 220, 86], [-140, 260, 140, 96], [3020, 260, 140, 96]]) {
+        A.pxEllipse(g, cx, cy, rx, ry, "#44a8ce");
+        A.pxEllipse(g, cx, cy, rx * 0.72, ry * 0.72, "#56bedc");
+        // 海底缤纷珊瑚丛与珍珠贝
+        for (const [dx, dy, c] of [[-48, -14, "#f47c8e"], [28, 12, "#ffae5c"], [-12, 22, "#b488e8"], [56, -16, "#ffd666"]]) {
+          A.pxEllipse(g, cx + dx, cy + dy, 14, 8, c);
+          A.pxEllipse(g, cx + dx - 3, cy + dy - 2, 8, 5, "#fff4f6");
+        }
+      }
+      // 舒缓海面波纹
+      for (let y = a.y + 16; y < a.y + a.h; y += 28) {
+        for (let x = a.x + ((Math.floor(y / 28) % 2) * 32); x < a.x + a.w; x += 64) {
+          A.R(g, x, y, 22, 2, "#74bee2");
+          A.R(g, x + 6, y - 2, 10, 2, "#a8dcf4");
+        }
+      }
+      // 船身外侧欢腾的白色浪花描边
+      g.save(); g.strokeStyle = "rgba(255,255,255,0.75)"; g.lineWidth = 6; g.setLineDash([12, 8]);
       g.beginPath(); f.polygon.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath(); g.stroke(); g.restore();
-      for (const [bx, by] of [[200, 720], [3000, 700], [2700, 700]]) { A.pxEllipse(g, bx, by, 14, 6, "#e0524a"); A.pxEllipse(g, bx, by, 9, 4, "#ffffff"); }
+      // 糖果救生圈浮标
+      for (const [bx, by] of [[180, 720], [340, 748], [2580, 736], [2780, 690], [-110, 110], [2990, 110]]) {
+        A.pxEllipse(g, bx, by, 15, 7, "#f06272");
+        A.pxEllipse(g, bx, by, 10, 4, "#ffffff");
+        A.pxEllipse(g, bx, by, 4, 2, "#44a8ce");
+      }
     },
     floorDecor(g, ox, oy, w, h, A) {
       const CP = { cx: 1650, cy: 470 };

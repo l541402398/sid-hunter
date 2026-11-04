@@ -49,12 +49,12 @@
       ['shelf', '北墙图书架', 680, 95, 930, 195, 'container:shelfA'],
       // 西壁：原木文件柜
       ['cabinet', '原木文件柜', 48, 160, 124, 320, 'container:cabA'],
-      // 中区偏北：主管书桌与座椅（留出南侧大片迎宾通道）
+      // 中区偏北：主管书桌与侧边伴读木椅（留出书桌正前方与南侧大片迎宾通道）
       ['desk', '向阳原木书桌', 240, 210, 520, 340, 'container:deskA'],
-      ['chair', '伴读木椅', 340, 430, 420, 490],
-      // 东壁：茶歇边几与向阳绿植
-      ['cooler', '山泉茶饮机', 850, 250, 920, 340],
-      ['plant', '向阳琴叶榕', 850, 390, 940, 475],
+      ['chair', '伴读木椅', 548, 250, 622, 325],
+      // 东壁偏南：茶歇边几与向阳绿植（彻底让开北墙图书架正前方）
+      ['cooler', '山泉茶饮机', 865, 500, 935, 600],
+      ['plant', '向阳琴叶榕', 860, 650, 945, 745],
       ...extra
     ];
   }
@@ -79,10 +79,10 @@
       ['cabinet', '分类索引木柜', 370, 90, 630, 180, 'container:cabA'],
       ['shelf', '典藏木书架三', 690, 90, 945, 190, 'container:shelfC'],
       // 西壁第二排书架（留出宽敞过道）与东壁收纳木箱
-      ['shelf', '典藏木书架二', 55, 340, 310, 440, 'container:shelfB'],
+      ['shelf', '典藏木书架二', 55, 380, 310, 480, 'container:shelfB'],
       ['crate', '手稿收纳木箱', 740, 260, 860, 355, 'container:crateA'],
       // 中央阅览整理台
-      ['table', '阳光阅览整理台', 375, 290, 625, 405, 'container:tableA'],
+      ['table', '阳光阅览整理台', 385, 315, 625, 425, 'container:tableA'],
       ['plant', '书斋万年青', 865, 395, 945, 475],
       ...extra
     ];
@@ -93,10 +93,10 @@
       ['whiteboard', '工坊配方看板', 150, 30, 500, 58],
       ['cabinet', '工坊材料木柜', 48, 85, 128, 285, 'container:cabA'],
       ['server', '恒温培育木柜', 760, 85, 910, 310, 'container:serverA'],
-      // 中央对称双工作台
+      // 中央对称双工作台（正前方不摆凳子遮挡交互）
       ['desk', '手作实验台一', 165, 210, 415, 325, 'container:deskA'],
       ['desk', '手作实验台二', 455, 210, 705, 325, 'container:deskB'],
-      ['chair', '工坊木凳', 255, 340, 325, 395],
+      ['chair', '工坊木凳', 55, 365, 125, 430],
       ['plant', '工坊迷迭香', 855, 355, 940, 445]
     ];
   }
@@ -105,9 +105,9 @@
       // 北墙：风景挂屏与北侧阳光茶吧
       ['tv', '田园风景画屏', 180, 30, 440, 58],
       ['counter', '阳光咖啡吧台', 560, 80, 910, 185, 'container:counterA'],
-      // 中央偏左：温馨布艺沙发与原木茶几（居中于地毯）
-      ['sofa', '暖阳布艺沙发', 140, 195, 430, 315],
-      ['table', '原木茶几', 220, 340, 360, 415, 'container:tableA'],
+      // 中央偏左：温馨布艺沙发与原木茶几（拉开间距，避免沙发紧贴茶几容器）
+      ['sofa', '暖阳布艺沙发', 140, 160, 430, 270],
+      ['table', '原木茶几', 210, 330, 370, 415, 'container:tableA'],
       // 东壁绘本架与西壁花钵
       ['shelf', '绘本杂志木架', 680, 250, 880, 380, 'container:shelfA'],
       ['plant', '茶室向日葵', 55, 340, 135, 435]
@@ -251,9 +251,16 @@
   const ROOMS = {};
   const ROOM_GEO = {};   // 房间几何（墙体/门/入口/出口/室内地板范围）
   const ROOM_LIST = [];
-  // 房间专属家具类型的「单体自深」（房间 px）；其余类型走共享 blocksFor。
+  // 房间家具的最小碰撞自深（房间 px），与 SCENE.furniture 2× 像素绘制体积对齐，防止人物穿透房间家具。
   // 声明必须在 buildRooms 之前——建造期会调用 roomBlocksFor。
-  const ROOM_SELF_D = { chair: 14, shelf: 22, whiteboard: 12, tv: 12, server: 26, safe: 30, crate: 24, locker: 22, bench: 18 };
+  const ROOM_SELF_D = {
+    desk: 40, table: 40, counter: 38, reception: 38,
+    sofa: 38, bench: 28, chair: 28, seat: 28,
+    cabinet: 44, shelf: 38, server: 44, safe: 44, locker: 44,
+    printer: 34, vending: 42, cooler: 34, plant: 28,
+    crate: 34, boxstack: 34, treadmill: 32, rack: 34, arcade: 38,
+    whiteboard: 18, tv: 18, glass: 18, lamp: 22
+  };
 
   const nX = (v, w) => Math.round(v / 1000 * w);
   const nY = (v, h) => Math.round(v / 1000 * h);
@@ -364,7 +371,8 @@
       template().concat(doorProps).forEach((row, i) => {
         const [type, label, x1, y1, x2, y2, flag] = row;
         const r = nRect([x1, y1, x2, y2], w, h);
-        const footHeight = type === 'plant' ? Math.min(r.h, 18) : Math.max(12, Math.round(r.h * 0.85));
+        const minD = ROOM_SELF_D[type] || 28;
+        const footHeight = Math.max(r.h, minD);
         let fid, container = null;
         if (flag && flag.indexOf('container:') === 0) {
           const name = flag.slice('container:'.length);
@@ -401,11 +409,9 @@
     const { type, x, y, w, h } = f;
     const blk = (bx, by, bw, bh) => ({ x: Math.round(bx * 1000) / 1000, y: Math.round(by * 1000) / 1000,
       w: Math.max(1, Math.round(bw * 1000) / 1000), h: Math.max(1, Math.round(bh * 1000) / 1000) });
-    if (ROOM_SELF_D[type] != null) {
-      const d = Math.min(h, ROOM_SELF_D[type]);
-      return [blk(x, y + h - d, w, d)];
-    }
-    return blocksFor(f);
+    const minD = ROOM_SELF_D[type] || 28;
+    const d = Math.max(h, minD);
+    return [blk(x, y + h - d, w, d)];
   }
 
   // 房间 → TMJ 主题功能区

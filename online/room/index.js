@@ -1557,7 +1557,8 @@ function createRoom(options = {}) {
     actor.zoneId = null;
     actor.zoneReturn = null;
     actor.floorRevision += 1;
-    // 乘梯不改朝向、不给无敌、不产生眩晕/僵直、不重置也不消耗 J 冷却；walk 不累加。
+    if (actor.spriteFacing === 'front') actor.spriteFacing = 'back';
+    // 乘梯不给无敌、不产生眩晕/僵直、不重置也不消耗 J 冷却；walk 不累加。
     const targetName = WORLD.floorById(actor.floorId).name;
     const response = mechanicsResponse(actor, true, `已乘梯到达 ${targetName}。`, {
       floor: { id: actor.floorId, name: targetName, revision: actor.floorRevision }

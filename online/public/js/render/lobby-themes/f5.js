@@ -28,13 +28,49 @@
     windows: [160, 700, 1000, 1620, 1880, 2100, 2700], windowStyle: "arch",
     sconces: [300, 600, 1560, 2240, 2560],
     frames: [[40, "map"], [2780, "night"]],
-    plaque: { x: 1440, text: "暖灯古籍廊 · 观星博物", w: 168 },
+    plaque: { x: 1440, text: "星河古籍廊 · 极光观星", w: 168 },
     exterior(g, f, A, a) {
-      // 观星廊外的夜空：深蓝渐层 + 星点 + 一弯新月
-      const sky = ["#141c33", "#18223d", "#1c2848", "#212f54"];
-      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + i * a.h / 4, a.w, a.h / 4 + 1, sky[i]);
-      for (let y = a.y; y < a.y + a.h; y += 10) for (let x = a.x; x < a.x + a.w; x += 10) { const k = A.hash(x + 13, y + 29); if (k > 0.985) A.R(g, x, y, 2, 2, "#ffffff"); else if (k > 0.975) A.R(g, x, y, 2, 2, "#ffe89c"); }
-      A.pxEllipse(g, 400, 680, 34, 34, "#fff3c0"); A.pxEllipse(g, 414, 672, 30, 30, "#18223d");
+      // 星河极光古籍殿：深邃夜空 + 流淌的璀璨银河星带 + 翡翠紫罗兰极光帷幕 + 土星环与星盘浮桥
+      const sky = ["#121930", "#17223e", "#1d2b4e", "#24355e"];
+      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + Math.floor(i * a.h / 4), a.w, Math.ceil(a.h / 4) + 2, sky[i]);
+      // 环绕古籍殿的璀璨银河光带与极光柔波
+      for (const [gx, gy, rx, ry, col] of [
+        [440, 680, 520, 140, "rgba(74, 134, 210, 0.28)"],
+        [440, 680, 380, 92, "rgba(110, 214, 196, 0.22)"],
+        [2440, 680, 520, 140, "rgba(136, 98, 216, 0.26)"],
+        [2440, 680, 380, 92, "rgba(96, 188, 232, 0.22)"],
+        [-140, 240, 240, 180, "rgba(96, 188, 232, 0.22)"],
+        [3020, 240, 240, 180, "rgba(136, 98, 216, 0.22)"]
+      ]) {
+        A.pxEllipse(g, gx, gy, rx, ry, col);
+      }
+      // 繁星点点与十字亮星
+      for (let y = a.y; y < a.y + a.h; y += 16) for (let x = a.x; x < a.x + a.w; x += 16) {
+        const k = A.hash(x + 13, y + 29);
+        if (k > 0.982) {
+          A.R(g, x, y, 2, 2, "#ffffff");
+          if (k > 0.994) { A.R(g, x - 2, y, 6, 2, "rgba(255,244,188,0.65)"); A.R(g, x, y - 2, 2, 6, "rgba(255,244,188,0.65)"); }
+        } else if (k > 0.968) {
+          A.R(g, x, y, 2, 2, "#ffe89c");
+        } else if (k > 0.958) {
+          A.R(g, x, y, 2, 2, "#9be4ff");
+        }
+      }
+      // 金色弯月与带环行星（土星 / 蔚蓝星体）
+      A.pxEllipse(g, 380, 676, 38, 38, "#fff2bc");
+      A.pxEllipse(g, 396, 666, 32, 32, "#1d2b4e");
+      // 右侧星海中的金环行星
+      const px = 2480, py = 676;
+      A.pxEllipse(g, px, py, 64, 18, "#d8b464");
+      A.pxEllipse(g, px, py, 52, 13, "#212f54");
+      A.pxEllipse(g, px, py, 28, 28, "#6a88c8");
+      A.pxEllipse(g, px - 6, py - 6, 16, 14, "#94b4ec");
+      // 黄铜星轨观星台浮岛（点缀南侧两侧星湾）
+      for (const [ox, oy] of [[680, 680], [2200, 680]]) {
+        A.pxEllipse(g, ox, oy, 56, 26, "#c8a252");
+        A.pxEllipse(g, ox, oy, 48, 21, "#26385a");
+        A.pxEllipse(g, ox, oy, 16, 8, "#ffd872");
+      }
     },
     floorDecor(g, ox, oy, w, h, A) {
       const OR = { cx: 1440, cy: 300 };

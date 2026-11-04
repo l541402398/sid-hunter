@@ -30,19 +30,49 @@
     windows: [520, 1000, 1200, 1700, 1960, 2360, 2780], windowStyle: "arch",
     sconces: [640, 1080, 1800, 2200],
     frames: [[140, "map"], [1580, "flower"], [2700, "land"]],
-    plaque: { x: 1840, text: "暖木藏书阁 · 静心开卷", w: 168 },
+    plaque: { x: 1840, text: "云海藏书阁 · 浮岛开卷", w: 168 },
     exterior(g, f, A, a) {
-      // 书院露天庭院：草坪 + 十字石径 + 中央古槐与小石灯
-      A.R(g, a.x, a.y, a.w, a.h, "#5f9a4c");
-      for (let y = a.y; y < a.y + a.h; y += 16) for (let x = a.x; x < a.x + a.w; x += 16) { const k = A.hash(x + 3, y + 9); if (k < 0.45) { A.R(g, x + 4, y + 6, 2, 4, "#4f8a40"); A.R(g, x + 8, y + 4, 2, 6, "#4f8a40"); } else if (k > 0.985) A.R(g, x + 6, y + 6, 4, 4, "#f5a0c8"); }
-      const cx = 1440, cy = 650;
-      for (let ty = 470; ty < 800; ty += 20) { A.R(g, cx - 30, ty + 1, 60, 18, "#cfc3a6"); A.R(g, cx - 30, ty + 1, 60, 2, "#e8dec6"); }
-      for (let tx = 1080; tx < 1800; tx += 24) { A.R(g, tx + 1, cy - 14, 22, 28, "#cfc3a6"); A.R(g, tx + 1, cy - 14, 22, 2, "#e8dec6"); }
-      for (const [tx, ty, s] of [[1240, 560, 1.2], [1650, 740, 1], [200, 720, 1], [3000, 860, 1]]) {
-        A.pxEllipse(g, tx, ty + 24, 40 * s, 12 * s, "rgba(20,40,10,0.35)"); A.R(g, tx - 6, ty - 10, 12, 34, "#6e4322");
-        A.pxEllipse(g, tx, ty - 34, 40 * s, 30 * s, "#3f7f3a"); A.pxEllipse(g, tx - 8, ty - 42, 26 * s, 18 * s, "#5a9e4a"); A.pxEllipse(g, tx + 10, ty - 30, 16 * s, 12 * s, "#4f8f44");
+      // 云海浮岛藏书阁：书院悬浮于晴空云海之上，中庭为悬浮灵树书院岛与云中浮石桥
+      const sky = ["#82b4dc", "#98c4e6", "#b2d6f0", "#cce6f8"];
+      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + Math.floor(i * a.h / 4), a.w, Math.ceil(a.h / 4) + 2, sky[i]);
+      // 翻涌的层叠云海（带暖金天光与淡紫背光阴影）
+      for (const [cx, cy, s] of [
+        [-220, 180, 1.3], [-140, 520, 1.4], [180, 700, 1.5], [1440, 820, 1.8],
+        [1180, 580, 1.2], [1700, 580, 1.2], [2980, 220, 1.3], [3040, 580, 1.5], [1440, -90, 1.6]
+      ]) {
+        A.pxEllipse(g, cx, cy + 14 * s, 96 * s, 26 * s, "#b8cee8");
+        A.pxEllipse(g, cx - 38 * s, cy, 56 * s, 32 * s, "#f4f8ff");
+        A.pxEllipse(g, cx + 26 * s, cy - 8 * s, 64 * s, 36 * s, "#ffffff");
+        A.pxEllipse(g, cx - 8 * s, cy - 14 * s, 44 * s, 24 * s, "#fff9eb");
       }
-      for (const lx of [1360, 1520]) { A.R(g, lx - 6, cy - 50, 12, 6, "#a8a090"); A.R(g, lx - 4, cy - 44, 8, 22, "#c8c0ae"); A.R(g, lx - 3, cy - 40, 6, 6, "#ffd872"); }
+      // 中庭南侧的「云中灵树浮岛」（悬浮岩层底座 + 翡翠草坪 + 十字浮石桥）
+      const cx = 1440, cy = 640;
+      A.pxEllipse(g, cx, cy + 28, 280, 118, "#6a5c50");
+      A.pxEllipse(g, cx, cy + 14, 276, 112, "#8e7e6c");
+      A.pxEllipse(g, cx, cy, 270, 106, "#cfc3a6");
+      A.pxEllipse(g, cx, cy, 252, 96, "#62a452");
+      // 连接东西两翼与中央连廊的悬浮白石阶桥
+      for (let ty = 472; ty < 760; ty += 26) {
+        A.R(g, cx - 32, ty + 4, 64, 18, "#8e7e6c");
+        A.R(g, cx - 32, ty, 64, 16, "#e8dec6");
+        A.R(g, cx - 28, ty + 2, 56, 3, "#fbf6ea");
+      }
+      for (let tx = 1084; tx < 1796; tx += 36) {
+        A.R(g, tx, cy - 14, 28, 30, "#8e7e6c");
+        A.R(g, tx, cy - 18, 28, 26, "#e8dec6");
+      }
+      // 浮岛古樱灵树与云端石灯笼
+      for (const [tx, ty, s, pink] of [[1310, 590, 1.25, true], [1570, 680, 1.1, false], [180, 680, 1.0, true], [-110, 80, 0.9, false], [2990, 80, 0.9, true]]) {
+        A.pxEllipse(g, tx, ty + 22, 36 * s, 12 * s, "rgba(30,50,30,0.28)");
+        A.R(g, tx - 5, ty - 10, 10, 32, "#6e4322");
+        A.pxEllipse(g, tx, ty - 32, 38 * s, 28 * s, pink ? "#e48cb2" : "#488c42");
+        A.pxEllipse(g, tx - 8, ty - 40, 24 * s, 18 * s, pink ? "#f8b8d4" : "#64ac56");
+      }
+      for (const lx of [1368, 1512]) {
+        A.R(g, lx - 6, cy - 48, 12, 6, "#a8a090");
+        A.R(g, lx - 4, cy - 42, 8, 20, "#d8d0be");
+        A.R(g, lx - 3, cy - 38, 6, 6, "#ffe078");
+      }
     },
     floorDecor(g, ox, oy, w, h, A) {
       for (const [x, y, ww] of [[360, 612, 720], [1800, 652, 1080]]) { const b = A.clipRect(ox, oy, w, h, { x, y, w: ww, h: 6 }); if (b) { A.R(g, b.x, b.y, b.w, b.h, "#c49e68"); A.R(g, b.x, b.y, b.w, 2, "#e6c892"); } }

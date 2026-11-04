@@ -87,12 +87,25 @@
     syncZoneBanner();
     const self = selfPlayer();
     if (self) {
-      const cam = WORLD.zoneCamera(floorId, zoneId, viewW, viewH, self.x, self.y);
+      const cam = computeCamera(self.x, self.y);
       cameraX = cam.x; cameraY = cam.y; drawCamX = cameraX; drawCamY = cameraY;
     }
     updateExplorationHUD();
     draw();
     return true;
+  }
+  function computeCamera(focusX, focusY) {
+    if (zoneId) return WORLD.zoneCamera(floorId, zoneId, viewW, viewH, focusX, focusY);
+    const b = WORLD.floorBounds(floorId);
+    // 为左右电梯厅及顶栏/右侧日志预留充足镜头外扩边距，使玩家进出电梯厅时画面平滑内移，绝不被顶部菜单栏或公告遮挡。
+    const padL = 260, padR = 320, padT = 136, padB = 80;
+    const minX = b.minX - padL, maxX = b.maxX + padR;
+    const minY = b.minY - padT, maxY = b.maxY + padB;
+    const spanW = maxX - minX, spanH = maxY - minY;
+    return {
+      x: spanW <= viewW ? Math.round((minX + maxX - viewW) / 2) : clamp(focusX - viewW / 2, minX, maxX - viewW),
+      y: spanH <= viewH ? Math.round((minY + maxY - viewH) / 2) : clamp(focusY - viewH / 2, minY, maxY - viewH)
+    };
   }
   function syncZoneBanner() {
     const banner = $('zone-banner'), name = $('zone-banner-name');
@@ -132,17 +145,12 @@
     g.fillStyle = rg; g.fillRect(0, 0, w, h); vignette = c;
   }
   // 视区尺寸/DPR 变化时重建 backing，并重新设置 transform 与 imageSmoothingEnabled。
-  // 视野分两种：楼层 = 固定半层宽（方案 B）；独立房间 = 整间屋子铺满视区（进门自动"放大"）。
+  // 视野：楼层与独立小房间统一采用 CAMERA_W 比例，确保进出茶疗室等小办公室时人物与家具比例始终 1:1 一致。
   function applyViewport() {
-    const room = zoneId ? WORLD.roomById(zoneId) : null;
-    if (room) {
-      scale = Math.min(cssW / room.width, cssH / room.height);
-    } else {
-      scale = cssW / CAMERA_W;
-    }
+    scale = cssW / CAMERA_W;
     viewW = cssW / scale; viewH = cssH / scale;
-    // 楼层：视区高不超过楼层高的 1.5 倍，避免超宽/超宽屏把镜头拉到虚空里。
-    if (!room && viewH > FLOOR_H * 1.5) { viewH = FLOOR_H * 1.5; scale = cssH / viewH; viewW = cssW / scale; }
+    // 视区高不超过楼层高的 1.5 倍，避免超宽/超宽屏把镜头拉到虚空里。
+    if (viewH > FLOOR_H * 1.5) { viewH = FLOOR_H * 1.5; scale = cssH / viewH; viewW = cssW / scale; }
   }
   function resizeCanvas() {
     const cw = Math.max(1, Math.round(canvas.clientWidth || cssW || 960));
@@ -2073,10 +2081,11 @@
     nearbySig = ''; // 强制重建就近列表与描边
     keys.clear(); lastIntent = '';
     sendIntent(true);
-    const self = selfPlayer(); const fl = WORLD.floorById(id);
+    const self = selfPlayer();
     if (self) {
-      cameraX = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).x;
-      cameraY = WORLD.cameraBounds(floorId, viewW, viewH, self.x, self.y).y;
+      const cam = computeCamera(self.x, self.y);
+      cameraX = cam.x;
+      cameraY = cam.y;
       drawCamX = cameraX; drawCamY = cameraY;
     }
     labels = []; updateScoreDisplay(); updateExplorationHUD();
@@ -2184,7 +2193,6 @@
     if (!Number.isSafeInteger(target) || target < 1 || target > WORLD.FLOOR_COUNT) { showToast('目标楼层无效（1–7）'); return; }
     if (target === floorId) { showToast('已在本层，请选择其它楼层'); return; }
     const self = selfPlayer();
-    if (self && WORLD.distanceToEntity(self, { x: portal.x, y: portal.y }) > WORLD.INTERACT_RANGE) { showToast('距离电梯太远，请靠近后再试（64 像素以内）'); return; }
     const access = WORLD.portalAccess(self, portal);
     if (!access.allowed) { showToast(access.reason); return; }
     // PREPARING：保留源画面 + 收拢输入 + 准备目标资源（各层 sprite 均已预烘焙）。
@@ -2332,21 +2340,21 @@
       ctx.beginPath(); ctx.ellipse(cx, by - 2, rx * 0.8, ry * 0.8, 0, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.restore();
-    // 靠近可搜索物品时，在光圈正下方标出操作提示「按：K」，与就近列表的按钮前缀一致。
-    // 只在 ready（真的能搜）时画，blocked/idle 不画，避免误导。
-    if (tier === 'ready') {
-      const label = '按：K';
-      ctx.save();
-      ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const tw = Math.round(ctx.measureText(label).width) + 12;
-      const lx = Math.round(cx - tw / 2), ly = Math.round(by - 2 + ry + 4);
-      ctx.globalAlpha = .82; ctx.fillStyle = '#08121e'; ctx.fillRect(lx, ly, tw, 15);
-      ctx.globalAlpha = 1; ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 1;
-      ctx.strokeRect(lx + .5, ly + .5, tw - 1, 14);
-      ctx.fillStyle = '#d8f4ff'; ctx.fillText(label, lx + tw / 2, ly + 8);
-      ctx.restore();
-    }
+  }
+  // 顶层交互提示徽章（「按：K」）：统一在全部家具与人物绘制完毕之后叠画，绝不被任何家具或装饰物遮挡。
+  function drawInteractPromptBadge(cx, cy, label = '按：K') {
+    const bob = Math.round(Math.sin(clock * 4.2) * 1.5);
+    ctx.save();
+    ctx.font = 'bold 10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw = Math.round(ctx.measureText(label).width) + 14;
+    const lx = Math.round(cx - tw / 2), ly = Math.round(cy + bob);
+    ctx.fillStyle = 'rgba(4, 10, 20, 0.92)'; ctx.fillRect(lx - 1, ly - 1, tw + 2, 18);
+    ctx.fillStyle = '#0a192c'; ctx.fillRect(lx, ly, tw, 16);
+    ctx.strokeStyle = '#7fe3ff'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(lx + .5, ly + .5, tw - 1, 15);
+    ctx.fillStyle = '#e6f8ff'; ctx.fillText(label, lx + tw / 2, ly + 8.5);
+    ctx.restore();
   }
   // ---------- 家具三层绘制（阶段2-2a，美术规格 §3 C-0）----------
   // 视角约定：rect = 平面投影；立面占 rect 下沿起 facePx（柜类可越过 y，故需 padUp）；
@@ -2945,17 +2953,19 @@
   // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
   // 玩家站在门前并面向门时叠呼吸描边与「K 选择楼层」提示。
   function drawElevatorHall(p, active) {
-    const cx = Math.round(p.x), cy = Math.round(p.y);
+    const cx = Math.round(p.x), cy = Math.round(p.y) - 12;
     const accent = '#ffd86b';
     const hw = 32, hh = 15, x0 = cx - hw, y0 = cy - hh;
     const metal = '#d8b480', metalHi = '#f2d8aa';
     ctx.save();
-    // 厅地坪（暖木镶边迎宾地垫）
-    rect(x0 - 7, y0 - 7, hw * 2 + 14, hh * 2 + 18, '#785334');
-    rect(x0 - 7, y0 - 7, hw * 2 + 14, 1, '#b5895e');
-    rect(x0 - 7, y0 + hh * 2 + 10, hw * 2 + 14, 1, '#4a311c');
+    // 厅地坪（暖木镶边迎宾地垫：覆盖门前站立区，电梯门立面位于实体阻挡墙内，防止人物穿模进入电梯井）
+    rect(x0 - 10, y0 - 6, hw * 2 + 20, hh * 2 + 34, '#785334');
+    rect(x0 - 8, y0 + hh * 2 + 2, hw * 2 + 16, 22, '#8c3d3a');
+    rect(x0 - 6, y0 + hh * 2 + 4, hw * 2 + 12, 18, '#a64b46');
+    rect(x0 - 10, y0 - 6, hw * 2 + 20, 1, '#b5895e');
+    rect(x0 - 10, y0 + hh * 2 + 27, hw * 2 + 20, 1, '#4a311c');
     // 门框 + 两扇暖黄铜木门 + 中缝 + 顶部高光
-    rect(x0 - 2, y0 - 2, hw * 2 + 4, hh * 2 + 4, '#543820');
+    rect(x0 - 3, y0 - 3, hw * 2 + 6, hh * 2 + 6, '#543820');
     rect(x0, y0, hw - 1, hh * 2, '#8d929a');
     rect(x0, y0, hw - 1, hh * 2, metal);
     rect(x0 + hw + 1, y0, hw - 1, hh * 2, metal);
@@ -2980,13 +2990,13 @@
     if (active) {
       ctx.globalAlpha = .55 + .35 * Math.sin(clock * 4);
       ctx.strokeStyle = accent; ctx.lineWidth = 2;
-      ctx.strokeRect(x0 - 6, y0 - 6, hw * 2 + 12, hh * 2 + 14);
+      ctx.strokeRect(x0 - 8, y0 - 6, hw * 2 + 16, hh * 2 + 32);
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
       const label = 'K 选择楼层';
-      ctx.font = '10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-      const tw = Math.round(ctx.measureText(label).width) + 12, lx = cx - tw / 2, ly = y0 - 32;
-      ctx.fillStyle = 'rgba(58,36,20,.92)'; ctx.fillRect(lx, ly, tw, 16);
-      ctx.strokeStyle = accent; ctx.lineWidth = 1;
+      ctx.font = 'bold 10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      const tw = Math.round(ctx.measureText(label).width) + 14, lx = cx - tw / 2, ly = y0 - 31;
+      ctx.fillStyle = 'rgba(42,24,12,.94)'; ctx.fillRect(lx, ly, tw, 16);
+      ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
       ctx.strokeRect(lx + .5, ly + .5, tw - 1, 15);
       ctx.fillStyle = '#fff6e5';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -3367,10 +3377,13 @@
     ctx.fillStyle = (f && f.lobby && window.SID_LOBBY && !zoneId) ? window.SID_LOBBY.PAL.voidC : '#362417'; ctx.fillRect(0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
     if (currentRoom) {
-      // 需求①：房间是独立空间 —— 外围铺温暖木纹画框衬底，内部画小屋自己的地面与墙。
-      ctx.fillStyle = '#3b2819'; ctx.fillRect(camX - 8, camY - 8, viewW + 16, viewH + 16);
+      // 需求①：房间是独立空间 —— 保持与楼层 1:1 人物/家具尺度，外围铺深胡桃木雕花画框与柔和阴影衬底。
+      ctx.fillStyle = '#24170e'; ctx.fillRect(camX - 16, camY - 16, viewW + 32, viewH + 32);
+      ctx.fillStyle = 'rgba(10, 5, 2, 0.45)'; ctx.fillRect(-20, -14, currentRoom.width + 44, currentRoom.height + 38);
+      ctx.fillStyle = '#4e331e'; ctx.fillRect(-16, -16, currentRoom.width + 32, currentRoom.height + 32);
+      ctx.strokeStyle = '#c89a5b'; ctx.lineWidth = 2; ctx.strokeRect(-15, -15, currentRoom.width + 30, currentRoom.height + 30);
       ctx.fillStyle = '#6e4d30'; ctx.fillRect(-10, -10, currentRoom.width + 20, currentRoom.height + 20);
-      ctx.strokeStyle = '#b38658'; ctx.lineWidth = 2; ctx.strokeRect(-9, -9, currentRoom.width + 18, currentRoom.height + 18);
+      ctx.strokeStyle = '#b38658'; ctx.lineWidth = 1.5; ctx.strokeRect(-9, -9, currentRoom.width + 18, currentRoom.height + 18);
       if (!(SCENE && SCENE.roomFloor(ctx, currentRoom))) {
         ctx.fillStyle = '#d8ad78'; ctx.fillRect(0, 0, currentRoom.width, currentRoom.height);
       }
@@ -3418,10 +3431,11 @@
     const scene = [
       ...(useTMJVisual ? [] : furniture.filter(f2 => near(f2.x, f2.y, f2.w, f2.h, 12, 12)).map(f2 => ({ depth: f2.depth, f: f2 }))),
       ...(useTMJVisual ? furniture.filter(f2 => f2.container && near(f2.x, f2.y, f2.w, f2.h, 12, 12) && f2.y + f2.h > (WORLD.WALL_BASE || 58)).map(f2 => ({ depth: f2.depth, f: f2 })) : []),
-      ...(useTMJVisual ? [] : walls.filter(w => near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w }))),
+      ...(useTMJVisual ? [] : walls.filter(w => !w.invisible && near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w }))),
       ...tmjProps.filter(p => near(p.x * ws, p.y * ws, p.w * ws, p.h * ws, 16, 16) && (p.y + p.h) * ws > (WORLD.WALL_BASE || 58)).map(p => ({ depth: (p.y + p.h) * ws, tmj: p })),
       ...list.filter(p => p.x > camX - 12 && p.x < camX + viewW + 12 && p.y > camY - 25 && p.y < camY + viewH + 30).map(p => ({ depth: p.y, p }))
     ].sort((a, b) => a.depth - b.depth || Number(!!b.f) - Number(!!a.f));
+    const readyPromptBadges = [];
     for (const item of scene) {
       if (item.tmj) {
         TMJ_VISUAL.drawProp(ctx, item.tmj);
@@ -3453,17 +3467,25 @@
         } else {
           ctx.drawImage(furnitureSprites.get(f2.id), f2.x - pad.padX, f2.y - pad.padUp);
         }
-        // 紧跟家具 sprite 之后画交互标记：深度更大的家具后画时会自然盖住，不穿透遮挡。
-        // 用脚下的小椭圆光圈而不是整块家具矩形——放大后家具矩形可能很大，
-        // 框住整张桌子/工位岛会让人误以为"搜索范围有这么大"。
-        if (f2.container) drawContainerMarker(f2, interactTier('container', f2.id));
+        // 紧跟家具 sprite 之后画地面椭圆光圈，「按：K」蓝色提示牌统一在全场景家具/人物绘制完成后置顶绘制，杜绝被其它家具遮挡。
+        if (f2.container) {
+          const tier = interactTier('container', f2.id);
+          drawContainerMarker(f2, tier);
+          if (tier === 'ready') {
+            const span = (SCENE && SCENE.visualWidth) ? SCENE.visualWidth(f2) : f2.w;
+            const ry = Math.max(8, Math.min(26, span / 2 + 2)) * 0.5;
+            readyPromptBadges.push({ cx: f2.x + f2.w / 2, cy: f2.y + f2.h - 2 + ry + 3, topY: Math.max(10, f2.y - 16) });
+          }
+        }
         if (clipWall) ctx.restore();
       } else {
         sprite(item.p);
         // 场景NPC描边覆盖Juli翼片；测试玩家NPC不冒充商店，也不改变服务器交互范围。
         if (item.p.npc && item.p.entityId) {
           const b = SID.juliSprites?.bounds(item.p) || { x: -21, y: -53, w: 42, h: 61 };
-          drawOutline(item.p.x + b.x, item.p.y + b.y, b.w, b.h, interactTier('npc', item.p.entityId), '#ffd76a');
+          const tier = interactTier('npc', item.p.entityId);
+          drawOutline(item.p.x + b.x, item.p.y + b.y, b.w, b.h, tier, '#ffd76a');
+          if (tier === 'ready') readyPromptBadges.push({ cx: item.p.x, cy: item.p.y + 8, topY: Math.max(10, item.p.y + b.y - 18) });
         }
       }
     }
@@ -3485,6 +3507,10 @@
       ctx.font = '10px ui-monospace,SFMono-Regular,monospace';
       ctx.fillStyle = active ? '#bbd9f3' : '#b0c5dd';
       ctx.fillText(l.text.detail, l.x + l.w / 2, l.y + 23);
+    }
+    for (const badge of readyPromptBadges) {
+      const hitLabel = labels.some(l => Math.abs(badge.cx - (l.x + l.w / 2)) < (21 + l.w / 2 + 4) && badge.cy + 14 > l.y - 2 && badge.cy < l.y + l.h + 2);
+      drawInteractPromptBadge(badge.cx, hitLabel ? badge.topY : badge.cy, '按：K');
     }
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3554,13 +3580,18 @@
     // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
     // 需求①：房间内用房间自己的相机边界（房间通常小于一屏 → 整间居中，不产生滚动）。
     if (self) {
-      const cam = WORLD.zoneCamera(floorId, zoneId, viewW, viewH, self.x, self.y);
+      const cam = computeCamera(self.x, self.y);
       cameraX = cam.x;
       cameraY = cam.y;
+      const nearLift = !zoneId && portals.some(pt =>
+        Math.hypot(self.x - pt.x, self.y - pt.y) < 180 || WORLD.inHall(floorId, pt.side, self.x, self.y)
+      );
+      document.body.classList.toggle('near-elevator', nearLift);
     } else {
-      const cam = WORLD.zoneCamera(floorId, zoneId, viewW, viewH, cameraX + viewW / 2, cameraY + viewH / 2);
+      const cam = computeCamera(cameraX + viewW / 2, cameraY + viewH / 2);
       cameraX = cam.x;
-      cameraY = zoneId ? cam.y : clamp(cameraY, 0, Math.max(0, fl.height - viewH));
+      cameraY = zoneId ? cam.y : clamp(cameraY, -136, Math.max(0, fl.height + 80 - viewH));
+      document.body.classList.remove('near-elevator');
     }
     $('floor-indicator').textContent = `${floorId}F`;
     // 需求①：空间提示条 / 坐标随 zone 变化（房间内显示房间名）。
@@ -3638,8 +3669,12 @@
           leaveRoom(exit.name); canvas.focus(); return;
         }
       }
-      // 点击电梯门与 E 走同一套「靠近 + 面向」守卫，不再有绕过路径；进门先弹选层面板。
-      const portalHit = portals.find(pt => x >= pt.x - pt.w / 2 && x <= pt.x + pt.w / 2 && y >= pt.y - pt.h / 2 && y <= pt.y + pt.h / 2);
+      // 点击电梯门与 K 走同一套「靠近 + 面向」守卫，扩大电梯间点击范围至整个电梯厅区域，进门先弹选层面板。
+      const portalHit = portals.find(pt =>
+        (x >= pt.x - Math.max(pt.w / 2, 56) && x <= pt.x + Math.max(pt.w / 2, 56) &&
+         y >= pt.y - Math.max(pt.h / 2, 48) && y <= pt.y + Math.max(pt.h / 2, 48)) ||
+        WORLD.inHall(floorId, pt.side, x, y)
+      );
       if (portalHit) {
         const self = selfPlayer(), access = self ? WORLD.portalAccess(self, portalHit) : null;
         if (access && access.allowed) openElevatorPicker(portalHit.id);
@@ -3770,6 +3805,41 @@
   }
   if ($('logs-toggle')) $('logs-toggle').onclick = () => toggleLogs();
   if ($('logs-close')) $('logs-close').onclick = () => toggleLogs(false);
+  function syncFullscreenButton() {
+    const btn = $('fullscreen-toggle');
+    if (!btn) return;
+    const active = !!document.fullscreenElement;
+    btn.textContent = active ? '⛶ 退出全屏 (Esc)' : '⛶ 全屏';
+    btn.setAttribute('aria-pressed', String(active));
+  }
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        if (navigator.keyboard && typeof navigator.keyboard.unlock === 'function') {
+          try { navigator.keyboard.unlock(); } catch { }
+        }
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+        if (navigator.keyboard && typeof navigator.keyboard.lock === 'function') {
+          try { await navigator.keyboard.lock(['Escape']); } catch { }
+        }
+      }
+    } catch {
+      showToast('当前浏览器环境不支持全屏切换');
+    }
+    syncFullscreenButton();
+    resizeCanvas();
+    canvas.focus({ preventScroll: true });
+  }
+  if ($('fullscreen-toggle')) $('fullscreen-toggle').onclick = () => toggleFullscreen();
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && navigator.keyboard && typeof navigator.keyboard.unlock === 'function') {
+      try { navigator.keyboard.unlock(); } catch { }
+    }
+    syncFullscreenButton();
+    resizeCanvas();
+  });
   // ---------- 匿名坏人线索池（dev 分支并入）：只消费服务端的匿名投影，不推断身份 ----------
   function renderBadPool() {
     const sig = JSON.stringify([badPoolAvailable, badSlots]);
@@ -3928,6 +3998,14 @@
       if (wheelOpen) { closeWheel(); return; }
       if (!$('ranking').hidden) { closeRanking(); return; }
       if (!$('games').hidden) { e.preventDefault(); exitRps(); return; }
+      if (document.fullscreenElement) {
+        e.preventDefault();
+        if (navigator.keyboard && typeof navigator.keyboard.unlock === 'function') {
+          try { navigator.keyboard.unlock(); } catch { }
+        }
+        document.exitFullscreen().catch(() => { });
+        return;
+      }
       clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return;
     }
     // 转盘 / 结算覆盖层打开时，忽略移动、K、J 等游戏内按键。

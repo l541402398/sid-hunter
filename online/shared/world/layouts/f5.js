@@ -47,8 +47,8 @@
       ['vending', '热可可自助机', 2700, 300, 68, 38, 'container:vending5'],
       ['telescope', '观星望远镜', 2100, 400, 160, 64],
       ['sofa', '观星蓝沙发', 2400, 440, 180, 42],
-      ['teacounter', '暖灯茶吧台', 2620, 460, 150, 38],
-      ['boxstack', '羊皮卷储藏箱', 2710, 390, 80, 32, 'container:bedding5']
+      ['teacounter', '暖灯茶吧台', 2560, 456, 150, 38],
+      ['boxstack', '羊皮卷储藏箱', 2770, 456, 80, 32, 'container:bedding5']
     ],
     walls: [
       { o: 'h', y: 620, x1: 940, x2: 1220, t: 64, face: 96, style: 'house', skin: { kind: 'flat' } },

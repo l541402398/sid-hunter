@@ -48,6 +48,12 @@
     els.take.textContent = '全部拾取(K)';
   }
 
+  function setStatus(msg) {
+    if (!els || !els.status) return;
+    els.status.textContent = msg || '';
+    els.status.hidden = !msg;
+  }
+
   function open(options) {
     ensure();
     if (!host) return;
@@ -79,7 +85,7 @@
     els.take.disabled = true;
     els.bar.style.width = '0%';
     els.meta.textContent = '每个容器每人只能搜一次 · 结果由服务端结算';
-    els.status.textContent = '把耳朵贴到柜门上——点「开始搜索」逐格翻找。';
+    setStatus('');
   }
 
   function close(silent) {
@@ -160,9 +166,7 @@
     const s = state.session;
     const pct = Math.round((s.revealed / s.slotCount) * 100);
     els.bar.style.width = pct + '%';
-    els.status.textContent = s.revealed >= s.slotCount
-      ? '搜索完毕，点「全部拾取」收进背包。'
-      : `正在翻找… ${s.revealed} / ${s.slotCount}`;
+    setStatus('');
     if (s.revealed >= s.slotCount) {
       els.start.hidden = true;
       els.take.hidden = false;
@@ -175,14 +179,14 @@
     if (!state || state.busy) return;
     state.busy = true;
     els.start.disabled = true;
-    els.status.textContent = '正在打开容器…';
+    setStatus('');
     try {
       const r = await state.api('/api/search/start', {
         containerId: state.containerId, commandId: state.commandId(), ...state.floorFields()
       });
       if (!state) return;
       if (r.status !== 200 || !r.ok || !r.session) {
-        els.status.textContent = r.error || '容器打不开，请靠近后再试。';
+        setStatus(r.error || '容器打不开，请靠近后再试。');
         els.start.hidden = true;
         return;
       }
@@ -195,7 +199,7 @@
       updateProgress();
       if (r.session.revealed < r.session.slotCount) scheduleReveal(240);
     } catch {
-      if (state) els.status.textContent = '网络异常，搜索没有开始。';
+      if (state) setStatus('网络异常，搜索没有开始。');
     } finally {
       if (state) state.busy = false;
     }
@@ -217,7 +221,7 @@
       if (r.status !== 200 || !r.ok) {
         // 服务端节流（仍在间隔内）→ 稍后重试；其它错误直接停在这里，面板保持可关闭。
         if (r.error && r.error.indexOf('搜索进行中') >= 0) { scheduleReveal(140); return; }
-        els.status.textContent = r.error || '搜索中断，请关闭后重试。';
+        setStatus(r.error || '搜索中断，请关闭后重试。');
         return;
       }
       state.session = r.session || s;
@@ -236,17 +240,17 @@
     if (!state || !state.session || state.busy) return;
     state.busy = true;
     els.take.disabled = true;
-    els.status.textContent = '正在装进背包…';
+    setStatus('');
     try {
       const r = await state.api('/api/search/take', { sessionId: state.session.id, ...state.floorFields() });
       if (!state) return;
       if (r.status !== 200 || !r.ok) {
-        els.status.textContent = r.error || '拾取失败。';
+        setStatus(r.error || '拾取失败。');
         els.take.disabled = false;
         return;
       }
       els.take.hidden = true;
-      els.status.textContent = r.resultText || '搜索完成。';
+      setStatus('');
       const gained = r.gained || { chips: 0, items: [], clues: 0 };
       els.summary.hidden = false;
       els.summary.replaceChildren();
@@ -268,7 +272,7 @@
       state.done = true;
       if (state.onResult) state.onResult(r.exploration, r.score, r.backpack);
     } catch {
-      if (state) { els.status.textContent = '网络异常，拾取结果未确认。'; els.take.disabled = false; }
+      if (state) { setStatus('网络异常，拾取结果未确认。'); els.take.disabled = false; }
     } finally {
       if (state) state.busy = false;
     }

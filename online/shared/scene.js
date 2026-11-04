@@ -1609,6 +1609,8 @@
   function roomFloor(g, room) {
     const w = room.width, h = room.height;
     const m = ROOM_MATERIAL[room.floorId] || ROOM_MATERIAL[1];
+    g.save();
+    g.beginPath(); g.rect(0, 0, w, h); g.clip();
     g.fillStyle = m.base; g.fillRect(0, 0, w, h);
     switch (m.kind) {
       case 'wood':
@@ -1657,6 +1659,7 @@
     const sh = g.createLinearGradient(0, 0, 0, 24);
     sh.addColorStop(0, 'rgba(48,28,12,0.26)'); sh.addColorStop(1, 'rgba(48,28,12,0)');
     g.fillStyle = sh; g.fillRect(0, 0, w, 24);
+    g.restore();
     return true;
   }
 

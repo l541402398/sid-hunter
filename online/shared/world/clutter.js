@@ -56,6 +56,8 @@
     const doors = roomsForFloor(fid).map(r => r.door);
     const portals = floorPortals(fid);
     const spawns = floorSpawns(fid);
+    const interactables = floor.furniture.filter(f => f.container || f.type === 'arcade');
+    const npcs = floor.npcs || [];
     const placed = [];
 
     const anchors = structuredAnchorsForFloor(floor, fid, list.length);
@@ -79,11 +81,13 @@
       if (occupiedVisuals.some(q => rectHit(visual, q, 24))) continue;
       if (placed.some(q => rectHit(visual, q, 48))) continue;
 
-      // 门牌、电梯口、出生点周围留足清爽广场
+      // 门牌、电梯口、出生点、容器与 NPC 周围留足清爽广场
       if (doors.some(d => Math.hypot(d.x - bx, d.y - by) < 150 ||
         rectHit(visual, { x: d.x - 84, y: d.y - 96, w: 168, h: 128 }, 16))) continue;
       if (portals.some(p => rectHit(visual, p, 96))) continue;
       if (spawns.some(s => Math.hypot(s.x - bx, s.y - by) < 84)) continue;
+      if (interactables.some(c => rectHit(visual, c, 72))) continue;
+      if (npcs.some(n => Math.hypot(n.x - bx, n.y - by) < 110)) continue;
 
       const f = {
         id: `f${fid}:clutter:${made}`,
@@ -133,8 +137,9 @@
       if (entries.some(e => Math.hypot(e.x - bx, e.y - by) < 96)) continue;
 
       const visual = { x: left, y: top, w, h };
-      if (occupied.some(q => rectHit(visual, q, 14))) continue;
-      if (placed.some(q => rectHit(visual, q, 20))) continue;
+      if (occupied.some(q => rectHit(visual, q, 24))) continue;
+      if ((room.containers || []).some(c => rectHit(visual, c, 64))) continue;
+      if (placed.some(q => rectHit(visual, q, 24))) continue;
 
       const foot = { x: left + 8, y: by - 16, w: Math.max(16, w - 16), h: 16 };
       const f = {

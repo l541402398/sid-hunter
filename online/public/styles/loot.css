@@ -85,6 +85,7 @@
 .loot-cell.r-legendary .loot-name{color:#fde68a}
 
 .loot-status{margin:0;font-size:11px;line-height:1.65;color:#7a3e00;min-height:18px;background:var(--sun-soft);border:1px solid var(--sun-line);border-radius:5px;padding:6px 9px;font-weight:600}
+.loot-status[hidden]{display:none}
 .loot-summary{margin:0;padding:8px 10px;border:1.5px solid var(--mint-line);border-radius:var(--r-sm);background:var(--mint-soft);font-size:11px;line-height:1.65;color:var(--ink)}
 .loot-summary[hidden]{display:none}
 .loot-summary-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px}

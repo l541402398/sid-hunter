@@ -46,7 +46,7 @@
 .self-combat-state:empty{display:none}
 .combat-status{color:var(--ink-2);font-size:10px;line-height:1.6}
 #cover-status,#nearby-empty,.combat-note,#self-combat-state,.world-chip{display:none}
-.exploration-hud{display:flex;flex-direction:column;align-items:flex-start;width:max-content;max-width:none;left:14px;top:96px;padding:0;border:0;background:none;backdrop-filter:none;max-height:none;overflow:visible;z-index:10}
+.exploration-hud{display:flex;flex-direction:column;align-items:flex-start;width:max-content;max-width:none;left:14px;bottom:52px;top:auto;padding:0;border:0;background:none;backdrop-filter:none;max-height:none;overflow:visible;z-index:10}
 .exploration-hud:not(:has(.nearby-items button)){display:none}
 .exploration-hud .nearby-items{margin-top:0}
 /* 就近互动按钮：浮在像素地图上的燕尾胡桃木镶金提示牌 */

@@ -25,19 +25,46 @@
     windows: [560, 820, 1240, 1640, 2120, 2460, 2780], windowStyle: 'arch',
     sconces: [700, 1160, 1720, 2180],
     frames: [[150, 'land'], [1860, 'sea'], [2300, 'flower']],
-    plaque: { x: 1440, text: '晨光迎宾厅 · 欢迎光临', w: 160 },
+    plaque: { x: 1440, text: '晨光溪谷厅 · 临水迎宾', w: 168 },
     exterior: (g, f, A, a) => {
-      A.R(g, a.x, a.y, a.w, a.h, "#6aa84f");
-      for (let y = a.y; y < a.y + a.h; y += 16) for (let x = a.x; x < a.x + a.w; x += 16) {
-        const k = A.hash(x + 7, y + 3);
-        if (k < 0.45) { A.R(g, x + 4, y + 6, 2, 4, "#5a9442"); A.R(g, x + 7, y + 4, 2, 6, "#5a9442"); }
-        else if (k > 0.985) { A.R(g, x + 6, y + 6, 4, 4, ['#f06f6a', '#ffd25a', '#ffffff'][Math.floor(k * 997) % ['#f06f6a', '#ffd25a', '#ffffff'].length]); A.R(g, x + 7, y + 7, 2, 2, "#fff6d0"); }
+      // 溪谷花洲迎宾岛：碧绿河岸草甸 + 环岛潺潺清溪 + 原木拱桥 + 睡莲与樱花林
+      A.R(g, a.x, a.y, a.w, a.h, '#4fa6c4');
+      // 柔和溪流水波（宽间距大色块，舒适不晃眼）
+      for (let y = a.y + 12; y < a.y + a.h; y += 28) {
+        const shift = ((Math.floor(y / 28) % 2) * 36);
+        for (let x = a.x + shift; x < a.x + a.w; x += 72) {
+          A.R(g, x, y, 28, 3, '#68bce0');
+          A.R(g, x + 8, y - 2, 12, 2, '#92d6f0');
+        }
       }
-      // 外围石板步道环绕建筑
-      for (const [x, y, w, h] of [[700 - 72, 440, 48, 360], [2180 + 24, 440, 48, 360], [0, 444, 700 - 72, 40], [2180 + 72, 444, 700, 40]]) {
-        for (let ty = y; ty < y + h; ty += 20) for (let tx = x; tx < x + w; tx += 24) { A.R(g, tx + 1, ty + 1, 22, 18, '#cfc3a6'); A.R(g, tx + 1, ty + 1, 22, 2, '#e8dec6'); }
+      // 贴近建筑边缘的翠绿溪岸草洲与暖石亲水护岸
+      for (const [bx, by, bw, bh] of [[-120, -60, 820, 520], [2180, -60, 820, 520], [640, 400, 1600, 440]]) {
+        A.R(g, bx - 10, by - 10, bw + 20, bh + 20, '#dfd2b4');
+        A.R(g, bx, by, bw, bh, '#68a852');
       }
-      for (const [tx, ty] of [[180, 620], [420, 700], [2500, 640], [2720, 720]]) { A.pxEllipse(g, tx, ty + 20, 34, 10, 'rgba(30,50,20,0.3)'); A.R(g, tx - 4, ty - 8, 8, 28, '#6e4322'); A.pxEllipse(g, tx, ty - 26, 30, 24, '#4c8c46'); A.pxEllipse(g, tx - 6, ty - 32, 18, 14, '#66b25a'); }
+      // 溪面上横跨东西两侧的原木景观栈桥
+      for (const [bx, by, bw, bh] of [[180, 440, 460, 56], [2240, 440, 460, 56], [-180, 42, 180, 108], [2880, 42, 180, 108]]) {
+        A.R(g, bx, by - 4, bw, bh + 8, '#6e4322');
+        A.R(g, bx, by, bw, bh, '#c48a52');
+        for (let tx = bx; tx < bx + bw; tx += 18) {
+          A.R(g, tx, by + 2, 16, bh - 4, '#d49a60');
+          A.R(g, tx, by + 2, 16, 3, '#e6b278');
+        }
+      }
+      // 溪流睡莲与漂浮花瓣
+      for (const [lx, ly] of [[160, 580], [340, 650], [520, 560], [2340, 600], [2560, 680], [2740, 570], [-140, 260], [3020, 260]]) {
+        A.pxEllipse(g, lx, ly, 16, 9, '#4c9848');
+        A.pxEllipse(g, lx - 2, ly - 1, 12, 6, '#62b058');
+        A.R(g, lx - 3, ly - 4, 6, 5, '#f6a4c4');
+        A.R(g, lx - 1, ly - 3, 2, 3, '#fff2b2');
+      }
+      // 溪畔樱花树与翠绿林木
+      for (const [tx, ty, sakura] of [[140, 490, true], [540, 490, false], [2320, 490, true], [2720, 490, false], [-90, 180, true], [2970, 180, true]]) {
+        A.pxEllipse(g, tx, ty + 20, 34, 10, 'rgba(30,60,40,0.28)');
+        A.R(g, tx - 4, ty - 8, 8, 28, '#6e4322');
+        A.pxEllipse(g, tx, ty - 26, 30, 24, sakura ? '#e890b4' : '#4c8c46');
+        A.pxEllipse(g, tx - 6, ty - 32, 18, 14, sakura ? '#f8bad4' : '#66b25a');
+      }
     },
     floorDecor(g, ox, oy, w, h, A) {
       const FC = { cx: 1440, cy: 335 };

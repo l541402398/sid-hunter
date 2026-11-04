@@ -509,18 +509,18 @@
     const th = themeOf(f.id), P = wallPal(th), poly = f.polygon;
     const path = () => { g.beginPath(); poly.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath(); };
     g.save();
-    g.beginPath(); g.rect(-400, -200, f.width + 800, f.height + 400); poly.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath();
+    g.beginPath(); g.rect(-560, -280, f.width + 1120, f.height + 560); poly.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath();
     g.clip('evenodd'); g.lineJoin = 'miter';
     if (th.exterior) {
       // 轮廓外的「室外景」（海面 / 天空 / 庭院草坪…）：首帧烘焙到离屏画布，之后每帧一次 drawImage。
       const key = '__ext' + f.id;
       if (!API[key]) {
-        const c = document.createElement('canvas'); c.width = f.width + 800; c.height = f.height + 400;
-        const cg = c.getContext('2d'); cg.imageSmoothingEnabled = false; cg.translate(400, 200);
-        th.exterior(cg, f, API, { x: -400, y: -200, w: f.width + 800, h: f.height + 400 });
+        const c = document.createElement('canvas'); c.width = f.width + 1120; c.height = f.height + 560;
+        const cg = c.getContext('2d'); cg.imageSmoothingEnabled = false; cg.translate(560, 280);
+        th.exterior(cg, f, API, { x: -560, y: -280, w: f.width + 1120, h: f.height + 560 });
         API[key] = c;
       }
-      g.drawImage(API[key], -400, -200);
+      g.drawImage(API[key], -560, -280);
     }
     path(); g.lineWidth = 28; g.strokeStyle = P.capLo; g.stroke();
     path(); g.lineWidth = 22; g.strokeStyle = P.cap; g.stroke();

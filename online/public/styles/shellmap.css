@@ -18,7 +18,10 @@ body{min-height:100%}
 .floor-indicator{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(180deg,#ffd875,#cf8419);border:1.5px solid #593105;border-radius:5px;padding:4px 10px;color:#2b1503;font:900 12px ui-monospace,monospace;letter-spacing:.8px;box-shadow:inset 0 1px 0 #fff6cf,0 2px 0 #211002}
 .instructions{display:none}
 /* 公共日志：作为游戏界面内部右侧的 RPG 羊皮卷浮层，可通过顶栏「📜 公共日志 (G)」或面板 × 收起/展开 */
-.game-layout>.log-sidebar{position:absolute;right:12px;top:100px;bottom:88px;width:clamp(244px,20vw,284px);min-height:0;height:auto;z-index:11}
+.game-layout>.log-sidebar{position:absolute;right:12px;top:100px;bottom:88px;width:clamp(244px,20vw,284px);min-height:0;height:auto;z-index:11;transition:opacity .22s ease}
+.game-hud{transition:opacity .22s ease}
+/* 靠近左右电梯厅时，顶部菜单栏、公告横幅与右侧日志自动柔化避让，确保电梯厅与玩家进出视野 100% 清晰无遮挡 */
+body.near-elevator .game-hud,body.near-elevator .game-layout>.log-sidebar,body.near-elevator .availability-banner{opacity:.2;pointer-events:none}
 .log-sidebar ol{overscroll-behavior:contain;overflow-wrap:anywhere;padding-right:4px}
 @media(max-width:850px){
   .game-hud{top:6px;left:8px;right:8px;gap:4px}
