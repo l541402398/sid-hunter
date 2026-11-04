@@ -17,6 +17,8 @@ docker-image:
   variables:
     DOCKER_HOST: "unix:///tmp/sid-docker.sock"
     DOCKER_TLS_CERTDIR: ""
+    # shortcut: BuildKit 在 HTTPS 超时时不回退 HTTP；镜像源启用 HTTPS 后再恢复。
+    DOCKER_BUILDKIT: "0"
   before_script:
     - |
       set -eu
