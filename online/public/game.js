@@ -669,14 +669,8 @@
     const orgLine = targetOrgLine(p);
     const status = orgLine || (p.alive ? '在场存活 · 公开档案' : '已出局 · 积分保留');
     const prog = sidProgressInfo(p.sid);
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '存活' : '已出局'}</span></div><div class="target-sid-row"><p class="sid">${sidHTML(p.sid)}</p><span class="sid-progress-pill ${prog.allPublic ? 'is-full' : ''}">已公开 ${prog.revealedCount}/3 段</span></div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() && p.alive ? `<div class="player-interactions"><button id="target-invite-rps" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>邀请猜拳</button><button id="target-invite-minigame" class="target-invite-rps" type="button"${isInviteable(p) ? '' : ' disabled'}>小游戏对战</button><p id="target-rps-note" class="hold-note">${me?.games?.rpsPending ? '已有猜拳进行中，请先结束当前邀请或对战' : rpsNow() < (me?.games?.rpsUntil || 0) ? '猜拳冷却中，请稍后再试' : !isInviteable(p) ? '需靠近至 64 像素内、无遮挡且双方在线' : '近距离发起互动，每日首次完成小游戏可得 +5 参与分'}</p>${me?.games?.rpsPending || me?.games?.rpsResult ? '<button id="target-return-rps" type="button">返回猜拳对战</button>' : ''}</div>` : ''}<button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '存活' : '已出局'}</span></div><div class="target-sid-row"><p class="sid">${sidHTML(p.sid)}</p><span class="sid-progress-pill ${prog.allPublic ? 'is-full' : ''}">已公开 ${prog.revealedCount}/3 段</span></div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
-    const minigameBtn = $('target-invite-minigame');
-    if (minigameBtn) minigameBtn.onclick = () => { if (SID.minigame) SID.minigame.open({ opponentId: p.id }); };
-    const inviteBtn = $('target-invite-rps');
-    if (inviteBtn) inviteBtn.onclick = () => { if (isInviteable(selected())) sendRps({ kind: 'rpsInvite', targetId: selected().id }); };
-    const returnBtn = $('target-return-rps');
-    if (returnBtn) returnBtn.onclick = () => { rpsResultDismissId = null; openGames(); };
     $('private-gate').onclick = () => {
       if (privateOpen) clearPrivate();
       else {
@@ -938,11 +932,6 @@
     if (door) list.push({ kind: 'door', id: door.room.id, entity: { x: door.room.door.x, y: door.room.door.y, name: door.room.name, room: door.room } });
     const exit = roomExitCandidate();
     if (exit) list.push({ kind: 'exit', id: exit.id, entity: { x: exit.exit.x, y: exit.exit.y, name: exit.name, room: exit } });
-    // 楼层游戏机：靠近按 K 直接进小游戏大厅（可跨楼层匹配）。
-    for (const cab of furniture) {
-      if (cab.type !== 'arcade') continue;
-      list.push({ kind: 'arcade', id: cab.id, entity: { x: cab.x + cab.w / 2, y: cab.y + cab.h / 2, name: cab.label || '游戏机' } });
-    }
     return list
       .filter(({ entity }) => entityDistance(entity) <= WORLD.INTERACT_RANGE)
       .sort((a, b) => entityDistance(a.entity) - entityDistance(b.entity));
@@ -1023,177 +1012,196 @@
     });
   }
   // ============================================================
-  // 第二轮：道具背包 / NPC 商店 / 限时 buff
+  // NPC 金币兑换（六类即时效果，每人每类每日限兑一次）与状态辅助
   // ============================================================
-  // 服务端把 items（key→数量）与 buffs（剩余毫秒）放在私密快照的 me 上；
-  // 客户端只负责渲染与提交意图，所有判定（够不够、能不能用、剩多久）都在服务端。
-  const BAG = SID.lootIcons;
-  function itemDef(key) { return (WORLD.LOOT && WORLD.LOOT.ITEMS && WORLD.LOOT.ITEMS[key]) || null; }
-  function effectDef(key) { return (WORLD.LOOT && WORLD.LOOT.EFFECTS && WORLD.LOOT.EFFECTS[key]) || null; }
-  function meItems() { return me && me.items && typeof me.items === 'object' ? me.items : {}; }
   function meBuffs() { return me && me.buffs ? me.buffs : { speedMs: 0, shieldMs: 0, focusNext: false }; }
-  function itemIconCanvas(key, size) {
-    const def = itemDef(key);
-    const c = document.createElement('canvas');
-    c.width = c.height = size; c.className = 'bag-icon';
-    const g = c.getContext('2d');
-    g.imageSmoothingEnabled = false;
-    if (BAG && def) g.drawImage(BAG.sprite(def.icon, size, def.art), 0, 0);
-    return c;
-  }
-  async function postItem(path, body, fallback) {
-    if (!me || itemFlight) return;
-    itemFlight = true;
-    try {
-      const stopped = await stopIntent();
-      if (stopped.status !== 200 || stopped.ok !== true) throw new Error('stop');
-      const r = await api(path, { commandId: commandId(), ...body, ...floorFields() });
-      if (!r || (r.status !== 200 && r.status !== 400)) throw new Error('net');
-      if (r.items) me = { ...me, items: r.items };
-      if (r.buffs) me = { ...me, buffs: r.buffs };
-      if (typeof r.chips === 'number') me = { ...me, exploration: { ...(me.exploration || {}), chips: r.chips } };
-      if (typeof r.score === 'number') me = { ...me, score: r.score };
-      const text = r.resultText || r.error || fallback;
-      if (r.ok) showToast(text); else showToast(text);
-      renderBagAndShop();
-      updateBuffHUD();
-    } catch {
-      showToast('网络异常，操作未确认。');
-    } finally {
-      itemFlight = false;
-    }
-  }
-  // 背包格子（需求④）：一格里一件物品，图标 + 数量角标 + 稀有度色条。
-  function bagCell(key, count) {
-    const def = itemDef(key); if (!def) return null;
-    const cell = document.createElement('button');
-    cell.type = 'button'; cell.className = 'bag-cell';
-    cell.dataset.key = key;
-    cell.setAttribute('role', 'gridcell');
-    cell.title = `${def.label} ×${count}`;
-    cell.append(itemIconCanvas(key, 34));
-    const badge = document.createElement('span');
-    badge.className = 'bag-count';
-    badge.textContent = count > 1 ? `×${count}` : '';
-    cell.append(badge);
-    const bar = document.createElement('span');
-    bar.className = `bag-rarity r-${def.rarity || 'common'}`;
-    cell.append(bar);
-    cell.onclick = () => {
-      const grid = $('bag-items');
-      if (grid) grid.querySelectorAll('.bag-cell').forEach(n => n.classList.toggle('active', n === cell));
-      renderBagDetail(key, count);
-    };
-    return cell;
-  }
-  // 点格子 → 在背包旁边弹出该物品的介绍与操作。
-  function renderBagDetail(key, count) {
-    const host = $('bag-detail'); if (!host) return;
-    const def = itemDef(key); if (!def) { host.hidden = true; return; }
-    const rar = WORLD.LOOT.RARITY && WORLD.LOOT.RARITY[def.rarity];
-    const rarLabel = (rar && (rar.label || rar.name)) || ({ common: '普通', uncommon: '精良', rare: '稀有', epic: '史诗', legendary: '传说' }[def.rarity]) || def.rarity || '普通';
-    host.hidden = false;
-    host.replaceChildren();
-    const head = document.createElement('div'); head.className = 'bag-detail-head';
-    head.append(itemIconCanvas(key, 28));
-    const title = document.createElement('div');
-    const name = document.createElement('strong'); name.textContent = def.label;
-    const sub = document.createElement('small'); sub.textContent = `${rarLabel} · 数量 ${count}`;
-    title.append(name, sub); head.append(title);
-    const close = document.createElement('button'); close.type = 'button'; close.className = 'icon-button';
-    close.textContent = '×'; close.setAttribute('aria-label', '关闭物品详情');
-    close.onclick = () => { host.hidden = true; const g = $('bag-items'); if (g) g.querySelectorAll('.bag-cell').forEach(n => n.classList.remove('active')); };
-    head.append(close);
-    host.append(head);
-    const desc = document.createElement('p'); desc.className = 'bag-detail-desc';
-    const parts = [];
-    if (def.value > 0) parts.push(`卖给 NPC：${def.value} 金币`);
-    const pas = def.passive && WORLD.LOOT.PASSIVE_KINDS[def.passive.kind];
-    if (pas) parts.push(`在包生效：${pas.desc(def.passive.value)}`);
-    const eff = def.use && effectDef(def.use.effect);
-    if (eff) parts.push(`${eff.name}：${eff.desc}${def.use.durationMs ? `（${Math.round(def.use.durationMs / 1000)}s）` : ''}`);
-    desc.textContent = parts.join(' · ') || '这件物品只用于出售。';
-    host.append(desc);
-    const acts = document.createElement('div'); acts.className = 'bag-actions';
-    if (def.use) {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = '使用';
-      b.disabled = !me || me.alive === false || finished;
-      b.onclick = () => postItem('/api/item/use', { itemKey: key }, '使用未确认');
-      acts.append(b);
-    }
-    if (def.value > 0) {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'sell'; b.textContent = '卖出';
-      b.disabled = !me || me.alive === false || finished;
-      b.onclick = () => postItem('/api/item/sell', { itemKey: key, count }, '卖出未确认');
-      acts.append(b);
-    }
-    host.append(acts);
-  }
-  function shopRow(def) {
-    const row = document.createElement('div'); row.className = 'bag-item shop';
-    row.append(itemIconCanvas(def.key, 26));
-    const meta = document.createElement('div'); meta.className = 'bag-meta';
-    const name = document.createElement('strong'); name.textContent = def.label;
-    const sub = document.createElement('span');
-    const eff = def.use && effectDef(def.use.effect);
-    sub.textContent = `${def.price} 金币${eff ? ` · ${eff.name}：${eff.desc}` : ''}`;
-    meta.append(name, sub); row.append(meta);
-    const acts = document.createElement('div'); acts.className = 'bag-actions';
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = '买入';
-    const chips = me?.exploration?.chips ?? 0;
-    b.disabled = !me || me.alive === false || finished || chips < def.price;
-    b.onclick = () => postItem('/api/shop/buy', { itemKey: def.key }, '购买未确认');
-    acts.append(b); row.append(acts);
-    return row;
-  }
-  function renderBagAndShop() {
-    const bagHost = $('bag-items');
-    if (bagHost) {
-      bagHost.replaceChildren();
-      const items = meItems();
-      const keys = Object.keys(items).sort((a, b) => (itemDef(b)?.value || 0) - (itemDef(a)?.value || 0));
-      if (!keys.length) {
-        const p = document.createElement('p'); p.className = 'panel-note';
-        p.textContent = '背包里还没有东西。搜容器、或者去 NPC 商店看看。';
-        bagHost.append(p);
-      } else {
-        for (const k of keys) { const cell = bagCell(k, items[k]); if (cell) bagHost.append(cell); }
-      }
-      const bagList = $('bag-log');
-      if (bagList) {
-        const bag = Array.isArray(me?.backpack) ? me.backpack.slice(-6).reverse() : [];
-        bagList.textContent = bag.length ? `最近拾取：${bag.map(b => b.label).join('、')}` : '';
-      }
-    }
-    const shopHost = $('shop-items');
-    if (shopHost) {
-      shopHost.replaceChildren();
-      const list = (WORLD.LOOT && WORLD.LOOT.SHOP_ITEMS) || [];
-      const chips = me?.exploration?.chips ?? 0;
-      const head = document.createElement('p'); head.className = 'panel-note';
-      head.textContent = `用金币买道具 · 当前 ${chips} 金币`;
-      shopHost.append(head);
-      for (const it of list) shopHost.append(shopRow(it));
-    }
-  }
-  // buff 条：只在有生效中的 buff 时出现，倒计时用服务端下发的剩余毫秒。
   function updateBuffHUD() {
     const host = $('buff-bar'); if (!host) return;
-    const b = meBuffs();
-    const chips = [];
-    if (b.speedMs > 0) chips.push({ cls: 'speed', label: '疾行 +45%', ms: b.speedMs });
-    if (b.shieldMs > 0) chips.push({ cls: 'shield', label: '护体 · 免疫眩晕', ms: b.shieldMs });
-    if (b.focusNext) chips.push({ cls: 'focus', label: '专注 · 下次搜索 +1 件', ms: 0 });
     host.replaceChildren();
-    for (const c of chips) {
-      const el = document.createElement('span');
-      el.className = 'buff-chip ' + c.cls;
-      el.textContent = c.ms > 0 ? `${c.label} ${Math.ceil(c.ms / 1000)}s` : c.label;
-      host.append(el);
-    }
-    host.hidden = chips.length === 0;
+    host.hidden = true;
   }
-  let itemFlight = false;
+  let npcExchangeSig = '';
+  function npcExchangeConfigList() {
+    return Array.isArray(WORLD.NPC_EXCHANGE_LIST) ? WORLD.NPC_EXCHANGE_LIST : [];
+  }
+  function npcExchangeUsedMap() {
+    return (me && me.npcExchange && me.npcExchange.used) ? me.npcExchange.used : {};
+  }
+  function ownPublicTraitOptions() {
+    const self = selfPlayer();
+    const pubMap = me && me.traitPublic;
+    const opts = [];
+    for (const [k, label] of Object.entries(traitNames)) {
+      const isPub = pubMap ? !!pubMap[k] : !!(self && self.traits && self.traits[k] && self.traits[k] !== MASK);
+      if (isPub) {
+        const val = (me && me.traits && me.traits[k]) || (self && self.traits && self.traits[k]) || '';
+        opts.push({ key: k, label: `${label}${val ? `（${val}）` : ''}` });
+      }
+    }
+    return opts;
+  }
+  function targetPlayersWithHiddenTrait() {
+    if (!me) return [];
+    return players.filter(p => p.alive && p.id !== me.id && Object.keys(traitNames).some(k => !p.traits || p.traits[k] === MASK));
+  }
+  function publishedBadClueOptions() {
+    const opts = [];
+    if (!Array.isArray(badSlots)) return opts;
+    badSlots.forEach((slot, idx) => {
+      if (!slot || slot.alive === false) return;
+      const cardName = slot.label || `坏人${String(idx + 1).padStart(2, '0')}`;
+      const slotKey = slot.key || cardName;
+      for (const [group, fields] of [['colors', fieldNames], ['traits', traitNames]]) {
+        const pub = slot.systemClues && slot.systemClues[group];
+        if (!pub || typeof pub !== 'object') continue;
+        for (const [field, fieldLabel] of Object.entries(fields)) {
+          const val = pub[field];
+          if (typeof val === 'string' && val && val !== MASK) {
+            opts.push({
+              value: `${slotKey}|${group}|${field}`,
+              slotKey,
+              group,
+              field,
+              label: `${cardName} · ${fieldLabel}：${val}`
+            });
+          }
+        }
+      }
+    });
+    return opts;
+  }
+  function ownHasRevealedSid() {
+    if (me && Array.isArray(me.sidRevealed)) return me.sidRevealed.some(Boolean);
+    const self = selfPlayer();
+    if (!self || !self.sid) return false;
+    return String(self.sid).split('-').some(seg => seg && seg !== MASK);
+  }
+  function renderNpcExchangeList(inRange) {
+    const host = $('npc-exchange-list'); if (!host || !me) return;
+    const state = explorationState();
+    const usedMap = npcExchangeUsedMap();
+    const ownTraits = ownPublicTraitOptions();
+    const targetList = targetPlayersWithHiddenTrait();
+    const badClues = publishedBadClueOptions();
+    const hasSid = ownHasRevealedSid();
+    const sig = JSON.stringify([
+      state.chips, me.score, usedMap, ownTraits,
+      targetList.map(p => [p.id, p.name]),
+      badClues.map(c => c.value),
+      hasSid, inRange, !!interactionFlight, me.alive, finished, selfDisabled()
+    ]);
+    if (sig === npcExchangeSig) return;
+    npcExchangeSig = sig;
+    // 保存已有下拉框的选择值，避免刷新丢失用户刚选的目标
+    const prevVals = {};
+    host.querySelectorAll('select[data-select]').forEach(sel => { prevVals[sel.dataset.select] = sel.value; });
+    host.replaceChildren();
+    for (const def of npcExchangeConfigList()) {
+      const usedCount = Number(usedMap[def.key]) || 0;
+      const limit = Number(def.dailyLimit) || 1;
+      const exhausted = usedCount >= limit;
+      const enoughChips = state.chips >= def.cost;
+      const row = document.createElement('div');
+      row.className = 'bag-item shop npc-exchange-row';
+      row.dataset.effect = def.key;
+
+      const meta = document.createElement('div');
+      meta.className = 'bag-meta';
+      const title = document.createElement('strong');
+      title.textContent = `${def.label} · ${def.cost} 金币`;
+      const desc = document.createElement('span');
+      desc.textContent = `${def.desc}（今日 ${Math.min(usedCount, limit)}/${limit}）`;
+      meta.append(title, desc);
+
+      let selectEl = null;
+      let conditionMet = true;
+      let conditionHint = '';
+      if (def.key === 'revealRandomTrait') {
+        if (!targetList.length) { conditionMet = false; conditionHint = '暂无可公开隐藏属性的其他存活玩家'; }
+      } else if (def.key === 'hideOwnTrait') {
+        if (!ownTraits.length) {
+          conditionMet = false;
+          conditionHint = '你当前没有已公开的隐藏属性';
+        } else {
+          selectEl = document.createElement('select');
+          selectEl.className = 'npc-exchange-select';
+          selectEl.dataset.select = 'hideOwnTrait';
+          for (const opt of ownTraits) {
+            const o = document.createElement('option');
+            o.value = opt.key; o.textContent = opt.label;
+            selectEl.append(o);
+          }
+          if (prevVals.hideOwnTrait && ownTraits.some(o => o.key === prevVals.hideOwnTrait)) selectEl.value = prevVals.hideOwnTrait;
+          meta.append(selectEl);
+        }
+      } else if (def.key === 'revealTargetTrait') {
+        if (!targetList.length) {
+          conditionMet = false;
+          conditionHint = '暂无可公开隐藏属性的其他存活玩家';
+        } else {
+          selectEl = document.createElement('select');
+          selectEl.className = 'npc-exchange-select';
+          selectEl.dataset.select = 'revealTargetTrait';
+          for (const p of targetList) {
+            const o = document.createElement('option');
+            o.value = String(p.id); o.textContent = p.name;
+            selectEl.append(o);
+          }
+          if (prevVals.revealTargetTrait && targetList.some(p => String(p.id) === prevVals.revealTargetTrait)) selectEl.value = prevVals.revealTargetTrait;
+          meta.append(selectEl);
+        }
+      } else if (def.key === 'hideBadClue') {
+        if (!badClues.length) {
+          conditionMet = false;
+          conditionHint = '匿名坏人卡上暂无已公布线索';
+        } else {
+          selectEl = document.createElement('select');
+          selectEl.className = 'npc-exchange-select';
+          selectEl.dataset.select = 'hideBadClue';
+          for (const c of badClues) {
+            const o = document.createElement('option');
+            o.value = c.value; o.textContent = c.label;
+            selectEl.append(o);
+          }
+          if (prevVals.hideBadClue && badClues.some(c => c.value === prevVals.hideBadClue)) selectEl.value = prevVals.hideBadClue;
+          meta.append(selectEl);
+        }
+      } else if (def.key === 'hideOwnSid') {
+        if (!hasSid) {
+          conditionMet = false;
+          conditionHint = '你当前没有已公开的身份码段';
+        }
+      }
+      if (!exhausted && conditionHint) {
+        const hintEl = document.createElement('small');
+        hintEl.className = 'npc-exchange-hint';
+        hintEl.textContent = conditionHint;
+        meta.append(hintEl);
+      }
+
+      const acts = document.createElement('div');
+      acts.className = 'bag-actions';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = `npc-exchange-${def.key}`;
+      btn.dataset.effect = def.key;
+      btn.textContent = exhausted ? '今日已兑' : !enoughChips ? `需 ${def.cost} 金币` : '兑换';
+      btn.disabled = !!interactionFlight || !me.alive || finished || !inRange || selfDisabled() || exhausted || !enoughChips || !conditionMet;
+      btn.onclick = () => {
+        const extra = { effect: def.key };
+        if (def.key === 'hideOwnTrait' && selectEl) extra.traitKey = selectEl.value;
+        else if (def.key === 'revealTargetTrait' && selectEl) extra.targetId = Number(selectEl.value);
+        else if (def.key === 'hideBadClue' && selectEl) {
+          const [slotKey, group, field] = String(selectEl.value || '').split('|');
+          extra.slotKey = slotKey; extra.group = group; extra.field = field;
+        }
+        commitNpcExchange(extra);
+      };
+      acts.append(btn);
+      row.append(meta, acts);
+      host.append(row);
+    }
+  }
   // E 就近互动：同时比较附近玩家、家具/NPC 与楼梯入口，取距离最近者；已选中的近玩家在距离相当时优先。
   // 玩家必须同层（floorId 一致）才参与就近判定。
   function nearestInteractable() {
@@ -1227,7 +1235,7 @@
   }
   function closeExploration() {
     const wasOpen = !!explorationPanel;
-    explorationGeneration++; explorationPanel = null; explorationResult = ''; explorationDataSig = '';
+    explorationGeneration++; explorationPanel = null; explorationResult = ''; explorationDataSig = ''; npcExchangeSig = '';
     if (wasOpen) { keys.clear(); sendIntent(false); }
     if ($('exploration').open) $('exploration').close();
     $('exploration').replaceChildren();
@@ -1237,31 +1245,29 @@
     $('clue-bag').setAttribute('aria-expanded', 'false');
   }
   function openExploration(kind, id = null) {
-    // 背包是仓库型面板：在画面正中弹出，和容器/NPC 的侧栏面板区分开。
+    // 物品背包已取消；容器一律走搜箱面板；NPC 打开大转盘与六类金币兑换面板。
+    if (kind === 'backpack') return;
     const explorationHost = $('exploration');
-    if (explorationHost) explorationHost.classList.toggle('bag-mode', kind === 'backpack');
-    // 需求③：容器一律走搜打撤物品格面板；线索背包与 NPC 兑换仍用原私密面板。
+    if (explorationHost) explorationHost.classList.remove('bag-mode');
     if (kind === 'container') {
       const c = explorationEntity('container', id);
       if (c) openLootFor(c);
       return;
     }
-    if (!me || (kind !== 'backpack' && !explorationEntity(kind, id))) return;
+    if (!me || !explorationEntity(kind, id)) return;
     clearAllInput(); selectedId = null; lastTargetSig = '';
     $('candidates').hidden = true; $('candidates').replaceChildren(); renderTarget(); renderRoster();
     explorationPanel = { kind, entityId: id };
+    npcExchangeSig = '';
     const entity = explorationEntity(kind, id), host = $('exploration');
-    $('clue-bag').setAttribute('aria-expanded', String(kind === 'backpack'));
-    const heading = kind === 'backpack' ? '线索背包' : kind === 'container' ? entity.container.name : entity.name;
+    $('clue-bag').setAttribute('aria-expanded', 'false');
+    const heading = kind === 'container' ? entity.container.name : entity.name;
     // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
-    host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE EXPLORATION</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭私密探索">×</button></div><div class="exploration-body"><p class="exploration-balance">我的金币：<strong id="exploration-chips"></strong></p>${kind === 'backpack'
-      ? '<div class="bag-block"><p class="private-title">道具背包</p><div class="bag-wrap"><div id="bag-items" class="bag-grid" role="grid" aria-label="道具背包格子"></div><aside id="bag-detail" class="bag-detail" hidden aria-live="polite"></aside></div><p id="bag-log" class="panel-note"></p></div><p id="exploration-clue-count" class="panel-note"></p><div id="exploration-clues" class="clue-list"></div>'
-      : `<p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p>${kind === 'npc' ? `<p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="bag-block"><p class="private-title">商店</p><div id="shop-items" class="bag-items"></div></div><div class="wheel-block"><p class="private-title">大转盘</p><p class="panel-note">10 格等概率 · 首次免费，之后按次数阶梯收费</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div>` : ''}<p class="panel-note">${kind === 'container' ? '每名玩家每个容器限搜一次，奖励由服务端结算。' : `每次 ${entity.cost} 金币兑换一条尚未拥有的真实隐藏属性线索；无新线索不扣金币。`}</p><button id="exploration-action">${kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 金币兑换线索`}</button>`}<p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即销毁显示，不回滚已结算奖励。</p></div>`;
+    host.innerHTML = `<div class="panel-heading"><div><small>NPC EXCHANGE &amp; LUCKY WHEEL</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭面板">×</button></div><div class="exploration-body"><p class="exploration-balance">我的金币：<strong id="exploration-chips"></strong> · 今日积分：<strong id="exploration-score"></strong></p><p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p><p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="wheel-block"><p class="private-title">大转盘（全楼层共享 · 每日上限 3 次）</p><p class="panel-note">10 格随机金币奖励 · 首次免费，另外每次消耗 3 金币</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div><div class="bag-block"><p class="private-title">金币兑换（六类即时效果 · 每人每类每日限兑 1 次）</p><div id="npc-exchange-list" class="bag-items"></div><p class="panel-note">金币每日清零，积分持续累计；各层楼 NPC 功能与次数完全共享。</p></div><p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即关闭面板，不回滚已结算效果。</p></div>`;
     $('exploration-close').onclick = closeExploration;
-    if ($('exploration-action')) $('exploration-action').onclick = commitInteraction;
     if ($('exploration-wheel')) $('exploration-wheel').onclick = () => openWheel(entity.entityId, entity.name);
     // 远处容器/NPC 仍可打开面板查看，但按钮禁用并给出「靠近」提示。
-    if (kind !== 'backpack' && entityDistance(entity) > WORLD.INTERACT_RANGE) showToast('距离太远，请靠近后再互动（64 像素以内）');
+    if (entityDistance(entity) > WORLD.INTERACT_RANGE) showToast('距离太远，请靠近后再互动（64 像素以内）');
     syncExploration();
     // hidden 与 dialog.open 同步（见 closeExploration 的合并适配说明）。
     host.hidden = false; host.showModal(); host.scrollTop = 0;
@@ -1269,63 +1275,60 @@
   function syncExploration() {
     if (!explorationPanel || !me) return;
     const { kind, entityId } = explorationPanel, entity = explorationEntity(kind, entityId);
-    const state = explorationState(), dataSig = JSON.stringify(state);
-    if (dataSig !== explorationDataSig) {
-      explorationDataSig = dataSig;
-      $('exploration-chips').textContent = state.chips;
-      if (kind === 'backpack') {
-        $('exploration-clue-count').textContent = `仅自己可见 · ${state.clues.length} 条真实线索 · 不改变玩家公开档案`;
-        $('exploration-clues').innerHTML = state.clues.length ? state.clues.map(c => `<article class="clue-card"><strong>${escapeText(c.targetName)} · ${escapeText(c.label)}</strong><p>${escapeText(c.text)}</p><small>来源：${escapeText(c.source)}</small></article>`).join('') : '<p class="panel-note">背包为空。靠近容器搜寻，或向 NPC 兑换线索。</p>';
-      }
+    if (!entity) return;
+    const state = explorationState();
+    if ($('exploration-chips')) $('exploration-chips').textContent = state.chips;
+    if ($('exploration-score')) $('exploration-score').textContent = selfScore();
+    const distance = entityDistance(entity), inRange = distance <= WORLD.INTERACT_RANGE;
+    $('exploration-distance').textContent = `距离：${Number.isFinite(distance) ? Math.ceil(distance) + ' 像素' : '未知'} / 范围 ${WORLD.INTERACT_RANGE} · ${inRange ? '可近距离互动' : '距离太远，请靠近后再试'}`;
+    $('exploration-state').textContent = finished ? '游戏已结束，互动已冻结'
+      : !me.alive ? '已淘汰，无法互动'
+        : !inRange ? '距离太远，请靠近 NPC 后再兑换或转动转盘'
+          : '每层楼 NPC 功能一致 · 可转动大转盘或使用金币兑换即时效果';
+    const wheel = $('exploration-wheel');
+    if (wheel) {
+      const maxSpins = WHEEL.maxDailySpins || 3;
+      const spins = wheelSpinsFor(entityId), cost = wheelSpinCost(spins);
+      const limitReached = spins >= maxSpins;
+      wheel.disabled = !me.alive || finished || !inRange || selfDisabled();
+      wheel.textContent = '打开大转盘';
+      $('exploration-wheel-state').textContent = !me.alive ? '已淘汰，无法转动'
+        : finished ? '游戏已结束，转盘已冻结'
+          : !inRange ? '距离太远，请靠近后再试'
+            : selfDisabled() ? '眩晕/僵直中，暂时无法互动'
+              : limitReached ? `今日次数已达上限（${spins}/${maxSpins}）`
+                : cost > 0 && state.chips < cost ? `今日第 ${spins + 1}/${maxSpins} 次 · 需 ${cost} 金币（当前 ${state.chips}）· 金币不足`
+                  : `今日第 ${spins + 1}/${maxSpins} 次 · ${cost === 0 ? '免费' : `需 ${cost} 金币（当前 ${state.chips}）`}`;
     }
-    if (kind !== 'backpack') {
-      const distance = entityDistance(entity), inRange = distance <= WORLD.INTERACT_RANGE;
-      const searched = kind === 'container' && state.searched.includes(entityId);
-      $('exploration-distance').textContent = `距离：${Number.isFinite(distance) ? Math.ceil(distance) + ' 像素' : '未知'} / 范围 ${WORLD.INTERACT_RANGE} · ${inRange ? '可近距离互动' : '距离太远，请靠近后再试'}`;
-      $('exploration-state').textContent = finished ? '游戏已结束，探索已冻结' : !me.alive ? '已淘汰，无法探索' : kind === 'container' ? (searched ? '已搜寻 · 不可重复搜寻' : '未搜寻 · 每人限搜一次') : state.chips < entity.cost ? `金币不足，需要 ${entity.cost} 金币` : `可确认支付 ${entity.cost} 金币兑换`;
-      const button = $('exploration-action');
-      button.disabled = !!interactionFlight || !me.alive || finished || !inRange || searched || (kind === 'npc' && state.chips < entity.cost);
-      button.textContent = interactionFlight ? '正在确认结算…' : kind === 'container' ? '搜寻容器' : `确认支付 ${entity.cost} 金币兑换线索`;
-      const wheel = $('exploration-wheel');
-      if (wheel) {
-        const spins = wheelSpinsFor(entityId), cost = wheelSpinCost(spins);
-        // 不再因「已领取」禁用：转盘可重复转动，只有淘汰/结束/距离/眩晕才禁用。
-        wheel.disabled = !me.alive || finished || !inRange || selfDisabled();
-        wheel.textContent = '打开大转盘';
-        $('exploration-wheel-state').textContent = !me.alive ? '已淘汰，无法转动'
-          : finished ? '游戏已结束，转盘已冻结'
-            : !inRange ? '距离太远，请靠近后再试'
-              : selfDisabled() ? '眩晕/僵直中，暂时无法互动'
-                : cost > 0 && state.chips < cost ? `第 ${spins + 1} 次 · 需 ${cost} 金币（当前 ${state.chips}）· 金币不足`
-                  : `第 ${spins + 1} 次 · ${cost === 0 ? '免费' : `需 ${cost} 金币（当前 ${state.chips}）`}`;
-      }
-    }
+    renderNpcExchangeList(inRange);
     $('exploration-result').textContent = explorationResult;
     $('exploration-result').hidden = !explorationResult;
-    // 第二轮：金币/道具变化时同步刷新背包与商店（只渲染服务端权威值，不做本地乐观记账）。
-    renderBagAndShop();
   }
-  async function commitInteraction() {
-    if (!explorationPanel || interactionFlight || !me || $('exploration-action')?.disabled) return;
+  async function commitNpcExchange(extra = {}) {
+    if (!explorationPanel || interactionFlight || !me) return;
     const { kind, entityId } = explorationPanel;
-    if (!['container', 'npc'].includes(kind)) return;
-    const request = { session: sessionGeneration, token: sessionToken, panel: explorationGeneration, state: JSON.stringify(explorationState()) };
+    if (kind !== 'npc') return;
+    const request = { session: sessionGeneration, token: sessionToken, panel: explorationGeneration };
     const sameSession = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
     const samePanel = () => sameSession() && request.panel === explorationGeneration && !!explorationPanel;
     interactionFlight = request; explorationResult = ''; keys.clear(); lastIntent = '';
     syncExploration();
     try {
-      // 先等待停止意图被服务端确认，再提交探索；提交期间禁止移动与双击。
       const stopped = await stopIntent();
       if (!samePanel()) return;
       if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
-      const result = await api('/api/interact', { commandId: commandId(), kind: kind === 'container' ? 'search' : 'exchange', entityId, ...floorFields() });
+      const result = await api('/api/interact', { commandId: commandId(), kind: 'exchange', entityId, ...extra, ...floorFields() });
       if (!samePanel()) return;
-      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean' || !result.exploration) throw new Error('结算结果未确认');
-      // 相同会话内也不以旧响应覆盖已变化的探索快照。
-      if (request.state === JSON.stringify(explorationState())) me = { ...me, exploration: result.exploration };
+      if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结算结果未确认');
+      if (result.exploration) me = { ...me, exploration: result.exploration };
+      if (result.npcExchange) me = { ...me, npcExchange: result.npcExchange };
+      if (result.traitPublic) me = { ...me, traitPublic: result.traitPublic };
+      if (Array.isArray(result.sidRevealed)) me = { ...me, sidRevealed: result.sidRevealed };
       if (typeof result.score === 'number') me = { ...me, score: result.score };
-      explorationResult = result.resultText || result.error || (result.ok ? '已结算' : '结算被拒绝');
+      explorationResult = result.resultText || result.error || (result.ok ? '兑换成功' : '兑换被拒绝');
+      if (explorationResult) showToast(explorationResult);
+      updateScoreDisplay();
+      updateExplorationHUD();
     } catch {
       if (samePanel()) explorationResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
     } finally {
@@ -1334,7 +1337,13 @@
     }
   }
   // ---------- 大转盘覆盖层：预览用 buildWheelPool，落点用服务端返回的 slots ----------
-  function wheelSpinsFor(entityId) { return (me && me.games && me.games.wheelSpins && me.games.wheelSpins[entityId]) || 0; }
+  function wheelSpinsFor() {
+    if (me && me.games && Number.isFinite(me.games.wheelDailySpins)) return me.games.wheelDailySpins;
+    if (me && me.games && me.games.wheelSpins && typeof me.games.wheelSpins === 'object') {
+      return Object.values(me.games.wheelSpins).reduce((a, b) => a + (Number(b) || 0), 0);
+    }
+    return 0;
+  }
   function openWheel(entityId, name) {
     if (!me || !entityId) return;
     closeExploration(); closeGames(); closeRanking();
@@ -1364,19 +1373,25 @@
   }
   function updateWheelControls() {
     if (!wheelOpen || !wheelTarget || !me) return;
+    const maxSpins = WHEEL.maxDailySpins || 3;
     const spins = wheelSpinsFor(wheelTarget.entityId), chips = explorationState().chips, cost = wheelSpinCost(spins);
+    const limitReached = spins >= maxSpins;
     const busy = !!wheelSpinFlight || wheelAnimating;
     $('wheel-title').textContent = wheelTarget.name;
-    let costText = cost === 0 ? `第 ${spins + 1} 次：免费` : `第 ${spins + 1} 次：${cost} 金币（当前 ${chips}）`;
+    let costText = limitReached
+      ? `今日大转盘次数已达上限（${spins}/${maxSpins}）`
+      : cost === 0
+        ? `今日第 ${spins + 1}/${maxSpins} 次：免费`
+        : `今日第 ${spins + 1}/${maxSpins} 次：${cost} 金币（当前 ${chips}）`;
     if (!me.alive) costText += ' · 已淘汰';
     else if (finished) costText += ' · 游戏已结束';
     else if (selfDisabled()) costText += ' · 眩晕/僵直中';
-    else if (cost > chips) costText += ' · 金币不足';
+    else if (!limitReached && cost > chips) costText += ' · 金币不足';
     $('wheel-cost').textContent = costText;
     const button = $('wheel-spin');
-    button.disabled = busy || !me.alive || finished || selfDisabled() || cost > chips;
-    button.textContent = busy ? '转动中…' : '转动转盘';
-    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率。首次免费，之后次数越多越贵。${me.faction === 'good' ? '调查员转盘含坏人线索券。' : '潜伏者转盘含高额金币福袋与补给券。'}`;
+    button.disabled = busy || !me.alive || finished || selfDisabled() || limitReached || cost > chips;
+    button.textContent = busy ? '转动中…' : limitReached ? `今日已满 ${maxSpins} 次` : '转动转盘';
+    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率随机金币奖励。每层楼 NPC 大转盘共享次数，每日上限 ${maxSpins} 次（首次免费，之后每次消耗 3 金币）。`;
   }
   function drawWheel(slots, angle) {
     const canvasEl = $('wheel-canvas'); if (!canvasEl) return;
@@ -1486,9 +1501,16 @@
   // ---------- 分数 / 排行榜 / 结算 / 剩余时间：只读公开投影与私有 me ----------
   function selfScore() { return me && typeof me.score === 'number' ? me.score : (selfPlayer() && typeof selfPlayer().score === 'number' ? selfPlayer().score : 0); }
   function updateScoreDisplay() {
-    const node = $('score-value'); if (!node) return;
-    const text = String(selfScore());
-    if (node.textContent !== text) node.textContent = text;
+    const node = $('score-value');
+    if (node) {
+      const text = String(selfScore());
+      if (node.textContent !== text) node.textContent = text;
+    }
+    const chipNode = $('chip-count');
+    if (chipNode) {
+      const chipsText = String(explorationState().chips);
+      if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
+    }
   }
   function formatDuration(ms) {
     const total = Math.max(0, Math.floor(ms / 1000)), hh = Math.floor(total / 3600), mm = Math.floor((total % 3600) / 60), ss = total % 60;
@@ -1648,6 +1670,11 @@
     const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
     $('cover-status').textContent = self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入';
     $('clue-bag').disabled = !me;
+    const chipNode = $('chip-count');
+    if (chipNode) {
+      const chipsText = String(explorationState().chips);
+      if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
+    }
     const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
     if (sig !== nearbySig) {
       nearbySig = sig;
@@ -1664,7 +1691,7 @@
         button.textContent = item.kind === 'container' ? `按：K · ${item.entity.container.name}`
           : item.kind === 'door' ? `按：K · 进入「${item.entity.name}」`
             : item.kind === 'exit' ? `按：K · 离开「${item.entity.name}」`
-              : `按：K · ${item.entity.name} · NPC / ${item.entity.cost} 金币`;
+              : `按：K · ${item.entity.name} · 大转盘 / 金币兑换`;
       }
       for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
     }
@@ -1680,10 +1707,12 @@
     if (kind === 'door') { const r = WORLD.roomById(id); if (r) enterRoom(r.id, r.name); return; }
     if (kind === 'exit') { const r = WORLD.roomById(id); if (r) leaveRoom(r.name); return; }
     if (kind === 'container') { openLootFor(explorationEntity('container', id)); return; }
-    if (kind === 'arcade') { if (SID.minigame) SID.minigame.open({ arcade: true }); return; }
     openExploration(kind, id);
   }
-  $('clue-bag').onclick = () => { if (explorationPanel?.kind === 'backpack') closeExploration(); else openExploration('backpack'); };
+  $('clue-bag').onclick = () => {
+    if (!me) return;
+    showToast(`当前拥有 ${explorationState().chips} 金币（每日清零，可在任意楼层 NPC 处抽奖或兑换即时效果）`);
+  };
 
   // ---------- 猜拳小游戏：服务端权威 邀请 → 接受 → 10 秒可修改出拳 → 截止揭示 ----------
   const RPS_LABELS = { rock: '石头', paper: '布', scissors: '剪刀' };
@@ -2294,17 +2323,22 @@
     rect(cx - 1, cy - 4, 3, 9, '#ffe066'); rect(cx - 4, cy - 1, 9, 3, '#ffe066');
     rect(cx - 1, cy - 1, 3, 3, '#fff6c2');
   }
-  // ---------- 可交互描边：仅带 container 的家具与两个 NPC，且描边状态与真实可交互性一致 ----------
+  // ---------- 可交互描边：仅带 container 的家具与每层楼 NPC，且描边状态与真实可交互性一致 ----------
   function interactTier(kind, id) {
     // idle：自己已淘汰 / 本局结束 / 超出 INTERACT_RANGE。
     if (!me || !me.alive || finished) return 'idle';
     const entity = explorationEntity(kind, id);
     if (!entity || entityDistance(entity) > WORLD.INTERACT_RANGE) return 'idle';
-    // blocked：在范围内但当前不能操作（自己眩晕/僵直 / 容器已搜 / NPC 筹码不足）。
+    // blocked：在范围内但当前不能操作（自己眩晕/僵直 / 容器已搜 / NPC 无可用抽奖或兑换）。
     if (selfDisabled()) return 'blocked';
     const state = explorationState();
-    const usable = kind === 'container' ? !state.searched.includes(id) : state.chips >= entity.cost;
-    return usable ? 'ready' : 'blocked';
+    if (kind === 'container') return !state.searched.includes(id) ? 'ready' : 'blocked';
+    const maxSpins = WHEEL.maxDailySpins || 3;
+    const spins = wheelSpinsFor();
+    const canWheel = spins < maxSpins && state.chips >= wheelSpinCost(spins);
+    const usedMap = npcExchangeUsedMap();
+    const canExchange = npcExchangeConfigList().some(def => (Number(usedMap[def.key]) || 0) < (Number(def.dailyLimit) || 1) && state.chips >= def.cost);
+    return (canWheel || canExchange) ? 'ready' : 'blocked';
   }
   function drawOutline(x, y, w, h, tier, readyColor) {
     const rx = Math.round(x), ry = Math.round(y), rw = Math.round(w), rh = Math.round(h);
@@ -3991,7 +4025,6 @@
       else if (hit.kind === 'door') { const r = WORLD.roomById(hit.id); if (r) enterRoom(r.id, r.name); }
       else if (hit.kind === 'exit') { const r = WORLD.roomById(hit.id); if (r) leaveRoom(r.name); }
       else if (hit.kind === 'container') openLootFor(explorationEntity('container', hit.id));
-      else if (hit.kind === 'arcade') { if (SID.minigame) SID.minigame.open({ arcade: true }); }
       else openExploration(hit.kind, hit.id);
     } else showToast(zoneId ? '走到门口按 K 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
   }
@@ -4053,7 +4086,7 @@
     // 电梯过渡进行中：忽略移动 / K / J，避免在换层中途驱动旧层或重复发起。
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return;
     if (isTyping()) return;
-    // 游戏内 HUD 面板快捷键（B 背包 / L 排行榜 / R 玩家名单 / M 我的信息 / G 公共日志 / H 规则 / C 坏人线索）
+    // 游戏内 HUD 面板快捷键（L 排行榜 / R 玩家名单 / M 我的信息 / G 公共日志 / H 规则 / C 坏人线索）
     if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
       if (e.code === 'KeyL') { e.preventDefault(); if ($('ranking').hidden) openRanking(); else closeRanking(); return; }
       if (e.code === 'KeyR') { e.preventDefault(); $('roster-toggle')?.click(); return; }
@@ -4061,15 +4094,6 @@
       if (e.code === 'KeyG') { e.preventDefault(); toggleLogs(); return; }
       if (e.code === 'KeyH') { e.preventDefault(); $('rules-toggle')?.click(); return; }
       if (e.code === 'KeyC') { e.preventDefault(); $('bad-toggle')?.click(); return; }
-    }
-    // B：随时开关背包（画布正中弹出）。
-    if (e.code === 'KeyB' && !e.repeat) {
-      e.preventDefault();
-      if (explorationPanel && explorationPanel.kind === 'backpack') { closeExploration(); return; }
-      if (explorationPanel) closeExploration();
-      if (LOOT && LOOT.isOpen()) LOOT.close();
-      openExploration('backpack');
-      return;
     }
     // K 场景交互（原 E）/ J 敲（幽灵 J 吓人）：服务端权威，这里只提交意图。
     // K 走「就近场景交互」仲裁序列（含进/出房间、乘电梯、搜箱/NPC/玩家档案），不受 isActionTarget 限制；
@@ -4087,8 +4111,11 @@
     }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) {
       e.preventDefault();
-      // 搜索弹窗不是模态：一旦试图移动就关掉它，避免"人走了面板还在"。
-      if (LOOT && LOOT.isOpen()) LOOT.close();
+      // 答题进行中不因误触方向键自动关闭面板；普通空箱/金币展示在移动时自动收起。
+      if (LOOT && LOOT.isOpen()) {
+        if (typeof LOOT.isQuizActive === 'function' && LOOT.isQuizActive()) return;
+        LOOT.close();
+      }
       if (interactionFlight || selfDisabled()) return;
       keys.add(e.code); sendIntent(false);
     }

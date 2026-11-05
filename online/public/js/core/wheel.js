@@ -3,7 +3,7 @@
 (function () {
   const SID = window.SID = window.SID || {};
   const WORLD = window.WORLD;
-  const WHEEL = WORLD.WHEEL || { slotCount: 10, spinCosts: [0, 1, 2, 4, 6, 9, 12, 16, 20, 25, 30, 36, 42, 49, 56, 64], chipAmounts: [0, 1, 2, 3, 5, 8], specialCount: { good: 2, bad: 2 }, specials: { good: ['clue'], bad: ['reform', 'rebirth'] } };
+  const WHEEL = WORLD.WHEEL || { slotCount: 10, maxDailySpins: 3, spinCosts: [0, 3, 3], chipAmounts: [1, 2, 3, 4, 5, 6, 8], specialCount: { good: 0, bad: 0 }, specials: { good: [], bad: [] } };
   const WHEEL_ITEMS = WORLD.WHEEL_ITEMS || {
     clue: { key: 'clue', label: '线索券', desc: '获取一名坏人的一条线索', color: '#3B82F6', glyph: '?' },
     reform: { key: 'reform', label: '洗心革面券', desc: '将自己由坏人转换为好人', color: '#22C55E', glyph: '♻' },

@@ -106,6 +106,6 @@
     panel.querySelector('#spire-end').disabled = view.finished;
   }
 
-  build();
+  // 需求1：本期不开放卡牌入口，不自动向页面挂载悬浮按钮。
   SID.spire = { open, close, get view() { return view; } };
 })();

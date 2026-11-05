@@ -87,49 +87,92 @@
     probe: 0,
     wheelPrize: 0
   };
-  // 转盘配置（见《年会对抗游戏业务方案.md》§十一：保留探索和小游戏，但关闭变阵营、重抽身份码等破坏线索的转盘奖励）。
+  // 转盘配置：NPC 中的大转盘保留，内容为获得随机金币，每日上限 3 次（全楼层 NPC 共享），免费 1 次，另外每次消耗 3 金币。
   const WHEEL = {
     slotCount: 10,
-    spinCosts: [0, 1, 2, 4, 6, 9, 12, 16, 20, 25, 30, 36, 42, 49, 56, 64],
-    chipAmounts: [0, 1, 2, 3, 5, 8],
-    specialCount: { good: 2, bad: 2 },
-    specials: { good: ['clue'], bad: ['jackpot', 'bounty'] }
+    maxDailySpins: 3,
+    spinCosts: [0, 3, 3],
+    chipAmounts: [1, 2, 3, 4, 5, 6, 8],
+    specialCount: { good: 0, bad: 0 },
+    specials: { good: [], bad: [] }
   };
   const WHEEL_ITEMS = {
-    clue:    { key: 'clue',    label: '线索券',     desc: '获取一条尚未掌握的线索',   color: '#3B82F6', glyph: '?' },
-    jackpot: { key: 'jackpot', label: '金币福袋',   desc: '额外获得 6 枚游戏金币',     color: '#10B981', glyph: '★' },
-    bounty:  { key: 'bounty',  label: '潜伏补给券', desc: '额外获得 4 枚游戏金币',     color: '#8B5CF6', glyph: '◆' },
-    reform:  { key: 'reform',  label: '洗心革面券', desc: '已停用（保护身份线索）',   color: '#22C55E', glyph: '♻' },
-    rebirth: { key: 'rebirth', label: '轮回券',     desc: '已停用（保护身份线索）',   color: '#EF4444', glyph: '↻' }
+    clue:    { key: 'clue',    label: '线索券',     desc: '已停用', color: '#3B82F6', glyph: '?' },
+    jackpot: { key: 'jackpot', label: '金币福袋',   desc: '已停用', color: '#10B981', glyph: '★' },
+    bounty:  { key: 'bounty',  label: '潜伏补给券', desc: '已停用', color: '#8B5CF6', glyph: '◆' },
+    reform:  { key: 'reform',  label: '洗心革面券', desc: '已停用', color: '#22C55E', glyph: '♻' },
+    rebirth: { key: 'rebirth', label: '轮回券',     desc: '已停用', color: '#EF4444', glyph: '↻' }
   };
   const WHEEL_CHIP_COLOR = '#F59E0B';
-  // 第 priorSpins 次转动的费用（priorSpins<=0 即首次 → spinCosts[0]）。
-  // 超出数组范围时按末级增量线性外推，保证“次数越多越贵”且严格递增。
+  // 第 priorSpins 次转动的费用：首次免费（0 金币），第 2、3 次各消耗 3 金币。
   function wheelSpinCost(priorSpins, wheel = WHEEL) {
     const costs = wheel.spinCosts;
     const spins = Math.max(0, Math.floor(Number(priorSpins) || 0));
     if (spins < costs.length) return costs[spins];
-    const last = costs[costs.length - 1];
-    const step = costs[costs.length - 1] - costs[costs.length - 2];
-    return last + step * (spins - (costs.length - 1));
+    return costs[costs.length - 1];
   }
-  // 顺序确定（不随机）：先放 specialCount[faction] 个特殊券，其余槽位用 chipAmounts 循环填充金币项。
-  // 金币索引偏移为 pool.length - specialCount，保证金币数量随槽位变化、可见“不同数量的金币”。
+  // 转盘 10 槽全部为随机金币项（不含特殊券）。
   function buildWheelPool(faction, wheel = WHEEL) {
     const pool = [];
-    const specialCount = wheel.specialCount[faction] || 0;
-    const list = wheel.specials[faction] || [];
-    for (let i = 0; i < specialCount; i++) {
-      const item = WHEEL_ITEMS[list[i % list.length]];
-      pool.push({ kind: 'special', key: item.key, label: item.label, desc: item.desc, color: item.color, glyph: item.glyph });
-    }
-    const chipBase = pool.length - specialCount;
-    for (let i = pool.length; i < wheel.slotCount; i++) {
-      const amount = wheel.chipAmounts[(i - chipBase) % wheel.chipAmounts.length];
+    for (let i = 0; i < wheel.slotCount; i++) {
+      const amount = wheel.chipAmounts[i % wheel.chipAmounts.length];
       pool.push({ kind: 'chips', amount, label: `${amount} 金币`, color: WHEEL_CHIP_COLOR, glyph: '●' });
     }
     return pool;
   }
+  // NPC 金币兑换六类即时效果（不同价格，每人每类效果每日限兑 1 次；积分每日最多兑换 10 分）。
+  const NPC_EXCHANGE_LIST = Object.freeze([
+    Object.freeze({
+      key: 'score',
+      label: '兑换积分（每日最多10分）',
+      shortLabel: '兑换积分',
+      cost: 2,
+      maxPoints: 10,
+      dailyLimit: 1,
+      desc: '立即获得 +10 积分（计入今日与累计总积分，每日最多 10 分）'
+    }),
+    Object.freeze({
+      key: 'revealRandomTrait',
+      label: '公开随机玩家的一条隐藏属性',
+      shortLabel: '公开随机玩家隐藏属性',
+      cost: 3,
+      dailyLimit: 1,
+      desc: '随机公开一名存活玩家的 1 条未公开隐藏属性并全员公告'
+    }),
+    Object.freeze({
+      key: 'hideOwnTrait',
+      label: '隐藏自己的一条已公开属性',
+      shortLabel: '隐藏自己已公开属性',
+      cost: 4,
+      dailyLimit: 1,
+      desc: '将自己已公开的 1 条个人属性重新设为隐藏（***）'
+    }),
+    Object.freeze({
+      key: 'revealTargetTrait',
+      label: '公开指定玩家的一条隐藏属性',
+      shortLabel: '公开指定玩家隐藏属性',
+      cost: 5,
+      dailyLimit: 1,
+      desc: '选择一名存活玩家，公开其 1 条未公开隐藏属性并全员公告'
+    }),
+    Object.freeze({
+      key: 'hideBadClue',
+      label: '隐藏指定匿名坏人卡上的一条已公布线索',
+      shortLabel: '隐藏匿名坏人卡线索',
+      cost: 6,
+      dailyLimit: 1,
+      desc: '指定一张匿名坏人卡，隐藏其上 1 条已公布的系统线索'
+    }),
+    Object.freeze({
+      key: 'hideOwnSid',
+      label: '隐藏自己最近公开的一段身份码',
+      shortLabel: '隐藏最近公开身份码',
+      cost: 8,
+      dailyLimit: 1,
+      desc: '将自己最近被公开的 1 段身份码重新设为隐藏（***）'
+    })
+  ]);
+  const NPC_EXCHANGE = Object.freeze(Object.fromEntries(NPC_EXCHANGE_LIST.map(item => [item.key, item])));
   function rpsOutcome(a, b) {
     if (a === b) return 0;
     return ({ rock: 'scissors', paper: 'rock', scissors: 'paper' })[a] === b ? 1 : -1;
@@ -137,5 +180,5 @@
   // 战争迷雾：5F 地牢回廊。半径是世界像素，服务端裁剪与客户端渲染共用同一份，
   // 否则改客户端会看到"服务端没发、但客户端还画着残影"的不一致。
   const FLOOR_FOG = { 5: { radius: 180 } };
-  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, rpsOutcome };
+  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome };
 });

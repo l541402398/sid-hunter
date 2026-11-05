@@ -64,6 +64,11 @@ async function handle(ctx) {
     const result = ROOM.searchTake(actingSession(req, url), body);
     return send(res, result.ok ? 200 : 400, result);
   }
+  if (pathname === '/api/search/answer' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = ROOM.searchTake(actingSession(req, url), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
   // 第二轮：道具经济（使用 / 出售 / 购买）。
   if (pathname === '/api/item/use' && req.method === 'POST') {
     const body = await readBody(req);

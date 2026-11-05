@@ -99,9 +99,77 @@ function createBadPool({ room, randomInt, randomUUID }) {
       return [`系统公布：坏人${String(index + 1).padStart(2, '0')}的${fieldName}为「${value}」。`];
     });
   }
+  function unpublish({ slotKey, group, field, fallbackPlayerId } = {}) {
+    const slots = list();
+    let targetId = null;
+    let slotIndex = -1;
+    if (slotKey) {
+      for (const [pid, slot] of map.entries()) {
+        const idx = slots.findIndex(s => s.key === slot.key);
+        const displayLabel = idx >= 0 ? `坏人${String(idx + 1).padStart(2, '0')}` : slot.label;
+        if (slot.key === slotKey || slot.label === slotKey || displayLabel === slotKey) {
+          targetId = pid;
+          slotIndex = idx;
+          break;
+        }
+      }
+      if (targetId === null) return { ok: false, error: '指定的匿名坏人卡不存在' };
+    } else {
+      const tryIds = [];
+      if (fallbackPlayerId !== undefined && fallbackPlayerId !== null) tryIds.push(fallbackPlayerId);
+      for (const pid of order) if (!tryIds.includes(pid)) tryIds.push(pid);
+      for (const pid of tryIds) {
+        const p = room.players.find(q => q.id === pid);
+        if (!p || p.faction !== 'bad' || !p.systemClues) continue;
+        const hasAny = Object.keys(p.systemClues.colors || {}).length > 0 || Object.keys(p.systemClues.traits || {}).length > 0;
+        if (hasAny) {
+          targetId = pid;
+          const slot = map.get(pid);
+          slotIndex = slot ? slots.findIndex(s => s.key === slot.key) : -1;
+          break;
+        }
+      }
+      if (targetId === null) return { ok: false, error: '当前没有任何匿名坏人卡存在已公布线索' };
+    }
+    const p = room.players.find(q => q.id === targetId);
+    if (!p || p.faction !== 'bad') return { ok: false, error: '指定的匿名坏人卡无效' };
+    const publishedList = [];
+    for (const [g, names] of [['colors', WORLD.FIELD_NAMES], ['traits', WORLD.TRAIT_NAMES]]) {
+      const groupObj = p.systemClues?.[g] || {};
+      for (const f of Object.keys(names)) {
+        if (Object.hasOwn(groupObj, f) && typeof groupObj[f] === 'string') {
+          publishedList.push({ group: g, field: f, fieldName: names[f], value: groupObj[f] });
+        }
+      }
+    }
+    if (!publishedList.length) return { ok: false, error: '该匿名坏人卡暂无已公布线索可隐藏' };
+    let chosen = null;
+    if (group && field) {
+      chosen = publishedList.find(c => c.group === group && c.field === field);
+      if (!chosen) return { ok: false, error: '指定的坏人卡线索不存在或尚未公布' };
+    } else if (field) {
+      chosen = publishedList.find(c => c.field === field);
+      if (!chosen) return { ok: false, error: '指定的坏人卡线索不存在或尚未公布' };
+    } else {
+      chosen = publishedList[publishedList.length - 1];
+    }
+    delete p.systemClues[chosen.group][chosen.field];
+    dirty = true;
+    const slot = map.get(targetId);
+    const cardLabel = slotIndex >= 0 ? `坏人${String(slotIndex + 1).padStart(2, '0')}` : (slot ? slot.label : '匿名坏人卡');
+    return {
+      ok: true,
+      slotKey: slot ? slot.key : '',
+      cardLabel,
+      group: chosen.group,
+      field: chosen.field,
+      fieldName: chosen.fieldName,
+      value: chosen.value
+    };
+  }
   function invalidate() { dirty = true; }
   function reset() { map.clear(); order.length = 0; labels.clear(); cache = Object.freeze([]); dirty = true; }
-  return { register, list, publish, candidates, preview, publishBatch, publicationMessages, invalidate, reset };
+  return { register, list, publish, unpublish, candidates, preview, publishBatch, publicationMessages, invalidate, reset };
 }
 
 module.exports = { createBadPool };
