@@ -39,7 +39,7 @@
 /* ---------- 物品格面板（搜打撤异形藤蔓雕花木箱） ---------- */
 .loot-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:376px;max-width:calc(100% - 24px);max-height:calc(100% - 28px);
   display:flex;flex-direction:column;gap:9px;padding:8px 10px;z-index:24;
-  border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 round;border-radius:0;background:transparent;color:var(--ink);
+  border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 stretch;border-radius:0;background:var(--surface);background-clip:padding-box;color:var(--ink);
   box-shadow:none;filter:var(--sh-3)}
 .loot-panel[hidden]{display:none}
 .loot-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;background-color:#3a2211;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='28' viewBox='0 0 64 28'><path d='M0 14 Q16 5 32 14 T64 14' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.22'/><path d='M12 10 L16 7 L14 12 Z M44 18 L48 15 L46 20 Z' fill='%2343a047' opacity='.28'/><polygon points='32,3 35,6 32,9 29,6' fill='%23ffd257' opacity='.22'/></svg>"),linear-gradient(180deg,#4d2f18,#2d190b);border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-banner);padding:8px 15px;color:#ffefc7}
@@ -215,8 +215,8 @@
 .quiz-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .quiz-type-badge{padding:2px 8px;border:1px solid #ffd268;background:#5c3515;color:#ffe294;font-size:10.5px;font-weight:800;letter-spacing:.04em}
 .quiz-reward{font-size:10.5px;color:#8cf5b4;font-family:ui-monospace,monospace;font-weight:800}
-.quiz-stem{margin:2px 0;font-size:12px;line-height:1.55;color:#fff7e6;font-weight:700}
-.quiz-options{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto}
+.quiz-stem{margin:2px 0;padding:6px 8px;background:rgba(255,232,184,.08);border-left:3px solid #ffd268;font-size:12.5px;line-height:1.55;color:#fff9ec;font-weight:700}
+.quiz-options{display:flex;flex-direction:column;gap:6px;max-height:240px;overflow:auto}
 .quiz-opt{display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px;text-align:left;border:1.5px solid #7a522c;background:linear-gradient(180deg,#4d301a,#382211);color:#f7e5c4;font-size:11.5px;font-weight:600;cursor:pointer;clip-path:var(--clip-card)}
 .quiz-opt:hover:not(:disabled){border-color:#f0b24a;background:linear-gradient(180deg,#5e3b20,#472b16)}
 .quiz-opt.is-selected{border-color:#ffd257;background:linear-gradient(180deg,#6e4423,#523118);color:#fff;box-shadow:inset 0 0 8px rgba(255,186,44,.45)}

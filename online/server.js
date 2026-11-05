@@ -1,7 +1,7 @@
 'use strict';
 // 服务入口：统一管理员日程、权威房间与低频持久化。环境变量只配置监听/认证等基础设施。
 const http = require('http');
-const { createRoom, WORLD } = require('./room.js');
+const { createRoom, WORLD, QUIZ } = require('./room.js');
 const { createManager } = require('./manager.js');
 const { PORT, HOST, TICK_MS, SSO_REQUIRED, MANAGER_CODE } = require('./server/config.js');
 const { everyMs, lanAddresses, send } = require('./server/http-util.js');
@@ -12,6 +12,14 @@ const { createProfiles } = require('./server/profiles.js');
 const { createActivity } = require('./server/activity.js');
 
 const STORE = createStore();
+if (STORE.enabled) {
+  const storedQuiz = STORE.loadQuizQuestions();
+  if (Array.isArray(storedQuiz) && storedQuiz.length > 0) {
+    QUIZ.setQuizBank(storedQuiz);
+  } else {
+    STORE.saveQuizQuestions(QUIZ.getQuizBank());
+  }
+}
 // 员工档案（工号 → 性别）：只在正式 CAS 模式启动同步，昵称试玩/回归不访问外网。
 // 同步异步进行，不阻塞服务；失败时形象退回随机分配。
 const PROFILES = createProfiles(SSO_REQUIRED ? { store: STORE } : { store: STORE, enabled: false });
@@ -37,7 +45,7 @@ const ACTIVITY = createActivity({room:ROOM,store:STORE,initial:admin});
 const resetTokens = new Map();
 const MANAGER = createManager({room:ROOM,passcode:MANAGER_CODE,activity:ACTIVITY});
 const { openStream, startOfflineSweep } = makeSse(ROOM);
-const route = makeRouter({ROOM,MANAGER,resetTokens,WORLD,openStream,ACTIVITY,PROFILES});
+const route = makeRouter({ROOM,MANAGER,resetTokens,WORLD,openStream,ACTIVITY,PROFILES,STORE});
 const server = http.createServer((req,res)=>{
   let url;try{url=new URL(req.url,`http://${req.headers.host||'localhost'}`);}catch{return send(res,400,{error:'invalid URL'});}
   route(req,res,url).catch(error=>{

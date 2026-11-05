@@ -36,13 +36,13 @@ body.near-elevator .game-hud,body.near-elevator .game-layout>.log-sidebar,body.n
   .log-sidebar li p{font-size:11px}
 }
 /* 顶层居中操作窗：RPG 阶梯卷耳 + 翠藤花叶 + 黄铜八角护角异形木牌 */
-dialog.center-dialog{position:fixed;inset:0;margin:auto;width:min(500px,calc(100vw - 28px));height:fit-content;max-width:calc(100vw - 28px);max-height:calc(100dvh - 28px);padding:8px 12px;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 round;border-radius:0;background:transparent;color:var(--ink);overflow:auto;box-shadow:none;filter:var(--sh-3);transform:none}
+dialog.center-dialog{position:fixed;inset:0;margin:auto;width:min(500px,calc(100vw - 28px));height:fit-content;max-width:calc(100vw - 28px);max-height:calc(100dvh - 28px);padding:8px 12px;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 stretch;border-radius:0;background:var(--surface);background-clip:padding-box;color:var(--ink);overflow:auto;box-shadow:none;filter:var(--sh-3);transform:none}
 dialog.center-dialog:not([open]){display:none}
 dialog.center-dialog::backdrop{background:rgba(16,9,4,.64);backdrop-filter:blur(4px)}
 dialog.center-dialog>.panel-heading{position:sticky;top:-10px;background-color:#3a2211;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='28' viewBox='0 0 64 28'><path d='M0 14 Q16 5 32 14 T64 14' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.22'/><path d='M12 10 L16 7 L14 12 Z M44 18 L48 15 L46 20 Z' fill='%2343a047' opacity='.28'/><polygon points='32,3 35,6 32,9 29,6' fill='%23ffd257' opacity='.22'/></svg>"),linear-gradient(180deg,#4d2f18 0%,#2d190b 100%);border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-banner);padding:8px 16px;margin-bottom:10px;z-index:2;gap:10px;box-shadow:inset 0 1px 0 #ffdf9e40}
 dialog.center-dialog .icon-button{min-width:34px;min-height:34px;flex:none}
 dialog.center-dialog .private-block{border:0;padding-top:0;margin-top:0}
-dialog.center-dialog .skill-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+dialog.center-dialog .skill-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
 dialog.center-dialog .skill-row button,dialog.center-dialog .confirm-box button{min-height:42px}
 dialog.private-dialog{width:min(550px,calc(100vw - 28px))}
 .private-skill{min-width:0;display:flex;flex-direction:column;gap:4px;background:rgba(222,197,150,.55);border:1.5px solid var(--line-strong);border-radius:0;clip-path:var(--clip-plaque);padding:7px}
@@ -73,7 +73,7 @@ dialog.bad-pool-dialog .bad-note{padding:0}
 .floor-transition .door-right{right:0;transform:translateX(101%)}
 .floor-transition.closed .door-left{transform:translateX(0)}
 .floor-transition.closed .door-right{transform:translateX(0)}
-.floor-transition-card{position:relative;z-index:2;background:transparent;border:18px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 22px / 0 round;border-radius:0;padding:12px 16px;text-align:center;color:var(--ink);box-shadow:none;filter:var(--sh-3);max-width:min(420px,86%)}
+.floor-transition-card{position:relative;z-index:2;background:var(--surface);background-clip:padding-box;border:18px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 22px / 0 stretch;border-radius:0;padding:12px 16px;text-align:center;color:var(--ink);box-shadow:none;filter:var(--sh-3);max-width:min(420px,86%)}
 .floor-arrow{font:800 14px ui-monospace,monospace;color:var(--brand-dk);letter-spacing:1px}
 .floor-phase{font-size:13px;line-height:1.7;margin-top:6px;font-weight:700}
 .floor-detail{font-size:11px;color:var(--ink-2);line-height:1.6;margin-top:6px}

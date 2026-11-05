@@ -126,19 +126,23 @@
     els.grid.style.display = 'block';
 
     const wrap = h('div', 'quiz-box');
-    wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:6px 2px;';
+    wrap.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:6px 4px;';
 
     const header = h('div', 'quiz-head');
-    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
-    const typeBadge = h('span', 'loot-sum-clue', quiz.typeLabel || (quiz.type === 'multiple' ? '多选题' : quiz.type === 'judge' ? '判断题' : '单选题'));
-    const rewardBadge = h('span', 'loot-sum-chip', `答对 +${quiz.rewardCoins} 金币`);
+    const catPrefix = quiz.category ? `${quiz.category} · ` : '';
+    const typeHint = quiz.type === 'multiple'
+      ? `${catPrefix}${quiz.typeLabel || '多选题'} · 可多选`
+      : quiz.type === 'judge'
+        ? `${catPrefix}${quiz.typeLabel || '判断题'} · 判断对错`
+        : `${catPrefix}${quiz.typeLabel || '单选题'} · 单选`;
+    const typeBadge = h('span', 'quiz-type-badge', typeHint);
+    const rewardBadge = h('span', 'quiz-reward', `答对 +${quiz.rewardCoins} 金币`);
     header.append(typeBadge, rewardBadge);
 
-    const stem = h('p', 'quiz-question', quiz.question);
-    stem.style.cssText = 'margin:2px 0 4px;font-weight:600;line-height:1.45;color:#f8fafc;';
+    const questionText = quiz.stem || quiz.question || '';
+    const stem = h('p', 'quiz-stem quiz-question', questionText);
 
     const optList = h('div', 'quiz-options');
-    optList.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
 
     const syncSelectionUI = () => {
       for (const btn of optList.querySelectorAll('button.quiz-option')) {
@@ -146,19 +150,22 @@
         const active = state && state.selected.includes(key);
         btn.classList.toggle('is-selected', !!active);
         btn.setAttribute('aria-pressed', String(!!active));
-        btn.style.borderColor = active ? '#fbbf24' : 'rgba(148,163,184,0.35)';
-        btn.style.background = active ? 'rgba(251,191,36,0.18)' : 'rgba(15,23,42,0.65)';
       }
     };
 
     for (const opt of (quiz.options || [])) {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'quiz-option';
+      btn.className = 'quiz-opt quiz-option';
       btn.dataset.optionKey = opt.key;
       btn.setAttribute('aria-pressed', 'false');
-      btn.style.cssText = 'text-align:left;padding:7px 10px;border-radius:6px;border:1px solid rgba(148,163,184,0.35);background:rgba(15,23,42,0.65);color:#e2e8f0;cursor:pointer;font-size:13px;line-height:1.35;';
-      btn.textContent = quiz.type === 'judge' ? `${opt.text}` : `${opt.key}. ${opt.text}`;
+      const keyBadge = h(
+        'span',
+        'quiz-opt-key',
+        quiz.type === 'judge' ? (opt.key === 'T' ? '✓' : '✕') : opt.key
+      );
+      const textSpan = h('span', 'quiz-opt-text', opt.text);
+      btn.append(keyBadge, textSpan);
       btn.onclick = () => {
         if (!state || state.done || state.busy) return;
         if (quiz.type === 'multiple') {

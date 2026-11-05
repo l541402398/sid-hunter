@@ -1706,20 +1706,60 @@
 
   function halls(g,f,doorStates,dt=.016){
     for(const h of f.halls){
-      g.fillStyle='#d9b88c';g.fillRect(h.x,h.y,h.w,h.h);
-      if(stats.ready)for(let y=h.y+4;y<h.y+h.h-4;y+=16)for(let x=h.x+4;x<h.x+h.w-4;x+=16)
-        tile(g,'city',Math.abs(Math.floor((x-h.x)/16))%2,19,x,y,16,16);
-      g.fillStyle='#fff4d2';g.fillRect(h.x+8,h.y+8,h.w-16,2);
-      g.font='bold 8px ui-monospace,monospace';g.textAlign='center';g.fillStyle='#5c3b1e';
-      g.fillText(`${f.id}F / ${h.side==='left'?'WEST':'EAST'}`,h.x+h.w/2,h.y+14);
+      // 现代金属石材电梯厅地坪（无入口隔墙，打通主楼面外沿描边，整面敞开式自动感应玻璃门）
+      const bridgeX=h.side==='left'?h.x:h.x-16,bridgeW=h.w+16;
+      g.fillStyle='#2a3646';g.fillRect(h.x-2,h.y-2,h.w+4,h.h+4);
+      g.fillStyle='#d6e2ec';g.fillRect(bridgeX+2,h.y+2,bridgeW-4,h.h-4);
+      for(let y=h.y+4;y<h.y+h.h-4;y+=16)for(let x=bridgeX+4;x<bridgeX+bridgeW-4;x+=16){
+        const alt=((Math.floor((x-h.x)/16)+Math.floor((y-h.y)/16))%2)===0;
+        g.fillStyle=alt?'#e2ecf4':'#cbd8e4';
+        g.fillRect(x,y,15,15);
+      }
+      // 入口迎宾导流地垫与醒目「电梯厅」地面标识
+      const edgeX=h.side==='left'?h.x+h.w:h.x;
+      const matX=h.side==='left'?edgeX-24:edgeX+2;
+      g.fillStyle='#334155';g.fillRect(matX,h.y+6,22,h.h-12);
+      g.fillStyle='#38bdf8';g.fillRect(matX+2,h.y+8,18,2);g.fillRect(matX+2,h.y+h.h-10,18,2);
+      g.font='bold 9px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
+      g.textAlign='center';g.fillStyle='#1e293b';
+      g.fillText(`🛗 ${f.id}F 电梯厅`,h.x+h.w/2,h.y+h.h-10);
     }
     for(const d of f.glassDoors){
-      const target=doorStates[d.id]&&doorStates[d.id].open?1:0,old=animations.get(d.id)||0;
+      const isOpen=!!(doorStates[d.id]&&doorStates[d.id].open);
+      const target=isOpen?1:0,old=animations.get(d.id)||0;
       const v=old+(target-old)*Math.min(1,dt*14);animations.set(d.id,v);
-      g.fillStyle='#a67548';g.fillRect(d.x-4,d.y-28,8,4);g.fillRect(d.x-4,d.y+24,8,4);
-      g.save();g.globalAlpha=.68;g.fillStyle='#9ee0f0';
-      g.fillRect(d.x-2,d.y-24-v*23,4,24);g.fillRect(d.x-2,d.y+v*23,4,24);
-      g.globalAlpha=.92;g.fillStyle='#ffffff';g.fillRect(d.x-1,d.y-19-v*23,1,12);g.fillRect(d.x-1,d.y+5+v*23,1,12);g.restore();
+      const half=Math.round((d.opening||104)/2);
+      const leafH=half,slide=Math.round(v*(half-8));
+      // 整面自动感应玻璃门导轨与顶部感应器状态灯
+      g.fillStyle='#334155';
+      g.fillRect(d.x-6,d.y-half-6,12,6);
+      g.fillRect(d.x-6,d.y+half,12,6);
+      g.fillStyle='#475569';
+      g.fillRect(d.x-2,d.y-half,4,half*2);
+      // 顶部自动门感应灯（开门绿光，待机青光）
+      g.fillStyle=isOpen?'#4ade80':'#38bdf8';
+      g.fillRect(d.x-3,d.y-3,6,6);
+      // 上下两扇全高自动平移玻璃门扇
+      const topY=d.y-half-slide;
+      const botY=d.y+slide;
+      g.save();
+      g.globalAlpha=.72;
+      g.fillStyle='#7dd3fc';
+      g.fillRect(d.x-5,topY,10,leafH);
+      g.fillRect(d.x-5,botY,10,leafH);
+      g.globalAlpha=.92;
+      g.strokeStyle='#0284c7';
+      g.lineWidth=1.5;
+      g.strokeRect(d.x-5,topY,10,leafH);
+      g.strokeRect(d.x-5,botY,10,leafH);
+      // 玻璃门高光条与防撞腰线
+      g.fillStyle='#e0f2fe';
+      g.fillRect(d.x-2,topY+4,2,Math.max(4,leafH-8));
+      g.fillRect(d.x-2,botY+4,2,Math.max(4,leafH-8));
+      g.fillStyle='#fef08a';
+      g.fillRect(d.x-5,topY+leafH-6,10,3);
+      g.fillRect(d.x-5,botY+3,10,3);
+      g.restore();
     }
   }
 

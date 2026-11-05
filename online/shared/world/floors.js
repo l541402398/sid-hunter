@@ -129,7 +129,6 @@
     { id: 1, name: '1F · 晨光迎宾厅', source: 'original', outline: OUTLINE_1F,
       zones: ['接待区', '晨光广场', '食堂', '后厨取餐', '核心筒', '东侧市集翼'], stairLeft: [70, 560], stairRight: [1220, 620],
       furniture: [
-        ['reception', '接待台', 195, 115, 365, 215, 'container:reception'],
         ['sofa', '迎宾等候沙发', 215, 275, 385, 355],
         ['cabinet', '大厅储物柜', 415, 275, 525, 355, 'container:hall1'],
         ['cabinet', '核心筒', 25, 420, 105, 580],
@@ -594,15 +593,13 @@
         }
         if (entryY === null) throw new Error(`No safe annex entrance for ${spec.id}F ${side}`);
         const hall = { id: `f${spec.id}:hall:${side}`, side, x: side === 'left' ? -144 : FLOOR_W,
-          y: entryY - 48, w: 144, h: 96, entryY, approach: { x: approachX, y: entryY } };
+          y: entryY - 56, w: 144, h: 112, entryY, approach: { x: approachX, y: entryY } };
         floor.halls.push(hall);
         const addWall = (name, x, y, w, h) => floor.walls.push({ id: `${hall.id}:wall:${name}`, x, y, w, h,
-          type: 'wall', footprint: { x, y, w, h }, depth: y + h });
+          type: 'wall', elevatorHall: true, footprint: { x, y, w, h }, depth: y + h });
         addWall('north', hall.x, hall.y, hall.w, 4);
         addWall('south', hall.x, hall.y + hall.h - 4, hall.w, 4);
         addWall('outer', side === 'left' ? hall.x : hall.x + hall.w - 4, hall.y, 4, hall.h);
-        addWall('entry-north', edgeX - 2, hall.y, 4, 24);
-        addWall('entry-south', edgeX - 2, entryY + 24, 4, 24);
         floor.walls.push({
           id: `${hall.id}:wall:lift`,
           x: hall.x + 32,
@@ -614,8 +611,9 @@
           footprint: { x: hall.x + 32, y: hall.y, w: 80, h: Math.max(24, (entryY - 12) - hall.y) },
           depth: entryY - 12
         });
+        const doorOpening = hall.h - 8;
         floor.glassDoors.push({ id: `${hall.id}:glass`, hallId: hall.id, side, x: edgeX, y: entryY,
-          opening: 48, footprint: { x: edgeX - 2, y: entryY - 24, w: 4, h: 48 }, depth: entryY + 24 });
+          opening: doorOpening, footprint: { x: edgeX - 2, y: entryY - doorOpening / 2, w: 4, h: doorOpening }, depth: entryY + doorOpening / 2 });
         floor.portals.push({ id: `f${spec.id}:portal:${side}`, floorId: spec.id, side,
           x: hall.x + 72, y: entryY - 12, w: 64, h: 30 });
       }
@@ -760,7 +758,7 @@
   function advanceGlassDoors(floorId, previous, actors, now) {
     const f = floorById(floorId), next = {};
     for (const d of f.glassDoors) {
-      const near = actors.some(p => p.floorId === floorId && p.online !== false && p.alive !== false &&
+      const near = actors.some(p => p.floorId === floorId && p.online !== false && !p.npc &&
         Math.abs(p.x - d.x) <= LIFT_CONFIG.trigger && Math.abs(p.y - d.y) <= d.opening / 2 + 12);
       const old = previous[d.id] || { open: false, holdUntil: 0 };
       next[d.id] = { open: near || now < old.holdUntil, holdUntil: near ? now + LIFT_CONFIG.closeDelayMs : old.holdUntil };

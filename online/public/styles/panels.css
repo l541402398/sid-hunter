@@ -2,7 +2,7 @@
 /* 像素 RPG 异形藤蔓雕花木牌与羊皮卷风格：
    所有弹窗/面板均采用 9-slice 阶梯卷耳 + 翠藤花叶 + 黄铜八角护角（--rpg-frame-svg），
    四周直线边向内缩进留出透明区，四角卷耳与藤蔓向外凸出，彻底告别常规死板矩形！ */
-.panel{position:absolute;background:transparent;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 round;border-radius:0;box-shadow:none;filter:var(--sh-3);z-index:15;overflow:hidden;display:flex;flex-direction:column}
+.panel{position:absolute;background:var(--surface);background-clip:padding-box;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 stretch;border-radius:0;box-shadow:none;filter:var(--sh-3);z-index:15;overflow:hidden;display:flex;flex-direction:column}
 /* 弹窗顶栏：燕尾内凹横幅 + 鎏金藤蔓暗纹 */
 .panel-heading{position:relative;display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;background-color:#3a2211;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='64' height='28' viewBox='0 0 64 28'><path d='M0 14 Q16 5 32 14 T64 14' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.22'/><path d='M12 10 L16 7 L14 12 Z M44 18 L48 15 L46 20 Z' fill='%2343a047' opacity='.28'/><polygon points='32,3 35,6 32,9 29,6' fill='%23ffd257' opacity='.22'/></svg>"),linear-gradient(180deg,#4d2f18 0%,#2d190b 100%);border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-banner);padding:8px 16px;color:#ffefc7;box-shadow:inset 0 1px 0 #ffdf9e40}
 .panel-heading small,.eyebrow{font:800 9px ui-monospace,monospace;color:#ffd06b;letter-spacing:1.6px;display:block;white-space:nowrap}
@@ -18,7 +18,7 @@ h2{font-size:16px;letter-spacing:.5px;font-weight:800;margin:2px 0 0;color:var(-
 .roster{left:10px;top:50px;bottom:46px;width:282px;padding:8px 10px;z-index:18}
 @media(max-height:600px){.roster{top:46px;bottom:10px}}
 /* 右侧游戏内公共日志浮层：同款藤蔓雕花异形羊皮卷 */
-.logs{display:flex;flex-direction:column;min-width:0;padding:8px 10px;background:transparent;border:24px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 30px / 0 round;border-radius:0;box-shadow:none;filter:var(--sh-3);overflow:hidden}
+.logs{display:flex;flex-direction:column;min-width:0;padding:8px 10px;background:var(--surface);background-clip:padding-box;border:24px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 30px / 0 stretch;border-radius:0;box-shadow:none;filter:var(--sh-3);overflow:hidden}
 .log-head-actions{display:inline-flex;align-items:center;gap:6px;flex:none}
 .log-total{flex:none;color:#ffe7b8;font-size:10.5px;padding:3px 9px;border:1px solid #b8874d;border-radius:0;clip-path:var(--clip-card);background:#28160a}
 .log-total b{color:#ffd268}
@@ -115,10 +115,10 @@ h2{font-size:16px;letter-spacing:.5px;font-weight:800;margin:2px 0 0;color:var(-
 .hold-note{font-size:10px;color:var(--ink-3);line-height:1.55;margin-top:6px}
 .private-block{border-top:1.5px dashed var(--line-2);margin-top:10px;padding-top:10px}
 .private-banner-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;padding:7px 10px;background:#faf0dc;border:1.5px solid var(--line-2);border-radius:0;clip-path:var(--clip-card)}
-.private-banner-row .panel-note{margin:0;font-weight:700;color:var(--ink)}
+.private-banner-row .panel-note,.private-banner-row .private-title{margin:0;font-weight:700;color:var(--ink)}
 .private-target-sid{font:800 11px ui-monospace,monospace;color:var(--brand-dk);background:var(--sun-soft);border:1px solid var(--sun-line);border-radius:4px;padding:2px 8px}
 .private-title{font-size:11px;color:var(--ink-2);font-weight:700;margin-bottom:7px}
-.skill-row{display:flex;gap:7px}
+.skill-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
 .skill-row button{flex:1;font-size:12px;padding:8px;border-radius:0;clip-path:var(--clip-card)}
 .private-skill[hidden]{display:none!important}
 .kill-lock-hint{margin-top:7px;padding:7px 10px;border:1.5px dashed var(--coral-line);border-radius:0;clip-path:var(--clip-card);background:var(--coral-soft);color:var(--coral-dk);font-size:11px;line-height:1.55;font-weight:700}

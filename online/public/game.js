@@ -219,7 +219,7 @@
   let gameClosed = '', gamePausedAt = 0;
   function selfDisabled() {
     if (gameClosed) return true;
-    if (!me || !me.combat) return false;
+    if (!me || !me.alive || !me.combat) return false;
     const t = serverNow();
     return t < (me.combat.stunUntil || 0) || t < (me.combat.freezeUntil || 0);
   }
@@ -923,23 +923,23 @@
   }
   function nearbyEntities() {
     if (!me?.alive || finished) return [];
-    const self = selfPlayer();
-    const list = [...containers.map(entity => ({ kind: 'container', id: entity.id, entity })),
-      ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity }))];
+    const searched = explorationState().searched;
+    const list = [...containers.map(entity => ({ kind: 'container', id: entity.id, entity, done: searched.includes(entity.id) })),
+      ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity, done: false }))];
     // 需求①：楼层上的房间门 / 房间内的出口也进入「就近互动」候选，
     // 这样 K 键与 HUD 只需一套排序逻辑，不需要给门单独开一条输入路径。
     const door = roomDoorCandidate();
-    if (door) list.push({ kind: 'door', id: door.room.id, entity: { x: door.room.door.x, y: door.room.door.y, name: door.room.name, room: door.room } });
+    if (door) list.push({ kind: 'door', id: door.room.id, entity: { x: door.room.door.x, y: door.room.door.y, name: door.room.name, room: door.room }, done: false });
     const exit = roomExitCandidate();
-    if (exit) list.push({ kind: 'exit', id: exit.id, entity: { x: exit.exit.x, y: exit.exit.y, name: exit.name, room: exit } });
+    if (exit) list.push({ kind: 'exit', id: exit.id, entity: { x: exit.exit.x, y: exit.exit.y, name: exit.name, room: exit }, done: false });
     return list
       .filter(({ entity }) => entityDistance(entity) <= WORLD.INTERACT_RANGE)
-      .sort((a, b) => entityDistance(a.entity) - entityDistance(b.entity));
+      .sort((a, b) => Number(!!a.done) - Number(!!b.done) || entityDistance(a.entity) - entityDistance(b.entity));
   }
   // 需求2：电梯门候选 = 当前层「进入 64px 且面向门（spriteFacing cos≥0.5）」的**最近** portal。
   // 唯一归属 = 最近门（不因另一扇可用就改投）⇒ 站在禁用门前的反馈稳定、不会被悄悄换方向。
   function elevatorTarget() {
-    const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
+    const self = selfPlayer(); if (!self || !me || finished) return null;
     let best = null, bd = Infinity, bestAccess = null;
     for (const portal of portals) {
       const access = WORLD.portalAccess(self, portal);
@@ -959,7 +959,7 @@
   }
   function roomExitCandidate() {
     const self = selfPlayer();
-    if (!self || !zoneId || !me?.alive || finished) return null;
+    if (!self || !zoneId || !me || finished) return null;
     const room = WORLD.roomById(zoneId);
     if (!room) return null;
     return Math.hypot(self.x - room.exit.x, self.y - room.exit.y) <= 74 ? room : null;
@@ -1206,6 +1206,12 @@
   // 玩家必须同层（floorId 一致）才参与就近判定。
   function nearestInteractable() {
     const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
+    // 优先保证场景可交互物（未搜容器 / NPC / 房间门 / 出口）不被面前的其他玩家挡住 K 键
+    const nearItems = nearbyEntities();
+    if (nearItems.length) {
+      const first = nearItems[0];
+      if (!first.done) return { kind: first.kind, id: first.id };
+    }
     let pBest = null, pD = Infinity;
     for (const p of players) {
       if (p.id === me.id || !p.alive || p.online === false || p.floorId !== me.floorId) continue;
@@ -1213,25 +1219,11 @@
       const d = WORLD.distanceToEntity(self, p);
       if (d <= WORLD.INTERACT_RANGE && d < pD) { pD = d; pBest = { kind: 'player', id: p.id }; }
     }
-    let eBest = null, eD = Infinity;
-    for (const item of nearbyEntities()) {
-      const d = entityDistance(item.entity);
-      if (d < eD) { eD = d; eBest = { kind: item.kind, id: item.id }; }
+    if (nearItems.length) {
+      const first = nearItems[0];
+      return { kind: first.kind, id: first.id };
     }
-    // 电梯门不进入这套「就近取最近」的仲裁：它由 elevatorTarget() 单独处理（必须先于玩家/容器），
-    // 否则玩家只要靠近门就会在未面向门时也能乘梯，与「面对电梯按 K」冲突。
-    const candidates = [];
-    if (pBest) candidates.push({ d: pD, hit: pBest });
-    if (eBest) candidates.push({ d: eD, hit: eBest });
-    if (!candidates.length) return null;
-    // 已选玩家在距离相差不超过 32 像素时优先（保持与旧版一致的手感）。
-    if (pBest) {
-      const player = candidates.find(c => c.hit === pBest);
-      const other = candidates.filter(c => c.hit !== pBest).sort((a, b) => a.d - b.d)[0];
-      if (!other || player.d <= other.d + 32) return pBest;
-    }
-    candidates.sort((a, b) => a.d - b.d);
-    return candidates[0].hit;
+    return pBest;
   }
   function closeExploration() {
     const wasOpen = !!explorationPanel;
@@ -1599,6 +1591,30 @@
     });
     anchor.parentNode.insertBefore(bar, anchor);
   }
+  function formatSettlementReportHTML() {
+    if (!finished || !me) return '';
+    const rep = me.settlementReport || { sidReveals: [], eliminatedBy: null };
+    const reveals = Array.isArray(rep.sidReveals) ? rep.sidReveals : [];
+    const revealText = reveals.length
+      ? reveals.map(r => {
+          const seg = `第${Number(r.segment) || 1}段`;
+          if (r.kind === 'selfAccuse') {
+            return `${seg}：误指「<b>${escapeText(r.targetName || '好人')}</b>」自曝`;
+          }
+          const actionLabel = r.kind === 'accuse' ? '指认公开' : '公开身份码';
+          return `${seg}：被「<b>${escapeText(r.byName || '未知')}</b>」${actionLabel}`;
+        }).join(' · ')
+      : '本局未被任何人公开身份码';
+    const elim = rep.eliminatedBy;
+    const elimText = me.alive !== false
+      ? '存活到最后（未被淘汰）'
+      : elim && elim.byName
+        ? (elim.kind === 'accuse'
+            ? `被「<b>${escapeText(elim.byName)}</b>」指认满 3 段身份码淘汰出局`
+            : `被「<b>${escapeText(elim.byName)}</b>」击杀出局`)
+        : '已出局';
+    return `<div class="settlement-report-card" id="settlement-personal-report"><div class="settlement-report-title"><span>PERSONAL SETTLEMENT · 本局个人复盘</span><span>${me.alive !== false ? '存活' : '已淘汰'}</span></div><p class="settlement-report-row">身份码公开记录：${revealText}</p><p class="settlement-report-row">淘汰记录：${elimText}</p></div>`;
+  }
   function syncRanking() {
     const host = $('ranking'); if (!host || host.hidden) return;
     updateRankingHeader();
@@ -1606,13 +1622,13 @@
     const bd = me?.scoreBreakdown || { participate: 0, survival: 0, combat: selfScore() };
     const histScore = Number(me?.historicalScore) || 0;
     const sig = JSON.stringify([finishReason, aliveCount, rankingTab, selfScore(), bd, histScore,
-      me?.firstSearchDone, me?.firstMinigameDone, historicalRanking, rankingList, achievementList, achievementLeaders]);
+      me?.firstSearchDone, me?.firstMinigameDone, me?.settlementReport, historicalRanking, rankingList, achievementList, achievementLeaders]);
     if (sig === lastRankingSig) return;
     lastRankingSig = sig;
     $('ranking-alive').textContent = aliveCount;
     const selfBox = $('ranking-self-summary');
     if (selfBox) {
-      selfBox.innerHTML = `<div class="ranking-self-head"><span class="ranking-self-badge">MY TODAY SCORE · 我的今日实时积分（仅自己可见）</span><span class="ranking-self-state ${me?.alive !== false ? 'is-alive' : 'is-out'}">${me?.alive !== false ? '在场计分中' : '已出局 · 今日积分保留'}</span></div><div class="ranking-self-grid"><div class="ranking-self-cell primary"><span>今日总分</span><strong>${selfScore()}</strong><em class="cell-sub">参与+存活+对抗</em></div><div class="ranking-self-cell hist"><span>截至昨日累计</span><strong>${histScore}</strong><em class="cell-sub">历史已结算场次</em></div><div class="ranking-self-cell"><span>参与分</span><strong>${bd.participate || 0}<small>/10</small></strong><em class="cell-sub">首搜 ${me?.firstSearchDone ? '✓' : '0/5'} · 首游 ${me?.firstMinigameDone ? '✓' : '0/5'}</em></div><div class="ranking-self-cell"><span>存活分</span><strong>${bd.survival || 0}</strong><em class="cell-sub">每满30分钟 +1</em></div><div class="ranking-self-cell"><span>对抗分</span><strong>${bd.combat || 0}</strong><em class="cell-sub">指认/公开/击杀</em></div></div>`;
+      selfBox.innerHTML = `<div class="ranking-self-head"><span class="ranking-self-badge">MY TODAY SCORE · 我的今日实时积分（仅自己可见）</span><span class="ranking-self-state ${me?.alive !== false ? 'is-alive' : 'is-out'}">${me?.alive !== false ? '在场计分中' : '已出局 · 今日积分保留'}</span></div><div class="ranking-self-grid"><div class="ranking-self-cell primary"><span>今日总分</span><strong>${selfScore()}</strong><em class="cell-sub">参与+存活+对抗</em></div><div class="ranking-self-cell hist"><span>截至昨日累计</span><strong>${histScore}</strong><em class="cell-sub">历史已结算场次</em></div><div class="ranking-self-cell"><span>参与分</span><strong>${bd.participate || 0}<small>/10</small></strong><em class="cell-sub">首搜 ${me?.firstSearchDone ? '✓' : '0/5'} · 首游 ${me?.firstMinigameDone ? '✓' : '0/5'}</em></div><div class="ranking-self-cell"><span>存活分</span><strong>${bd.survival || 0}</strong><em class="cell-sub">每满30分钟 +1</em></div><div class="ranking-self-cell"><span>对抗分</span><strong>${bd.combat || 0}</strong><em class="cell-sub">指认/公开/击杀</em></div></div>${formatSettlementReportHTML()}`;
     }
     const tabs = $('ranking-tabs');
     if (tabs) tabs.querySelectorAll('button').forEach(b => {
@@ -1643,15 +1659,20 @@
   }
   function renderFinish() {
     const overlay = $('finish-overlay'); if (!overlay) return;
-    const sig = JSON.stringify([finishReason, rankingList, players.map(p => [p.id, p.name, p.score || 0, p.alive])]);
+    const sig = JSON.stringify([finishReason, rankingList, me?.settlementReport, me?.alive, players.map(p => [p.id, p.name, p.score || 0, p.alive])]);
     if (sig === lastFinishSig) return;
     lastFinishSig = sig;
     $('finish-reason').textContent = finishReasonText(finishReason);
     const host = $('finish-ranking');
-    if (rankingList && rankingList.length) { renderRankingRows(host, rankingList); return; }
+    const reportHTML = formatSettlementReportHTML();
+    if (rankingList && rankingList.length) {
+      renderRankingRows(host, rankingList);
+      if (reportHTML) host.insertAdjacentHTML('afterbegin', reportHTML);
+      return;
+    }
     // 存活淘汰至剩余 100 人（ranking 为 null）：不按分数排名，只展示存活到最后的玩家。
     const survivors = players.filter(p => p.alive).sort((a, b) => (b.score || 0) - (a.score || 0));
-    host.innerHTML = '<p class="panel-note">该结束方式不按分数排名，以下为存活到最后的玩家：</p>'
+    host.innerHTML = reportHTML + '<p class="panel-note">该结束方式不按分数排名，以下为存活到最后的玩家：</p>'
       + (survivors.length
         ? survivors.map(p => `<div class="ranking-row" data-player="${escapeText(p.id)}"><span class="ranking-rank">✓</span>${portrait(p)}<span class="ranking-name">${escapeText(p.name)}</span><span class="ranking-score">${p.score || 0} 分</span></div>`).join('')
         : '<p class="panel-note">没有存活玩家。</p>');
@@ -2179,7 +2200,7 @@
     return true;
   }
   function openElevatorPicker(portalId) {
-    if (!me || !me.alive || finished) return;
+    if (!me || finished) return;
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return; // 过渡期间不重复发起
     if (selfDisabled()) { showToast('眩晕/僵直中，暂时无法乘梯'); return; }
     if (interactionFlight || combatFlight || gamesFlight || wheelSpinFlight) return;
@@ -2215,7 +2236,7 @@
     selectElevatorFloor(initial.id);
   }
   function requestFloorChange(portalId, targetFloorId) {
-    if (!me || !me.alive || finished) return;
+    if (!me || finished) return;
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') return; // 过渡期间不重复发起
     if (selfDisabled()) { showToast('眩晕/僵直中，暂时无法乘梯'); return; }
     if (interactionFlight || combatFlight || gamesFlight || wheelSpinFlight) return;
@@ -2957,6 +2978,7 @@
   bakeSprites();
   if (SCENE) SCENE.ready.then(() => { chunkClear(); bakeSprites(); draw(); });
   function drawWallPanel(f) {
+    if (f.elevatorHall) return;
     if (f.lobby && window.SID_LOBBY) { window.SID_LOBBY.wall(ctx, f); return; }
     const x = Math.round(f.x), y = Math.round(f.y), w = Math.round(f.w), h = Math.round(f.h);
     const elev = 18;
@@ -2991,52 +3013,70 @@
   // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
   // 玩家站在门前并面向门时叠呼吸描边与「K 选择楼层」提示。
   function drawElevatorHall(p, active) {
-    const cx = Math.round(p.x), cy = Math.round(p.y) - 12;
+    const cx = Math.round(p.x), cy = Math.round(p.y) - 14;
     const accent = '#ffd86b';
-    const hw = 32, hh = 15, x0 = cx - hw, y0 = cy - hh;
-    const metal = '#d8b480', metalHi = '#f2d8aa';
+    const hw = 38, hh = 22, x0 = cx - hw, y0 = cy - hh;
     ctx.save();
-    // 厅地坪（暖木镶边迎宾地垫：覆盖门前站立区，电梯门立面位于实体阻挡墙内，防止人物穿模进入电梯井）
-    rect(x0 - 10, y0 - 6, hw * 2 + 20, hh * 2 + 34, '#785334');
-    rect(x0 - 8, y0 + hh * 2 + 2, hw * 2 + 16, 22, '#8c3d3a');
-    rect(x0 - 6, y0 + hh * 2 + 4, hw * 2 + 12, 18, '#a64b46');
-    rect(x0 - 10, y0 - 6, hw * 2 + 20, 1, '#b5895e');
-    rect(x0 - 10, y0 + hh * 2 + 27, hw * 2 + 20, 1, '#4a311c');
-    // 门框 + 两扇暖黄铜木门 + 中缝 + 顶部高光
-    rect(x0 - 3, y0 - 3, hw * 2 + 6, hh * 2 + 6, '#543820');
-    rect(x0, y0, hw - 1, hh * 2, '#8d929a');
-    rect(x0, y0, hw - 1, hh * 2, metal);
-    rect(x0 + hw + 1, y0, hw - 1, hh * 2, metal);
-    rect(cx - 1, y0, 2, hh * 2, '#5c3d22');
-    rect(x0, y0, hw - 1, 3, metalHi);
-    rect(x0 + hw + 1, y0, hw - 1, 3, metalHi);
-    // 门上木框雕花压线
-    for (let i = 0; i < 2; i++) {
-      rect(x0 + 6 + i * 10, y0 + 8, 6, 2, '#a88252');
-      rect(x0 + hw + 7 + i * 10, y0 + 8, 6, 2, '#a88252');
+    // 轿厢门前金属防滑踏板与迎宾地垫
+    rect(x0 - 10, y0 - 8, hw * 2 + 20, hh * 2 + 34, '#1e293b');
+    rect(x0 - 8, y0 - 6, hw * 2 + 16, hh * 2 + 30, '#334155');
+    rect(x0 - 6, y0 + hh * 2 + 2, hw * 2 + 12, 20, '#0f172a');
+    rect(x0 - 4, y0 + hh * 2 + 4, hw * 2 + 8, 16, '#1e3a5f');
+    for (let sx = x0 - 2; sx < x0 + hw * 2 - 2; sx += 8) {
+      rect(sx, y0 + hh * 2 + 5, 4, 2, '#38bdf8');
     }
-    // 楼层指示（暖木铭牌）
-    rect(cx - 13, y0 - 13, 26, 9, '#3d2614');
-    rect(cx - 13, y0 - 13, 26, 1, '#9c7146');
-    ctx.font = '7px ui-monospace,SFMono-Regular,monospace';
+    // 现代不锈钢电梯门套外框（左上受光高光 + 右下深影）
+    rect(x0 - 5, y0 - 5, hw * 2 + 10, hh * 2 + 8, '#0f172a');
+    rect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 6, '#64748b');
+    rect(x0 - 4, y0 - 4, hw * 2 + 8, 2, '#e2e8f0');
+    rect(x0 - 4, y0 - 4, 2, hh * 2 + 6, '#cbd5e1');
+    // 左右双扇拉丝不锈钢电梯门扇 + 观察视窗 + 金属拉槽
+    const leafW = hw - 1, leafH = hh * 2;
+    rect(x0, y0, leafW, leafH, '#cbd5e1');
+    rect(x0 + hw + 1, y0, leafW, leafH, '#b8c4d4');
+    rect(x0, y0, leafW, 3, '#f8fafc');
+    rect(x0 + hw + 1, y0, leafW, 3, '#f1f5f9');
+    rect(x0, y0 + leafH - 3, leafW, 3, '#64748b');
+    rect(x0 + hw + 1, y0 + leafH - 3, leafW, 3, '#475569');
+    // 电梯门双视窗（浅青钢化玻璃 + 斜向高光，一眼识别为电梯轿厢门）
+    const winW = 14, winH = 18, winY = y0 + 7;
+    const lxWin = x0 + Math.round((leafW - winW) / 2), rxWin = x0 + hw + 1 + Math.round((leafW - winW) / 2);
+    for (const wx of [lxWin, rxWin]) {
+      rect(wx - 1, winY - 1, winW + 2, winH + 2, '#334155');
+      rect(wx, winY, winW, winH, '#38bdf8');
+      rect(wx + 2, winY + 2, 3, winH - 4, '#e0f2fe');
+      rect(wx + 7, winY + 4, 2, winH - 8, '#bae6fd');
+    }
+    // 电梯门中缝与防夹光幕线
+    rect(cx - 1, y0, 2, leafH, '#0f172a');
+    rect(cx, y0 + 2, 1, leafH - 4, active ? '#4ade80' : '#38bdf8');
+    // 电梯顶部 LED 数码楼层显示屏（常驻显示「▲ NF 电梯 ▼」）
+    const ledW = 68, ledH = 14, ledX = cx - ledW / 2, ledY = y0 - 19;
+    rect(ledX - 1, ledY - 1, ledW + 2, ledH + 2, '#475569');
+    rect(ledX, ledY, ledW, ledH, '#090d16');
+    rect(ledX, ledY, ledW, 1, '#94a3b8');
+    ctx.font = 'bold 9px ui-monospace,SFMono-Regular,"PingFang SC",sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = accent;
-    ctx.fillText(`${p.floorId}F`, cx, y0 - 8.5);
-    // 单个呼梯按钮
-    rect(x0 + hw * 2 + 5, cy - 4, 6, 8, '#543820');
-    rect(x0 + hw * 2 + 6, cy - 3, 4, 6, '#ffd86b');
+    ctx.fillStyle = active ? '#4ade80' : '#fbbf24';
+    ctx.fillText(`▲ ${p.floorId}F 电梯 ▼`, cx, ledY + 7.5);
+    // 右侧外呼梯按键面板（上下双指示灯）
+    const panelX = x0 + hw * 2 + 6, panelY = cy - 9;
+    rect(panelX, panelY, 9, 18, '#1e293b');
+    rect(panelX + 1, panelY + 1, 7, 16, '#475569');
+    rect(panelX + 2, panelY + 3, 5, 5, active ? '#4ade80' : '#38bdf8');
+    rect(panelX + 2, panelY + 10, 5, 5, '#fbbf24');
     if (active) {
-      ctx.globalAlpha = .55 + .35 * Math.sin(clock * 4);
-      ctx.strokeStyle = accent; ctx.lineWidth = 2;
-      ctx.strokeRect(x0 - 8, y0 - 6, hw * 2 + 16, hh * 2 + 32);
+      ctx.globalAlpha = .65 + .3 * Math.sin(clock * 4);
+      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2;
+      ctx.strokeRect(x0 - 8, y0 - 7, hw * 2 + 16, hh * 2 + 31);
       ctx.globalAlpha = 1; ctx.lineWidth = 1;
-      const label = 'K 选择楼层';
+      const label = '按 K 乘梯 / 选择楼层';
       ctx.font = 'bold 10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-      const tw = Math.round(ctx.measureText(label).width) + 14, lx = cx - tw / 2, ly = y0 - 31;
-      ctx.fillStyle = 'rgba(42,24,12,.94)'; ctx.fillRect(lx, ly, tw, 16);
+      const tw = Math.round(ctx.measureText(label).width) + 16, lx = cx - tw / 2, ly = ledY - 19;
+      ctx.fillStyle = 'rgba(15,23,42,.94)'; ctx.fillRect(lx, ly, tw, 16);
       ctx.strokeStyle = accent; ctx.lineWidth = 1.5;
       ctx.strokeRect(lx + .5, ly + .5, tw - 1, 15);
-      ctx.fillStyle = '#fff6e5';
+      ctx.fillStyle = '#fff8eb';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(label, cx, ly + 8.5);
     }
@@ -3044,26 +3084,82 @@
   }
   // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
   // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
-  // 幽灵（dev 分支并入）：中性轮廓，不含任何由秘密派生的形状或颜色。
+  // 幽灵（dev 分支并入）：像素风灵体造型升级（4 阶冷蓝紫灵体明暗 + 灵魂光环 + 飘动裙摆 + 发光双眸），不含任何由秘密派生的形状或颜色。
   function ghostSprite(p) {
     const x = Math.round(p.x);
-    const bob = Math.round(Math.sin(clock * 1.7 + p.id) * 1.5);
+    const wave = Math.sin(clock * 2.4 + p.id * 1.3);
+    const bob = Math.round(wave * 2.5);
     const y = Math.round(p.y) + bob;
-    ctx.globalAlpha = p.online === false ? .5 : .8;
-    ctx.fillStyle = p.online === false ? '#b1b3b8' : '#eeeae0';
-    ctx.strokeStyle = '#a8a9af'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(x - 14, y); ctx.lineTo(x - 14, y - 26);
-    ctx.arc(x, y - 26, 14, Math.PI, 0);
-    ctx.lineTo(x + 14, y); ctx.lineTo(x + 7, y - 5); ctx.lineTo(x, y); ctx.lineTo(x - 7, y - 5);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    rect(x - 6, y - 25, 3, 4, '#424957'); rect(x + 3, y - 25, 3, 4, '#424957');
+    const offline = p.online === false;
+    const outC = offline ? '#2d3340' : '#1b2440';
+    const shdC = offline ? '#6c7486' : '#6382b8';
+    const midC = offline ? '#9aa2b2' : '#a8ccf0';
+    const hiC = offline ? '#c8ced9' : '#e6f6ff';
+    const eyeGlow = offline ? '#d8dee9' : '#5ef2ff';
+    ctx.save();
+    // 地面灵体虚影光圈（随浮动高度呼吸缩放）
+    ctx.globalAlpha = offline ? .22 : (.32 - bob * .02);
+    rect(x - 12, Math.round(p.y) + 1, 24, 4, '#1b2440');
+    rect(x - 8, Math.round(p.y) + 2, 16, 2, '#5ef2ff');
+    ctx.globalAlpha = offline ? .52 : .88;
+    // 头顶漂浮灵魂光环与幽火苗
+    const haloOff = Math.round(Math.cos(clock * 3.2 + p.id) * 1.5);
+    const hy = y - 48 + haloOff;
+    rect(x - 7, hy, 14, 2, outC);
+    rect(x - 9, hy + 1, 18, 2, eyeGlow);
+    rect(x - 6, hy + 2, 12, 1, '#ffffff');
+    // 灵体深色像素外轮廓（圆顶兜帽 + 两侧飘袖 + 底部动态波浪尾摆）
+    rect(x - 9, y - 41, 18, 2, outC);
+    rect(x - 12, y - 39, 24, 2, outC);
+    rect(x - 14, y - 37, 28, 4, outC);
+    rect(x - 15, y - 33, 30, 24, outC);
+    // 两侧悬浮小手/灵袖
+    const armY = y - 24 + Math.round(Math.sin(clock * 3.6 + p.id) * 1.5);
+    rect(x - 19, armY, 5, 7, outC); rect(x - 18, armY + 1, 3, 5, midC); rect(x - 18, armY + 1, 2, 2, hiC);
+    rect(x + 14, armY, 5, 7, outC); rect(x + 15, armY + 1, 3, 5, shdC); rect(x + 15, armY + 1, 2, 2, midC);
+    // 灵体主体填充（遵循左上光源：左上高光 hiC → 中间固有色 midC → 右下阴影 shdC）
+    rect(x - 8, y - 39, 16, 2, hiC);
+    rect(x - 11, y - 37, 22, 4, midC);
+    rect(x - 13, y - 33, 26, 22, midC);
+    // 左上受光高光面
+    rect(x - 11, y - 37, 14, 2, hiC);
+    rect(x - 13, y - 35, 9, 16, hiC);
+    rect(x - 10, y - 38, 6, 2, '#ffffff');
+    // 右侧与底部背光体积阴影
+    rect(x + 8, y - 35, 5, 24, shdC);
+    rect(x - 13, y - 14, 26, 4, shdC);
+    // 底部 4 簇像素幽灵波浪尾摆（随相位摆动）
+    const phase = Math.floor((clock * 5 + p.id) % 3);
+    const tails = [-13, -6, 1, 8];
+    for (let i = 0; i < 4; i++) {
+      const tx = x + tails[i];
+      const th = ((i + phase) % 2 === 0) ? 6 : 3;
+      rect(tx - 1, y - 10, 6, th + 1, outC);
+      rect(tx, y - 10, 4, th, i < 2 ? midC : shdC);
+    }
+    // 脸部暗影面罩与发光像素双眸 + 惊叹小嘴
+    rect(x - 9, y - 29, 18, 9, outC);
+    rect(x - 7, y - 27, 4, 5, eyeGlow);
+    rect(x + 3, y - 27, 4, 5, eyeGlow);
+    rect(x - 7, y - 27, 2, 2, '#ffffff');
+    rect(x + 3, y - 27, 2, 2, '#ffffff');
+    // 腮红与灵体小嘴
+    if (!offline) {
+      rect(x - 10, y - 22, 3, 2, '#7ce8ff');
+      rect(x + 7, y - 22, 3, 2, '#7ce8ff');
+    }
+    rect(x - 2, y - 22, 4, 3, outC);
+    rect(x - 1, y - 21, 2, 1, eyeGlow);
     const scareAge = serverTime - (Number(p.scareAt) || 0);
     if (p.visible !== false && scareAge >= 0 && scareAge < 300) {
-      ctx.strokeStyle = '#a8deee'; ctx.beginPath(); ctx.arc(x, y - 20, 19, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = '#7ce8ff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y - 22, 22, 0, Math.PI * 2); ctx.stroke();
     }
-    if (p.id === selectedId || p.id === selfId()) { ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 1; ctx.strokeRect(x - 17, y - 43, 34, 47); }
-    ctx.globalAlpha = 1; ctx.lineWidth = 1;
+    if (p.id === selectedId || p.id === selfId()) {
+      ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(x - 19, y - 45, 38, 48);
+    }
+    ctx.restore();
   }
   // 肿包：只读服务端的 bumps / bumpUntil，到期前 1.5 秒按剩余比例缩小淡出。
   function drawBumps(p, x, yb, a) {
@@ -3154,8 +3250,11 @@
   let labels = [];
   const nameplateMetrics = new Map();
   function nameplateText(p) {
+    const ghostTag = !p.npc && !p.alive ? ' · 幽灵' : '';
+    const selfTag = !p.npc && p.id === selfId() ? ' · 自己' : '';
+    const offTag = !p.npc && p.online === false ? ' · 离线' : '';
     return {
-      name: p.name + (p.npc ? ' · NPC' : p.id === selfId() ? ' · 自己' : p.online === false ? ' · 离线' : ''),
+      name: p.name + (p.npc ? ' · NPC' : `${ghostTag}${selfTag}${offTag}`),
       detail: p.npc ? `${p.cost} 金币 / 私密线索兑换` : p.sid
     };
   }
@@ -3184,12 +3283,12 @@
     }), ...npcs];
   }
   function makeLabels(list) {
-    // 玩家走到建筑物或家具后方时不再隐藏名牌；仅不给已淘汰者生成地图名牌/选中框。
-    labels = list.filter(p => p.alive && p.x >= drawCamX - 40 && p.x <= drawCamX + viewW + 40 &&
+    // 玩家（含已淘汰幽灵）走到建筑物或家具后方时均显示名牌与玩家姓名。
+    labels = list.filter(p => p.x >= drawCamX - 40 && p.x <= drawCamX + viewW + 40 &&
       p.y >= drawCamY - 30 && p.y <= drawCamY + viewH + 30)
       .map(p => {
         const text = nameplateText(p), size = nameplateSize(text);
-        return { x: p.x - size.w / 2, y: p.y + 10, ...size, text, ids: p.npc ? [] : [p.id], p };
+        return { x: p.x - size.w / 2, y: p.y + 10, ...size, text, ids: (p.npc || !p.alive) ? [] : [p.id], p };
       });
   }
   // ---------- 任务7：上半部分后墙（墙带 + 窗户 + 标语展示区，星露谷风） ----------
@@ -3466,25 +3565,23 @@
     const scene = [
       ...(useTMJVisual ? [] : furniture.filter(f2 => near(f2.x, f2.y, f2.w, f2.h, 12, 12)).map(f2 => ({ depth: f2.depth, f: f2 }))),
       ...(useTMJVisual ? furniture.filter(f2 => f2.container && near(f2.x, f2.y, f2.w, f2.h, 12, 12) && f2.y + f2.h > (WORLD.WALL_BASE || 58)).map(f2 => ({ depth: f2.depth, f: f2 })) : []),
-      ...(useTMJVisual ? [] : walls.filter(w => !w.invisible && near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w }))),
+      ...(useTMJVisual ? [] : walls.filter(w => !w.invisible && !w.elevatorHall && near(w.x, w.y, w.w, w.h, 12, 12)).map(w => ({ depth: w.depth, f: w }))),
       ...tmjProps.filter(p => near(p.x * ws, p.y * ws, p.w * ws, p.h * ws, 16, 16) && (p.y + p.h) * ws > (WORLD.WALL_BASE || 58)).map(p => ({ depth: (p.y + p.h) * ws, tmj: p })),
       ...list.filter(p => p.x > camX - 12 && p.x < camX + viewW + 12 && p.y > camY - 25 && p.y < camY + viewH + 30).map(p => ({ depth: p.y, p }))
     ].sort((a, b) => a.depth - b.depth || Number(!!b.f) - Number(!!a.f));
     const readyPromptBadges = [];
     const occludedPlayers = new Set();
+    const selfEntity = list.find(p => !p.npc && p.id === selfId());
     const isOccludingAnyPlayer = f2 => {
-      if (!f2 || f2.northBand) return false;
+      if (!f2 || f2.northBand || !selfEntity) return false;
       const topPad = f2.type === 'wall' ? (f2.style === 'house' ? 14 : Math.min(f2.face || 34, 34)) : 28;
       const fx1 = f2.x - 10, fx2 = f2.x + f2.w + 10, fy1 = f2.y - topPad, fy2 = f2.depth;
-      let hit = false;
-      for (const p of list) {
-        if (!p.alive || p.y >= f2.depth) continue;
-        if (p.x + 18 >= fx1 && p.x - 18 <= fx2 && p.y + 8 >= fy1 && p.y - 72 <= fy2) {
-          occludedPlayers.add(p);
-          hit = true;
-        }
+      if (selfEntity.y >= f2.depth) return false;
+      if (selfEntity.x + 18 >= fx1 && selfEntity.x - 18 <= fx2 && selfEntity.y + 8 >= fy1 && selfEntity.y - 72 <= fy2) {
+        occludedPlayers.add(selfEntity);
+        return true;
       }
-      return hit;
+      return false;
     };
     for (const item of scene) {
       if (item.tmj) {
