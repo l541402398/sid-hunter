@@ -41,6 +41,18 @@ p{margin:0}
 /* 游戏内顶部快捷雕花木牌工具栏（与顶栏合并为单行置顶） */
 .toolbar{pointer-events:none;display:flex;justify-content:flex-end;align-items:center;margin-bottom:0;gap:6px;flex-wrap:nowrap}
 .toolbar-left,.toolbar-right{pointer-events:auto;display:flex;align-items:center;gap:5px;flex-wrap:nowrap;white-space:nowrap;background-color:#2e1b0ee8;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='24' viewBox='0 0 56 24'><path d='M0 12 Q14 4 28 12 T56 12' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.18'/><path d='M10 8 L14 5 L12 10 Z M38 15 L42 12 L40 17 Z' fill='%2343a047' opacity='.24'/></svg>"),linear-gradient(180deg,#362112eb,#22140aeb);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-plaque);padding:3px 6px;box-shadow:inset 0 1px 0 #ffdf9e29;filter:drop-shadow(0 4px 10px rgba(12,6,2,.55))}
+/* 核心情报联动组（下次线索倒计时 ▸ 坏人线索 ▸ 公共日志）：鎏金火漆高亮底座，视觉串联三者 */
+.intel-hub{pointer-events:auto;display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;background:linear-gradient(180deg,#4f260ef5,#2e1306f5);border:2px solid #ffbe4d;border-radius:0;clip-path:var(--clip-plaque);padding:3px 8px;box-shadow:inset 0 0 0 1px #ffdf9e59,0 0 14px rgba(255,168,38,.35);filter:drop-shadow(0 4px 12px rgba(20,6,2,.7))}
+.intel-hub .clue-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border:1.5px solid #f0ad42!important;background:linear-gradient(180deg,#6e3c10,#452306)!important;color:#fff0cc!important;border-radius:0;clip-path:var(--clip-card);font-size:11px;font-weight:700;box-shadow:inset 0 1px 0 #ffe8a34d}
+.intel-hub .clue-chip b{color:#ffd86b;font:800 12px ui-monospace,monospace}
+.intel-hub .intel-link{color:#ffca5c;font-size:11px;font-weight:900;padding:0 1px;text-shadow:0 1px 2px #1a0802;user-select:none}
+.intel-hub .intel-bad-btn{background:linear-gradient(180deg,#d63629,#941b12)!important;border:1.5px solid #ffb84d!important;color:#fff8eb!important;font-weight:800!important;padding:4px 10px!important;box-shadow:inset 0 1px 0 #ffad9e80,0 0 8px rgba(214,54,41,.45)!important}
+.intel-hub .intel-bad-btn:hover:not(:disabled){background:linear-gradient(180deg,#e84335,#ad2218)!important;border-color:#ffe082!important}
+.intel-hub .intel-bad-btn span{color:#fff8eb!important;padding-left:0!important;font:800 11.5px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif!important}
+.intel-hub .intel-bad-btn #bad-toggle-label{color:#ffe299!important;font:700 10.5px ui-monospace,monospace!important;padding-left:4px!important}
+.intel-hub .intel-logs-btn{background:linear-gradient(180deg,#8c4c16,#572d0a)!important;border:1.5px solid #f0ad42!important;color:#fff3d6!important;font-weight:800!important;padding:4px 10px!important}
+.intel-hub .intel-logs-btn:hover:not(:disabled){background:linear-gradient(180deg,#a65b1c,#6b380d)!important;border-color:#ffd479!important}
+.intel-hub .intel-logs-btn[aria-expanded=true]{background:linear-gradient(180deg,#b06219,#733c0c)!important;border-color:#ffd970!important;box-shadow:inset 0 0 0 1px #ffe69980!important}
 .toolbar button{font-size:11px;padding:4px 8px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;background:linear-gradient(180deg,#52341d,#382212);border:1.5px solid #ad8050;border-radius:0;clip-path:var(--clip-card);color:#f7e6c4;box-shadow:inset 0 1px 0 #ffdf9e33;font-weight:600}
 #rules-toggle{padding:4px 7px;min-width:28px;justify-content:center}
 .toolbar button:hover:not(:disabled){background:linear-gradient(180deg,#694326,#4a2d18);border-color:#cfa068;color:#fff8e8}

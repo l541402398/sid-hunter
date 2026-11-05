@@ -3,17 +3,21 @@
 (function () {
   const SID = window.SID = window.SID || {};
   const CHUNK = 256; // 阶段2-阶段1：512→256（世界÷4 后 512 已大于楼层高度 400，会浪费；分块仍是显式 canvas，口径不变）
-  // QA-D14：分块缓存加 LRU 上限。原先 cx:cy 键无上限、跨楼层共享，最多 8×4=32 块≈32MiB 常驻；
-  // 改为只保留与当前相机相交的块 + 少量预取，容量上限 10 块（≈10MiB），超出按 LRU 淘汰。
-  // 被淘汰块后续按世界坐标（cx:cy）确定性重建，图案纯世界坐标 → 视觉无可观察差异；绝不淘汰当前可见块。
-  const CHUNK_CACHE_LIMIT = 10;
-  const chunkCache = new Map(); // key 'cx:cy' → canvas；Map 迭代顺序即 LRU 顺序（队首最旧）
+  // 分块缓存加 LRU 上限：2880×800 楼面在 256×256 分块下整层约 14×6=84 块，单屏视口（1440×900）同时可见约 35 块。
+  // 容量上限设为 96 块（约 24MiB），保证同层行走零淘汰、零重烘焙，彻底消除走动时的主线程卡顿与掉帧；
+  // 跨楼层超出上限时按 LRU 淘汰并主动释放离屏 canvas 显存。
+  const CHUNK_CACHE_LIMIT = 96;
+  const chunkCache = new Map(); // key 'floorId:cx:cy' → canvas；Map 迭代顺序即 LRU 顺序（队首最旧）
   let chunkTotal = 0;
+  function releaseCanvas(c) {
+    if (c) { c.width = 0; c.height = 0; }
+  }
   function pruneChunks(keep) {
     while (chunkTotal > CHUNK_CACHE_LIMIT) {
       let victim = null;
       for (const k of chunkCache.keys()) { if (!keep || !keep.has(k)) { victim = k; break; } }
       if (victim === null) break; // 可见块本身已达上限：保留，不淘汰（宁可多留也不闪空）
+      releaseCanvas(chunkCache.get(victim));
       chunkCache.delete(victim); chunkTotal--;
     }
   }
@@ -52,7 +56,7 @@
     pruneChunks(keep);
   }
   // 楼层切换/资源就绪时需要整层重建：清空缓存并由调用方按当前 floorId 重烘焙。
-  function clear() { chunkCache.clear(); chunkTotal = 0; }
+  function clear() { for (const c of chunkCache.values()) releaseCanvas(c); chunkCache.clear(); chunkTotal = 0; }
   function get(cx, cy, floorId) { return chunkCache.get(floorId + ':' + cx + ':' + cy); }
   SID.chunks = { CHUNK, CHUNK_CACHE_LIMIT, pruneChunks, chunkFor, ensureChunks, get, clear };
 })();

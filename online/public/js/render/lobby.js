@@ -325,7 +325,36 @@
   const bandForDoor = (f, x, y) => bandsOf(f).find(b => x >= b.x && x <= b.x + b.w && Math.abs(y - (b.y + b.h + 22)) <= 20) || null;
   const floorAt = (f, x, y) => { const w = W(); return !!(w && w.inFloor && w.inFloor(f.id, x, y)); };
 
-  function backWall(g, f) {
+  // 离屏烘焙缓存：北墙带（backWall）、楼板外沿（edges）与隔墙/小屋（wall）均为纯静态程序化几何，
+  // 首帧烘焙至离屏 canvas 后每帧仅需一次 drawImage，避免 60Hz 下重复执行数千次 fillRect/clip/stroke。
+  const floorLayerCache = new Map();
+  function getFloorLayer(key, cw, ch, ox, oy, paintFn) {
+    if (floorLayerCache.has(key)) {
+      const entry = floorLayerCache.get(key);
+      floorLayerCache.delete(key);
+      floorLayerCache.set(key, entry);
+      return entry;
+    }
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.ceil(cw));
+    c.height = Math.max(1, Math.ceil(ch));
+    const cg = c.getContext('2d');
+    cg.imageSmoothingEnabled = false;
+    cg.translate(-ox, -oy);
+    paintFn(cg);
+    const entry = { c, ox, oy };
+    floorLayerCache.set(key, entry);
+    // 最多保留最近 3 层的大尺寸背景层，换层淘汰时立即释放离屏 canvas 显存
+    while (floorLayerCache.size > 6) {
+      const oldestKey = floorLayerCache.keys().next().value;
+      const old = floorLayerCache.get(oldestKey);
+      if (old && old.c) { old.c.width = 0; old.c.height = 0; }
+      floorLayerCache.delete(oldestKey);
+    }
+    return entry;
+  }
+
+  function paintBackWall(g, f) {
     const th = themeOf(f.id), P = wallPal(th), H = f.wallBase || 58;
     const rooms = roomsOn(f.id);
     for (const b of bandsOf(f)) {
@@ -358,7 +387,18 @@
     return true;
   }
 
-  function wall(g, wl) {
+  function backWall(g, f) {
+    if (typeof document !== 'undefined' && f && f.id) {
+      const ox = -16, oy = -64;
+      const cw = (f.width || 2880) + 32, ch = (f.height || 800) + (f.wallBase || 58) + 80;
+      const layer = getFloorLayer('bw:' + f.id, cw, ch, ox, oy, cg => paintBackWall(cg, f));
+      g.drawImage(layer.c, layer.ox, layer.oy);
+      return true;
+    }
+    return paintBackWall(g, f);
+  }
+
+  function paintWall(g, wl) {
     if (wl.northBand || wl.elevatorHall) return true;
     const fid = guessFloor(wl), th = themeOf(fid), P = wallPal(th);
     if (wl.style === 'fence' || wl.style === 'hedge' || wl.style === 'glass') return lowWall(g, wl, th);
@@ -384,6 +424,27 @@
       R(g, x, capBot, w, 2, P.capLo);
     }
     return true;
+  }
+
+  function wall(g, wl) {
+    if (wl.northBand || wl.elevatorHall) return true;
+    if (typeof document !== 'undefined' && wl && typeof wl === 'object') {
+      if (!wl._wallSprite) {
+        const padL = 40, padR = 40, padT = Math.max(wl.face || 34, 48) + 36, padB = 20;
+        const ox = Math.floor(wl.x) - padL, oy = Math.floor(wl.y) - padT;
+        const cw = Math.ceil(wl.w) + padL + padR, ch = Math.ceil(wl.h) + padT + padB;
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, cw); c.height = Math.max(1, ch);
+        const cg = c.getContext('2d');
+        cg.imageSmoothingEnabled = false;
+        cg.translate(-ox, -oy);
+        paintWall(cg, wl);
+        wl._wallSprite = { c, ox, oy };
+      }
+      g.drawImage(wl._wallSprite.c, wl._wallSprite.ox, wl._wallSprite.oy);
+      return true;
+    }
+    return paintWall(g, wl);
   }
   // ---------- 矮隔断：木栅栏 / 绿篱 / 玻璃护栏（高度 = wl.face，默认 28） ----------
   function lowWall(g, wl, th) {
@@ -501,22 +562,14 @@
   // 墙对象不带 floorId：按 id 前缀 f<N>: 解析
   function guessFloor(wl) { const m = /^f(\d+):/.exec(wl.id || ''); return m ? Number(m[1]) : 1; }
 
-  function edges(g, f) {
+  function paintEdges(g, f) {
     const th = themeOf(f.id), P = wallPal(th), poly = f.polygon;
     const path = () => { g.beginPath(); poly.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath(); };
     g.save();
     g.beginPath(); g.rect(-560, -280, f.width + 1120, f.height + 560); poly.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath();
     g.clip('evenodd'); g.lineJoin = 'miter';
     if (th.exterior) {
-      // 轮廓外的「室外景」（海面 / 天空 / 庭院草坪…）：首帧烘焙到离屏画布，之后每帧一次 drawImage。
-      const key = '__ext' + f.id;
-      if (!API[key]) {
-        const c = document.createElement('canvas'); c.width = f.width + 1120; c.height = f.height + 560;
-        const cg = c.getContext('2d'); cg.imageSmoothingEnabled = false; cg.translate(560, 280);
-        th.exterior(cg, f, API, { x: -560, y: -280, w: f.width + 1120, h: f.height + 560 });
-        API[key] = c;
-      }
-      g.drawImage(API[key], -560, -280);
+      th.exterior(g, f, API, { x: -560, y: -280, w: f.width + 1120, h: f.height + 560 });
     }
     path(); g.lineWidth = 28; g.strokeStyle = P.capLo; g.stroke();
     path(); g.lineWidth = 22; g.strokeStyle = P.cap; g.stroke();
@@ -525,6 +578,17 @@
     g.restore();
     g.save(); path(); g.clip(); path(); g.lineWidth = 12; g.strokeStyle = 'rgba(50,25,10,0.22)'; g.stroke(); g.restore();
     return true;
+  }
+
+  function edges(g, f) {
+    if (typeof document !== 'undefined' && f && f.id) {
+      const ox = -560, oy = -280;
+      const cw = (f.width || 2880) + 1120, ch = (f.height || 800) + 560;
+      const layer = getFloorLayer('ed:' + f.id, cw, ch, ox, oy, cg => paintEdges(cg, f));
+      g.drawImage(layer.c, layer.ox, layer.oy);
+      return true;
+    }
+    return paintEdges(g, f);
   }
 
   // ---------- 通用陈设（f.x/f.y = 落地矩形左上；by = 落地线） ----------

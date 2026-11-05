@@ -171,11 +171,13 @@ await test('好人两蓝、坏人两红，确认按钮随技能类型配色，�
   assert.ok(css.includes('dialog.private-dialog .skill-blue{'));
   assert.ok(css.includes('dialog.private-dialog .skill-red{'));
 });
-await test('坏人线索入口在日志下方且唯一、固定三列不自动拉伸', () => {
+await test('坏人线索入口独立位于顶部核心情报联动区且唯一、固定三列不自动拉伸', () => {
   const html = readFileSync(new URL('./public/index.html', import.meta.url), 'utf8');
   assert.equal((html.match(/id="bad-toggle"/g)||[]).length, 1);
   const logs = html.slice(html.indexOf('<aside id="logs"'), html.indexOf('</aside>', html.indexOf('<aside id="logs"')));
-  assert.ok(logs.indexOf('id="bad-toggle"') > logs.indexOf('id="log-items"'));
+  assert.equal(logs.indexOf('id="bad-toggle"'), -1);
+  const hub = html.slice(html.indexOf('id="intel-hub"'), html.indexOf('<aside id="logs"'));
+  assert.ok(hub.indexOf('id="clue-next"') !== -1 && hub.indexOf('id="bad-toggle"') !== -1 && hub.indexOf('id="logs-toggle"') !== -1);
   const css = readFileSync(new URL('./public/styles/badpool.css', import.meta.url), 'utf8');
   assert.match(css,/grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.ok(!css.includes('auto-fit')); assert.match(css,/\.log-clues-entry\{flex:none/);

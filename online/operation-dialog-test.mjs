@@ -58,7 +58,7 @@ try{
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.no(Error(m.error.message)):p.ok(m.result);}if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails);};
  const send=(method,params={})=>new Promise((ok,no)=>{const id=++seq,t=setTimeout(()=>{pending.delete(id);no(Error('CDP timeout '+method));},10000);pending.set(id,{ok:r=>{clearTimeout(t);ok(r);},no:e=>{clearTimeout(t);no(e);}});ws.send(JSON.stringify({id,method,params}));});
  const ev=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
- const click=async selector=>{const p=await ev(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing element');e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);for(const type of ['mousePressed','mouseReleased'])await send('Input.dispatchMouseEvent',{type,...p,button:'left',clickCount:1});};
+ const click=async selector=>{const p=await ev(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing element');e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);for(const type of ['mousePressed','mouseReleased'])await send('Input.dispatchKeyEvent',{type:'keyUp',key:'',code:'',windowsVirtualKeyCode:0}).catch(()=>{}),await send('Input.dispatchMouseEvent',{type,...p,button:'left',clickCount:1});};
  const down=(key,code,vk)=>send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk});
  const up=(key,code,vk)=>send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk});
  const tap=async(key,code,vk)=>{await down(key,code,vk);await up(key,code,vk);};
@@ -67,9 +67,9 @@ try{
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
  await send('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('sid_session_token',${JSON.stringify(self.sessionToken)});window.calls=[];const raw=window.fetch;window.fetch=async function(url,options){const r=await raw(url,options);if(['/api/input','/api/action','/api/attack','/api/skill','/api/interact'].includes(String(url)))window.calls.push({url:String(url),body:options?.body,result:await r.clone().json()});return r;};`});
  await send('Page.navigate',{url:base+'/'});await until(()=>ev("document.readyState==='complete'&&document.getElementById('join-page').hidden&&document.getElementById('roster-count').textContent==='2'"),'game joined');
- await test('坏人线索入口位于公共日志下方且唯一，匿名池居中',async()=>{
-  assert.equal(await ev("document.getElementById('logs').contains(document.getElementById('bad-toggle'))"),true);
-  assert.ok(await ev("document.getElementById('bad-toggle').getBoundingClientRect().top>=document.getElementById('log-items').getBoundingClientRect().bottom"));
+ await test('坏人线索入口位于顶部情报联动区且唯一，匿名池居中',async()=>{
+  assert.equal(await ev("document.getElementById('intel-hub').contains(document.getElementById('bad-toggle'))"),true);
+  assert.equal(await ev("document.getElementById('logs').contains(document.getElementById('bad-toggle'))"),false);
   assert.equal(await ev("document.querySelectorAll('#bad-toggle').length"),1);
   await click('#bad-toggle');await centered('bad-pool-dialog');
   assert.ok(await ev("document.querySelectorAll('#bad-slots .bad-slot').length===1"));await tap('Escape','Escape',27);

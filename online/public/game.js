@@ -77,7 +77,7 @@
     for (const p of players) {
       if (p.floorId !== floorId || (p.zoneId || null) !== target) continue;
       const seed = (p.id === selfId() && position) ? position : { x: p.x, y: p.y };
-      renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false });
+      renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false, floorId: p.floorId, zoneId: p.zoneId || null });
     }
     closeExploration(); closeLoot(); closeElevatorPicker();
     $('candidates').hidden = true; $('candidates').replaceChildren();
@@ -193,7 +193,9 @@
   let pendingRequestId = 0;
   const expandedPendingGroups = new Set(); // 本页独立保存各组折叠态，名单更新不重置。
   const confirmedDigests = new Set(); // 只有服务端 ACK 成功后才登记
-  let lastTargetSig = '', lastLogSig = '', lastRosterSig = '';
+  let lastTargetSig = '', lastLogSig = '', lastRosterSig = '', lastOccludersKey = '';
+  let prevLogCount = 0, unreadLogCount = 0, logsStickToBottom = true;
+  let lastHudSelfX = NaN, lastHudSelfY = NaN;
   const offlineEvents = new Set();
   const renderMap = new Map();
   const keys = new Set();
@@ -499,8 +501,24 @@
         adoptZone(authZone, authoritative ? { x: authoritative.x, y: authoritative.y } : null);
       }
     }
-    occluders = zoneId ? WORLD.roomBlockers(zoneId) : WORLD.floorBlockers(floorId, glassDoorStates);
-    for (const p of players) if (!renderMap.has(p.id)) renderMap.set(p.id, { x: p.x, y: p.y, walk: 0, moving: false });
+    const occKey = zoneId ? `room:${zoneId}` : `floor:${floorId}:${(s.glassDoors || []).map(d => `${d.id}=${d.open ? 1 : 0}`).join(',')}`;
+    if (occKey !== lastOccludersKey) {
+      lastOccludersKey = occKey;
+      occluders = zoneId ? WORLD.roomBlockers(zoneId) : WORLD.floorBlockers(floorId, glassDoorStates);
+    }
+    const activePlayerIds = new Set();
+    for (const p of players) {
+      activePlayerIds.add(p.id);
+      const prev = renderMap.get(p.id);
+      const pZone = p.zoneId || null;
+      // 跨层、进出房间、迷雾视野重入或后台恢复大跨度跳变时直接对齐权威位置，杜绝人物横穿地图"瞬移/拉扯"
+      if (!prev || prev.floorId !== p.floorId || prev.zoneId !== pZone || Math.hypot(p.x - prev.x, p.y - prev.y) > 180) {
+        renderMap.set(p.id, { x: p.x, y: p.y, walk: prev ? prev.walk : 0, moving: false, floorId: p.floorId, zoneId: pZone });
+      }
+    }
+    for (const id of renderMap.keys()) {
+      if (!activePlayerIds.has(id)) renderMap.delete(id);
+    }
     if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
     renderPublic();
     syncTarget();
@@ -594,21 +612,63 @@
       .some(suffix => entry.text.startsWith(me.name + suffix));
     return ownLegacy ? 'log-mine' : '';
   }
+  function isLogsAtBottom(list) {
+    if (!list || typeof list.scrollHeight !== 'number' || typeof list.clientHeight !== 'number') return false;
+    const host = $('logs');
+    if (host && host !== list && host.hidden) return typeof logsStickToBottom === 'boolean' ? logsStickToBottom : true;
+    if (list.scrollHeight <= list.clientHeight) return true;
+    return list.scrollHeight - list.scrollTop - list.clientHeight <= 28;
+  }
+  function syncLogsScrollButton() {
+    const list = $('log-items'), btn = $('logs-scroll-bottom'), host = $('logs');
+    if (!list || !btn || btn === list) return;
+    const atBottom = (!host || host === list || !host.hidden) ? isLogsAtBottom(list) : (typeof logsStickToBottom === 'boolean' ? logsStickToBottom : true);
+    if (typeof logsStickToBottom === 'boolean') logsStickToBottom = atBottom;
+    if (atBottom && typeof unreadLogCount === 'number') unreadLogCount = 0;
+    btn.hidden = atBottom || logs.length === 0;
+    if (!btn.hidden) {
+      const unread = typeof unreadLogCount === 'number' ? unreadLogCount : 0;
+      btn.textContent = unread > 0 ? `↓ 回到最新底部（${unread}条新动态）` : '↓ 回到最新底部';
+    }
+  }
+  function scrollLogsToBottom() {
+    const list = $('log-items');
+    if (!list) return;
+    if (typeof list.scrollHeight === 'number') list.scrollTop = list.scrollHeight;
+    if (typeof logsStickToBottom === 'boolean') logsStickToBottom = true;
+    if (typeof unreadLogCount === 'number') unreadLogCount = 0;
+    syncLogsScrollButton();
+  }
   function renderLogs() {
     const mine = me ? [me.id, me.name] : null;
     $('log-count').textContent = logs.length;
     // 常驻栏只在公开日志或本人标记变化时更新，避免20Hz刷新打断阅读与滚动。
     const sig = JSON.stringify([mine, logs]);
     if (sig === lastLogSig) return;
+    const hadPreviousRender = !!lastLogSig;
     lastLogSig = sig;
     const list = $('log-items');
-    const scrollTop = list.scrollTop;
+    const hasScrollLayout = list && typeof list.scrollHeight === 'number' && typeof list.clientHeight === 'number';
+    const wasAtBottom = hasScrollLayout && (!hadPreviousRender || isLogsAtBottom(list));
+    const prevScrollTop = list.scrollTop;
+    const prevCount = typeof prevLogCount === 'number' ? prevLogCount : 0;
+    const addedCount = Math.max(0, logs.length - prevCount);
+    if (typeof prevLogCount === 'number') prevLogCount = logs.length;
+    // 公共日志按时间正序从上往下排列，最新事件始终位于最底部。
+    const chronological = logs.slice().reverse();
     // 涉及自己的条目仅对自己高亮：不新增任何信息，只是把已有的公开条目标出来。
-    list.innerHTML = logs.length ? logs.map(l => {
+    list.innerHTML = chronological.length ? chronological.map(l => {
       const highlight = logHighlightClass(l);
       return `<li${highlight ? ` class="${highlight}"` : ''}><time>${escapeText(l.time)}</time>${highlight === 'log-mine' ? '<span class="log-event-tag">与你有关</span>' : highlight === 'log-system-clue' ? '<span class="log-event-tag">系统线索</span>' : ''}<p>${escapeText(l.text).replace(/[A-Z0-9*]{3}-[A-Z0-9*]{3}-[A-Z0-9*]{3}/g, sidHTML)}</p></li>`;
     }).join('') : '<li class="log-empty"><p>暂无公共事件</p></li>';
-    list.scrollTop = scrollTop;
+    if (hasScrollLayout && wasAtBottom) {
+      list.scrollTop = list.scrollHeight;
+      if (typeof unreadLogCount === 'number') unreadLogCount = 0;
+    } else {
+      list.scrollTop = prevScrollTop;
+      if (typeof unreadLogCount === 'number') unreadLogCount += addedCount;
+    }
+    syncLogsScrollButton();
   }
   function renderPublic() {
     $('alive-count').textContent = aliveCount;
@@ -889,7 +949,8 @@
     badSlots = []; badPoolAvailable = false; lastBadPoolSig = '';
     $('bad-slots').hidden = true; $('bad-toggle').setAttribute('aria-expanded', 'false');
     $('bad-toggle-label').textContent = '展开＋'; renderBadPool();
-    renderMap.clear(); offlineEvents.clear(); confirmedDigests.clear(); lastRosterSig = lastTargetSig = lastLogSig = '';
+    renderMap.clear(); offlineEvents.clear(); confirmedDigests.clear(); lastRosterSig = lastTargetSig = lastLogSig = lastOccludersKey = '';
+    prevLogCount = 0; unreadLogCount = 0; logsStickToBottom = true; lastHudSelfX = NaN; lastHudSelfY = NaN;
     $('target').replaceChildren(); $('target').hidden = true;
     $('candidates').replaceChildren(); $('candidates').hidden = true;
     $('offline-summary').replaceChildren(); $('offline-summary').hidden = true;
@@ -1525,7 +1586,20 @@
   function syncNextClue() {
     const chip = $('clue-next'), label = $('clue-next-left'), at = $('clue-next-at');
     if (!chip || !label) return;
-    if (!nextClueAt || finished) { chip.hidden = true; lastClueBatchSig = ''; return; }
+    // 核心情报联动区常驻展示「下次线索 ▸ 坏人线索 ▸ 公共日志」：未开启/已结束时显示对应状态文案，保持三者视觉串联。
+    chip.hidden = false;
+    if (finished) {
+      label.textContent = '已结束';
+      if (at) at.textContent = '';
+      lastClueBatchSig = '';
+      return;
+    }
+    if (!nextClueAt) {
+      label.textContent = '待开启';
+      if (at) at.textContent = '';
+      lastClueBatchSig = '';
+      return;
+    }
     const left = nextClueAt - serverNow();
     if (left <= 0) { label.textContent = '即将公布'; }
     else {
@@ -1536,7 +1610,6 @@
       // 绝对钟点按北京时间显示（与服务端日志同一时区），避免本机时区不同时对不上。
       at.textContent = new Date(nextClueAt).toLocaleTimeString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
     }
-    chip.hidden = false;
     // 系统线索条目变化 = 刚刚公布过一轮；给胶囊一次高亮，让玩家知道倒计时被重置了。
     const batchSig = String(logs.filter(l => l.type === 'systemClue').length) + '|' + (logs.find(l => l.type === 'systemClue')?.time || '');
     if (lastClueBatchSig && batchSig !== lastClueBatchSig) {
@@ -2126,7 +2199,7 @@
     for (const p of players) {
       if (p.floorId !== id) continue;
       const seed = (p.id === selfId() && position) ? position : { x: p.x, y: p.y };
-      renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false });
+      renderMap.set(p.id, { x: seed.x, y: seed.y, walk: 0, moving: false, floorId: p.floorId, zoneId: p.zoneId || null });
     }
     // 属于源层的即时面板与选择一次性清空，避免残留指向旧层。
     closeExploration(); closeGames(); closeWheel(); closeElevatorPicker();
@@ -3255,7 +3328,7 @@
     const offTag = !p.npc && p.online === false ? ' · 离线' : '';
     return {
       name: p.name + (p.npc ? ' · NPC' : `${ghostTag}${selfTag}${offTag}`),
-      detail: p.npc ? `${p.cost} 金币 / 私密线索兑换` : p.sid
+      detail: p.npc ? '商店' : p.sid
     };
   }
   function nameplateSize(text) {
@@ -3437,11 +3510,12 @@
   // 需求①：楼层上的房间门（门牌 + 地面光垫 + 可进入时的呼吸描边）
   function drawRoomDoors() {
     const self = selfPlayer();
+    const canEnter = !!(self && self.alive !== false && me && me.alive !== false && !finished);
     const t = performance.now() / 1000;
     const lobbyFloor = WORLD.floorById(floorId);
     if (lobbyFloor && lobbyFloor.lobby && window.SID_LOBBY) {
       // 1F 试点：门已嵌在墙里（由墙体绘制），这里只画门垫与可进入提示。
-      for (const room of zoneRooms) window.SID_LOBBY.doorMat(ctx, room, !!(self && Math.hypot(self.x - room.door.x, self.y - room.door.y) <= WORLD.ROOM_ENTER_PAD), t);
+      for (const room of zoneRooms) window.SID_LOBBY.doorMat(ctx, room, canEnter && Math.hypot(self.x - room.door.x, self.y - room.door.y) <= WORLD.ROOM_ENTER_PAD, t);
       return;
     }
     for (const room of zoneRooms) {
@@ -3471,7 +3545,7 @@
       ctx.font = 'bold 10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(room.name.length > 7 ? room.name.slice(0, 7) + '…' : room.name, x, y - 54);
-      if (self && Math.hypot(self.x - x, self.y - y) <= WORLD.ROOM_ENTER_PAD) {
+      if (canEnter && Math.hypot(self.x - x, self.y - y) <= WORLD.ROOM_ENTER_PAD) {
         const a = 0.50 + 0.35 * Math.sin(t * 4);
         ctx.strokeStyle = `rgba(255,218,110,${a.toFixed(3)})`; ctx.lineWidth = 2;
         ctx.strokeRect(x - 25, y - 11, 50, 22);
@@ -3727,7 +3801,7 @@
   // ---------- 插值与镜头 ----------
   function step(dt) {
     clock += dt;
-    const k = Math.min(1, dt * 12);
+    const k = 1 - Math.exp(-16 * dt);
     for (const p of players) {
       const r = renderMap.get(p.id); if (!r) continue;
       const dx = p.x - r.x, dy = p.y - r.y;
@@ -3773,9 +3847,16 @@
   }
   let lastNow = performance.now();
   function frame(now) {
-    step(Math.max(0, Math.min(.05, (now - lastNow) / 1000)));
+    step(Math.max(0, Math.min(0.2, (now - lastNow) / 1000)));
     lastNow = now;
-    draw(); updateExplorationHUD();
+    draw();
+    const selfR = selfPlayer() ? renderMap.get(selfId()) : null;
+    if (selfR) {
+      if (isNaN(lastHudSelfX) || Math.hypot(selfR.x - lastHudSelfX, selfR.y - lastHudSelfY) >= 2) {
+        lastHudSelfX = selfR.x; lastHudSelfY = selfR.y;
+        updateExplorationHUD();
+      }
+    }
     requestAnimationFrame(frame);
   }
 
@@ -3961,9 +4042,15 @@
     const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : host.hidden;
     host.hidden = !nextOpen;
     if (btn) btn.setAttribute('aria-expanded', String(nextOpen));
+    if (nextOpen) {
+      if (logsStickToBottom) scrollLogsToBottom();
+      else syncLogsScrollButton();
+    }
   }
   if ($('logs-toggle')) $('logs-toggle').onclick = () => toggleLogs();
   if ($('logs-close')) $('logs-close').onclick = () => toggleLogs(false);
+  if ($('log-items')) $('log-items').addEventListener('scroll', syncLogsScrollButton, { passive: true });
+  if ($('logs-scroll-bottom')) $('logs-scroll-bottom').onclick = () => scrollLogsToBottom();
   function syncFullscreenButton() {
     const btn = $('fullscreen-toggle');
     if (!btn) return;
@@ -4142,6 +4229,8 @@
         else closeBadPool();
       } else if (e.code === 'KeyE' && explorationPanel && !isTyping()) {
         e.preventDefault(); if (!e.repeat) closeExploration();
+      } else if (e.code === 'KeyC' && $('bad-pool-dialog')?.open && !isTyping()) {
+        e.preventDefault(); if (!e.repeat) closeBadPool();
       } else if (!isTyping() && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyJ','KeyK','KeyE'].includes(e.code)) {
         e.preventDefault();
       }

@@ -138,16 +138,16 @@ function parseZipEntries(buf) {
 function parseSharedStrings(xml) {
   if (!xml) return [];
   const out = [];
-  const siRegex = /<si\b[^>]*>([\s\S]*?)<\/si>/g;
+  const siRegex = /<si\b([^>]*?)(?:\/>|(?<!\/)>([\s\S]*?)<\/si>)/g;
   let m;
   while ((m = siRegex.exec(xml)) !== null) {
     // 剔除拼音注音 <rPh>...</rPh>
-    const inner = m[1].replace(/<rPh\b[^>]*>[\s\S]*?<\/rPh>/g, '');
+    const inner = (m[2] || '').replace(/<rPh\b[^>]*>[\s\S]*?<\/rPh>/g, '');
     const parts = [];
-    const tRegex = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+    const tRegex = /<t\b([^>]*?)(?:\/>|(?<!\/)>([\s\S]*?)<\/t>)/g;
     let tm;
     while ((tm = tRegex.exec(inner)) !== null) {
-      parts.push(decodeXmlEntities(tm[1]));
+      if (tm[2] !== undefined) parts.push(decodeXmlEntities(tm[2]));
     }
     out.push(parts.join(''));
   }
@@ -169,7 +169,7 @@ function parseStyleFormats(xml) {
   }
   const cellXfsMatch = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml);
   if (cellXfsMatch) {
-    const xfRegex = /<xf\b([^>]*)(?:\/>|>[\s\S]*?<\/xf>)/g;
+    const xfRegex = /<xf\b([^>]*?)(?:\/>|(?<!\/)>[\s\S]*?<\/xf>)/g;
     let xm;
     while ((xm = xfRegex.exec(cellXfsMatch[1])) !== null) {
       const idMatch = /\bnumFmtId="(\d+)"/.exec(xm[1]);
@@ -200,13 +200,14 @@ function colRefToIndex(ref) {
 
 function parseWorksheetRows(xml, sharedStrings, styles) {
   const rows = [];
-  const rowRegex = /<row\b[^>]*>([\s\S]*?)<\/row>/g;
+  const rowRegex = /<row\b([^>]*?)(?:\/>|(?<!\/)>([\s\S]*?)<\/row>)/g;
   let rm;
   while ((rm = rowRegex.exec(xml)) !== null) {
-    const rowContent = rm[1];
+    const rowContent = rm[2] || '';
+    if (!rowContent) continue;
     const rowArr = [];
     let nextCol = 0;
-    const cellRegex = /<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    const cellRegex = /<c\b([^>]*?)(?:\/>|(?<!\/)>([\s\S]*?)<\/c>)/g;
     let cm;
     while ((cm = cellRegex.exec(rowContent)) !== null) {
       const attrs = cm[1] || '';
@@ -222,13 +223,15 @@ function parseWorksheetRows(xml, sharedStrings, styles) {
       let value = '';
       if (cellType === 'inlineStr') {
         const parts = [];
-        const tRegex = /<t\b[^>]*>([\s\S]*?)<\/t>/g;
+        const tRegex = /<t\b([^>]*?)(?:\/>|(?<!\/)>([\s\S]*?)<\/t>)/g;
         let tm;
-        while ((tm = tRegex.exec(inner)) !== null) parts.push(decodeXmlEntities(tm[1]));
+        while ((tm = tRegex.exec(inner)) !== null) {
+          if (tm[2] !== undefined) parts.push(decodeXmlEntities(tm[2]));
+        }
         value = parts.join('');
       } else {
-        const vMatch = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(inner);
-        const rawVal = vMatch ? decodeXmlEntities(vMatch[1]) : '';
+        const vMatch = /<v\b([^>]*?)(?:\/>|(?<!\/)>([\s\S]*?)<\/v>)/.exec(inner);
+        const rawVal = (vMatch && vMatch[2] !== undefined) ? decodeXmlEntities(vMatch[2]) : '';
         if (cellType === 's') {
           const sIdx = Number(rawVal);
           value = Number.isInteger(sIdx) && sIdx >= 0 && sIdx < sharedStrings.length ? sharedStrings[sIdx] : '';
@@ -315,13 +318,19 @@ function normalizeStatus(raw) {
   return null;
 }
 
+function toHalfWidth(str) {
+  return String(str ?? '').replace(/[\uFF01-\uFF5E]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+}
+
 function normalizeAnswerForType(type, rawAnswer, validOptionKeys) {
-  const raw = String(rawAnswer ?? '').trim();
+  const raw = toHalfWidth(rawAnswer)
+    .trim()
+    .replace(/^["'“”‘’「」『』【】()（）\s]+|["'“”‘’「」『』【】()（）。.\s]+$/g, '');
   if (!raw) return null;
   if (type === 'judge') {
     const upper = raw.toUpperCase();
-    if (['正确', '对', '是', 'T', 'TRUE', '1', 'YES', 'Y', '√', '✓', 'A'].includes(upper)) return 'T';
-    if (['错误', '错', '否', 'F', 'FALSE', '0', 'NO', 'N', '×', '✕', 'B'].includes(upper)) return 'F';
+    if (['正确', '对', '是', 'T', 'TRUE', '1', 'YES', 'Y', '√', '✓', '✔', '真', 'A'].includes(upper)) return 'T';
+    if (['错误', '错', '否', 'F', 'FALSE', '0', 'NO', 'N', '×', '✕', '✗', '✘', '假', 'B'].includes(upper)) return 'F';
     return null;
   }
   if (type === 'single') {
@@ -422,9 +431,16 @@ function rowsToQuizQuestions(rows) {
     }
 
     const validKeys = options.map(o => o.key);
-    const answer = normalizeAnswerForType(type, rawAnswer, validKeys);
+    let effectiveAnswer = rawAnswer;
+    if (!effectiveAnswer && type === 'judge') {
+      const optCandidates = ['optA', 'optB', 'optC', 'optD'].map(get).filter(Boolean);
+      if (optCandidates.length === 1 && normalizeAnswerForType('judge', optCandidates[0], validKeys)) {
+        effectiveAnswer = optCandidates[0];
+      }
+    }
+    const answer = normalizeAnswerForType(type, effectiveAnswer, validKeys);
     if (!answer) {
-      throw new Error(`${rowLabel}：正确答案「${rawAnswer || '空'}」与题型/选项不匹配`);
+      throw new Error(`${rowLabel}：正确答案「${effectiveAnswer || '空'}」与题型/选项不匹配`);
     }
 
     const st = normalizeStatus(rawStatus);
@@ -495,6 +511,7 @@ const colLetter = i => {
 function buildWorksheetXml(rows, widths) {
   const data = rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => {
     const attr = `r="${colLetter(c)}${r + 1}" s="${r === 0 ? 1 : 0}"`;
+    if (v === '' || v === null || v === undefined) return `<c ${attr}/>`;
     return `<c ${attr} t="inlineStr"><is><t xml:space="preserve">${escXml(v)}</t></is></c>`;
   }).join('')}</row>`).join('');
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="${NS}"><dimension ref="A1:${colLetter(rows[0].length - 1)}${rows.length}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols><sheetData>${data}</sheetData><autoFilter ref="A1:${colLetter(rows[0].length - 1)}${rows.length}"/></worksheet>`;
