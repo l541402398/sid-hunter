@@ -154,6 +154,6 @@
     match = res.match; renderBoard();
   }
 
-  build();
+  // 需求1：本期不开放小游戏入口，不自动向页面挂载悬浮按钮。
   SID.minigame = { open, close, get match() { return match; }, get mode() { return mode; } };
 })();

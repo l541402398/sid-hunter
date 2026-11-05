@@ -48,12 +48,9 @@
 <!-- F1 碰撞调试层：只读 TMJ/旧碰撞，不参与权威移动；必须在 game.js 之前挂到 window.SID -->
 <script src="js/render/tmj-debug.js" defer></script>
 <script src="js/render/tmj-visual.js" defer></script>
-<!-- 需求③：搜打撤物品格（16×16 像素图标 + 逐格揭示面板），必须先于 game.js -->
+<!-- 需求4/5：容器探索面板（空 / 直接得金币 / 答题得金币），必须先于 game.js -->
 <script src="js/search/loot-icons.js" defer></script>
 <script src="js/search/loot-grid.js" defer></script>
-<!-- 小游戏：坦克对决（独立脚本，插件式挂载） -->
-<script src="js/minigame/tank-ui.js" defer></script>
-<script src="js/minigame/spire-ui.js" defer></script>
 <script src="game.js" defer></script>
 </head>
 <body>
@@ -69,7 +66,7 @@
       </div>
       <div class="toolbar" aria-label="公共功能">
         <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P" hidden>待加入玩家 <span id="pending-count">—</span></button><button id="rules-toggle" class="icon-only-btn" aria-label="图解游戏规则" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="图解游戏规则（快捷键 H）"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
-        <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的分数">分数 <b id="score-value">0</b></span><button id="clue-bag" aria-label="打开或关闭私密线索背包" aria-controls="exploration" aria-expanded="false" title="快捷键 B">🎒 线索背包</button><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="logs-toggle" type="button" aria-label="打开或关闭公共日志" aria-controls="logs" aria-expanded="true" title="快捷键 G">📜 公共日志</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)">⛶ 全屏</button></div>
+        <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="clue-bag" class="score-chip" title="我的今日金币（每日清零）">金币 <b id="chip-count">0</b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="logs-toggle" type="button" aria-label="打开或关闭公共日志" aria-controls="logs" aria-expanded="true" title="快捷键 G">📜 公共日志</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)">⛶ 全屏</button></div>
       </div>
     </div>
     <div class="map-view" id="map-view">
@@ -78,7 +75,7 @@
       <div class="exploration-hud" aria-label="就近互动"><p id="cover-status" hidden></p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty" hidden></p><div class="combat-hud"><button id="attack-button" type="button" hidden>J 敲</button><p id="self-combat-state" class="self-combat-state" hidden aria-live="polite"></p><span class="combat-note" hidden></span></div></div>
       <!-- 第二轮：限时 buff 条（疾行 / 护体 / 专注），由服务端剩余毫秒驱动 -->
       <div id="buff-bar" class="buff-bar" hidden aria-live="polite"></div>
-      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> 移动 <i>·</i> 点击角色查档案 <i>·</i> <kbd>J</kbd> 敲 <i>·</i> <kbd>K</kbd> 交互/乘梯 <i>·</i> <kbd>B</kbd> 背包 <i>·</i> <kbd>L</kbd> 排行榜 <i>·</i> <kbd>R</kbd> 名单 <i>·</i> <kbd>M</kbd> 档案 <i>·</i> <kbd>G</kbd> 日志 <i>·</i> <kbd>H</kbd> 规则 <i>·</i> <kbd>Esc</kbd> 退出全屏/关闭</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
+      <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> 移动 <i>·</i> 点击角色查档案 <i>·</i> <kbd>J</kbd> 敲 <i>·</i> <kbd>K</kbd> 交互/乘梯 <i>·</i> <kbd>L</kbd> 排行榜 <i>·</i> <kbd>R</kbd> 名单 <i>·</i> <kbd>M</kbd> 档案 <i>·</i> <kbd>G</kbd> 日志 <i>·</i> <kbd>H</kbd> 规则 <i>·</i> <kbd>Esc</kbd> 退出全屏/关闭</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
       <div id="offline-banner" class="offline-banner" hidden></div>
       <!-- 需求①：进入独立小房间后的空间提示条（房间名 + 如何离开） -->
       <div id="zone-banner" class="zone-banner" hidden aria-live="polite">

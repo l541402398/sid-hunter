@@ -10,7 +10,7 @@
 })(typeof window !== 'undefined' ? window : globalThis, function(env) {
   const CELL_W = 128, CELL_H = 112, ANCHOR_X = 64, ANCHOR_Y = 104, SCALE = .8;
   const DIRECTIONS = ['front', 'left', 'right', 'back'];
-  const SCENE_NPCS = new Set(['npc-reception', 'npc-archive']);
+  const SCENE_NPCS = new Set(['npc-reception', 'npc-archive', 'npc-f2', 'npc-f4', 'npc-f5', 'npc-f6', 'npc-f7']);
   // 固定最大视觉范围，覆盖白色翼片和手掌；仅用于本地点击及描边，不改64px近距交互。
   const BOUNDS = Object.freeze({ x: -46, y: -78, w: 92, h: 80 });
   let status = 'loading', image = null, promise = null;

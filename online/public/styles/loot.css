@@ -208,3 +208,22 @@
 .spire-card .cost{position:absolute;right:6px;top:4px;font-size:10px;color:#8a4400;font-family:ui-monospace,monospace;font-weight:800}
 .spire-card.type-attack{border-color:var(--coral)}
 .spire-card.type-block{border-color:var(--sky)}
+
+/* ---------- 容器答题（单选 / 多选 / 判断）与 NPC 六类金币兑换 ---------- */
+.loot-quiz{display:flex;flex-direction:column;gap:8px;padding:10px;background:#2e1b0d;border:2px solid #8c5e32;border-radius:0;clip-path:var(--clip-plaque);color:#fff4d8;box-shadow:inset 0 3px 8px rgba(0,0,0,.5)}
+.loot-quiz[hidden]{display:none}
+.quiz-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.quiz-type-badge{padding:2px 8px;border:1px solid #ffd268;background:#5c3515;color:#ffe294;font-size:10.5px;font-weight:800;letter-spacing:.04em}
+.quiz-reward{font-size:10.5px;color:#8cf5b4;font-family:ui-monospace,monospace;font-weight:800}
+.quiz-stem{margin:2px 0;font-size:12px;line-height:1.55;color:#fff7e6;font-weight:700}
+.quiz-options{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto}
+.quiz-opt{display:flex;align-items:center;gap:8px;width:100%;padding:7px 9px;text-align:left;border:1.5px solid #7a522c;background:linear-gradient(180deg,#4d301a,#382211);color:#f7e5c4;font-size:11.5px;font-weight:600;cursor:pointer;clip-path:var(--clip-card)}
+.quiz-opt:hover:not(:disabled){border-color:#f0b24a;background:linear-gradient(180deg,#5e3b20,#472b16)}
+.quiz-opt.is-selected{border-color:#ffd257;background:linear-gradient(180deg,#6e4423,#523118);color:#fff;box-shadow:inset 0 0 8px rgba(255,186,44,.45)}
+.quiz-opt:disabled{opacity:.6;cursor:not-allowed}
+.quiz-opt-key{display:inline-flex;align-items:center;justify-content:center;min-width:20px;height:20px;padding:0 4px;border:1px solid #cfa46e;background:#26150a;color:#ffd885;font:800 10.5px ui-monospace,monospace;flex:none}
+.quiz-opt.is-selected .quiz-opt-key{border-color:#ffd257;background:#ffd257;color:#2b1402}
+.quiz-opt-text{flex:1;line-height:1.4;overflow-wrap:anywhere}
+.npc-exchange-select{margin-top:4px;padding:4px 6px;border:1.5px solid #8c6239;background:#fff8ea;color:var(--ink);font-size:11px;font-weight:600;max-width:100%}
+.npc-exchange-hint{display:block;margin-top:2px;font-size:10px;color:#9a3412;font-weight:700}
+.bag-items{max-height:280px}
