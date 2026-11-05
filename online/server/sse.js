@@ -24,7 +24,11 @@ function openStream(req, res, player) {
   const cancelTick = everyMs(() => {
     try {
       if (res.writableEnded || res.destroyed) throw new Error('closed');
-      write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
+      // 慢客户端或后台标签页出现 TCP 发送缓冲积压（writableNeedDrain）时跳过中间快照帧，
+      // 防止积压数十帧后一次性爆发投递导致客户端人物瞬移与主线程卡顿。
+      if (!res.writableNeedDrain) {
+        write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
+      }
       entry.lastAck = Date.now();
       res.write(': ping\n\n');
     } catch { close(); }

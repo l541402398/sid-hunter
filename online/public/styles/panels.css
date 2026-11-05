@@ -83,6 +83,9 @@ h2{font-size:16px;letter-spacing:.5px;font-weight:800;margin:2px 0 0;color:var(-
 .logs li.log-system-clue:before{background:var(--sun)}
 .logs time{display:block;font:10px ui-monospace,monospace;color:var(--ink-3);margin-bottom:3px}
 .logs li p{font-size:11.5px;line-height:1.6;color:var(--ink)}
+.logs-scroll-bottom{flex:none;margin-top:6px;width:100%;padding:6px 10px;font-size:11.5px;font-weight:800;color:#fff6e0;background:linear-gradient(180deg,#b86318,#7d3f09);border:1.5px solid #ffd06b;border-radius:0;clip-path:var(--clip-card);cursor:pointer;box-shadow:inset 0 1px 0 #ffe7a366,0 2px 6px rgba(24,11,3,.35)}
+.logs-scroll-bottom:hover:not(:disabled){background:linear-gradient(180deg,#cf711d,#914a0c);border-color:#ffe394}
+.logs-scroll-bottom[hidden]{display:none!important}
 /* 目标公开档案：作为游戏界面内的异形藤蔓雕花情报卷弹出 */
 .target{left:50%;top:50%;transform:translate(-50%,-50%);right:auto;width:min(372px,calc(100% - 24px));padding:10px 12px;max-height:calc(100% - 36px);overflow:auto;z-index:22;display:block}
 .target .panel-heading{margin-bottom:10px}
