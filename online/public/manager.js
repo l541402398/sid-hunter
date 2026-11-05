@@ -2,7 +2,7 @@
 // 统一管理：所有修改均经管理员会话、同源与CSRF校验；不保存授权码，不自动重试写操作。
 (() => {
   const $=id=>document.getElementById(id);
-  let authed=false,csrf='',busy=false,loading=false,initialized=false,templates={},history=[],featuresLoaded=false;
+  let authed=false,csrf='',busy=false,loading=false,initialized=false,templates={},history=[],featuresLoaded=false,quizLoaded=false,quizList=[];
   let templateSource='development'; // 仅记录表单值来源，不是运行模式。
   let clueStats=null,currentActivity=null,draftSlots=[],exportBusy=false;
   const uid=()=>globalThis.crypto?.randomUUID?.()||'op_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
@@ -27,7 +27,7 @@
     if(!r.ok||data.ok===false)throw Error(data.error||'操作失败');
     return data;
   }
-  function showLogin(){authed=false;csrf='';initialized=false;featuresLoaded=false;$('manager-app').hidden=true;$('manager-login-card').hidden=false;$('manager-code').value='';}
+  function showLogin(){authed=false;csrf='';initialized=false;featuresLoaded=false;quizLoaded=false;$('manager-app').hidden=true;$('manager-login-card').hidden=false;$('manager-code').value='';}
   function showApp(){$('manager-app').hidden=false;$('manager-login-card').hidden=true;authed=true;}
   function fill(config){templateSource=config.template;draftSlots=(config.slots||[{id:'daily',label:'每日场',startTime:config.startTime,endTime:config.endTime}]).map(s=>({...s}));renderSlots();
     $('config-minutes').value=Math.floor(config.chargeIntervalMs/60000);$('config-seconds').value=config.chargeIntervalMs/1000%60;
@@ -102,6 +102,7 @@
     }
     renderSession();table('daily-ranking',a.dailyRanking||[],true);table('total-ranking',a.totalRanking||[],true);
     if(!featuresLoaded){const f=await api('features');$('manager-features-list').replaceChildren();for(const item of f.features||[]){const label=document.createElement('label');label.className='admin-switch';const box=document.createElement('input');box.type='checkbox';box.dataset.feature=item.key;box.checked=!!item.enabled;label.append(box,document.createTextNode(item.label));$('manager-features-list').append(label);}featuresLoaded=true;}
+    if(!quizLoaded){await loadQuiz();quizLoaded=true;}
     $('manager-tick').textContent='最近刷新 '+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
   }catch(e){$('manager-storage').textContent=e.message;}finally{loading=false;}}
   async function mutate(path,body,messageId){if(busy)return;busy=true;const host=$(messageId);host.textContent='正在保存…';try{const data=await api(path,body);host.textContent='操作成功';await load();return data;}catch(e){host.textContent=e.message+'；未自动重试，请先核对当前状态。';}finally{busy=false;}}
@@ -131,6 +132,118 @@
   for(const faction of ['good','bad'])$('npc-'+faction).onclick=()=>mutate('npc',{faction,count:Number($('npc-count').value),floorId:Number($('npc-floor').value)},'npc-message');
   $('history-session').onchange=renderSession;
   $('manager-features-save').onclick=()=>{const features={};for(const box of document.querySelectorAll('[data-feature]'))features[box.dataset.feature]=box.checked;mutate('features',{features},'features-message');};
+  function renderQuizSummary(summary){
+    const el=$('quiz-summary');if(!el||!summary)return;
+    const by=summary.byType||{};
+    const cats=(summary.categories||[]).join('、')||'默认';
+    el.textContent=`当前题库：共 ${summary.total||0} 题（启用 ${summary.enabled||0} 题 / 停用 ${summary.disabled||0} 题） · 单选 ${by.single||0} 题 / 多选 ${by.multiple||0} 题 / 判断 ${by.judge||0} 题 · 题目类别：${cats}`;
+  }
+  function renderQuizTable(){
+    const tbody=$('quiz-table-body');if(!tbody)return;
+    tbody.replaceChildren();
+    const filterType=$('quiz-filter-type')?.value||'';
+    const kw=($('quiz-filter-keyword')?.value||'').trim().toLowerCase();
+    const filtered=quizList.filter(q=>{
+      if(filterType&&q.type!==filterType)return false;
+      if(!kw)return true;
+      return String(q.id||'').toLowerCase().includes(kw)||String(q.category||'').toLowerCase().includes(kw)||String(q.stem||'').toLowerCase().includes(kw);
+    });
+    if(!filtered.length){
+      const tr=document.createElement('tr'),td=document.createElement('td');
+      td.colSpan=10;td.className='manager-table-empty';td.textContent='没有符合筛选条件的题目';
+      tr.append(td);tbody.append(tr);return;
+    }
+    for(const q of filtered){
+      const tr=document.createElement('tr');
+      const typeText=q.type==='multiple'?'多选':(q.type==='judge'?'判断':'单选');
+      const optMap={};
+      if(q.type!=='judge'&&Array.isArray(q.options)){for(const o of q.options)optMap[o.key]=o.text??'';}
+      const ansText=q.type==='judge'?(q.answer==='T'?'正确':'错误'):(Array.isArray(q.answer)?q.answer.join(','):String(q.answer||''));
+      const cells=[
+        [q.id,''],
+        [q.category||'十五五规划',''],
+        [typeText,''],
+        [q.stem,'quiz-col-stem'],
+        [optMap.A||'—','quiz-col-opt'],
+        [optMap.B||'—','quiz-col-opt'],
+        [optMap.C||'—','quiz-col-opt'],
+        [optMap.D||'—','quiz-col-opt'],
+        [ansText,'']
+      ];
+      for(const [val,cls] of cells){
+        const td=document.createElement('td');if(cls)td.className=cls;td.textContent=String(val??'');tr.append(td);
+      }
+      const actionTd=document.createElement('td');
+      const btn=document.createElement('button');
+      btn.type='button';
+      const isEn=q.enabled!==false&&q.status!=='停用';
+      btn.className='quiz-status-btn '+(isEn?'is-enabled':'is-disabled');
+      btn.textContent=isEn?'启用（点击停用）':'停用（点击启用）';
+      btn.onclick=async()=>{
+        if(busy)return;busy=true;
+        try{
+          const r=await api('quiz-toggle',{id:q.id,enabled:!isEn});
+          quizList=r.questions||[];renderQuizSummary(r.summary);renderQuizTable();
+          $('quiz-message').textContent=r.message||'状态已更新';
+        }catch(err){$('quiz-message').textContent=err.message;}
+        finally{busy=false;}
+      };
+      actionTd.append(btn);tr.append(actionTd);tbody.append(tr);
+    }
+  }
+  async function loadQuiz(){
+    try{
+      const r=await api('quiz');
+      quizList=r.questions||[];renderQuizSummary(r.summary);renderQuizTable();
+    }catch(err){if($('quiz-summary'))$('quiz-summary').textContent='载入题库失败：'+err.message;}
+  }
+  async function downloadQuizWorkbook(endpoint,fallbackName){
+    if(!authed)return;
+    const msg=$('quiz-message');msg.textContent='正在生成 Excel 文件…';
+    let objectUrl=null,link=null;
+    try{
+      const response=await fetch('/api/manager/'+endpoint,{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok){let error={};try{error=await response.json();}catch{}
+        if(response.status===401)showLogin();throw Error(error.error||'下载失败');}
+      const blob=await response.blob();if(!blob.size)throw Error('文件为空');
+      const disposition=response.headers.get('Content-Disposition')||'';
+      const filename=disposition.match(/filename="([a-zA-Z0-9_.-]+\.xlsx)"/)?.[1]||fallbackName;
+      objectUrl=URL.createObjectURL(blob);link=document.createElement('a');link.href=objectUrl;link.download=filename;
+      document.body.append(link);link.click();msg.textContent=`已生成并下载 ${filename}`;
+    }catch(e){msg.textContent=e.message;}
+    finally{if(link)link.remove();if(objectUrl)setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);}
+  }
+  if($('quiz-template-btn'))$('quiz-template-btn').onclick=()=>downloadQuizWorkbook('quiz-template','S-ID-quiz-template.xlsx');
+  if($('quiz-export-btn'))$('quiz-export-btn').onclick=()=>downloadQuizWorkbook('quiz-export','S-ID-quiz-bank.xlsx');
+  if($('quiz-filter-type'))$('quiz-filter-type').onchange=renderQuizTable;
+  if($('quiz-filter-keyword'))$('quiz-filter-keyword').oninput=renderQuizTable;
+  if($('quiz-import-btn'))$('quiz-import-btn').onclick=async()=>{
+    if(busy||!authed)return;
+    const fileInput=$('quiz-file');
+    const file=fileInput?.files?.[0];
+    const msg=$('quiz-message');
+    if(!file){msg.textContent='请先选择需要导入的 .xlsx 或 .csv 题库文件';return;}
+    const mode=$('quiz-import-mode')?.value==='replace'?'replace':'merge';
+    if(mode==='replace'&&!confirm('确认以「全量覆盖」方式导入？这会清空现有题库并替换为本次上传文件中的题目。'))return;
+    busy=true;$('quiz-import-btn').disabled=true;$('quiz-import-btn').textContent='正在导入…';
+    msg.textContent=`正在解析并导入「${file.name}」…`;
+    try{
+      const contentBase64=await new Promise((resolve,reject)=>{
+        const reader=new FileReader();
+        reader.onload=()=>resolve(String(reader.result||''));
+        reader.onerror=()=>reject(new Error('读取本地文件失败'));
+        reader.readAsDataURL(file);
+      });
+      const r=await api('quiz-import',{fileName:file.name,contentBase64,mode});
+      quizList=r.questions||[];renderQuizSummary(r.summary);renderQuizTable();
+      msg.textContent=r.message||'题库导入成功';
+      fileInput.value='';
+    }catch(err){
+      msg.textContent='导入失败：'+err.message;
+    }finally{
+      busy=false;$('quiz-import-btn').disabled=false;$('quiz-import-btn').textContent='上传并导入题库';
+    }
+  };
   $('manager-login-form').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;try{const data=await api('login',{code:$('manager-code').value});csrf=data.csrfToken;$('manager-code').value='';$('manager-login-error').textContent='';showApp();await load();}catch(err){$('manager-login-error').textContent=err.message;$('manager-code').value='';}finally{busy=false;}};
   $('manager-logout').onclick=async()=>{try{await api('logout',{});}finally{showLogin();}};
   api('session').then(data=>{if(data.authed){csrf=data.csrfToken;showApp();load();}else showLogin();}).catch(()=>showLogin());

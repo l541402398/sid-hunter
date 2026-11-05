@@ -359,7 +359,7 @@
   }
 
   function wall(g, wl) {
-    if (wl.northBand) return true;
+    if (wl.northBand || wl.elevatorHall) return true;
     const fid = guessFloor(wl), th = themeOf(fid), P = wallPal(th);
     if (wl.style === 'fence' || wl.style === 'hedge' || wl.style === 'glass') return lowWall(g, wl, th);
     if (wl.style === 'house') return house(g, wl, th, fid, P);

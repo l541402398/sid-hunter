@@ -35,7 +35,7 @@
 .dev-management{margin-top:12px;padding-top:12px;border-top:1.5px dashed var(--coral-line)}
 .dev-management h2{font-size:14px;color:var(--coral-dk)}
 .dev-management p{font-size:11px;color:var(--ink-2);line-height:1.7;margin:6px 0 10px}
-.reset-confirm{width:min(448px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;background:transparent;color:var(--ink);border:18px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 22px / 0 round;border-radius:0;padding:12px 14px;box-shadow:none;filter:var(--sh-3)}
+.reset-confirm{width:min(448px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;background:var(--surface);background-clip:padding-box;color:var(--ink);border:18px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 22px / 0 stretch;border-radius:0;padding:12px 14px;box-shadow:none;filter:var(--sh-3)}
 .reset-confirm::backdrop{background:rgba(16,9,4,.68);backdrop-filter:blur(4px)}
 .reset-confirm h2{font-size:19px;margin-bottom:12px;color:var(--coral-dk)}
 .reset-confirm p,.reset-confirm li{font-size:12px;line-height:1.75;color:var(--ink)}
@@ -58,7 +58,7 @@
 .footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:var(--ink-3);margin-top:10px;line-height:1.7}
 /* 加入页：像素 RPG 异形藤蔓雕花公会报到木牌，背后透出像素办公室实景 */
 .join-overlay{position:fixed;inset:0;z-index:60;background:rgba(16,9,4,.58);backdrop-filter:blur(5px);display:flex;align-items:center;justify-content:center}
-.join-panel{position:relative;width:min(448px,calc(100vw - 24px));overflow:hidden;background:transparent;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 round;border-radius:0;padding:12px 14px 12px;box-shadow:none;filter:var(--sh-3)}
+.join-panel{position:relative;width:min(448px,calc(100vw - 24px));overflow:hidden;background:var(--surface);background-clip:padding-box;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 stretch;border-radius:0;padding:12px 14px 12px;box-shadow:none;filter:var(--sh-3)}
 .join-panel::before{display:none}
 .join-badge-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .join-tag{font-size:10px;font-weight:800;padding:3px 10px;border-radius:0;clip-path:var(--clip-banner);background:linear-gradient(180deg,#4a2e19,#331e0f);border:1px solid #b58852;color:#ffd878}

@@ -1,6 +1,7 @@
 'use strict';
-// 题库模块（服务端权威）：包含单选（single）、多选（multiple）、判断（judge）三种题型的 Mock 题库与判题逻辑。
-// 注意：正确答案（answer）只保留在服务端内存，下发给客户端的题目视图（publicQuestionView）绝不包含 answer 字段。
+// 题库模块（服务端权威）：默认内置第一批「十五五规划」24 道题目（Q0001–Q0024），
+// 并支持通过 /manager 管理员面板导入 .xlsx / .csv 题库（增量合并或全量覆盖）及单题启停。
+// 注意：正确答案（answer）只保留在服务端内存/数据库，下发给玩家客户端的题目视图（publicQuestionView）绝不包含 answer 字段。
 
 const QUIZ_TYPES = Object.freeze(['single', 'multiple', 'judge']);
 
@@ -10,315 +11,455 @@ const TYPE_LABELS = Object.freeze({
   judge: '判断题'
 });
 
-const QUIZ_BANK = Object.freeze([
-  // ==================== 单选题（single） ====================
+const INITIAL_QUIZ_BANK = Object.freeze([
+  // ==================== 单选题（single · Q0001–Q0008） ====================
   {
-    id: 'single-01',
+    id: 'Q0001',
+    category: '十五五规划',
     type: 'single',
-    stem: '在本场对抗赛中，每位玩家的身份码（S-ID）一共由几段组成？',
+    stem: '中心年度代码修改量稳定在多少以上？',
     options: [
-      { key: 'A', text: '2 段' },
-      { key: 'B', text: '3 段' },
-      { key: 'C', text: '4 段' },
-      { key: 'D', text: '5 段' }
+      { key: 'A', text: '1000万行' },
+      { key: 'B', text: '2000万行' },
+      { key: 'C', text: '3000万行' },
+      { key: 'D', text: '4000万行' }
     ],
     answer: 'B',
-    explanation: '每位玩家的身份码（S-ID）由 3 段组成，每段包含 3 位大写字母或数字。'
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'single-02',
+    id: 'Q0002',
+    category: '十五五规划',
     type: 'single',
-    stem: '当潜伏者（坏人）的第几段身份码被公开时，会在同一事务内立即自动出局？',
+    stem: '单元测试分支覆盖率均值从34.4%提升至多少以上？',
     options: [
-      { key: 'A', text: '第 1 段' },
-      { key: 'B', text: '第 2 段' },
-      { key: 'C', text: '第 3 段' },
-      { key: 'D', text: '不会自动出局' }
+      { key: 'A', text: '50%' },
+      { key: 'B', text: '60%' },
+      { key: 'C', text: '70%' },
+      { key: 'D', text: '80%' }
     ],
     answer: 'C',
-    explanation: '潜伏者（坏人）的第 3 段身份码被公开时会立即自动出局。'
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'single-03',
+    id: 'Q0003',
+    category: '十五五规划',
     type: 'single',
-    stem: '在 NPC 幸运大转盘中，每位玩家每日最多可以转动几次？',
+    stem: '投产频次从2281次跃升至多少次？',
     options: [
-      { key: 'A', text: '1 次' },
-      { key: 'B', text: '2 次' },
-      { key: 'C', text: '3 次' },
-      { key: 'D', text: '5 次' }
-    ],
-    answer: 'C',
-    explanation: 'NPC 大转盘全楼层共享次数，每人每日上限 3 次（首次免费，后两次各消耗 3 金币）。'
-  },
-  {
-    id: 'single-04',
-    type: 'single',
-    stem: '在 NPC 处使用金币兑换积分，每人每日最多可兑换多少积分？',
-    options: [
-      { key: 'A', text: '5 分' },
-      { key: 'B', text: '10 分' },
-      { key: 'C', text: '15 分' },
-      { key: 'D', text: '20 分' }
+      { key: 'A', text: '3180次' },
+      { key: 'B', text: '4180次' },
+      { key: 'C', text: '5180次' },
+      { key: 'D', text: '6180次' }
     ],
     answer: 'B',
-    explanation: '金币在 NPC 处兑换积分每日最多 10 分，且每人每日限兑一次。'
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'single-05',
+    id: 'Q0004',
+    category: '十五五规划',
     type: 'single',
-    stem: '调查员（好人）使用「指认」技能成功命中潜伏者（坏人）并公开新一段身份码时，可获得多少对抗积分？',
+    stem: '人工智能安全开发助手识别人工智能训练数据异常多少条？',
     options: [
-      { key: 'A', text: '+2 分' },
-      { key: 'B', text: '+5 分' },
-      { key: 'C', text: '+10 分' },
-      { key: 'D', text: '+15 分' }
-    ],
-    answer: 'C',
-    explanation: '好人指认命中坏人并公开新段可获得 +10 对抗积分。'
-  },
-  {
-    id: 'single-06',
-    type: 'single',
-    stem: '办公大楼地图一共设有多少层楼面供玩家乘电梯探索？',
-    options: [
-      { key: 'A', text: '3 层' },
-      { key: 'B', text: '5 层' },
-      { key: 'C', text: '7 层' },
-      { key: 'D', text: '9 层' }
-    ],
-    answer: 'C',
-    explanation: '办公大楼共有 1F 至 7F 共 7 层楼面。'
-  },
-  {
-    id: 'single-07',
-    type: 'single',
-    stem: '靠近地图中的箱子、文件柜或 NPC 时，默认按哪个快捷键可以发起场景交互？',
-    options: [
-      { key: 'A', text: 'J 键' },
-      { key: 'B', text: 'K 键' },
-      { key: 'C', text: 'L 键' },
-      { key: 'D', text: 'M 键' }
+      { key: 'A', text: '119条' },
+      { key: 'B', text: '219条' },
+      { key: 'C', text: '319条' },
+      { key: 'D', text: '419条' }
     ],
     answer: 'B',
-    explanation: '靠近可交互实体时按 K 键触发场景交互，按 J 键触发木锤敲击或幽灵吓人。'
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'single-08',
+    id: 'Q0005',
+    category: '十五五规划',
     type: 'single',
-    stem: '日常办公信息安全中，离开工位时最推荐的习惯是？',
+    stem: '中心获得全球首批什么认证？',
     options: [
-      { key: 'A', text: '保持屏幕常亮方便回来继续写代码' },
-      { key: 'B', text: '立即锁屏（Win+L / Ctrl+Cmd+Q）并收好敏感文档' },
-      { key: 'C', text: '把账号密码贴在显示器边框上' },
-      { key: 'D', text: '将内部测试链接发到外部公开群' }
+      { key: 'A', text: 'CMMI2.0 ML3' },
+      { key: 'B', text: 'CMMI3.0 ML5' },
+      { key: 'C', text: 'ISO27001' },
+      { key: 'D', text: 'CMMI3.0 ML3' }
     ],
     answer: 'B',
-    explanation: '离开工位随手锁屏并妥善保管敏感资料是基本的信息安全规范。'
+    status: '启用',
+    enabled: true
+  },
+  {
+    id: 'Q0006',
+    category: '十五五规划',
+    type: 'single',
+    stem: '工程资产使用率提升多少？',
+    options: [
+      { key: 'A', text: '42%' },
+      { key: 'B', text: '142%' },
+      { key: 'C', text: '242%' },
+      { key: 'D', text: '342%' }
+    ],
+    answer: 'B',
+    status: '启用',
+    enabled: true
+  },
+  {
+    id: 'Q0007',
+    category: '十五五规划',
+    type: 'single',
+    stem: '软件专业资质认证持有率从57%跃升至多少？',
+    options: [
+      { key: 'A', text: '81.65%' },
+      { key: 'B', text: '91.65%' },
+      { key: 'C', text: '95%' },
+      { key: 'D', text: '99%' }
+    ],
+    answer: 'B',
+    status: '启用',
+    enabled: true
+  },
+  {
+    id: 'Q0008',
+    category: '十五五规划',
+    type: 'single',
+    stem: '民航核心业务领域亟须构建的OOSD全流程解决方案涵盖哪些环节？',
+    options: [
+      { key: 'A', text: '订单管理、精准报价、高效结算和便捷交付' },
+      { key: 'B', text: '招聘、培训、考核和激励' },
+      { key: 'C', text: '研发、测试、上线和运维' },
+      { key: 'D', text: '确权、定价、流通和计量' }
+    ],
+    answer: 'A',
+    status: '启用',
+    enabled: true
   },
 
-  // ==================== 多选题（multiple） ====================
+  // ==================== 判断题（judge · Q0009–Q0016） ====================
   {
-    id: 'multiple-01',
-    type: 'multiple',
-    stem: '以下哪些属于每位玩家入场时处于隐藏状态（初始显示为 ***）的个人属性？',
+    id: 'Q0009',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '文本提出缺陷遗留率与泄漏率从2%以下降至0。',
     options: [
-      { key: 'A', text: '口头禅' },
-      { key: 'B', text: '爱吃的食物' },
-      { key: 'C', text: '喜欢的运动' },
-      { key: 'D', text: '上衣颜色' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C'],
-    explanation: '口头禅、爱吃的食物、喜欢的运动是 3 项隐藏个人属性；发色、上衣、裤子、鞋子颜色入场默认公开。'
+    answer: 'T',
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'multiple-02',
-    type: 'multiple',
-    stem: '玩家开启地图中的箱子或柜子时，可能触发以下哪些随机结果？',
+    id: 'Q0010',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '中心成功保持“零”自身原因导致的安全事件。',
     options: [
-      { key: 'A', text: '箱子为空' },
-      { key: 'B', text: '直接获得随机金币' },
-      { key: 'C', text: '触发答题挑战，答对获得金币' },
-      { key: 'D', text: '直接淘汰其他玩家' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C'],
-    explanation: '每个箱子或柜子的内容按玩家独立随机生成，可能为空、直接获得金币或触发答题获得金币。'
+    answer: 'T',
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'multiple-03',
-    type: 'multiple',
-    stem: '在每层楼的 NPC 处，玩家可以使用金币兑换以下哪些即时效果？',
+    id: 'Q0011',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '中心连续三年区域评估能力排名第一。',
     options: [
-      { key: 'A', text: '兑换积分（每日最多10分）' },
-      { key: 'B', text: '公开随机或指定玩家的一条隐藏属性' },
-      { key: 'C', text: '隐藏自己的一条已公开属性或最近公开的一段身份码' },
-      { key: 'D', text: '隐藏指定匿名坏人卡上的一条已公布线索' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C', 'D'],
-    explanation: '以上六类即时效果均可在 NPC 处用金币兑换，每人每类效果每日限兑一次。'
+    answer: 'T',
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'multiple-04',
-    type: 'multiple',
-    stem: '关于调查员（好人）阵营的专属技能，以下说法正确的有？',
+    id: 'Q0012',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '文本提出制度总数减少10%。',
     options: [
-      { key: 'A', text: '拥有「调查属性」技能，可公开目标一条未公开属性' },
-      { key: 'B', text: '拥有「指认」技能，指认坏人可公开对方一段身份码并得 10 分' },
-      { key: 'C', text: '若误指认好人，会公开自己的一段未公开身份码' },
-      { key: 'D', text: '好人三段身份码全部公开后会立即自动出局' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C'],
-    explanation: '好人拥有调查属性与指认两项技能；好人三段身份码全部公开不会自动出局，只有被坏人击杀才出局。'
+    answer: 'T',
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'multiple-05',
-    type: 'multiple',
-    stem: '关于潜伏者（坏人）阵营的专属技能，以下说法正确的有？',
+    id: 'Q0013',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '文本提出未来五年内研发模式必须保持传统手工作坊式开发。',
     options: [
-      { key: 'A', text: '可对好人使用「公开身份码」，成功公开新段得 2 分' },
-      { key: 'B', text: '对另一名坏人使用「公开身份码」时双方身份码均不变化' },
-      { key: 'C', text: '当其他存活玩家三段身份码全部公开后，可对其发动「击杀」' },
-      { key: 'D', text: '击杀好人需要手动输入对方完整的 9 位身份码字符' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C'],
-    explanation: '坏人拥有公开身份码与击杀技能；目标三段全公开后直接点击击杀即可，无需手输身份码。'
+    answer: 'F',
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'multiple-06',
-    type: 'multiple',
-    stem: '以下哪些属于角色入场即对外公开的外观颜色特征？',
+    id: 'Q0014',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '文本提出隐私计算和区块链技术会阻碍可信数据流通。',
     options: [
-      { key: 'A', text: '发色' },
-      { key: 'B', text: '上衣颜色' },
-      { key: 'C', text: '裤子颜色' },
-      { key: 'D', text: '鞋颜色' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C', 'D'],
-    explanation: '发色、上衣颜色、裤子颜色、鞋颜色共 4 项外观特征入场默认公开。'
+    answer: 'F',
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'multiple-07',
-    type: 'multiple',
-    stem: '关于每日金币与积分的结算规则，以下描述正确的有？',
+    id: 'Q0015',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '公司推进管理改革以“市场为龙头、技术为动力、财务为中心、结果为导向”为目标。',
     options: [
-      { key: 'A', text: '金币每日清零，不跨日保留' },
-      { key: 'B', text: '积分持续累计，计入活动总成绩' },
-      { key: 'C', text: '玩家当日出局后，已获得的积分依然保留' },
-      { key: 'D', text: 'NPC 大转盘的免费次数可以无限累積到最后一天' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C'],
-    explanation: '金币每日清零，积分持续累计；玩家出局后保留已得积分；大转盘每日上限 3 次不跨日累加。'
+    answer: 'T',
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'multiple-08',
-    type: 'multiple',
-    stem: '在团队研发与代码协作中，以下哪些做法符合良好的工程习惯？',
+    id: 'Q0016',
+    category: '十五五规划',
+    type: 'judge',
+    stem: '新业升级布局低空经济、数据运营等新赛道时需要技术底座和解决方案。',
     options: [
-      { key: 'A', text: '敏感密钥与口令不硬编码进代码仓库' },
-      { key: 'B', text: '关键业务状态由服务端权威校验，不盲信客户端参数' },
-      { key: 'C', text: '提交代码前运行回归测试确保核心流程通过' },
-      { key: 'D', text: '把未公开的玩家隐藏身份直接放进公开广播接口' }
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' }
     ],
-    answer: ['A', 'B', 'C'],
-    explanation: '不硬编码密钥、服务端权威校验、提交前跑回归测试均为良好工程实践；公开接口绝不能泄露隐藏秘密。'
+    answer: 'T',
+    status: '启用',
+    enabled: true
   },
 
-  // ==================== 判断题（judge） ====================
+  // ==================== 多选题（multiple · Q0017–Q0024） ====================
   {
-    id: 'judge-01',
-    type: 'judge',
-    stem: '同一玩家对地图上的同一个箱子或柜子只能开启一次，不能重复翻找。',
+    id: 'Q0017',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '中心“十四五”期间生产交付质效优化表现包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '静态代码质量稳定在A级' },
+      { key: 'B', text: '单元测试分支覆盖率均值提升至70%以上' },
+      { key: 'C', text: '缺陷遗留率与泄漏率降至0' },
+      { key: 'D', text: '投产频次下降至2281次' }
     ],
-    answer: 'T',
-    explanation: '同一玩家对同一箱子或柜子只能开启一次。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'judge-02',
-    type: 'judge',
-    stem: '不同楼层的 NPC 大转盘次数相互独立，每层楼都能免费转 3 次。',
+    id: 'Q0018',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '中心安全保障能力提升的表述包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '保持“零”自身原因导致的安全事件' },
+      { key: 'B', text: '累计新建、修订制度近30项' },
+      { key: 'C', text: '累计发现整改隐患超万条' },
+      { key: 'D', text: '社工攻击中招率大幅上升' }
     ],
-    answer: 'F',
-    explanation: '每层楼的 NPC 大转盘共享次数，每人每日共计 3 次上限（免费 1 次，另外每次消耗 3 金币）。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'judge-03',
-    type: 'judge',
-    stem: '玩家当天的金币会在次日清零，但获得的积分会持续累计。',
+    id: 'Q0019',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '中心区域研发能力显著跃迁的成果包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '形成“三层四域”规范体系与“八个一”治理框架' },
+      { key: 'B', text: '构建“三五四四”研发效能度量模型' },
+      { key: 'C', text: '获得全球首批CMMI3.0 ML5认证' },
+      { key: 'D', text: '放弃软件工程实践地图' }
     ],
-    answer: 'T',
-    explanation: '金币每日清零，积分持续累计。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'judge-04',
-    type: 'judge',
-    stem: '每层楼的 NPC 功能一致，都提供大转盘与六类金币即时效果兑换。',
+    id: 'Q0020',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '中心技术创新成果持续涌现的表述包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '参与公司级课题研究13个' },
+      { key: 'B', text: '提交专利102项' },
+      { key: 'C', text: '发表论文106篇' },
+      { key: 'D', text: '软件著作权0个' }
     ],
-    answer: 'T',
-    explanation: '1F–7F 每层楼的 NPC 功能完全一致。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'judge-05',
-    type: 'judge',
-    stem: '在 NPC 处兑换的六类即时效果，每人每类效果每日限兑一次。',
+    id: 'Q0021',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '中心数字化建设跨领域融合的表述包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '核心网络带宽升至万兆' },
+      { key: 'B', text: '配置智算6P FLOPS' },
+      { key: 'C', text: '搭建开发、办公及创新三个云平台' },
+      { key: 'D', text: '系统可用性低于90%' }
     ],
-    answer: 'T',
-    explanation: '六类金币兑换效果每人每类每日限兑一次。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'judge-06',
-    type: 'judge',
-    stem: '调查员（好人）的三段身份码全部被公开后，会像坏人一样立即自动出局。',
+    id: 'Q0022',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '中心人才队伍专业水平提升的表述包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '中高级岗占比提升至67%' },
+      { key: 'B', text: '培育新一代信息技术8个领域共计240余名专业人才' },
+      { key: 'C', text: '补齐能力短板69项' },
+      { key: 'D', text: '软件专业资质认证持有率下降至57%' }
     ],
-    answer: 'F',
-    explanation: '好人三段身份码全公开不会自动出局，但可被坏人发动击杀技能淘汰。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'judge-07',
-    type: 'judge',
-    stem: '玩家出局后将变为幽灵状态，当日已获得的积分完整保留，并可继续在地图中游览。',
+    id: 'Q0023',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '文本提出的当前突出问题包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '交付效率方面节奏偏慢，部署频率中位数10次/月' },
+      { key: 'B', text: '变更前置时间多在1周以上，未达到高效能团队“1天内”基准' },
+      { key: 'C', text: '队伍数字思维、产品思维还不足' },
+      { key: 'D', text: '已完全满足“标准化生产+个性化定制”业务发展需求' }
     ],
-    answer: 'T',
-    explanation: '出局后保留今日所得积分，停止新增得分，可作为幽灵继续逛地图。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   },
   {
-    id: 'judge-08',
-    type: 'judge',
-    stem: '每个箱子或柜子的探索结果对所有玩家完全固定相同，第一个人开出空箱子则其他人也必定是空箱子。',
+    id: 'Q0024',
+    category: '十五五规划',
+    type: 'multiple',
+    stem: '“十五五”时期落实公司发展布局的要求包括哪些？',
     options: [
-      { key: 'T', text: '正确' },
-      { key: 'F', text: '错误' }
+      { key: 'A', text: '安全筑基要求提供更高韧性的信息系统' },
+      { key: 'B', text: '主业焕新需要核心业务系统在去主机化进程中实现智能化升级' },
+      { key: 'C', text: '新业升级布局低空经济、数据运营等新赛道时需要技术底座和解决方案' },
+      { key: 'D', text: '放弃行业数智化发展趋势' }
     ],
-    answer: 'F',
-    explanation: '每个箱子或柜子的内容按玩家独立随机生成。'
+    answer: ['A', 'B', 'C'],
+    status: '启用',
+    enabled: true
   }
 ]);
 
+function cloneQuestion(q) {
+  const enabled = q.enabled !== false && q.status !== '停用';
+  return {
+    id: String(q.id || ''),
+    category: String(q.category || '十五五规划'),
+    type: q.type,
+    stem: String(q.stem || ''),
+    options: Array.isArray(q.options) ? q.options.map(o => ({ key: String(o.key), text: String(o.text ?? '') })) : [],
+    answer: Array.isArray(q.answer) ? q.answer.slice() : String(q.answer || ''),
+    explanation: String(q.explanation || ''),
+    status: enabled ? '启用' : '停用',
+    enabled
+  };
+}
+
+let activeBank = INITIAL_QUIZ_BANK.map(cloneQuestion);
+
+function getQuizBank() {
+  return activeBank.map(cloneQuestion);
+}
+
+function getEnabledQuizBank() {
+  return activeBank.filter(q => q.enabled !== false && q.status !== '停用');
+}
+
+function setQuizBank(questions) {
+  if (!Array.isArray(questions) || !questions.length) return activeBank.length;
+  activeBank = questions.map(cloneQuestion);
+  return activeBank.length;
+}
+
+function importQuizQuestions(questions, { mode = 'merge' } = {}) {
+  if (!Array.isArray(questions) || !questions.length) {
+    throw new Error('没有可导入的题目');
+  }
+  const normalized = questions.map(cloneQuestion);
+  let added = 0;
+  let updated = 0;
+  if (mode === 'replace') {
+    added = normalized.length;
+    activeBank = normalized;
+  } else {
+    const indexById = new Map(activeBank.map((q, idx) => [q.id, idx]));
+    for (const q of normalized) {
+      if (indexById.has(q.id)) {
+        activeBank[indexById.get(q.id)] = q;
+        updated++;
+      } else {
+        indexById.set(q.id, activeBank.length);
+        activeBank.push(q);
+        added++;
+      }
+    }
+  }
+  return {
+    added,
+    updated,
+    importedCount: normalized.length,
+    totalCount: activeBank.length,
+    enabledCount: getEnabledQuizBank().length
+  };
+}
+
+function toggleQuestionStatus(id, enabled) {
+  const target = activeBank.find(q => q.id === String(id || ''));
+  if (!target) return null;
+  const nextEnabled = typeof enabled === 'boolean' ? enabled : !target.enabled;
+  target.enabled = nextEnabled;
+  target.status = nextEnabled ? '启用' : '停用';
+  return cloneQuestion(target);
+}
+
+function quizSummary() {
+  const enabled = getEnabledQuizBank();
+  const byType = { single: 0, multiple: 0, judge: 0 };
+  const categories = new Set();
+  for (const q of activeBank) {
+    if (byType[q.type] !== undefined) byType[q.type]++;
+    if (q.category) categories.add(q.category);
+  }
+  return {
+    total: activeBank.length,
+    enabled: enabled.length,
+    disabled: activeBank.length - enabled.length,
+    byType,
+    categories: [...categories]
+  };
+}
+
 function pickQuizQuestion(rng, preferredType = null) {
   const rand = typeof rng === 'function' ? rng : max => Math.floor(Math.random() * max);
-  const pool = (preferredType && QUIZ_TYPES.includes(preferredType))
-    ? QUIZ_BANK.filter(q => q.type === preferredType)
-    : QUIZ_BANK;
+  const enabledPool = getEnabledQuizBank();
+  const basePool = enabledPool.length ? enabledPool : (activeBank.length ? activeBank : INITIAL_QUIZ_BANK);
+  const filtered = (preferredType && QUIZ_TYPES.includes(preferredType))
+    ? basePool.filter(q => q.type === preferredType)
+    : basePool;
+  const pool = filtered.length ? filtered : basePool;
   const idx = Math.max(0, Math.min(pool.length - 1, Number(rand(pool.length)) || 0));
   return pool[idx];
 }
@@ -327,9 +468,11 @@ function publicQuestionView(question, rewardCoins = 3) {
   if (!question) return null;
   return {
     id: question.id,
+    category: question.category || '',
     type: question.type,
     typeLabel: TYPE_LABELS[question.type] || '答题',
     stem: question.stem,
+    question: question.stem,
     options: question.options.map(o => ({ key: o.key, text: o.text })),
     rewardCoins: Number(rewardCoins) || 0
   };
@@ -402,7 +545,14 @@ function checkQuizAnswer(question, userInput) {
 module.exports = {
   QUIZ_TYPES,
   TYPE_LABELS,
-  QUIZ_BANK,
+  INITIAL_QUIZ_BANK,
+  get QUIZ_BANK() { return activeBank; },
+  getQuizBank,
+  getEnabledQuizBank,
+  setQuizBank,
+  importQuizQuestions,
+  toggleQuestionStatus,
+  quizSummary,
   pickQuizQuestion,
   publicQuestionView,
   normalizeQuizAnswer,

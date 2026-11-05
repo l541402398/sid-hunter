@@ -670,6 +670,22 @@ function createRoom(options = {}) {
       sid: p.sid.segments.map((s, i) => p.sid.revealed[i] ? s : WORLD.MASK).join('-')
     };
   }
+  function settlementReportFor(p) {
+    if (!room.finished || !p) return null;
+    const sidReveals = Array.isArray(p.sidRevealHistory)
+      ? p.sidRevealHistory.map(r => ({
+          segment: r.segmentIndex + 1,
+          byId: r.byId,
+          byName: r.byName,
+          kind: r.kind,
+          ...(r.targetName ? { targetName: r.targetName } : {})
+        }))
+      : [];
+    const eliminatedBy = !p.alive && p.eliminatedBy
+      ? { byId: p.eliminatedBy.byId, byName: p.eliminatedBy.byName, kind: p.eliminatedBy.kind }
+      : null;
+    return { sidReveals, eliminatedBy };
+  }
   function privateProjection(p) {
     const t = now();
     syncRoom(t);
@@ -717,7 +733,9 @@ function createRoom(options = {}) {
       skillsFrozenAt: p.skillsFrozenAt, // dev 分支并入：仅私密下发，公有不泄露
       pending: (room.pending.get(p.id) || []).map(projectEvent),
       // dev 分支并入：离线期间被敲 / 被鬼吓的次数，只在本人的私密摘要里，不写公共日志。
-      interactionSummary: digest.summaryFor(p)
+      interactionSummary: digest.summaryFor(p),
+      // 每日结算个人复盘：仅在本局已结束（room.finished）后下发本人被谁公开身份码、被谁击杀/指认淘汰。
+      settlementReport: settlementReportFor(p)
     };
   }
   function publicSnapshot(viewerId) {
@@ -984,6 +1002,8 @@ function createRoom(options = {}) {
       return { ok: true, kind: 'spy', resultText: '本次公开未产生变化，未获得积分。', targetId: target.id, unchanged: true };
     }
     revealSidSegment(target, index);
+    if (!Array.isArray(target.sidRevealHistory)) target.sidRevealHistory = [];
+    target.sidRevealHistory.push({ segmentIndex: index, byId: actor.id, byName: actor.name, kind: 'spy' });
     if (!target.npc) award(actor, 'spy', 'combat');
     queueEvent(target.id, { type: 'revealedSegment', segmentIndex: index });
     log(`${target.name}的第${index + 1}段身份码已公开。`, { subjectPlayerId: target.id });
@@ -1066,11 +1086,14 @@ function createRoom(options = {}) {
     todayList.push(target.id);
     if (target.faction === 'bad') {
       revealSidSegment(target, nextIdx);
+      if (!Array.isArray(target.sidRevealHistory)) target.sidRevealHistory = [];
+      target.sidRevealHistory.push({ segmentIndex: nextIdx, byId: actor.id, byName: actor.name, kind: 'accuse' });
       if (!target.npc) award(actor, 'accuseHit', 'combat');
       log(`${target.name}的第${nextIdx + 1}段身份码已公开。`, { subjectPlayerId: target.id });
       const allRevealed = target.sid.revealed.every(Boolean);
       target.hp = Math.max(0, 3 - target.sid.revealed.filter(Boolean).length);
       if (allRevealed) {
+        target.eliminatedBy = { byId: actor.id, byName: actor.name, kind: 'accuse' };
         gainAchievement(actor, 'kill');
         gainAchievement(target, 'eliminated');
         eliminatePlayer(target, t);
@@ -1083,6 +1106,8 @@ function createRoom(options = {}) {
     let resultText = '指认失败，您的身份码已全部公开，本次消耗1次机会。';
     if (selfIdx >= 0) {
       revealSidSegment(actor, selfIdx);
+      if (!Array.isArray(actor.sidRevealHistory)) actor.sidRevealHistory = [];
+      actor.sidRevealHistory.push({ segmentIndex: selfIdx, byId: actor.id, byName: actor.name, kind: 'selfAccuse', targetName: target.name });
       log(`${actor.name}的第${selfIdx + 1}段身份码已公开。`, { subjectPlayerId: actor.id });
       resultText = `指认失败，您的第${selfIdx + 1}段身份码已公开。`;
     }
@@ -1098,6 +1123,7 @@ function createRoom(options = {}) {
     }
     gainAchievement(actor, 'kill');
     gainAchievement(target, 'eliminated');
+    target.eliminatedBy = { byId: actor.id, byName: actor.name, kind: 'kill' };
     eliminatePlayer(target, t);
     checkFinish(t);
     return { ok: true, kind: 'kill', resultText: target.faction === 'good' ? '击杀成功，积分+5。' : '击杀成功，对方已出局（同阵营不加分）。', targetId: target.id, eliminated: true };
@@ -1792,7 +1818,6 @@ function createRoom(options = {}) {
     if (!body || typeof body !== 'object') return reject('换层指令无效');
     if (body.roundId !== room.roundId) return reject('对局已更新，请重新同步');
     if (room.finished) return reject('游戏已结束，无法换层');
-    if (!actor.alive) return reject('你已淘汰，无法换层');
     if (!actor.online) return reject('你不在线，无法换层');
     if (!body || typeof body !== 'object') return reject('换层指令无效');
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
@@ -1808,7 +1833,7 @@ function createRoom(options = {}) {
     }
     if (body.expectedFloorId !== actor.floorId) return reject('请求的起始楼层与服务器不一致');
     if (!Number.isSafeInteger(body.expectedFloorRevision) || body.expectedFloorRevision !== actor.floorRevision) return reject('楼层版本不一致，请重新同步');
-    if (movementLocked(actor, t)) return reject('眩晕/僵直中，暂时无法乘梯');
+    if (actor.alive && movementLocked(actor, t)) return reject('眩晕/僵直中，暂时无法乘梯');
     const fromFloor = WORLD.floorById(actor.floorId);
     const portal = fromFloor.portals.find(p => p.id === body.portalId);
     if (!portal) return reject('该入口不属于当前楼层');

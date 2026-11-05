@@ -28,6 +28,7 @@ function createStore(options = {}) {
       saveFeatures() { return false; }, loadFeatures() { return null; },
       saveEmployees() { return 0; }, getEmployee() { return null; }, employeeCount() { return 0; }, listEmployees() { return null; },
       loadAdmin() { return null; }, saveAdmin() { return false; },
+      loadQuizQuestions() { return null; }, saveQuizQuestions() { return false; },
       archiveDay() { return false; }, loadDays() { return []; }, archiveSession() { return false; }, loadSessions() { return []; }, close() { }
     };
   }
@@ -95,6 +96,19 @@ function createStore(options = {}) {
         delivery_group TEXT,
         title TEXT,
         synced_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS quiz_questions (
+        id TEXT PRIMARY KEY,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        category TEXT NOT NULL DEFAULT '',
+        type TEXT NOT NULL,
+        stem TEXT NOT NULL,
+        options_json TEXT NOT NULL,
+        answer_json TEXT NOT NULL,
+        explanation TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT '启用',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        updated_at INTEGER NOT NULL
       );
     `);
     // 轻量迁移：早于本轮创建的库没有 features_json 列，CREATE TABLE IF NOT EXISTS 不会补列，
@@ -372,12 +386,68 @@ function createStore(options = {}) {
     return [...recent,...loadDays().filter(r=>!seen.has(r.roundId)).map(r=>({...r,label:r.label||'历史每日场',source:r.source||'legacy'}))]
       .sort((a,b)=>b.startedAt-a.startedAt || b.finishedAt-a.finishedAt);
   }
+  function loadQuizQuestions() {
+    if (!state.enabled) return null;
+    try {
+      const rows = db.prepare('SELECT * FROM quiz_questions ORDER BY sort_order ASC, id ASC').all();
+      if (!rows.length) return [];
+      return rows.map(row => ({
+        id: row.id,
+        category: row.category || '十五五规划',
+        type: row.type,
+        stem: row.stem,
+        options: JSON.parse(row.options_json || '[]'),
+        answer: JSON.parse(row.answer_json || '""'),
+        explanation: row.explanation || '',
+        status: row.status || (row.enabled ? '启用' : '停用'),
+        enabled: !!row.enabled
+      }));
+    } catch (error) {
+      state.error = String(error && error.message || error);
+      return null;
+    }
+  }
+  function saveQuizQuestions(questions) {
+    if (!state.enabled || !Array.isArray(questions)) return false;
+    try {
+      const nowTs = Date.now();
+      const ins = db.prepare(`
+        INSERT INTO quiz_questions (id, sort_order, category, type, stem, options_json, answer_json, explanation, status, enabled, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      db.exec('BEGIN IMMEDIATE');
+      db.exec('DELETE FROM quiz_questions');
+      questions.forEach((q, idx) => {
+        if (!q || !q.id) return;
+        const enabled = q.enabled !== false && q.status !== '停用';
+        ins.run(
+          String(q.id),
+          idx,
+          String(q.category || '十五五规划'),
+          String(q.type || 'single'),
+          String(q.stem || ''),
+          JSON.stringify(q.options || []),
+          JSON.stringify(q.answer ?? ''),
+          String(q.explanation || ''),
+          enabled ? '启用' : '停用',
+          enabled ? 1 : 0,
+          nowTs
+        );
+      });
+      db.exec('COMMIT');
+      return true;
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* ignore */ }
+      state.error = String(error && error.message || error);
+      return false;
+    }
+  }
   function close() { try { if (db) db.close(); } catch { /* ignore */ } }
 
   return { ...state, enabled: state.enabled, file, error: state.error,
     saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures,
     saveEmployees, getEmployee, employeeCount, listEmployees,
-    loadAdmin, saveAdmin, archiveDay, loadDays, archiveSession, loadSessions,
+    loadAdmin, saveAdmin, loadQuizQuestions, saveQuizQuestions, archiveDay, loadDays, archiveSession, loadSessions,
     close, reason: state.error || 'ok' };
 }
 
