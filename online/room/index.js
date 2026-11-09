@@ -424,7 +424,7 @@ function createRoom(options = {}) {
     const idealBad = Math.max(1, Math.round(total * ((WORLD.COMBAT && WORLD.COMBAT.factionBadRatio) || 0.2)));
     if (bad < idealBad) return 'bad';
     if (bad > idealBad) return 'good';
-    return Math.random() < ((WORLD.COMBAT && WORLD.COMBAT.factionBadRatio) || 0.2) ? 'bad' : 'good';
+    return (random || Math.random)() < ((WORLD.COMBAT && WORLD.COMBAT.factionBadRatio) || 0.2) ? 'bad' : 'good';
   }
   function join(sessionId, nickname, identity) {
     const empNo = identity && identity.empNo ? String(identity.empNo) : '';

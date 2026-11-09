@@ -189,63 +189,65 @@ await test('坏人线索入口独立位于顶部核心情报联动区且唯一�
   assert.ok(!css.includes('auto-fit')); assert.match(css,/\.log-clues-entry\{flex:none/);
 });
 await test('有次即启用，旧cooldownUntil不能禁用按钮，零次显示单调时钟倒计时', () => {
-  const {env,api,e} = ui(); api.renderPrivate(); assert.equal(e('probe').disabled, false);
-  assert.equal(e('probe-label').textContent, '调查属性 2/2');assert.equal(e('probe-timer').hidden,true);
-  env.me.skills.probe.chargesRemaining=0; env.me.skills.probe.nextChargeAt=91000;
-  api.updateSkillStatus(); assert.equal(e('probe-label').textContent, '调查属性 0/2');assert.equal(e('probe-timer').textContent,'01:30');assert.equal(e('probe-timer').hidden,false);assert.equal(e('probe').disabled, true);
-  env.now+=1001;api.updateSkillStatus();assert.equal(e('probe-timer').textContent,'01:29');
-  env.now=91000;api.updateSkillStatus();assert.equal(e('probe').disabled,true);assert.match(e('probe-timer').textContent,/等待恢复确认/);
-  env.me.skills.probe.chargesRemaining=1; api.updateSkillStatus();assert.equal(e('probe').disabled,false);assert.equal(e('probe-label').textContent,'调查属性 1/2');assert.equal(e('probe-timer').hidden,true);
+  const {env,api,e} = ui(); api.renderPrivate(); assert.equal(e('accuse').disabled, false);
+  assert.equal(e('accuse-label').textContent, '指认 1/1');assert.equal(e('accuse-timer').hidden,true);
+  env.me.skills.accuse.chargesRemaining=0; env.me.skills.accuse.nextChargeAt=91000;
+  api.updateSkillStatus(); assert.equal(e('accuse-label').textContent, '指认 0/1');assert.equal(e('accuse-timer').textContent,'01:30');assert.equal(e('accuse-timer').hidden,false);assert.equal(e('accuse').disabled, true);
+  env.now+=1001;api.updateSkillStatus();assert.equal(e('accuse-timer').textContent,'01:29');
+  env.now=91000;api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.match(e('accuse-timer').textContent,/等待恢复确认/);
+  env.me.skills.accuse.chargesRemaining=1; api.updateSkillStatus();assert.equal(e('accuse').disabled,false);assert.equal(e('accuse-label').textContent,'指认 1/1');assert.equal(e('accuse-timer').hidden,true);
 });
-await test('结束/淘汰不显示虚假的恢复倒计时，目标全公开仍禁用', () => {
-  const {env,api,e} = ui(); api.renderPrivate(); env.me.skills.probe.chargesRemaining=0;env.me.skills.probe.nextChargeAt=91000;
-  env.finished=true;api.updateSkillStatus();assert.match(e('probe-timer').textContent,/已冻结/);
-  env.finished=false;env.me.alive=false;api.updateSkillStatus();assert.match(e('probe-timer').textContent,/已冻结/);
-  env.me.alive=true;env.me.skills.probe.chargesRemaining=2;env.target.traits={saying:'a',food:'b',sport:'c'};api.updateSkillStatus();assert.equal(e('probe').disabled,true);
+await test('结束/休战不显示虚假的恢复倒计时；今日已操作或保护中的目标禁用', () => {
+  const {env,api,e} = ui(); api.renderPrivate(); env.me.skills.accuse.chargesRemaining=0;env.me.skills.accuse.nextChargeAt=91000;
+  env.finished=true;api.updateSkillStatus();assert.match(e('accuse-timer').textContent,/已冻结/);
+  env.finished=false;env.me.alive=false;api.updateSkillStatus();assert.match(e('accuse-timer').textContent,/已冻结/);assert.equal(e('accuse').disabled,true);
+  env.me.alive=true;env.me.skills.accuse.chargesRemaining=1;api.updateSkillStatus();assert.equal(e('accuse').disabled,false);
+  env.me.accusedToday=[2];api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'今日已操作过');
+  env.me.accusedToday=[];env.target.protected=true;api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'目标保护中');
+  env.target.protected=false;env.target.alive=false;api.updateSkillStatus();assert.equal(e('accuse').disabled,true,'休战目标不可操作');
 });
 await test('连续提交只有网络在途锁；成功响应立即更新次数，没有额外冷却', async () => {
-  const {env,api,e} = ui(); api.renderPrivate(); env.pending={kind:'probe',target:2};
-  let finish;env.api=()=>{env.apiCalls++;return new Promise(r=>{finish=r;});};
-  const first=api.commit('');assert.equal(env.apiCalls,1);assert.equal(e('probe').disabled,true);
+  const {env,api,e} = ui(); api.renderPrivate(); env.pending={kind:'accuse',target:2};
+  let finish;env.api=(path,body)=>{env.apiCalls++;env.lastBody=body;return new Promise(r=>{finish=r;});};
+  const first=api.commit('');assert.equal(env.apiCalls,1);assert.equal(e('accuse').disabled,true);assert.equal(env.lastBody.skill,'accuse');
   assert.equal(await api.commit(''),false);assert.equal(env.apiCalls,1);
-  const next=JSON.parse(JSON.stringify(env.me.skills));next.probe.chargesRemaining=1;next.probe.nextChargeAt=91000;
-  finish({ok:true,serverTime:1000,skills:next});assert.equal(await first,true);
-  assert.equal(e('probe-label').textContent,'调查属性 1/2');assert.equal(e('probe').disabled,false);
-  env.pending={kind:'probe',target:2};const second=api.commit('');assert.equal(env.apiCalls,2);
-  next.probe.chargesRemaining=0;finish({ok:true,serverTime:1000,skills:JSON.parse(JSON.stringify(next))});await second;
-  assert.equal(e('probe-label').textContent,'调查属性 0/2');assert.equal(e('probe-timer').textContent,'01:30');assert.equal(e('probe').disabled,true);
+  const next=JSON.parse(JSON.stringify(env.me.skills));next.accuse.chargesRemaining=0;next.accuse.nextChargeAt=91000;
+  finish({ok:true,serverTime:1000,skills:next,hp:3,alive:true});assert.equal(await first,true);
+  assert.equal(e('accuse-label').textContent,'指认 0/1');assert.equal(e('accuse-timer').textContent,'01:30');assert.equal(e('accuse').disabled,true);
+  next.accuse.chargesRemaining=1;next.accuse.nextChargeAt=0;env.me.skills=JSON.parse(JSON.stringify(next));api.updateSkillStatus();
+  assert.equal(e('accuse-label').textContent,'指认 1/1');assert.equal(e('accuse').disabled,false);
 });
 await test('迟到资源响应不能覆盖更新快照；关闭后的响应不重建私密内容', async () => {
-  const {env,api,e}=ui();api.renderPrivate();env.pending={kind:'probe',target:2};
+  const {env,api,e}=ui();api.renderPrivate();env.pending={kind:'accuse',target:2};
   let finish;env.api=()=>new Promise(r=>{finish=r;});const call=api.commit('');
   env.serverTime=2000;env.privateOpen=false;env.privateGeneration++;e('private-content').replaceChildren();
-  const late=JSON.parse(JSON.stringify(env.me.skills));late.probe.chargesRemaining=0;
+  const late=JSON.parse(JSON.stringify(env.me.skills));late.accuse.chargesRemaining=0;
   finish({ok:true,serverTime:1000,skills:late});assert.equal(await call,false);
-  assert.equal(env.me.skills.probe.chargesRemaining,2);assert.equal(e('private-content').innerHTML,'');
+  assert.equal(env.me.skills.accuse.chargesRemaining,1);assert.equal(e('private-content').innerHTML,'');
 });
 await test('旧运行后台拒绝冷却时提示需手动重启，不自动重试或伪报成功', async () => {
-  const {env,api,e}=ui();api.renderPrivate();env.pending={kind:'probe',target:2};
+  const {env,api,e}=ui();api.renderPrivate();env.pending={kind:'accuse',target:2};
   env.api=async()=>{env.apiCalls++;return{ok:false,error:'该技能冷却中'};};
   assert.equal(await api.commit(''),false); assert.equal(env.apiCalls,1);
   assert.match(e('result-host').innerHTML,/需要手动重启服务/);
 });
 await test('技能按钮两行层级、mm:ss补零及跨分钟、20分钟和提交状态', async () => {
-  const {env,api,e}=ui('bad');env.target.sid='AAA-BBB-***';api.renderPrivate();
-  const label=e('spy-label'),timer=e('spy-timer');env.me.skills.spy.chargesRemaining=0;
+  const {env,api,e}=ui('bad');api.renderPrivate();
+  const label=e('assassinate-label'),timer=e('assassinate-timer');env.me.skills.assassinate.chargesRemaining=0;
   for(const [seconds,text] of [[1200,'20:00'],[61,'01:01'],[60,'01:00'],[59,'00:59'],[9,'00:09'],[1,'00:01'],[3600,'60:00']]){
-    env.me.skills.spy.nextChargeAt=env.now+seconds*1000;api.updateSkillStatus();
-    assert.equal(label.textContent,'公开身份码 0/2');assert.equal(timer.textContent,text);assert.equal(timer.hidden,false);
-    assert.equal(e('spy-label'),label);assert.equal(e('spy-timer'),timer);
+    env.me.skills.assassinate.nextChargeAt=env.now+seconds*1000;api.updateSkillStatus();
+    assert.equal(label.textContent,'刺杀 0/1');assert.equal(timer.textContent,text);assert.equal(timer.hidden,false);
+    assert.equal(e('assassinate-label'),label);assert.equal(e('assassinate-timer'),timer);
   }
   const html=e('private-content').innerHTML;
   assert.match(html,/class="skill-button-label"/);assert.match(html,/class="skill-button-timer"/);
   const css=readFileSync(new URL('./public/styles/shellmap.css',import.meta.url),'utf8');
   assert.match(css,/\.skill-button-label\{[^}]*font-size:16px/);
   assert.match(css,/\.skill-button-timer\{[^}]*font-size:11px/);
-  env.target.sid='AAA-BBB-CCC';api.updateSkillStatus();
-  env.pending={kind:'kill',target:2};let resolve;env.api=()=>new Promise(r=>{resolve=r;});const call=api.commit('');
-  assert.equal(e('kill-label').textContent,'击杀 2/2');assert.equal(e('kill-timer').textContent,'正在提交…');
-  resolve({ok:true});await call;assert.equal(e('kill-timer').hidden,true);
+  env.me.skills.assassinate.chargesRemaining=1;env.me.skills.assassinate.nextChargeAt=0;api.updateSkillStatus();
+  env.pending={kind:'assassinate',target:2};let resolve;env.api=()=>new Promise(r=>{resolve=r;});const call=api.commit('');
+  assert.equal(e('assassinate-label').textContent,'刺杀 1/1');assert.equal(e('assassinate-timer').textContent,'正在提交…');
+  resolve({ok:true});await call;assert.equal(e('assassinate-timer').hidden,true);
 });
 await test('坏人面板按匿名展示顺序01递增，10/100不截断，淘汰卡保留，空状态正常', () => {
   const node = () => ({children:[],textContent:'',append(...items){this.children.push(...items);},replaceChildren(...items){this.children=items;}});
@@ -273,37 +275,37 @@ await test('坏人面板按匿名展示顺序01递增，10/100不截断，淘汰
   env.badPoolAvailable=false;vm.runInNewContext('renderBadPool();',env);assert.match(root.children[0].children[0].textContent,/尚未提供匿名线索池/);
 });
 await test('系统公布与玩家探查完全分离，七属性只下发系统项且不能伪造', () => {
-  const r=fixture(),bad=r.find(0),good=r.find(1);
-  const slot=()=>r.publicSnapshot(1).badSlots[0];
+  const r=fixture(),bad=r.room.players.find(p=>p.faction==='bad'),good=r.room.players.find(p=>p.faction==='good');
+  const slot=()=>r.publicSnapshot(good.id).badSlots[0];
   assert.deepEqual(slot().systemClues,{colors:{},traits:{}});
   const key=slot().key;
-  assert.equal(use(r,1,'probe',0).ok,true);
-  assert.ok(Object.values(bad.traitPublic).some(Boolean));
-  assert.deepEqual(slot().systemClues,{colors:{},traits:{}},'玩家探查不加入系统线索');
-  assert.equal(r.publishSystemClue(0,'colors','hair').ok,true);
+  assert.equal(use(r,good.id,'accuse',bad.id).ok,true);
+  assert.ok(!Object.values(bad.traitPublic).some(Boolean),'指认不公开属性');
+  assert.deepEqual(slot().systemClues,{colors:{},traits:{}},'玩家对抗不加入系统线索');
+  assert.equal(r.publishSystemClue(bad.id,'colors','hair').ok,true);
   assert.deepEqual(slot().systemClues.colors,{hair:bad.colors.hair[0]});
   assert.deepEqual(slot().systemClues.traits,{});
-  assert.equal(r.publishSystemClue(0,'traits','food').ok,true);
+  assert.equal(r.publishSystemClue(bad.id,'traits','food').ok,true);
   assert.deepEqual(slot().systemClues.traits,{food:bad.traits.food});
   assert.equal(bad.traitPublic.food,false,'系统公布不复用或改变探查公开标志');
-  assert.equal(r.publishSystemClue(0,'traits','food').published,false);
-  assert.equal(r.publishSystemClue(1,'traits','food').ok,false);
-  assert.equal(r.publishSystemClue(0,'traits','sid').ok,false);
-  assert.equal(r.publishSystemClue(0,'colors','__proto__').ok,false);
+  assert.equal(r.publishSystemClue(bad.id,'traits','food').published,false);
+  assert.equal(r.publishSystemClue(good.id,'traits','food').ok,false);
+  assert.equal(r.publishSystemClue(bad.id,'traits','sid').ok,false);
+  assert.equal(r.publishSystemClue(bad.id,'colors','__proto__').ok,false);
   assert.ok(Object.isFrozen(slot().systemClues.colors));
   assert.throws(()=>{slot().systemClues.traits.food='伪造';},TypeError);
-  assert.equal(slot().key,key);r.setOffline(0);r.join(bad.sessionId,'重连');assert.equal(slot().systemClues.traits.food,bad.traits.food);
+  assert.equal(slot().key,key);r.setOffline(bad.id);r.join(bad.sessionId,'重连');assert.equal(slot().systemClues.traits.food,bad.traits.food);
   const saved=JSON.parse(JSON.stringify({players:r.room.players,sessions:[...r.room.sessions],roundId:r.room.roundId,startedAt:r.room.startedAt,includeNpcs:true}));
   const restored=createRoom({restore:saved});assert.deepEqual(restored.publicSnapshot().badSlots[0].systemClues,slot().systemClues);
   const projection=slot();assert.ok(!('id' in projection));assert.ok(!('name' in projection));assert.ok(!('traits' in projection));
   r.reset();r.join('brand-new','新坏人');assert.deepEqual(slot().systemClues,{colors:{},traits:{}});
 });
 await test('暂停时按钮计时固定，继续后使用平移后的恢复时间', () => {
-  const {env,api,e}=ui();api.renderPrivate();env.me.skills.probe.chargesRemaining=0;env.me.skills.probe.nextChargeAt=91000;
-  env.gamePausedAt=31000;env.gameClosed='本场已暂停';env.now=631000;api.updateSkillStatus();assert.equal(e('probe-timer').textContent,'01:00');assert.equal(e('probe').disabled,true);
-  env.now+=10000;api.updateSkillStatus();assert.equal(e('probe-timer').textContent,'01:00');
-  env.me.skills.probe.nextChargeAt+=env.now-env.gamePausedAt;env.gamePausedAt=0;env.gameClosed='';api.updateSkillStatus();assert.equal(e('probe-timer').textContent,'01:00');
-  env.now+=1000;api.updateSkillStatus();assert.equal(e('probe-timer').textContent,'00:59');
+  const {env,api,e}=ui();api.renderPrivate();env.me.skills.accuse.chargesRemaining=0;env.me.skills.accuse.nextChargeAt=91000;
+  env.gamePausedAt=31000;env.gameClosed='本场已暂停';env.now=631000;api.updateSkillStatus();assert.equal(e('accuse-timer').textContent,'01:00');assert.equal(e('accuse').disabled,true);
+  env.now+=10000;api.updateSkillStatus();assert.equal(e('accuse-timer').textContent,'01:00');
+  env.me.skills.accuse.nextChargeAt+=env.now-env.gamePausedAt;env.gamePausedAt=0;env.gameClosed='';api.updateSkillStatus();assert.equal(e('accuse-timer').textContent,'01:00');
+  env.now+=1000;api.updateSkillStatus();assert.equal(e('accuse-timer').textContent,'00:59');
 });
 await test('公共日志本人按目标标记青色，系统线索粗黄，无姓名片段误命中或HTML注入',()=>{
  const list={innerHTML:'',scrollTop:42},count={textContent:''};
@@ -322,8 +324,9 @@ await test('公共日志本人按目标标记青色，系统线索粗黄，无�
  assert.ok(list.innerHTML.includes('与你有关'));assert.ok(list.innerHTML.includes('系统线索'));
  assert.ok(!list.innerHTML.includes('<img'));assert.ok(list.innerHTML.includes('&lt;img'));assert.equal(list.scrollTop,42);
  env.me={id:2,name:'小明甲'};vm.runInNewContext('renderLogs();',env);assert.equal((list.innerHTML.match(/class="log-mine"/g)||[]).length,2);
- const r=fixture();use(r,1,'probe',0);const probe=r.room.logs.find(e=>e.text.includes('已公开'));
- assert.equal(probe.subjectPlayerId,0);assert.ok(!probe.type);assert.ok(!('actorId'in probe));
+ const r=fixture(),g=r.room.players.find(p=>p.faction==='good'),b=r.room.players.find(p=>p.faction==='bad');
+ assert.equal(use(r,g.id,'accuse',b.id).ok,true);const hit=r.room.logs.find(e=>e.text.includes('对抗生命变为'));
+ assert.equal(hit.subjectPlayerId,b.id);assert.ok(!hit.type);assert.ok(!('actorId'in hit));assert.ok(!hit.text.includes(g.name),'公共日志不暴露操作者');
  const css=readFileSync(new URL('./public/styles/panels.css',import.meta.url),'utf8');
  // 明亮化改造后：系统线索=阳光橙浅底深橙字，与我有关=天蓝浅底深蓝字。
  // 断言的是「两者仍是各自独立的强调色、且不可互相替代」，不再绑定旧深色主题的具体十六进制值。

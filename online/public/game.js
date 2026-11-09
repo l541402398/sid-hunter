@@ -862,7 +862,9 @@
       }
     }
     if (session !== sessionGeneration || generation !== privateGeneration || !holding()) { updateSkillStatus(); return false; }
-    privateResult = result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
+    privateResult = !result.ok && /冷却中/.test(result.error || '')
+      ? '当前后台仍在执行旧版技能冷却规则，需要手动重启服务后生效（仅刷新页面无效）。本次未自动重试。'
+      : result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
     if (privateResult && typeof showToast === 'function') showToast(privateResult);
     pending = null;
     renderConfirmation(); renderResult(); updateSkillStatus();
