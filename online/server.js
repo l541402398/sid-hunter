@@ -42,6 +42,11 @@ for (const player of ROOM.room.players) {
 const restored = STORE.loadLastRound();
 if(!admin?.liveSnapshot&&restored&&!ROOM.room.lastResult) ROOM.room.lastResult={ finishReason:restored.finishReason,finishedAt:restored.finishedAt,roster:restored.roster||[],ranking:restored.ranking||[] };
 const ACTIVITY = createActivity({room:ROOM,store:STORE,initial:admin});
+// 测试模式（SID_TEST=1，且未设 SID_TEST_AUTO_OPEN=0）：内存库 + 自动开一场测试场，HTTP 回归可直接 join/操作。
+if(process.env.SID_TEST==='1'&&process.env.SID_TEST_AUTO_OPEN!=='0'){
+  const opened=ACTIVITY.openTestSession(Number(process.env.SID_TEST_SESSION_MS)||undefined);
+  if(!opened.ok)console.error('[test] 自动开场失败：',opened.error);
+}
 const resetTokens = new Map();
 const MANAGER = createManager({room:ROOM,passcode:MANAGER_CODE,activity:ACTIVITY});
 const { openStream, startOfflineSweep } = makeSse(ROOM);

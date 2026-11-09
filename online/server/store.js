@@ -14,15 +14,18 @@ const fs = require('fs');
 const path = require('path');
 
 function createStore(options = {}) {
-  const disabled = options.enabled === false || process.env.SID_DB === '0' || process.env.SID_TEST === '1';
-  const file = options.file || process.env.SID_DB_FILE || path.join(__dirname, '..', '.data', 'sid.sqlite');
+  // SID_TEST=1：默认使用进程内 SQLite（':memory:'），测试可完整走存档/场次流程，但绝不落盘、不碰正式库。
+  // SID_DB=0 仍然显式关闭存档（用于验证「存档不可用」时的冻结行为）。
+  const testMode = process.env.SID_TEST === '1';
+  const disabled = options.enabled === false || process.env.SID_DB === '0';
+  const file = options.file || (testMode ? ':memory:' : (process.env.SID_DB_FILE || path.join(__dirname, '..', '.data', 'sid.sqlite')));
   const state = { enabled: false, file, error: null, lastRoundId: null };
 
   if (disabled) {
     return {
       ...state,
       enabled: false,
-      reason: process.env.SID_TEST === '1' ? 'SID_TEST=1（测试隔离，不落盘）' : 'SID_DB=0',
+      reason: 'SID_DB=0',
       saveRound() { }, savePlayers() { }, loadLastRound() { return null; },
       saveSnapshot() { return false; }, loadSnapshot() { return null; }, clearSnapshot() { return false; },
       saveFeatures() { return false; }, loadFeatures() { return null; },
@@ -36,7 +39,7 @@ function createStore(options = {}) {
   let db = null;
   try {
     const { DatabaseSync } = require('node:sqlite');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
     db = new DatabaseSync(file);
     db.exec(`
       PRAGMA journal_mode = WAL;
@@ -150,6 +153,12 @@ function createStore(options = {}) {
       saved_at = excluded.saved_at
   `);
   const selectSnapshot = db && db.prepare(`SELECT * FROM snapshot WHERE id = 1`);
+  // 修复：saveFeatures/loadFeatures 原先引用了未定义的语句（ReferenceError 被吞，开关从未真正落盘）。
+  const upsertSettings = db && db.prepare(`
+    INSERT INTO settings (id, features_json, updated_at) VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET features_json = excluded.features_json, updated_at = excluded.updated_at
+  `);
+  const selectSettings = db && db.prepare(`SELECT features_json FROM settings WHERE id = 1`);
   const deleteSnapshot = db && db.prepare(`DELETE FROM snapshot WHERE id = 1`);
   const upsertEmployee = db && db.prepare(`
     INSERT INTO employees (emp_no, name, gender, email, department, delivery_group, title, synced_at)
