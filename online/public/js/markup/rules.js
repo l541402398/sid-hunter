@@ -84,31 +84,31 @@
           </div>
           <div class="rule-note playtest">
             <h4>容器翻找与 NPC 大转盘</h4>
-            <p>在 1F–7F 靠近文件柜、储物箱或独立房间容器按 <kbd>K</kbd> 翻找金币、道具与私密线索；找 NPC 兑换私密线索或转动幸运大转盘赢取高额金币福袋（不改变阵营与身份码）。</p>
+            <p>在 1F–7F 靠近文件柜、储物箱或独立房间容器按 <kbd>K</kbd> 获得积分或答题，并领取 NPC 福利；找 NPC 兑换私密线索或转动幸运大转盘免费抽取随机积分（不改变阵营与身份码）。</p>
           </div>
         </div>
-        <div class="mini-flow"><span>靠近容器/房间按K</span><b>→</b><span>翻找金币与私密线索</span><b>→</b><span>NPC兑换或转盘抽奖</span></div>
+        <div class="mini-flow"><span>靠近容器/房间按K</span><b>→</b><span>开箱得积分或答题</span><b>→</b><span>NPC兑换或转盘抽奖</span></div>
       </section>
 
       <section class="rule-section">
         <span class="rule-number">05 / 每日积分构成（三大类积分）</span>
-        <h3>参与分 + 存活分 + 对抗分，出局后积分完整保留</h3>
+        <h3>统一积分累计；休战仅停止存活分与对抗分</h3>
         <div class="rule-flow" aria-label="三大积分来源">
           <div><small>参与分（每日上限 10 分）</small><strong>首搜 +5 · 首游 +5</strong><em>轻松拿满</em></div>
           <b>+</b>
           <div><small>存活分（自动结算）</small><strong>每满 30 分钟 +1 分</strong><em>按存活时长</em></div>
           <b>+</b>
-          <div><small>对抗分（核心拉开差距）</small><strong>指认 +10 / 公开 +2 / 击杀 +5</strong><em>精准博弈</em></div>
+          <div><small>对抗分（核心拉开差距）</small><strong>指认 +10 / 刺杀 +3</strong><em>精准博弈</em></div>
         </div>
-        <p>每日首次完成容器翻找 <strong>+5 分</strong>、每日首次完成小游戏（猜拳 / 坦克 / 卡牌）<strong>+5 分</strong>；在场存活每满 30 分钟 <strong>+1 分</strong>；好人指认命中坏人 <strong>+10 分/次</strong>，坏人公开好人身份码 <strong>+2 分/次</strong>、击杀好人 <strong>+5 分/次</strong>。其余操作均为 0 分。</p>
+        <p>取消首次搜索/首次小游戏加分。探索直接积分或答题正确得分；J 与小游戏按渠道额度；NPC 积分礼包与免费转盘；对抗中每满 30 分钟 +1 存活分；正确指认 +10、正确刺杀 +3。休战后停止存活分与对抗分。</p>
         <div class="mini-flow"><span>参与拿保底10分</span><b>→</b><span>存活每30分钟+1分</span><b>→</b><span>阵营对抗冲击高分</span></div>
       </section>
 
       <section class="rule-section">
-        <span class="rule-number">06 / 出局规则与幽灵状态</span>
-        <h3>出局保留今日已得积分 · 化身幽灵继续游览互动</h3>
-        <p>当潜伏者（坏人）三段身份码全部公开，或任意玩家被潜伏者发动【击杀】时即判定<strong>出局</strong>。出局后<strong>今日已获得的全部积分完整保留</strong>，不再新增参与分、存活分与对抗分；出局玩家化身半透明幽灵，仍可在 1F–7F 自由移动、按 <kbd>J</kbd> 吓人互动或观战。</p>
-        <div class="mini-flow"><span>玩家判定出局</span><b>→</b><span>今日已得积分保留</span><b>→</b><span>化身幽灵观战互动</span></div>
+        <span class="rule-number">06 / 休战状态</span>
+        <h3>对抗生命归零进入休战 · 仍可探索与趣味玩法</h3>
+        <p>当潜伏者（坏人）三段身份码全部公开，或任意玩家被潜伏者发动【击杀】时对抗生命归零即进入<strong>休战</strong>。<strong>已得积分完整保留</strong>；停止存活分与对抗技能/得分，仍可探索、答题、J、小游戏、领取 NPC 福利与转盘积分。休战外观可半透明，无穿墙优势。</p>
+        <div class="mini-flow"><span>进入休战</span><b>→</b><span>今日已得积分保留</span><b>→</b><span>休战继续非对抗玩法</span></div>
       </section>
 
       <section class="rule-section">
