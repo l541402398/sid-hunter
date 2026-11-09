@@ -12,9 +12,9 @@ async function test(name, fn) {
   catch (e) { failed++; console.error(`失败 ${name}\n${e.stack}`); }
 }
 // rolls：依次返回的随机整数（用尽后返回 50 → 答题）；首位玩家为坏人，其余为好人。
-function fixture({ rolls = [], n = 3 } = {}) {
+function fixture({ rolls = [], n = 3, rules } = {}) {
   const queue = rolls.slice();
-  const r = createRoom({ random: () => 0.99, randomInt: max => (queue.length ? queue.shift() : 50) % max });
+  const r = createRoom({ random: () => 0.99, randomInt: max => (queue.length ? queue.shift() : 50) % max, ...(rules ? { rules } : {}) });
   for (let i = 0; i < n; i++) r.join(`s${i}`, `P${i}`);
   return r;
 }
@@ -84,7 +84,8 @@ await test('NPC 福利按探索数量解锁（5/10/15/20/25）、免费、每类
 });
 
 await test('跨日：探索次数/已开容器/福利/转盘/J与小游戏额度重置，积分保留', () => {
-  const r = fixture({ rolls: Array(10).fill(10) }), p = r.find(1), cs = containersFor(p);
+  // 场次时长放宽到 3 天，避免 2 小时 timeUp 先结束本局。
+  const r = fixture({ rolls: Array(10).fill(10), rules: { timeLimitMs: 3 * 86400000 } }), p = r.find(1), cs = containersFor(p);
   for (let i = 0; i < 5; i++) open(r, p, cs[i]);
   assert.equal(claim(r, p, 'score').ok, true);
   p.exploration.hammerPointsToday = 7; p.exploration.minigamePointsToday = 6; p.games.wheelDailySpins = 3;
