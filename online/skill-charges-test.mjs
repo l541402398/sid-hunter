@@ -18,108 +18,112 @@ function fixture() {
 function use(r, actor, skill, target = 2, extra = {}) {
   return r.useSkill(r.find(actor).sessionId, { commandId: 'charges-' + (++seq), skill, targetId: target, ...extra });
 }
-await test('坏人新建/重开3血，三次不同好人指认淘汰，同一好人同日对同一人只能指认一次', () => {
-  const r = fixture(), bad = r.find(0);
+await test('坏人新建/重开3血，三次不同好人指认进入休战；同目标日限一次；保护期内不可连打', () => {
+  const r = fixture();
+  const bad = r.room.players.find(p => p.faction === 'bad');
+  const goods = r.room.players.filter(p => p.faction === 'good');
+  assert.ok(bad && goods.length >= 3);
   assert.equal(bad.hp, 3);
-  assert.equal(use(r, 1, 'accuse', 0).ok, true); assert.equal(bad.hp, 2); assert.equal(bad.alive, true);
-  const dup = use(r, 1, 'accuse', 0);
-  assert.equal(dup.ok, false); assert.match(dup.error, /今日已指认过/);
-  assert.equal(bad.hp, 2); assert.equal(r.find(1).skills.accuse.chargesRemaining, 1);
-  r.setOffline(0); const reconnect = r.join(bad.sessionId, '不应重建');
+  assert.equal(Object.keys(bad.skills).join(','), 'assassinate');
+  assert.equal(use(r, goods[0].id, 'accuse', bad.id).ok, true); assert.equal(bad.hp, 2); assert.equal(bad.alive, true);
+  assert.ok(bad.protectUntil > r.now());
+  const duringProtect = use(r, goods[1].id, 'accuse', bad.id);
+  assert.equal(duringProtect.ok, false); assert.match(duringProtect.error, /保护/);
+  assert.equal(goods[1].skills.accuse.chargesRemaining, 1, '保护期内无效操作不扣次');
+  bad.protectUntil = 0;
+  goods[0].skills.accuse.chargesRemaining = 1;
+  goods[0].skills.accuse.nextChargeAt = 0;
+  const dup = use(r, goods[0].id, 'accuse', bad.id);
+  assert.equal(dup.ok, false); assert.match(dup.error, /今日|同一/);
+  assert.equal(goods[0].skills.accuse.chargesRemaining, 1);
+  r.setOffline(bad.id); const reconnect = r.join(bad.sessionId, '不应重建');
   assert.equal(reconnect.player, bad); assert.equal(bad.hp, 2);
-  assert.equal(use(r, 2, 'accuse', 0).ok, true); assert.equal(bad.hp, 1); assert.equal(bad.alive, true);
-  assert.equal(use(r, 3, 'accuse', 0).ok, true); assert.equal(bad.hp, 0); assert.equal(bad.alive, false);
-  r.reset(); assert.equal(r.join('new-round', '新局坏人').player.hp, 3);
+  bad.protectUntil = 0;
+  assert.equal(use(r, goods[1].id, 'accuse', bad.id).ok, true); assert.equal(bad.hp, 1); assert.equal(bad.alive, true);
+  bad.protectUntil = 0;
+  assert.equal(use(r, goods[2].id, 'accuse', bad.id).ok, true); assert.equal(bad.hp, 0); assert.equal(bad.alive, false);
+  r.reset(); assert.equal(r.join('new-round', '新局').player.hp, 3);
 });
-await test('四项身份技能无短CD，恢复周期和挥锤CD不变', () => {
+await test('技能配置：无短CD、最大1次、挥锤CD不变', () => {
   assert.equal(SKILL_CONFIG.probeCooldownMs, 0);
   assert.equal(SKILL_CONFIG.actionCooldownMs, 0);
+  assert.equal(SKILL_CONFIG.maxCharges, 1);
   assert.equal(SKILL_CONFIG.chargeIntervalMs, 90000);
   assert.equal(WORLD.PLAY_CONFIG.attackCooldownMs, 1200);
   assert.equal(WORLD.ACTION.hammerCooldownMs, 1000);
 });
-for (const [actor, skill] of [[0,'spy'],[0,'kill'],[1,'probe'],[1,'accuse']]) {
-  await test(`${actor === 0 ? '坏人' : '好人'}${skill}：同一毫秒连续两次可用、第三次拒绝`, () => {
-    const now = Date.now, t = 1800000000000;
-    Date.now = () => t;
-    try {
-      const r = fixture(), p = r.find(actor), s = p.skills[skill];
-      // A stale compatibility timestamp cannot impose a short cooldown.
-      s.cooldownUntil = t + 12000;
-      if (skill === 'kill') {
-        r.find(2).sid.revealed.fill(true);
-        r.find(3).sid.revealed.fill(true);
-        r.find(4).sid.revealed.fill(true);
-      }
-      const first = use(r, actor, skill, 2); assert.equal(first.ok, true, JSON.stringify(first));
-      assert.equal(first.skills[skill].chargesRemaining, 1); assert.equal(first.serverTime, t);
-      const next = s.nextChargeAt;
-      assert.equal(next, t + SKILL_CONFIG.chargeIntervalMs); assert.equal(s.cooldownUntil, 0);
-      const secondTarget = (skill === 'kill' || skill === 'accuse') ? 3 : 2;
-      const second = use(r, actor, skill, secondTarget); assert.equal(second.ok, true, JSON.stringify(second));
-      assert.equal(s.chargesRemaining, 0); assert.equal(s.nextChargeAt, next);
-      assert.equal(first.skills[skill].chargesRemaining, 1, 'response resources must be copies');
-      const thirdTarget = (skill === 'kill' || skill === 'accuse') ? 4 : 2;
-      const third = use(r, actor, skill, thirdTarget); assert.equal(third.ok, false); assert.match(third.error, /次数用尽/);
-      assert.equal(s.nextChargeAt, next);
-    } finally { Date.now = now; }
-  });
-}
-await test('三段身份码公开后连续击杀不同目标，双技能储存互相独立', () => {
-  const r = fixture(), actor = r.find(0);
-  const before = JSON.stringify(actor.skills.spy);
-  for (const id of [2, 3]) {
-    const target = r.find(id);
-    target.sid.revealed.fill(true);
-    assert.equal(use(r, 0, 'kill', id).ok, true);
-    assert.equal(target.alive, false);
-  }
-  assert.equal(actor.skills.kill.chargesRemaining, 0);
-  assert.equal(JSON.stringify(actor.skills.spy), before);
-  assert.deepEqual(Object.keys(actor.skills), ['spy','kill']);
-  assert.equal(actor.skills.spy.chargesRemaining, 2);
+await test('好人指认：一次机会用尽后需等CD；满充不超过1', () => {
+  const now = Date.now, t = 1800000000000;
+  Date.now = () => t;
+  try {
+    const r = fixture(), p = r.find(1), s = p.skills.accuse;
+    s.cooldownUntil = t + 12000;
+    const first = use(r, 1, 'accuse', 0); assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.skills.accuse.chargesRemaining, 0); assert.equal(first.serverTime, t);
+    assert.equal(s.nextChargeAt, t + s.chargeIntervalMs); assert.equal(s.cooldownUntil, 0);
+    const second = use(r, 1, 'accuse', 2); assert.equal(second.ok, false); assert.match(second.error, /次数用尽/);
+  } finally { Date.now = now; }
+});
+await test('坏人刺杀：一次机会；action 别名映射到 assassinate', () => {
+  const r = fixture(), bad = r.find(0), good = r.find(1);
+  good.x = bad.x; good.y = bad.y;
+  const res = r.useSkill(bad.sessionId, { commandId: 'charges-' + (++seq), skill: 'action', targetId: good.id });
+  assert.equal(res.ok, true, JSON.stringify(res));
+  assert.equal(good.hp, 2);
+  assert.equal(bad.skills.assassinate.chargesRemaining, 0);
 });
 await test('恢复精确边界：未到期0次，到期1次即可立刻使用', () => {
   const old = Date.now; let t = 1800000000000; Date.now = () => t;
   try {
-    const r = fixture(); use(r, 1, 'probe'); use(r, 1, 'probe');
-    const s = r.find(1).skills.probe;
-    t = s.nextChargeAt - 1; assert.equal(use(r, 1, 'probe').ok, false);
-    t++; const result = use(r, 1, 'probe'); assert.equal(result.ok, true);
+    const r = fixture();
+    assert.equal(use(r, 1, 'accuse', 0).ok, true);
+    const s = r.find(1).skills.accuse;
+    t = s.nextChargeAt - 1; assert.equal(use(r, 1, 'accuse', 2).ok, false);
+    t++; const result = use(r, 1, 'accuse', 2); assert.equal(result.ok, true);
     assert.equal(s.chargesRemaining, 0); assert.equal(s.cooldownUntil, 0);
-    assert.equal(s.nextChargeAt, t + SKILL_CONFIG.chargeIntervalMs);
+    assert.equal(s.nextChargeAt, t + s.chargeIntervalMs);
   } finally { Date.now = old; }
 });
-await test('离线恢复到上限停止计时；淘汰与结束不继续恢复', () => {
-  const r = fixture(), p = r.find(1); use(r, 1, 'probe'); use(r, 1, 'probe');
-  r.setOffline(p.id); r.room.clockOffset += SKILL_CONFIG.chargeIntervalMs * 3;
-  r.privateSnapshot(p.id);
-  assert.equal(p.skills.probe.chargesRemaining, 2); assert.equal(p.skills.probe.nextChargeAt, 0);
-  const r2 = fixture(), p2 = r2.find(1); use(r2, 1, 'probe'); use(r2, 1, 'probe');
-  r2.finish(); r2.room.clockOffset += SKILL_CONFIG.chargeIntervalMs * 3; r2.privateSnapshot(p2.id);
-  assert.equal(p2.skills.probe.chargesRemaining, 0);
-  const r3 = fixture(), p3 = r3.find(1); use(r3, 1, 'probe'); use(r3, 1, 'probe');
-  p3.sid.revealed.fill(true);
-  assert.equal(use(r3, 0, 'kill', 1).ok, true);
-  r3.room.clockOffset += SKILL_CONFIG.chargeIntervalMs * 3; r3.privateSnapshot(1);
-  assert.equal(p3.skills.probe.chargesRemaining, 0);
+await test('离线恢复到上限停止计时；休战与结束不继续恢复', () => {
+  const r = fixture();
+  const good = r.room.players.find(p => p.faction === 'good');
+  const bad = r.room.players.find(p => p.faction === 'bad');
+  use(r, good.id, 'accuse', bad.id);
+  r.setOffline(good.id); r.room.clockOffset += SKILL_CONFIG.chargeIntervalMs * 3;
+  r.privateSnapshot(good.id);
+  assert.equal(good.skills.accuse.chargesRemaining, 1); assert.equal(good.skills.accuse.nextChargeAt, 0);
+  const r2 = fixture();
+  const g2 = r2.room.players.find(p => p.faction === 'good');
+  const b2 = r2.room.players.find(p => p.faction === 'bad');
+  use(r2, g2.id, 'accuse', b2.id);
+  r2.finish(); r2.room.clockOffset += SKILL_CONFIG.chargeIntervalMs * 3; r2.privateSnapshot(g2.id);
+  assert.equal(g2.skills.accuse.chargesRemaining, 0);
+  const r3 = fixture();
+  const g3 = r3.room.players.find(p => p.faction === 'good');
+  const b3 = r3.room.players.find(p => p.faction === 'bad');
+  b3.hp = 1; b3.protectUntil = 0;
+  assert.equal(use(r3, g3.id, 'accuse', b3.id).ok, true);
+  assert.equal(b3.alive, false);
+  const frozenCharges = b3.skills.assassinate.chargesRemaining;
+  r3.room.clockOffset += SKILL_CONFIG.chargeIntervalMs * 3; r3.privateSnapshot(b3.id);
+  assert.equal(b3.skills.assassinate.chargesRemaining, frozenCharges, '休战后次数不再恢复');
+  assert.ok(b3.skillsFrozenAt != null);
 });
-await test('无未知属性/无未知SID/未全公开击杀不扣次，幂等及阵营权限不变', () => {
-  const r = fixture(), p = r.find(0), q = r.find(2), u = r.find(3);
-  for (const key of Object.keys(q.traits)) q.traitPublic[key] = true;
-  q.sid.revealed.fill(true);
-  assert.equal(use(r, 1, 'probe').ok, false); assert.equal(use(r, 0, 'spy').ok, false);
-  assert.equal(use(r, 0, 'kill', 3).ok, false);
-  assert.equal(r.find(1).skills.probe.chargesRemaining, 2); assert.equal(p.skills.spy.chargesRemaining, 2); assert.equal(p.skills.kill.chargesRemaining, 2);
-  assert.equal(use(r, 1, 'spy').ok, false);
-  const cmd = { commandId:'same-skill-id', skill:'accuse', targetId:3 };
-  assert.equal(r.useSkill(r.find(1).sessionId, cmd).ok, true);
-  assert.equal(r.useSkill(r.find(1).sessionId, cmd).ok, false);
-  assert.equal(r.find(1).skills.accuse.chargesRemaining, 1);
-  r.find(1).skills.spy = { ...p.skills.spy };
-  assert.equal(use(r, 1, 'spy').ok, false, '好人即使有遗留技能也不能使用公开身份码');
-  assert.ok(!('skills' in r.publicProjection(p)));
+await test('旧 probe/spy/kill 入口拒绝；阵营不能互用；幂等 commandId', () => {
+  const r = fixture();
+  const good = r.room.players.find(p => p.faction === 'good');
+  const bad = r.room.players.find(p => p.faction === 'bad');
+  assert.equal(use(r, good.id, 'probe', bad.id).ok, false);
+  assert.equal(use(r, bad.id, 'spy', good.id).ok, false);
+  assert.equal(use(r, bad.id, 'kill', good.id).ok, false);
+  assert.equal(use(r, good.id, 'assassinate', bad.id).ok, false);
+  assert.equal(use(r, bad.id, 'accuse', good.id).ok, false);
+  const cmd = { commandId:'same-skill-id', skill:'accuse', targetId: bad.id };
+  assert.equal(r.useSkill(good.sessionId, cmd).ok, true);
+  assert.equal(r.useSkill(good.sessionId, cmd).ok, false);
+  assert.equal(good.skills.accuse.chargesRemaining, 0);
 });
+
 const source = readFileSync(new URL('./public/game.js', import.meta.url), 'utf8');
 const section = source.slice(source.indexOf('  const secondsLeft ='), source.indexOf('  // Personal privacy choices'));
 function ui(faction = 'good') {
@@ -130,10 +134,11 @@ function ui(faction = 'good') {
       get innerHTML() { return this.html; }, replaceChildren() { this.html = ''; } });
     return elements.get(id);
   }
-  const skills = Object.fromEntries(['probe','accuse','spy','kill'].map(id => [id, {chargesRemaining:2,maxCharges:2,cooldownUntil:999999, nextChargeAt:0}]));
-  const env = { me:{id:0,alive:true,faction,skills}, finished:false, gameClosed:'', gamePausedAt:0, now:1000, serverTime:1000,
+  const skillId = faction === 'bad' ? 'assassinate' : 'accuse';
+  const skills = { [skillId]: {chargesRemaining:1,maxCharges:1,cooldownUntil:999999, nextChargeAt:0} };
+  const env = { me:{id:0,alive:true,faction,skills,accusedToday:[]}, finished:false, gameClosed:'', gamePausedAt:0, now:1000, serverTime:1000,
     privateGeneration:1, sessionGeneration:1, privateOpen:true, privateResult:'', pending:null, selectedId:2,
-    target:{id:2,alive:true,sid:'***-***-***',name:'目标',traits:{saying:'***',food:'***',sport:'***'}},
+    target:{id:2,alive:true,sid:'***-***-***',name:'目标',traits:{saying:'***',food:'***',sport:'***'},protected:false},
     traitNames:{saying:'口头禅',food:'食物',sport:'运动'}, MASK:'***', apiCalls:0,
     $:element, holding:()=>env.privateOpen, selected:()=>env.target, serverNow:()=>env.now,
     escapeText:s=>String(s), commandId:()=>String(++seq), api:async()=>{ env.apiCalls++; return{ok:true}; } };
@@ -141,26 +146,27 @@ function ui(faction = 'good') {
   vm.runInContext(section + '\n globalThis.uiAPI={skillButtonText,skillStatus,renderPrivate,updateSkillStatus,renderConfirmation,commit};', context);
   return {env,api:env.uiAPI,e:element};
 }
+
 await test('每个技能按钮下方都有对应简略效果和可访问说明', () => {
-  for (const [faction, ids] of [['good',['probe','accuse']],['bad',['spy','kill']]]) {
+  for (const [faction, ids] of [['good',['accuse']],['bad',['assassinate']]]) {
     const {api,e} = ui(faction); api.renderPrivate(); const html=e('private-content').innerHTML;
     for(const id of ids) {
       assert.ok(html.includes(`aria-describedby="${id}-effect"`));
       assert.ok(html.indexOf(`id="${id}"`) < html.indexOf(`id="${id}-effect"`));
     }
     assert.equal((html.match(/data-skill=/g)||[]).length,ids.length);
-    for (const id of ['probe','accuse','spy','kill'].filter(id=>!ids.includes(id))) assert.ok(!html.includes(`data-skill="${id}"`));
+    for (const id of ['probe','spy','kill'].filter(id=>!ids.includes(id))) assert.ok(!html.includes(`data-skill="${id}"`));
   }
 });
-await test('好人两蓝、坏人两红，确认按钮随技能类型配色，关闭清除', () => {
+await test('好人蓝指认、坏人红刺杀，确认按钮随技能类型配色，关闭清除', () => {
   for (const faction of ['good','bad']) {
     const {env,api,e} = ui(faction); api.renderPrivate();
     const html=e('private-content').innerHTML;
-    const ids=faction==='good'?['probe','accuse']:['spy','kill'];
+    const ids=faction==='good'?['accuse']:['assassinate'];
     for(const id of ids){
-      const color=['probe','accuse'].includes(id)?'blue':'red';
+      const color=id==='accuse'?'blue':'red';
       assert.match(html,new RegExp(`id="${id}"[^>]+class="skill-${color}"`));
-      env.target.sid=id==='kill'?'AAA-BBB-CCC':'***-***-***';
+      env.target.sid='***-***-***';
       env.pending={kind:id,target:2};api.renderConfirmation();
       assert.match(e('confirm-host').innerHTML,new RegExp(`id="confirm" class="skill-${color}"`));
     }

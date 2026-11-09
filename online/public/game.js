@@ -742,7 +742,7 @@
     };
     if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}（已公开 ${prog.revealedCount}/3 段身份码）`; updateSkillStatus(); }
   }
-  // ---------- 私密操作（双阵营专属 2 技能 · 移除手输码一键击杀） ----------
+  // ---------- 私密操作（每人 1 技能：好人指认 / 坏人刺杀） ----------
   function holding() { return privateOpen; }
   const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - (gamePausedAt || serverNow())) / 1000));
   function sidProgressInfo(sidStr) {
@@ -750,17 +750,16 @@
     const revealedCount = parts.filter(seg => seg && seg !== MASK).length;
     return { revealedCount, total: 3, allPublic: revealedCount === 3 };
   }
-  const skillNames = { probe: '调查属性', accuse: '指认', spy: '公开身份码', kill: '击杀' };
+  const skillNames = { accuse: '指认', assassinate: '刺杀', probe: '调查属性', spy: '公开身份码', kill: '击杀' };
   const skillEffects = {
-    probe: '随机公开目标 1 项未公开隐藏属性（0分）；对方属性已全部公开时不消耗次数。',
-    accuse: '指认潜伏者公开其 1 段身份码并 +10 分（满 3 段直接出局）；误指好人公开自己 1 段身份码（每天对同一人限指认一次）。',
-    spy: '目标为好人公开其 1 段身份码并 +2 分；目标为坏人双方身份码均不变（消耗 1 次，0分）。',
-    kill: '目标三段身份码全部公开时显示；无需手动输入身份码，确认后直接令目标出局（击杀好人 +5 分）。'
+    accuse: '指认潜伏者：目标扣 1 格对抗生命并 +10 分；误指好人则自己扣 1 格（不触发保护）。每日对同一人限一次；受击保护期内无效。',
+    assassinate: '刺杀调查员：目标扣 1 格对抗生命并 +3 分；刺同阵营无效（仍消耗机会）。每日对同一人限一次；受击保护期内无效。',
+    probe: '已取消', spy: '已取消', kill: '已取消'
   };
   let skillFlight = null;
   const skillRecoveryTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
   function skillButtonText(id, skill) {
-    const base = `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges}`;
+    const base = `${skillNames[id] || id} ${skill.chargesRemaining}/${skill.maxCharges}`;
     if (skill.chargesRemaining > 0) return base;
     if (finished || !me?.alive) return `${base}\n已冻结`;
     if (!skill.nextChargeAt) return `${base}\n等待恢复`;
@@ -768,8 +767,8 @@
     return `${base}\n${remaining > 0 ? skillRecoveryTime(remaining) : '等待恢复确认'}`;
   }
   function availableSkills() {
-    if (!me) return [];
-    const allowed = me.faction === 'bad' ? ['spy', 'kill'] : ['probe', 'accuse'];
+    if (!me || !me.skills) return [];
+    const allowed = me.faction === 'bad' ? ['assassinate'] : ['accuse'];
     return allowed.filter(id => me.skills[id]);
   }
   function isTargetSidAllPublic(p) {
@@ -779,28 +778,27 @@
   function isAccusedToday(p) {
     return !!(p && me && Array.isArray(me.accusedToday) && me.accusedToday.includes(p.id));
   }
+  function isProtected(p) {
+    return !!(p && p.protected);
+  }
   function hasUnknown(p, id) {
     if (!p) return false;
-    if (id === 'probe') return Object.keys(traitNames).some(k => p.traits[k] === MASK);
-    if (id === 'spy') return !isTargetSidAllPublic(p);
-    if (id === 'accuse') return !isTargetSidAllPublic(p) && !isAccusedToday(p);
-    if (id === 'kill') return isTargetSidAllPublic(p);
-    return true;
+    if (id === 'accuse' || id === 'assassinate') return !isAccusedToday(p) && !isProtected(p);
+    return false;
   }
   function canTarget(p) { return !!(p && me && p.id !== me.id && p.alive && me.alive && !finished && !gameClosed); }
   function skillStatus(id, skill) {
     const state = finished || !me?.alive ? '已冻结' : skill.chargesRemaining > 0 ? '可使用' : '恢复中';
-    return `${skillNames[id]} ${skill.chargesRemaining}/${skill.maxCharges} · ${state} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '次数已满'}`;
+    return `${skillNames[id] || id} ${skill.chargesRemaining}/${skill.maxCharges} · ${state} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '次数已满'}`;
   }
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
-    const prog = sidProgressInfo(p.sid);
-    $('private-dialog-target').textContent = `目标：${p.name}（已公开 ${prog.revealedCount}/3 段身份码）`;
+    $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''} · 对抗生命仅本人可见`;
     const ids = availableSkills();
     const factionLabel = me.faction === 'good' ? '调查员（好人）专属技能' : '潜伏者（坏人）专属技能';
     const renderedSid = typeof sidHTML === 'function' ? sidHTML(p.sid) : escapeText(p.sid);
-    host.innerHTML = `<div class="private-block"><div class="private-banner-row"><p class="private-title">${factionLabel} · 仅本人可见</p><span class="private-target-sid">${renderedSid}</span></div><div class="skill-row">${ids.map(id => `<div class="private-skill" id="skill-card-${id}"${id === 'kill' && (!canTarget(p) || !isTargetSidAllPublic(p)) ? ' hidden' : ''}><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'probe' || id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><p id="kill-lock-hint" class="kill-lock-hint"${me.faction === 'bad' && (!canTarget(p) || !isTargetSidAllPublic(p)) ? '' : ' hidden'}>提示：当目标三段身份码全部公开（3/3）且存活时，此处将自动显示【击杀】按钮（无需手输身份码）。</p><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能次数与恢复计时</summary><p id="skill-info" class="skill-info"></p></details></div>`;
+    host.innerHTML = `<div class="private-block"><div class="private-banner-row"><p class="private-title">${factionLabel} · 仅本人可见</p><span class="private-target-sid">${renderedSid}</span></div><div class="skill-row">${ids.map(id => `<div class="private-skill" id="skill-card-${id}"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能次数与恢复计时</summary><p id="skill-info" class="skill-info"></p></details></div>`;
     for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
@@ -808,25 +806,19 @@
     if (!holding() || !me) return;
     const p = selected(), info = $('skill-info'); if (!info || !p) return;
     const ids = availableSkills();
-    info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : '自己或已出局目标不可操作。 ') : '')
+    info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : me.alive ? '自己或已休战目标不可操作。 ' : '你已休战，不能使用对抗技能。 ') : '')
       + ids.map(id => skillStatus(id, me.skills[id])).join('；');
-    const killCard = $('skill-card-kill'), killHint = $('kill-lock-hint');
-    const showKill = me.faction === 'bad' && canTarget(p) && isTargetSidAllPublic(p);
-    if (killCard) killCard.hidden = !showKill;
-    if (killHint) killHint.hidden = me.faction !== 'bad' || showKill;
-    if (pending && pending.kind === 'kill' && !showKill) { pending = null; renderConfirmation(); }
     for (const id of ids) {
       const skill = me.skills[id], button = $(id);
       if (button) {
         const [label, recovery = ''] = skillButtonText(id, skill).split('\n');
         const allDoneHint = canTarget(p) && !hasUnknown(p, id)
-          ? (id === 'probe' ? '属性已全公开' : id === 'kill' ? '需三段全公开' : (id === 'accuse' && isAccusedToday(p)) ? '今日已指认过' : '身份码已全公开')
+          ? (isAccusedToday(p) ? '今日已操作过' : isProtected(p) ? '目标保护中' : '暂不可用')
           : '';
         const caption = skillFlight?.kind === id ? '正在提交…' : (recovery || allDoneHint);
         const nameSlot = $(`${id}-label`), timerSlot = $(`${id}-timer`);
-        if (nameSlot.textContent !== label) nameSlot.textContent = label;
-        if (timerSlot.textContent !== caption) timerSlot.textContent = caption;
-        timerSlot.hidden = !caption;
+        if (nameSlot && nameSlot.textContent !== label) nameSlot.textContent = label;
+        if (timerSlot) { if (timerSlot.textContent !== caption) timerSlot.textContent = caption; timerSlot.hidden = !caption; }
         button.disabled = !!skillFlight || !canTarget(p) || skill.chargesRemaining <= 0 || !hasUnknown(p, id);
       }
     }
@@ -842,14 +834,10 @@
     const p = selected();
     const targetName = p ? escapeText(p.name) : '该目标';
     const k = pending.kind;
-    const confirmCopy = k === 'probe'
-      ? `确认对「${targetName}」使用【调查属性】？将随机公开对方 1 项未公开属性，消耗 1 次机会。`
-      : k === 'accuse'
-        ? `确认对「${targetName}」发起【指认】？若对方为潜伏者将公开其 1 段身份码并 +10 分（第 3 段直接出局）；若误指好人将公开您自己 1 段身份码（今日不可再次指认该目标）。`
-        : k === 'spy'
-          ? `确认对「${targetName}」使用【公开身份码】？若对方为好人将公开其 1 段身份码并 +2 分；若为同阵营坏人则双方身份码不变（消耗 1 次）。`
-          : `确认直接【击杀】「${targetName}」？对方三段身份码已全部公开，无需输入身份码，确认后消耗 1 次机会令其立即出局。`;
-    host.innerHTML = `<div class="confirm-box"><p>${confirmCopy}</p><div class="confirm-actions"><button id="confirm" class="${k === 'probe' || k === 'accuse' ? 'skill-blue' : 'skill-red'}">确认${skillNames[k]}</button><button id="cancel" type="button">取消</button></div></div>`;
+    const confirmCopy = k === 'accuse'
+      ? `确认对「${targetName}」发起【指认】？若对方为潜伏者将扣其 1 格对抗生命并 +10 分；若误指好人则你自己扣 1 格（今日不可再次操作该目标）。`
+      : `确认对「${targetName}」发起【刺杀】？若对方为调查员将扣其 1 格对抗生命并 +3 分；同阵营无效但仍消耗机会。`;
+    host.innerHTML = `<div class="confirm-box"><p>${confirmCopy}</p><div class="confirm-actions"><button id="confirm" class="${k === 'accuse' ? 'skill-blue' : 'skill-red'}">确认${skillNames[k]}</button><button id="cancel" type="button">取消</button></div></div>`;
     $('confirm').onclick = () => commit('');
     $('cancel').onclick = () => { pending = null; renderConfirmation(); };
     updateSkillStatus();
@@ -859,21 +847,22 @@
     if (skillFlight || !holding() || !pending || !me || pending.target !== selectedId) return false;
     const p = selected(); if (!p) return false;
     const requested = pending.kind;
-    const skill = me.legacy ? (requested === 'spy' ? 'probe' : requested === 'accuse' || requested === 'kill' ? 'action' : requested) : requested;
+    const skill = requested;
     const body = { commandId: commandId(), skill, targetId: p.id };
-    if (pending.kind === 'kill' && input) body.sid = String(input);
     const generation = privateGeneration, session = sessionGeneration;
     const request = { kind: requested };
     skillFlight = request; updateSkillStatus();
     const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，结果未确认' }));
     if (skillFlight === request) skillFlight = null;
     if (session === sessionGeneration && result.skills && Number(result.serverTime) >= serverTime && me) {
-      me = { ...me, skills: result.skills, ...(Array.isArray(result.accusedToday) ? { accusedToday: result.accusedToday } : {}) };
+      me = { ...me, skills: result.skills, hp: result.hp ?? me.hp, alive: result.alive ?? me.alive, protectUntil: result.protectUntil ?? me.protectUntil,
+        ...(Array.isArray(result.accusedToday) ? { accusedToday: result.accusedToday } : {}) };
+      if (result.ok && /休战/.test(result.resultText || '') && typeof showToast === 'function') {
+        showToast('你已进入休战状态，本日不再参与对抗。仍可探索、答题、趣味互动和参加小游戏，继续赢取积分与奖品！');
+      }
     }
     if (session !== sessionGeneration || generation !== privateGeneration || !holding()) { updateSkillStatus(); return false; }
-    privateResult = !result.ok && /冷却中/.test(result.error || '')
-      ? '当前后台仍在执行旧版技能冷却规则，需要手动重启服务后生效（仅刷新页面无效）。本次未自动重试。'
-      : result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
+    privateResult = result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
     if (privateResult && typeof showToast === 'function') showToast(privateResult);
     pending = null;
     renderConfirmation(); renderResult(); updateSkillStatus();
