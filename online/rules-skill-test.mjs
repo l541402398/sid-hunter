@@ -22,117 +22,98 @@ async function test(name, fn) {
 }
 async function until(label, fn) { for (let i = 0; i < 100; i++) { if (await fn()) return; await pause(60); } throw new Error('timeout: ' + label); }
 let counter = 0;
-function fixture() {
-  const r = createRoom();
+function fixture(options = {}) {
+  // random 固定为 0.99：首位加入者按 4:1 配比必为坏人，其余为好人，便于断言。
+  const r = createRoom({ random: () => 0.99, ...options });
   for (const [token, name] of [['bad','坏测试'],['good','好测试'],['target','目标'],['extra','备用']]) r.join(token, name);
   return r;
 }
 function use(r, token, skill, targetId, more = {}) { return r.useSkill(token, { commandId: `cmd-${++counter}`, skill, targetId, ...more }); }
 function privateMe(r, id) { return r.privateSnapshot(id).me; }
 
-await test('01 好人两项、坏人四项实际私密状态；公开投影无阵营/技能', () => {
+await test('01 好人仅指认、坏人仅刺杀，各1次；公开投影无阵营/技能/生命', () => {
   const r = fixture();
-  assert.deepEqual(Object.keys(privateMe(r,0).skills), ['probe','accuse','spy','kill']);
-  assert.deepEqual(Object.keys(privateMe(r,1).skills), ['probe','accuse']);
-  for (const p of r.publicSnapshot().players) { assert.ok(!('faction' in p)); assert.ok(!('skills' in p)); }
+  assert.equal(r.find(0).faction,'bad'); assert.equal(r.find(1).faction,'good');
+  assert.deepEqual(Object.keys(privateMe(r,0).skills), ['assassinate']);
+  assert.deepEqual(Object.keys(privateMe(r,1).skills), ['accuse']);
+  for (const id of [0,1]) for (const s of Object.values(privateMe(r,id).skills)) { assert.equal(s.chargesRemaining,1); assert.equal(s.maxCharges,1); }
+  assert.equal(privateMe(r,0).hp,3);
+  for (const p of r.publicSnapshot().players) { assert.ok(!('faction' in p)); assert.ok(!('skills' in p)); assert.ok(!('hp' in p)); }
 });
-await test('02 坏人探查只公开隐藏属性、刺探只公开SID；两资源独立', () => {
-  const r = fixture(), target = r.find(2);
-  assert.equal(use(r,'bad','probe',2).ok,true);
-  assert.deepEqual(target.traitPublic,{saying:true,food:false,sport:false});
+await test('02 指认/刺杀不公开目标属性或身份码', () => {
+  const r = fixture(), target = r.find(2), bad = r.find(0);
+  assert.equal(use(r,'bad','assassinate',2).ok,true);
+  assert.deepEqual(target.traitPublic,{saying:false,food:false,sport:false});
   assert.deepEqual(target.sid.revealed,[false,false,false]);
-  assert.equal(use(r,'bad','spy',2).ok,true);
-  assert.deepEqual(target.traitPublic,{saying:true,food:false,sport:false});
-  assert.deepEqual(target.sid.revealed,[true,false,false]);
-  assert.equal(r.find(0).skills.probe.chargesRemaining,1);
-  assert.equal(r.find(0).skills.spy.chargesRemaining,1);
-  assert.equal(r.find(0).skills.accuse.chargesRemaining,2);
-  assert.equal(r.find(0).skills.kill.chargesRemaining,2);
+  assert.equal(use(r,'good','accuse',0).ok,true);
+  assert.deepEqual(bad.traitPublic,{saying:false,food:false,sport:false});
+  assert.deepEqual(bad.sid.revealed,[false,false,false]);
 });
-await test('03 两阵营指认好人效果一致、无扣血；错指认公共日志无操作者', () => {
-  const r = fixture();
-  for (const token of ['bad','good']) {
-    const actor = r.playerBySession(token), before = actor.hp;
-    r.room.logs = [];
-    assert.equal(use(r,token,'accuse',2).ok,true);
-    assert.equal(actor.hp,before); assert.deepEqual(actor.sid.revealed,[true,false,false]);
-    assert.equal(r.room.logs.length,1); assert.equal(r.room.logs[0].text,'目标被指认一次。');
-    const event = privateMe(r,actor.id).pending.at(-1);
-    assert.match(event.text,/你的第1段S-ID已公开/); assert.equal(event.result.damaged,0);
-    assert.ok(!JSON.stringify(event).includes(actor.name));
-  }
-  r.find(0).sid.revealed = [true,true,true]; r.room.clockOffset += 13000;
-  use(r,'bad','accuse',2);
-  assert.match(privateMe(r,0).pending.at(-1).text,/已全部公开/);
+await test('03 误指认好人：自己扣1格且不触发保护，目标不变；公共日志只写生命变化不写操作者', () => {
+  const r = fixture(), actor = r.find(1), target = r.find(2);
+  r.room.logs = [];
+  const res = use(r,'good','accuse',2);
+  assert.equal(res.ok,true);
+  assert.equal(actor.hp,2); assert.equal(target.hp,3); assert.ok(!(actor.protectUntil > r.now()), '误指认不触发保护');
+  assert.equal(actor.score,0);
+  assert.deepEqual(r.room.logs.map(l=>l.text),['好测试的对抗生命变为 2。']);
+  assert.ok(!r.room.logs.some(l=>l.text.includes('指认')));
 });
-await test('04 两阵营指认坏人目标均扣1血；自选禁止', () => {
-  for (const token of ['bad','good']) {
-    const r = fixture();
-    // The real lobby creates only one bad player. A server-only target fixture exercises
-    // bad->bad without changing the production lobby's faction allocation rule.
-    r.find(2).faction = 'bad'; r.find(2).hp = 2;
-    assert.equal(use(r,token,'accuse',2).ok,true); assert.equal(r.find(2).hp,1);
-    assert.equal(use(r,token,'probe',r.playerBySession(token).id).ok,false);
-  }
+await test('04 指认坏人：目标扣1格+10分并获保护；刺杀好人+3分；同阵营刺杀无效；不可自选', () => {
+  const r = fixture(), bad = r.find(0), good = r.find(1);
+  assert.equal(use(r,'good','accuse',0).ok,true);
+  assert.equal(bad.hp,2); assert.equal(good.score,WORLD.SCORE.accuseHit); assert.ok(bad.protectUntil>r.now());
+  assert.equal(use(r,'bad','assassinate',2).ok,true);
+  assert.equal(r.find(2).hp,2); assert.equal(bad.score,WORLD.SCORE.assassinateHit);
+  const m = fixture(); m.find(2).faction='bad';
+  const same = use(m,'bad','assassinate',2); assert.equal(same.ok,true); assert.equal(same.noEffect,true);
+  assert.equal(m.find(2).hp,3); assert.equal(m.find(0).skills.assassinate.chargesRemaining,0,'同阵营无效仍消耗机会');
+  const self = fixture(); assert.equal(use(self,'good','accuse',1).ok,false); assert.equal(self.find(1).skills.accuse.chargesRemaining,1);
 });
-await test('05 good spy/kill及未知id拒绝，不消耗任何次数；同commandId去重', () => {
+await test('05 旧probe/spy/kill、跨阵营及未知id拒绝，不消耗次数；同commandId去重', () => {
   const r = fixture(), before = JSON.stringify(r.find(1).skills);
-  for (const id of ['spy','kill','not-a-skill','__proto__',null]) assert.equal(use(r,'good',id,2).ok,false);
+  for (const id of ['probe','spy','kill','assassinate','not-a-skill','__proto__',null]) assert.equal(use(r,'good',id,0).ok,false, String(id));
   assert.equal(JSON.stringify(r.find(1).skills),before);
-  const body = { commandId:'one-command', skill:'probe', targetId:2 };
+  const body = { commandId:'one-command', skill:'accuse', targetId:0 };
   assert.equal(r.useSkill('good',body).ok,true);
   const after = JSON.stringify(r.find(1).skills);
   assert.equal(r.useSkill('good',body).ok,false); assert.equal(JSON.stringify(r.find(1).skills),after);
 });
-await test('06 四技能各自独立恢复；重复用不重置计时、长离线补足、满停止', () => {
+await test('06 好坏阵营CD分别配置；离线恢复到1次即停止计时', () => {
   const r = fixture();
-  for (const id of ['probe','spy','accuse','kill']) assert.equal(use(r,'bad',id,2,{sid:'AAA-AAA-AAA'}).ok,true);
-  const p = r.find(0), starts = Object.fromEntries(Object.entries(p.skills).map(([k,s])=>[k,s.nextChargeAt]));
-  r.room.clockOffset += 13000;
-  for (const id of ['probe','spy','accuse','kill']) {
-    assert.equal(use(r,'bad',id,2,{sid:'AAA-AAA-AAA'}).ok,true);
-    assert.equal(p.skills[id].nextChargeAt,starts[id]); assert.equal(p.skills[id].chargesRemaining,0);
-  }
-  r.setOffline(0); r.room.clockOffset += 78000;
-  let s = privateMe(r,0).skills;
-  for (const k of Object.keys(s)) { assert.equal(s[k].chargesRemaining,1); assert.equal(s[k].nextChargeAt,starts[k]+90000); }
-  r.room.clockOffset += 900000;
-  s = privateMe(r,0).skills;
-  for (const k of Object.keys(s)) { assert.equal(s[k].chargesRemaining,2); assert.equal(s[k].nextChargeAt,0); }
+  r.setCombatConfig({ goodChargeIntervalMs: 30*60000, badChargeIntervalMs: 20*60000 });
+  assert.equal(r.find(1).skills.accuse.chargeIntervalMs,30*60000);
+  assert.equal(r.find(0).skills.assassinate.chargeIntervalMs,20*60000);
+  const t0 = r.now();
+  assert.equal(use(r,'good','accuse',0).ok,true); assert.equal(use(r,'bad','assassinate',2).ok,true);
+  assert.equal(r.find(1).skills.accuse.nextChargeAt,t0+30*60000);
+  assert.equal(r.find(0).skills.assassinate.nextChargeAt,t0+20*60000);
+  r.setOffline(1); r.room.clockOffset += 20*60000;
+  assert.equal(privateMe(r,0).skills.assassinate.chargesRemaining,1);
+  assert.equal(privateMe(r,1).skills.accuse.chargesRemaining,0);
+  r.room.clockOffset += 10*60000 + 3*3600000;
+  const s = privateMe(r,1).skills.accuse; assert.equal(s.chargesRemaining,1); assert.equal(s.nextChargeAt,0);
 });
-await test('07 完整SID精确匹配；结束仅三种（badWiped/aliveFloor/timeUp），小房间不再按存活数结束', () => {
-  const r = fixture();
-  assert.equal(use(r,'bad','kill',2,{sid:'bad-format'}).ok,false);
-  assert.equal(r.find(0).skills.kill.chargesRemaining,2);
-  assert.equal(use(r,'bad','kill',2,{sid:r.find(2).sid.segments.join('-')}).ok,true);
-  assert.equal(r.room.finished,false);
-  // 再淘汰一名好人：存活降到 2，但旧“存活<=2 且有淘汰即结束”已废除，坏人仍在场 -> 不结束。
-  r.room.clockOffset += 13000;
-  use(r,'bad','kill',3,{sid:r.find(3).sid.segments.join('-')});
-  assert.equal(r.room.finished,false);
-  assert.equal(r.room.players.filter(p=>p.alive).length,2);
-  // badWiped：两名好人各指认唯一坏人一次（hp 2→0）-> 坏人全灭，结束并下发排名。
-  const w = fixture();
-  assert.equal(use(w,'good','accuse',0).ok,true); assert.equal(w.find(0).hp,1); assert.equal(w.room.finished,false);
-  w.room.clockOffset += 13000;
-  assert.equal(use(w,'target','accuse',0).ok,true);
+await test('07 默认坏人全部休战不自动结束；测试规则可开启badWiped/aliveFloor；timeUp按排名结算', () => {
+  const r = fixture(), bad = r.find(0);
+  for (const token of ['good','target','extra']) { bad.protectUntil = 0; assert.equal(use(r,token,'accuse',0).ok,true); }
+  assert.equal(bad.hp,0); assert.equal(bad.alive,false); assert.equal(r.room.finished,false,'默认不因坏人全休战结束');
+  const w = fixture({ rules: { enableBadWiped: true } }), wb = w.find(0);
+  for (const token of ['good','target','extra']) { wb.protectUntil = 0; use(w,token,'accuse',0); }
   assert.equal(w.room.finished,true); assert.equal(w.room.finishReason,'badWiped');
   assert.ok(Array.isArray(w.room.ranking)&&w.room.ranking.length===4);
-  // aliveFloor：用 options.rules 把阈值降到 2 -> 淘汰一名好人后存活降到阈值即结束（无排名）。
-  const f = createRoom({rules:{endRemainingPlayers:2}});
+  const f = createRoom({ random: () => 0.99, rules: { enableAliveFloor: true, endRemainingPlayers: 2 } });
   f.join('fa','甲'); f.join('fb','乙'); f.join('fc','丙');
-  assert.equal(f.useSkill('fa',{commandId:'floor-1',skill:'kill',targetId:1,sid:f.find(1).sid.segments.join('-')}).ok,true);
+  f.find(1).hp = 1;
+  assert.equal(f.useSkill('fa',{commandId:'floor-1',skill:'assassinate',targetId:1}).ok,true);
   assert.equal(f.room.finished,true); assert.equal(f.room.finishReason,'aliveFloor'); assert.equal(f.room.ranking,null);
-  // timeUp：推进时钟越过时间上限 -> 结束并下发排名与公开 rules。
   const t = createRoom(); t.join('ta','甲'); t.join('tb','乙');
   t.room.clockOffset += WORLD.RULES.timeLimitMs;
   const snap = t.publicSnapshot();
   assert.equal(t.room.finished,true); assert.equal(t.room.finishReason,'timeUp');
   assert.ok(Array.isArray(t.room.ranking)&&t.room.ranking.length===2);
-  assert.deepEqual(Object.keys(snap.rules).sort(),['endRemainingPlayers','endsAt','timeLimitMs']);
+  assert.deepEqual(Object.keys(snap.rules).sort(),['endRemainingPlayers','endsAt','speed','timeLimitMs']);
   assert.ok(snap.players.every(p=>typeof p.score==='number'));
-  // 小房间未命中三条件不结束。
-  const fresh = createRoom(); fresh.join('a'); fresh.join('b'); assert.equal(fresh.room.finished,false);
 });
 
 let server, chrome, ws, profile;
@@ -175,13 +156,11 @@ try {
   const nick=await post('/api/join',{nickname:'<script>'}); const good=await post('/api/join',{nickname:'浏览乙'}); await post('/api/join',{nickname:'备用'});
   await until('snapshot updated',()=>evaluate(`document.getElementById('roster-count').textContent==='4'`));
   await test('08 真实HTTP响应两/四技能并结算；旧action兼容且未知key拒绝',async()=>{
-    assert.deepEqual(Object.keys((await state(token)).me.skills),['probe','accuse','spy','kill']);
-    assert.deepEqual(Object.keys((await state(good.sessionToken)).me.skills),['probe','accuse']);
-    const spy=await post('/api/skill',{commandId:'http-spy',skill:'spy',targetId:nick.playerId},token); assert.equal(spy.ok,true);
-    const probe=await post('/api/skill',{commandId:'http-probe',skill:'probe',targetId:nick.playerId},token); assert.equal(probe.ok,true);
-    const s=await state(token), p=s.players.find(p=>p.id===nick.playerId); assert.notEqual(p.traits.saying,'***'); assert.notEqual(p.sid,'***-***-***');
+    assert.deepEqual(Object.keys((await state(token)).me.skills),['assassinate']);
+    assert.deepEqual(Object.keys((await state(good.sessionToken)).me.skills),['accuse']);
+    for (const old of ['spy','probe','kill']) assert.equal((await post('/api/skill',{commandId:'http-'+old,skill:old,targetId:nick.playerId},token)).ok,false);
     const invalid=await post('/api/skill',{commandId:'http-no',skill:'unknown',targetId:nick.playerId},token); assert.equal(invalid.ok,false);
-    const legacy=await post('/api/skill',{commandId:'legacy',skill:'action',targetId:nick.playerId,sid:'AAA-AAA-AAA'},token); assert.equal(legacy.kind,'kill');
+    const legacy=await post('/api/skill',{commandId:'legacy',skill:'action',targetId:nick.playerId},token); assert.equal(legacy.kind,'assassinate');
   });
   await test('09 昵称<script>在名单/目标/我的信息均为文字；公开层不显示阵营差异',async()=>{
     await click('#roster-toggle');
@@ -209,13 +188,13 @@ try {
     await until('restored bad',()=>evaluate(`fetch('/api/state').then(r=>r.json()).then(s=>s.me.faction==='bad')`));
     await cdp('Page.bringToFront');
   });
-  await test('10 真实私密界面四技能；我的信息四项；规则打开销毁私密DOM',async()=>{
+  await test('10 真实私密界面单技能；我的信息；规则打开销毁私密DOM',async()=>{
     await click('#roster-toggle'); await click(`[data-player="${good.playerId}"]`); await click('#private-gate');
-    assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-skill]')].map(e=>e.dataset.skill)`),['probe','accuse','spy','kill']);
+    assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-skill]')].map(e=>e.dataset.skill)`),['assassinate']);
     await evaluate(`document.getElementById('my-info').focus()`); await key('keyDown',' ','Space',32); await key('keyUp',' ','Space',32);
     // 身份眼睛同时解锁血量与技能明细，四项技能文案随之出现在“我的信息”。
     await click('#eye-identity');
-    const text=await evaluate(`document.getElementById('mine').textContent`); for(const n of ['探查','指认','刺探','击杀'])assert.ok(text.includes(n),n);
+    const text=await evaluate(`document.getElementById('mine').textContent`); for(const n of ['刺杀'])assert.ok(text.includes(n),n);
     await click('#rules-toggle');
     assert.equal(await evaluate(`document.getElementById('mine').childElementCount`),0);
     assert.equal(await evaluate(`document.getElementById('private-content').childElementCount`),0);
