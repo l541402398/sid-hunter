@@ -934,12 +934,14 @@ function createRoom(options = {}) {
     if (actor.npc) return reject('NPC 不能主动行动');
     if (kind === 'scare') return reject('吓人动作已取消（休战玩家可正常挥锤）');
     if (kind !== 'hammer') return reject('未知动作');
+    if (t < actor.stunUntil || t < (actor.frightUntil || 0)) return reject('你还被敲晕着');
     if (t < actor.hammerCooldownUntil) return reject('锤子还没抡回来');
     actor.hammerCooldownUntil = t + A.hammerCooldownMs;
     actor.lastSwingAt = t;
     let best = null, bestDist = Infinity;
     for (const q of room.players) {
-      if (q.id === actor.id || q.npc || !q.online) continue;
+      // NPC 与离线角色同样可以被敲（表现 + 离线摘要计数），但 awardJPoints 只给在线真人目标产分。
+      if (q.id === actor.id) continue;
       if (q.floorId !== actor.floorId || (q.zoneId || null) !== (actor.zoneId || null)) continue;
       const dist = Math.hypot(q.x - actor.x, q.y - actor.y);
       if (dist > A.hammerRange || dist >= bestDist) continue;
