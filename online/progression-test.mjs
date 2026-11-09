@@ -1,4 +1,4 @@
-// 进度机制回归：单局连续对局转盘（阶梯收费、可重复、特殊券）、全行为计分、三种结束方式与排名。
+// 进度机制回归（积分/休战改版）：转盘每日免费随机积分、全行为计分、结束方式与排名。
 // 零依赖：直接 require('./room.js') 构造权威房间；HTTP 段复用 mechanics-test 的 spawn 模式。
 import assert from 'node:assert/strict';
 import { readWorldSource } from './test-helpers/world-source.mjs';
@@ -15,7 +15,6 @@ const { createRoom, WORLD } = require('./room.js');
 const { RULES, SCORE, WHEEL, PLAY_CONFIG: C } = WORLD;
 const furniture = WORLD.makeFurniture();
 const npc = WORLD.NPCS[0];
-const byId = id => furniture.find(f => f.id === id);
 const blank = () => ({ chips: 0, clues: [], searched: [] });
 let sequence = 0, passed = 0, failed = 0;
 const nonce = () => `progression-${++sequence}`;
@@ -24,16 +23,15 @@ async function test(name, fn) {
   catch (error) { failed++; console.error(`失败 ${name}\n${error.stack}`); }
 }
 function fixture(count = 3, options = {}) {
-  const r = createRoom(options);
+  // random 固定：首位为坏人，其余为好人（确定性阵营夹具）。
+  const r = createRoom({ random: () => 0.99, ...options });
   for (let i = 0; i < count; i++) r.join(`session-${i}`, `玩家${i}`);
   return r;
 }
-function near(p, entity) {
-  if (entity.footprint) { p.x = entity.footprint.x + entity.footprint.w / 2; p.y = entity.depth + 12; }
-  else { p.x = entity.x; p.y = entity.y; }
-}
-const search = (r, p, id) => r.interact(p.sessionId, { commandId: nonce(), kind: 'search', entityId: id });
-const exchange = (r, p, entity) => r.interact(p.sessionId, { commandId: nonce(), kind: 'exchange', entityId: entity.id });
+// dev 新增 floorGuard：交互/小游戏指令须带 roundId 与本人 floorRevision。
+const guard = (r, p) => ({ roundId: r.room.roundId, expectedFloorRevision: p.floorRevision });
+const search = (r, p, c, extra = {}) => { p.x = c.x; p.y = c.y; return r.interact(p.sessionId, { commandId: nonce(), kind: 'search', entityId: c.id, ...guard(r, p), ...extra }); };
+const wheel = (r, p, entity = npc) => { p.x = entity.x; p.y = entity.y; return r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: entity.id, ...guard(r, p) }); };
 
 await test('WORLD 新常量与函数：浏览器脚本与 CommonJS 双载、无 import/export', async () => {
   // 合并适配：world 已拆成 shared/world/* + 聚合器；加载契约检查统一读拼接源码（顺序同 index.html）。
@@ -47,146 +45,64 @@ await test('WORLD 新常量与函数：浏览器脚本与 CommonJS 双载、无 
     assert.equal(w.RULES.endRemainingPlayers, 100);
     assert.equal(w.RULES.timeLimitMs, 2 * 60 * 60 * 1000);
     assert.equal(JSON.stringify(w.SCORE), JSON.stringify(SCORE));
+    assert.equal(JSON.stringify(w.EXPLORE), JSON.stringify(WORLD.EXPLORE));
+    assert.equal(JSON.stringify(w.COMBAT), JSON.stringify(WORLD.COMBAT));
     assert.equal(w.buildWheelPool('good').length, 10);
-    assert.equal(w.wheelSpinCost(3), WHEEL.spinCosts[3]);
+    assert.equal(w.wheelSpinCost(3), 0);
     assert.ok(!('wheelRewards' in w.PLAY_CONFIG));
   }
 });
-await test('wheelSpinCost：首次免费、数组内取值正确、单调不减、超出数组线性外推仍递增', () => {
-  assert.equal(WORLD.wheelSpinCost(0), 0);
-  assert.equal(WORLD.wheelSpinCost(-3), 0);
-  for (let n = 0; n < WHEEL.spinCosts.length; n++) assert.equal(WORLD.wheelSpinCost(n), WHEEL.spinCosts[n], `spinCosts[${n}]`);
-  for (let n = 1; n <= 80; n++) assert.ok(WORLD.wheelSpinCost(n) >= WORLD.wheelSpinCost(n - 1), `单调 ${n}`);
-  const L = WHEEL.spinCosts.length;
-  const last = WHEEL.spinCosts[L - 1], inc = last - WHEEL.spinCosts[L - 2];
-  assert.ok(inc > 0);
-  assert.equal(WORLD.wheelSpinCost(L), last + inc);
-  assert.equal(WORLD.wheelSpinCost(L + 1), last + inc * 2);
-  assert.ok(WORLD.wheelSpinCost(L + 5) > WORLD.wheelSpinCost(L + 4));
+await test('wheelSpinCost：积分改版后每日次数内全部免费', () => {
+  for (const n of [-3, 0, 1, 2, 3, 10, 80]) assert.equal(WORLD.wheelSpinCost(n), 0, `第${n}次`);
+  assert.equal(WHEEL.maxDailySpins, 3);
 });
-await test('buildWheelPool：good 含 2 张线索券、无 reform/rebirth；bad 含 reform/rebirth、无 clue', () => {
+await test('buildWheelPool：两阵营十槽全为随机积分，不再有线索券/洗心革面/重生券', () => {
   const good = WORLD.buildWheelPool('good'), bad = WORLD.buildWheelPool('bad');
-  assert.equal(good.length, WHEEL.slotCount);
-  assert.equal(bad.length, WHEEL.slotCount);
-  const specialKeys = pool => pool.filter(i => i.kind === 'special').map(i => i.key);
-  assert.deepEqual(specialKeys(good), ['clue', 'clue']);
-  assert.equal(specialKeys(good).includes('reform'), false);
-  assert.equal(specialKeys(good).includes('rebirth'), false);
-  assert.ok(specialKeys(bad).includes('reform') && specialKeys(bad).includes('rebirth'));
-  assert.equal(specialKeys(bad).includes('clue'), false);
-  const goodChips = good.filter(i => i.kind === 'chips'), badChips = bad.filter(i => i.kind === 'chips');
-  assert.equal(goodChips.length, WHEEL.slotCount - WHEEL.specialCount.good);
-  assert.equal(badChips.length, WHEEL.slotCount - WHEEL.specialCount.bad);
-  for (const item of [...goodChips, ...badChips]) assert.ok(WHEEL.chipAmounts.includes(item.amount), `amount ${item.amount}`);
-  assert.ok(new Set([...goodChips, ...badChips].map(i => i.amount)).size > 1, '筹码数量应随槽位变化');
-  for (const item of [...good, ...bad]) {
-    assert.equal(typeof item.label, 'string'); assert.ok(item.label.length);
-    assert.equal(typeof item.color, 'string'); assert.match(item.color, /^#[0-9A-Fa-f]{6}$/);
-    assert.equal(typeof item.glyph, 'string'); assert.ok(item.glyph.length);
+  for (const pool of [good, bad]) {
+    assert.equal(pool.length, WHEEL.slotCount);
+    for (const item of pool) {
+      assert.equal(item.kind, 'points'); assert.ok(Number.isInteger(item.amount) && item.amount >= 1);
+      assert.equal(typeof item.label, 'string'); assert.match(item.label, /积分/);
+      assert.match(item.color, /^#[0-9A-Fa-f]{6}$/); assert.ok(item.glyph.length);
+    }
+    assert.ok(!pool.some(i => ['clue', 'reform', 'rebirth'].includes(i.key)));
   }
+  assert.ok(new Set(good.map(i => i.amount)).size > 1, '积分数量应随槽位变化');
   assert.deepEqual(WORLD.buildWheelPool('good'), good); // 顺序确定，可复现
 });
-await test('转盘可重复：阶梯收费、计数递增、slots/slotIndex 结构一致、筹码不足时失败且状态不变', () => {
+await test('转盘：每日3次免费、全楼层共享、积分入账、第4次拒绝且状态不变', () => {
   let draws = 0;
-  const r = fixture(3, { randomInt: max => { assert.equal(max, WHEEL.slotCount); draws++; return 2; } });
-  const p = r.find(0); p.x = npc.x; p.y = npc.y; p.exploration.chips = 10;
-  let chips = 10;
-  for (let spin = 0; spin < 4; spin++) {
-    const cost = WORLD.wheelSpinCost(spin);
-    const res = r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: npc.id });
-    assert.equal(res.ok, true, `第 ${spin + 1} 次转动`);
-    assert.equal(res.cost, cost); assert.equal(res.spins, spin + 1);
-    assert.equal(res.wheel.slots.length, WHEEL.slotCount);
-    assert.ok(res.wheel.slotIndex >= 0 && res.wheel.slotIndex < WHEEL.slotCount);
-    assert.deepEqual(res.wheel.item, res.wheel.slots[res.wheel.slotIndex]);
-    assert.equal(res.faction, p.faction);
-    assert.equal(p.games.wheelSpins[npc.id], spin + 1);
-    assert.equal(res.wheel.item.kind, 'chips');
-    chips = chips - cost + res.wheel.item.amount;
-    assert.equal(p.exploration.chips, chips);
-    assert.ok(p.exploration.chips >= 0);
+  const r = fixture(3, { randomInt: max => { draws++; return draws % max; } }), p = r.find(1);
+  let score = 0;
+  for (let i = 1; i <= 3; i++) {
+    // 第3次换到另一楼层的 NPC，验证每日次数全楼层共享。
+    if (i === 3) p.floorId = WORLD.NPCS[1].floorId;
+    const ok = wheel(r, p, i === 3 ? WORLD.NPCS[1] : npc);
+    assert.equal(ok.ok, true, `第 ${i} 次转动`); assert.equal(ok.cost, 0); assert.equal(ok.spins, i);
+    assert.equal(ok.wheel.slots.length, WHEEL.slotCount); assert.deepEqual(ok.wheel.item, { ...ok.wheel.slots[ok.wheel.slotIndex], kind: 'points' });
+    score += ok.wheel.item.amount; assert.equal(p.score, score);
   }
-  assert.equal(draws, 4);
-  assert.equal(p.score, 0); // wheelPrize 计 0 分
-  // 返回对象为深拷贝，篡改不影响服务端状态
-  const probe = r.privateSnapshot(p.id).me.games;
-  probe.wheelSpins[npc.id] = 999;
-  assert.equal(p.games.wheelSpins[npc.id], 4);
-  // 筹码不足：失败、不改变任何状态、不消耗指令
-  p.exploration.chips = 0;
-  const spinsBefore = p.games.wheelSpins[npc.id], scoreBefore = p.score, id = nonce();
-  const fail = r.play(p.sessionId, { commandId: id, kind: 'wheel', entityId: npc.id });
-  assert.equal(fail.ok, false); assert.match(fail.error, /金币不足|筹码不足/);
-  assert.equal(r.room.processed.has(id), false);
-  assert.equal(p.exploration.chips, 0); assert.equal(p.games.wheelSpins[npc.id], spinsBefore); assert.equal(p.score, scoreBefore);
+  const fail = wheel(r, p, WORLD.NPCS[1]);
+  assert.equal(fail.ok, false); assert.match(fail.error, /上限/); assert.equal(p.score, score); assert.equal(p.games.wheelDailySpins, 3);
 });
-await test('特殊券·reform：坏人转好人，洗心革面后坏人全灭 → badWiped 且有排名', () => {
-  const r = fixture(3, { randomInt: () => 0 }); // bad 池 slot0 = reform
-  const p = r.find(0), decoy = r.find(1);
-  decoy.faction = 'bad'; decoy.alive = false; decoy.hp = 0; // 另一名坏人已出局
-  p.x = npc.x; p.y = npc.y; p.exploration.chips = 0;
-  const res = r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: npc.id });
-  assert.equal(res.ok, true); assert.equal(res.wheel.item.key, 'reform');
-  assert.equal(p.faction, 'good'); assert.equal(p.hp, 1);
-  assert.deepEqual(Object.keys(p.skills).sort(), ['accuse', 'probe']);
-  assert.equal(r.room.finished, true); assert.equal(r.room.finishReason, 'badWiped');
-  assert.ok(Array.isArray(r.room.ranking) && r.room.ranking.length === 3);
-});
-await test('特殊券·rebirth：重随机 colors/traits/sid 并重置 traitPublic 与 revealed', () => {
-  const r = fixture(3, { randomInt: () => 1 }); // bad 池 slot1 = rebirth
-  const p = r.find(0); p.x = npc.x; p.y = npc.y; p.exploration.chips = 0;
-  p.colors = { hair: ['旧', '#000000'], top: ['旧', '#000000'], pants: ['旧', '#000000'], shoes: ['旧', '#000000'] };
-  p.traits = { saying: '__old__', food: '__old__', sport: '__old__' };
-  p.sid = { segments: ['~~~', '~~~', '~~~'], revealed: [true, true, true] };
-  p.traitPublic = { saying: true, food: true, sport: true };
-  const res = r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: npc.id });
-  assert.equal(res.ok, true); assert.equal(res.wheel.item.key, 'rebirth');
-  assert.notEqual(p.colors.hair[0], '旧'); assert.notEqual(p.traits.saying, '__old__'); assert.notEqual(p.sid.segments[0], '~~~');
-  assert.deepEqual(p.traitPublic, { saying: false, food: false, sport: false });
-  assert.deepEqual(p.sid.revealed, [false, false, false]);
-  assert.equal(p.sid.segments.length, 3);
-  assert.ok(r.publicSnapshot().logs.some(l => l.text.includes('身份特征被重新随机')));
-});
-await test('特殊券·clue：给到一条关于坏人的私密线索，进入本人 clues 且不进入公开投影', () => {
-  const r = fixture(3, { randomInt: () => 0 }); // good 池 slot0 = clue
-  const p = r.find(1); // 好人
-  assert.equal(p.faction, 'good');
-  p.x = npc.x; p.y = npc.y; p.exploration.chips = 0;
-  const publicBefore = JSON.stringify(r.publicSnapshot());
-  const res = r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: npc.id });
-  assert.equal(res.ok, true); assert.equal(res.wheel.item.key, 'clue');
-  assert.equal(p.exploration.clues.length, 1);
-  const clue = p.exploration.clues[0];
-  assert.equal(clue.targetId, r.find(0).id); assert.equal(r.find(0).faction, 'bad');
-  assert.equal(clue.source, '转盘·线索券');
-  assert.ok(clue.text.includes(clue.value));
-  assert.ok(!('clues' in r.publicProjection(p)));
-  for (const visible of r.publicSnapshot().players) assert.ok(!('exploration' in visible));
-  assert.ok(!JSON.stringify(r.publicSnapshot()).includes(clue.value) || r.find(0).traitPublic[clue.key]);
-});
-await test('计分·探索与猜拳：搜索 +2、线索 +2、兑换 +1/+2、猜拳胜/负/平局', () => {
-  const r = fixture(3);
-  const p = r.find(1), q = r.find(2);
-  near(p, byId('desk-1035-172'));
-  assert.equal(search(r, p, 'desk-1035-172').ok, true);
-  assert.equal(p.score, SCORE.search);
-  near(p, byId('cabinet-785-160'));
-  assert.equal(search(r, p, 'cabinet-785-160').ok, true);
-  assert.equal(p.score, SCORE.search * 2 + SCORE.clue);
-  p.exploration.chips = 20; near(p, npc);
-  const beforeExchange = p.score;
-  assert.equal(exchange(r, p, npc).ok, true);
-  assert.equal(p.score, beforeExchange + SCORE.exchange + SCORE.clue);
-  p.x = 500; p.y = 350; q.x = 520; q.y = 350; p.exploration.chips = 5; q.exploration.chips = 5;
+await test('计分·探索与猜拳：直接积分 +1、答题答对 +2、猜拳胜 +2/负平 0', () => {
+  const r = fixture(3, { randomInt: () => 10 });
+  const p = r.find(1), q = r.find(2), cs = WORLD.zoneContainers(p.floorId, p.zoneId || null);
+  assert.equal(search(r, p, cs[0]).mode, 'points'); assert.equal(p.score, SCORE.exploreDirect);
+  const quiz = search(r, p, cs[1], { forceMode: 'quiz' }); assert.equal(quiz.mode, 'quiz');
+  const ans = r.room.searchSessions.get(quiz.sessionId).question.answer;
+  assert.equal(r.interact(p.sessionId, { kind: 'quizAnswer', sessionId: quiz.sessionId, answer: ans }).correct, true);
+  assert.equal(p.score, SCORE.exploreDirect + SCORE.exploreQuiz);
+  p.x = 500; p.y = 350; q.x = 520; q.y = 350;
   const pScore = p.score, qScore = q.score;
   // 新协议：邀请不带出拳；被邀请方接受后进入 10 秒选择阶段；双方出拳后到 deadline 才结算计分。
   const settleRps = (from, to, aChoice, bChoice, label) => {
     const fromSession = from.sessionId, toSession = to.sessionId;
-    assert.equal(r.play(fromSession, { commandId: nonce(), kind: 'rpsInvite', targetId: to.id }).ok, true, `${label} 邀请`);
+    assert.equal(r.play(fromSession, { commandId: nonce(), kind: 'rpsInvite', targetId: to.id, ...guard(r, from) }).ok, true, `${label} 邀请`);
     const cid = r.privateSnapshot(to.id).me.games.rpsPending.id;
-    assert.equal(r.play(toSession, { commandId: nonce(), kind: 'rpsReply', challengeId: cid }).ok, true, `${label} 接受`);
-    assert.equal(r.play(fromSession, { commandId: nonce(), kind: 'rpsChoose', challengeId: cid, choice: aChoice, revision: 1 }).ok, true, `${label} 发起方出拳`);
-    assert.equal(r.play(toSession, { commandId: nonce(), kind: 'rpsChoose', challengeId: cid, choice: bChoice, revision: 1 }).ok, true, `${label} 被邀请方出拳`);
+    assert.equal(r.play(toSession, { commandId: nonce(), kind: 'rpsReply', challengeId: cid, ...guard(r, to) }).ok, true, `${label} 接受`);
+    assert.equal(r.play(fromSession, { commandId: nonce(), kind: 'rpsChoose', challengeId: cid, choice: aChoice, revision: 1, ...guard(r, from) }).ok, true, `${label} 发起方出拳`);
+    assert.equal(r.play(toSession, { commandId: nonce(), kind: 'rpsChoose', challengeId: cid, choice: bChoice, revision: 1, ...guard(r, to) }).ok, true, `${label} 被邀请方出拳`);
     r.room.clockOffset += C.rpsRoundMs + 1; r.step(0);
   };
   settleRps(p, q, 'rock', 'scissors', '第一局');
@@ -196,52 +112,45 @@ await test('计分·探索与猜拳：搜索 +2、线索 +2、兑换 +1/+2、猜
   assert.equal(p.score, pScore + SCORE.rpsWin + SCORE.rpsDraw);
   assert.equal(q.score, qScore + SCORE.rpsLose + SCORE.rpsDraw);
 });
-await test('计分·攻击与技能：J 命中 +1、空挥 0；probe +3、spy +2、accuse 命中 +8、kill +10', () => {
+await test('计分·攻击与技能：J攻击不计分；指认坏人 +10、刺杀好人 +3、误指认 0 分', () => {
   const r = fixture(3);
   for (const x of r.room.players) { x.x = 1500 + x.id * 100; x.y = 350; }
   const a = r.find(1), b = r.find(2); a.x = 500; b.x = 530;
   const aScore = a.score;
-  assert.equal(r.attack(a.sessionId, { commandId: nonce() }).hitId, b.id);
-  assert.equal(a.score, aScore + SCORE.interactHit);
-  r.room.clockOffset += 12001; b.x = 2000;
-  assert.equal(r.attack(a.sessionId, { commandId: nonce() }).hitId, undefined);
-  assert.equal(a.score, aScore + SCORE.interactHit); // 空挥不加分
+  assert.equal(r.attack(a.sessionId, { commandId: nonce(), ...guard(r, a) }).hitId, b.id);
+  assert.equal(a.score, aScore + SCORE.interactHit); assert.equal(SCORE.interactHit, 0);
 
   const s = fixture(3);
-  const bad = s.find(0), good = s.find(1);
-  assert.equal(s.useSkill(bad.sessionId, { commandId: nonce(), skill: 'probe', targetId: good.id }).ok, true);
-  assert.equal(bad.score, SCORE.probe);
-  assert.equal(s.useSkill(bad.sessionId, { commandId: nonce(), skill: 'spy', targetId: good.id }).ok, true);
-  assert.equal(bad.score, SCORE.probe + SCORE.spy);
-  assert.equal(s.useSkill(s.find(2).sessionId, { commandId: nonce(), skill: 'accuse', targetId: bad.id }).ok, true);
-  assert.equal(s.find(2).score, SCORE.accuseHit); assert.equal(bad.hp, 1); // 未淘汰
-
-  const k = fixture(3);
-  const killer = k.find(0), victim = k.find(1);
-  assert.equal(k.useSkill(killer.sessionId, { commandId: nonce(), skill: 'kill', targetId: victim.id, sid: victim.sid.segments.join('-') }).ok, true);
-  assert.equal(killer.score, SCORE.kill); assert.equal(victim.alive, false);
+  const bad = s.find(0), good = s.find(1), other = s.find(2);
+  assert.equal(s.useSkill(bad.sessionId, { commandId: nonce(), skill: 'assassinate', targetId: good.id }).ok, true);
+  assert.equal(bad.score, SCORE.assassinateHit); assert.equal(good.hp, 2);
+  assert.equal(s.useSkill(other.sessionId, { commandId: nonce(), skill: 'accuse', targetId: bad.id }).ok, true);
+  assert.equal(other.score, SCORE.accuseHit); assert.equal(bad.hp, 2);
+  assert.equal(s.useSkill(good.sessionId, { commandId: nonce(), skill: 'accuse', targetId: other.id }).ok, true);
+  assert.equal(good.score, 0, '误指认不加分'); assert.equal(good.hp, 1, '误指认自扣1格');
+  for (const old of ['probe', 'spy', 'kill']) assert.equal(s.useSkill(bad.sessionId, { commandId: nonce(), skill: old, targetId: good.id }).ok, false);
 });
 await test('计分·只增不改他人', () => {
-  const r = fixture(3);
-  const p = r.find(1);
+  const r = fixture(3, { randomInt: () => 10 });
+  const p = r.find(1), cs = WORLD.zoneContainers(p.floorId, p.zoneId || null);
   const others = r.room.players.filter(x => x !== p).map(x => x.score);
-  near(p, byId('desk-1035-172'));
-  assert.equal(search(r, p, 'desk-1035-172').ok, true);
+  assert.equal(search(r, p, cs[0]).ok, true);
   assert.ok(p.score > 0);
   assert.deepEqual(r.room.players.filter(x => x !== p).map(x => x.score), others);
 });
-await test('结束·存活淘汰至阈值 → aliveFloor 且 ranking 为 null；小房间不会开局即结束', () => {
+await test('结束·默认不因休战人数结束；开启 enableAliveFloor 后达阈值 → aliveFloor 且 ranking 为 null', () => {
   const small = fixture(6);
+  for (const id of [1, 2, 3]) { const p = small.find(id); p.hp = 0; p.alive = false; }
   const smallSnap = small.publicSnapshot();
   assert.equal(smallSnap.finished, false); assert.equal(smallSnap.finishReason, null);
-  const r = fixture(6, { rules: { endRemainingPlayers: 3, timeLimitMs: RULES.timeLimitMs } });
+  const r = fixture(6, { rules: { enableAliveFloor: true, endRemainingPlayers: 3, timeLimitMs: RULES.timeLimitMs } });
   for (const id of [1, 2, 3]) { const p = r.find(id); p.hp = 0; p.alive = false; }
   const snap = r.publicSnapshot();
   assert.equal(r.room.players.filter(p => p.alive).length, 3);
   assert.equal(snap.finished, true); assert.equal(snap.finishReason, 'aliveFloor'); assert.equal(snap.ranking, null);
 });
-await test('结束·坏人全灭 → badWiped 且 ranking 按分数降序（含命中计分）', () => {
-  const r = fixture(4);
+await test('结束·开启 enableBadWiped 后坏人全部休战 → badWiped 且 ranking 按分数降序（含命中计分）', () => {
+  const r = fixture(4, { rules: { enableBadWiped: true } });
   const bad = r.find(0), hitter = r.find(1);
   bad.hp = 1;
   hitter.score = 5; r.find(2).score = 9; r.find(3).score = 1;
@@ -262,10 +171,10 @@ await test('结束·时间到 → timeUp 且有 ranking', () => {
   assert.ok(Array.isArray(snap.ranking) && snap.ranking.length === 3);
   for (let i = 1; i < snap.ranking.length; i++) assert.ok(snap.ranking[i - 1].score >= snap.ranking[i].score);
 });
-await test('reset 清空 score/finishReason/ranking/wheelSpins', () => {
+await test('reset 清空 score/finishReason/ranking/wheelSpins 与每日探索计数', () => {
   const r = fixture(3, { randomInt: () => 2 });
-  const p = r.find(0); p.x = npc.x; p.y = npc.y; p.exploration.chips = 5;
-  assert.equal(r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: npc.id }).ok, true);
+  const p = r.find(0);
+  assert.equal(wheel(r, p).ok, true);
   assert.equal(p.games.wheelSpins[npc.id], 1);
   p.score = 7;
   r.room.clockOffset += RULES.timeLimitMs + 1; r.publicSnapshot();
@@ -273,9 +182,9 @@ await test('reset 清空 score/finishReason/ranking/wheelSpins', () => {
   r.reset();
   assert.equal(r.room.finished, false); assert.equal(r.room.finishReason, ''); assert.equal(r.room.ranking, null);
   const fresh = r.join('session-x', '新局').player;
-  assert.equal(fresh.score, 0);
-  assert.deepEqual(fresh.exploration, blank());
-  assert.deepEqual(fresh.games, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null });
+  assert.equal(fresh.score, 0); assert.equal(fresh.hp, 3);
+  assert.deepEqual({ chips: fresh.exploration.chips, clues: fresh.exploration.clues, searched: fresh.exploration.searched, exploreCount: fresh.exploration.exploreCount }, { ...blank(), exploreCount: 0 });
+  assert.deepEqual(fresh.games.wheelSpins, {}); assert.equal(fresh.games.rpsPending, null);
 });
 
 const freePort = () => new Promise((resolve, reject) => {
