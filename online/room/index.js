@@ -1024,8 +1024,8 @@ function createRoom(options = {}) {
       room.ranking = (reason === 'badWiped' || reason === 'timeUp') ? buildRanking() : null;
       room.rankingAchievement = buildAchievementRanking();
       archiveResult(t);
-      log(reason === 'aliveFloor' ? `游戏结束：存活人数已淘汰至剩余${rules.endRemainingPlayers}人。`
-        : reason === 'badWiped' ? '游戏结束：坏人已全部出局。'
+      log(reason === 'aliveFloor' ? `游戏结束：对抗中人数已降至剩余${rules.endRemainingPlayers}人。`
+        : reason === 'badWiped' ? '游戏结束：坏人已全部进入休战。'
         : `游戏结束：时间到（${rules.timeLimitMs / 3600000}小时）。`);
     }
     // syncRoom 以 false 调用此函数只判整体结束；避免相互递归。

@@ -23,8 +23,8 @@ function createEvents({ room, now, randomUUID }) {
       const text = {
         revealedTrait: event.traitName ? `你的${event.traitName}已被公开` : '你的隐藏属性已被公开',
         revealedSegment: `你的第${(event.segmentIndex || 0) + 1}段S-ID已公开`,
-        damaged: '你被扣1血',
-        eliminated: '你已被淘汰',
+        damaged: '你的对抗生命 -1',
+        eliminated: '你已进入休战状态，本日不再参与对抗。仍可探索、答题、趣味互动和参加小游戏，继续赢取积分与奖品！',
         accusationFailed: event.segmentIndex >= 0 ? `你的第${event.segmentIndex + 1}段S-ID已公开` : '你的S-ID已全部公开，无新增公开段'
       }[event.type] || '你身上发生了新的公开变化';
       return {

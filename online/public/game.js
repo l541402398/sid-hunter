@@ -1552,7 +1552,7 @@
     }
     const chipNode = $('chip-count');
     if (chipNode) {
-      const chipsText = String(explorationState().chips);
+      const chipsText = String(Number(me?.npcExchange?.exploredCount) || 0); // 顶栏「探索」：今日已探索容器数
       if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
     }
   }
@@ -1747,7 +1747,7 @@
     $('clue-bag').disabled = !me;
     const chipNode = $('chip-count');
     if (chipNode) {
-      const chipsText = String(explorationState().chips);
+      const chipsText = String(Number(me?.npcExchange?.exploredCount) || 0); // 顶栏「探索」：今日已探索容器数
       if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
     }
     const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
@@ -2412,7 +2412,7 @@
     const spins = wheelSpinsFor();
     const canWheel = spins < maxSpins && state.chips >= wheelSpinCost(spins);
     const usedMap = npcExchangeUsedMap();
-    const canExchange = npcExchangeConfigList().some(def => (Number(usedMap[def.key]) || 0) < (Number(def.dailyLimit) || 1) && state.chips >= def.cost);
+    const canExchange = npcExchangeConfigList().some(def => (Number(usedMap[def.key]) || 0) < (Number(def.dailyLimit) || 1) && (Number(me.npcExchange?.exploredCount) || 0) >= (Number(def.unlockAt) || 0));
     return (canWheel || canExchange) ? 'ready' : 'blocked';
   }
   function drawOutline(x, y, w, h, tier, readyColor) {

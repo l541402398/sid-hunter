@@ -1,6 +1,6 @@
 'use strict';
 // 容器探索与答题面板（需求 4 & 5）：
-//   · 每个箱子或柜子的内容按玩家独立随机生成：可能为空(empty)、直接获得金币(coins)或触发答题获得金币(quiz)；
+//   · 每个箱子或柜子的内容按玩家独立随机生成：可能为空(empty)、直接获得积分(coins，字段名沿用)或触发答题获得积分(quiz)；
 //   · 同一玩家对同一箱子或柜子只能开启一次；
 //   · 题库支持单选题(single)、多选题(multiple)、判断题(judge)三种题型，全由服务端权威判分与记账。
 (function (root) {
@@ -78,7 +78,7 @@
     els.take.disabled = true;
     els.take.textContent = '提交答案(K)';
     els.bar.style.width = '0%';
-    els.meta.textContent = '同一容器每人限开启一次 · 随机为空、直接获得金币或答题获得金币';
+    els.meta.textContent = '同一容器每人限开启一次 · 随机为空、直接获得积分或答题获得积分';
     setStatus('正在开启容器…');
     if (options.autoStart !== false) {
       beginSearch();
@@ -136,7 +136,7 @@
         ? `${catPrefix}${quiz.typeLabel || '判断题'} · 判断对错`
         : `${catPrefix}${quiz.typeLabel || '单选题'} · 单选`;
     const typeBadge = h('span', 'quiz-type-badge', typeHint);
-    const rewardBadge = h('span', 'quiz-reward', `答对 +${quiz.rewardCoins} 金币`);
+    const rewardBadge = h('span', 'quiz-reward', `答对 +${quiz.rewardCoins} 积分`);
     header.append(typeBadge, rewardBadge);
 
     const questionText = quiz.stem || quiz.question || '';
@@ -212,16 +212,16 @@
 
       if (state.mode === 'empty') {
         els.bar.style.width = '100%';
-        setStatus(r.resultText || '开启完成：箱子里空空如也，未获得金币。');
-        renderSummaryBox('0 金币', '空空如也 · 本次未获得金币');
+        setStatus(r.resultText || '开启完成：箱子里空空如也，未获得积分。');
+        renderSummaryBox('0 积分', '空空如也 · 本次未获得积分');
         state.done = true;
         return;
       }
       if (state.mode === 'coins') {
         const chips = (r.gained && r.gained.chips) || 0;
         els.bar.style.width = '100%';
-        setStatus(r.resultText || `开启完成：直接获得 ${chips} 金币！`);
-        renderSummaryBox(`+${chips} 金币`, `直接获得 ${chips} 金币`);
+        setStatus(r.resultText || `开启完成：直接获得 ${chips} 积分！`);
+        renderSummaryBox(`+${chips} 积分`, `直接获得 ${chips} 积分`);
         state.done = true;
         return;
       }
@@ -230,7 +230,7 @@
         state.quiz = r.quiz;
         state.selected = [];
         els.bar.style.width = '50%';
-        setStatus(r.resultText || `触发答题：答对可得 ${r.quiz.rewardCoins} 金币！`);
+        setStatus(r.resultText || `触发答题：答对可得 ${r.quiz.rewardCoins} 积分！`);
         buildQuizView(r.quiz);
         els.take.hidden = false;
         els.take.disabled = false;
@@ -277,10 +277,10 @@
         btn.disabled = true;
       }
       const chips = (r.gained && r.gained.chips) || 0;
-      setStatus(r.resultText || (r.correct ? `回答正确！获得 ${chips} 金币。` : '回答错误，未获得金币。'));
+      setStatus(r.resultText || (r.correct ? `回答正确！获得 ${chips} 积分。` : '回答错误，未获得积分。'));
       renderSummaryBox(
-        r.correct ? `+${chips} 金币` : '0 金币',
-        r.correct ? `回答正确，获得 ${chips} 金币！` : '回答错误，本次未获得金币',
+        r.correct ? `+${chips} 积分` : '0 积分',
+        r.correct ? `回答正确，获得 ${chips} 积分！` : '回答错误，本次未获得积分',
         r.explanation ? `解析：${r.explanation}` : ''
       );
       if (state.onResult) state.onResult(r.exploration, r.score);
