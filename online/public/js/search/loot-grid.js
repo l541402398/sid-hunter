@@ -217,8 +217,8 @@
         state.done = true;
         return;
       }
-      if (state.mode === 'coins') {
-        const chips = (r.gained && r.gained.chips) || 0;
+      if (state.mode === 'points' || state.mode === 'coins') {
+        const chips = gainedPoints(r);
         els.bar.style.width = '100%';
         setStatus(r.resultText || `开启完成：直接获得 ${chips} 积分！`);
         renderSummaryBox(`+${chips} 积分`, `直接获得 ${chips} 积分`);
@@ -242,6 +242,11 @@
     } finally {
       if (state) state.busy = false;
     }
+  }
+
+  // 服务端积分版：开启/答题结果的积分在 gained.points。
+  function gainedPoints(r) {
+    return Number(r && r.gained && r.gained.points) || 0;
   }
 
   async function submitQuizAnswer() {
@@ -276,7 +281,7 @@
       for (const btn of els.grid.querySelectorAll('button.quiz-option')) {
         btn.disabled = true;
       }
-      const chips = (r.gained && r.gained.chips) || 0;
+      const chips = gainedPoints(r);
       setStatus(r.resultText || (r.correct ? `回答正确！获得 ${chips} 积分。` : '回答错误，未获得积分。'));
       renderSummaryBox(
         r.correct ? `+${chips} 积分` : '0 积分',
