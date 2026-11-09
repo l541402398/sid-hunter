@@ -112,13 +112,17 @@ await test('计分·探索与猜拳：直接积分 +1、答题答对 +2、猜拳
   assert.equal(p.score, pScore + SCORE.rpsWin + SCORE.rpsDraw);
   assert.equal(q.score, qScore + SCORE.rpsLose + SCORE.rpsDraw);
 });
-await test('计分·攻击与技能：J攻击不计分；指认坏人 +10、刺杀好人 +3、误指认 0 分', () => {
-  const r = fixture(3);
-  for (const x of r.room.players) { x.x = 1500 + x.id * 100; x.y = 350; }
-  const a = r.find(1), b = r.find(2); a.x = 500; b.x = 530;
-  const aScore = a.score;
-  assert.equal(r.attack(a.sessionId, { commandId: nonce(), ...guard(r, a) }).hitId, b.id);
-  assert.equal(a.score, aScore + SCORE.interactHit); assert.equal(SCORE.interactHit, 0);
+await test('计分·攻击与技能：J命中按J渠道随机积分（概率命中+1/未命中0）；指认坏人 +10、刺杀好人 +3、误指认 0 分', () => {
+  // J 积分为随机触发（WORLD.ACTION.hammerPointChance，建议值）：注入确定的 randomInt 分别验证命中/未命中。
+  for (const [roll, gain] of [[0, WORLD.ACTION.hammerPoint], [9999, 0]]) {
+    const r = fixture(3, { randomInt: () => roll });
+    for (const x of r.room.players) { x.x = 1500 + x.id * 100; x.y = 350; }
+    const a = r.find(1), b = r.find(2); a.x = 500; b.x = 530;
+    const aScore = a.score;
+    assert.equal(r.attack(a.sessionId, { commandId: nonce(), ...guard(r, a) }).hitId, b.id);
+    assert.equal(a.score, aScore + gain); assert.equal(a.exploration.hammerPointsToday, gain);
+  }
+  assert.equal(SCORE.interactHit, 0, '旧 interactHit 固定分保持 0');
 
   const s = fixture(3);
   const bad = s.find(0), good = s.find(1), other = s.find(2);
@@ -204,7 +208,7 @@ try {
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('exit', code => { clearTimeout(timer); reject(new Error(`服务退出${code}\n${output}`)); });
     child.stderr.on('data', data => { output += data; });
-    child.stdout.on('data', data => { output += data; if (output.includes('技能次数恢复周期:')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', data => { output += data; if (output.includes('S-ID 服务已启动')) { clearTimeout(timer); resolve(); } });
   });
   await test('HTTP·/api/test/state 暴露 score/finishReason/ranking/rules，公开 state 也带 score 与规则', async () => {
     const joined = await request('/api/join', { body: { nickname: '进度甲' } });

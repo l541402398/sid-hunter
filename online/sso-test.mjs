@@ -5,6 +5,8 @@ import { createServer } from 'node:net';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
@@ -25,7 +27,8 @@ async function until(label, fn) {
   throw new Error('timeout: ' + label);
 }
 function start(port, testMode, extra = {}) {
-  const env = { ...process.env, HOST: '127.0.0.1', PORT: String(port), ...extra };
+  // 正式模式也用临时库，绝不写仓库 .data/。
+  const env = { ...process.env, HOST: '127.0.0.1', PORT: String(port), SID_DB_FILE: join(mkdtempSync(join(tmpdir(), 'sid-sso-')), 'sid.sqlite'), ...extra };
   delete env.SID_SSO_SEED;
   if (testMode) env.SID_TEST = '1';
   else delete env.SID_TEST;
@@ -48,7 +51,8 @@ assert.equal(sso.parseCas('<cas:authenticationFailure code="INVALID_TICKET">no</
 assert.equal(sso.serviceAllowed('http://evil.test/', '127.0.0.1:8787'), false);
 assert.equal(sso.serviceAllowed('http://127.0.0.1:8787/', '127.0.0.1:8787'), true);
 
-const room = createRoom();
+// 阵营按 4∶1 随机（首位必为坏人）；注入随机源让第二位确定为好人。
+const room = createRoom({ random: () => 0.99 });
 const first = room.join('s1', null, { empNo: 'E1', name: '张三' });
 assert.equal(first.player.name, '张三');
 assert.equal(first.player.faction, 'bad');
@@ -108,6 +112,15 @@ try {
   assert.equal(openCfg.logoutUrl, 'https://172.26.1.10/logout');
   assert.equal(testCfg.required, false);
 
+  // 正式服默认休场：按运营流程用管理员授权码手动开一场。
+  {
+    const login = await fetch(openBase + '/api/manager/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: process.env.SID_MANAGER_CODE || '091256' }) });
+    const cookie = (login.headers.get('set-cookie') || '').match(/sid_manager=[^;]+/)[0], { csrfToken } = await login.json();
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie, Origin: openBase };
+    const st = await (await fetch(openBase + '/api/manager/state', { headers })).json();
+    const opened = await (await fetch(openBase + '/api/manager/control', { method: 'POST', headers, body: JSON.stringify({ action: 'start', confirm: true, csrfToken, expectedRoundId: st.activity.currentRoundId, minutes: 30, label: 'sso-test', commandId: 'ssotest' + Date.now() }) })).json();
+    assert.equal(opened.ok, true, JSON.stringify(opened));
+  }
   const anon = await fetch(openBase + '/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   const anonBody = await anon.json();
   assert.equal(anon.status, 401);

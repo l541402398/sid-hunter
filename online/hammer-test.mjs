@@ -90,8 +90,8 @@ try {
   check('非法 jump 请求后服务仍正常（玩家仍在）', stillAlive.players.some(p => p.id === idA), JSON.stringify(stillAlive.players.map(p => p.id)));
 
   // ---------- 1. 相邻摆位 + A 挥锤命中 ----------
-  await place(idA, 300, 300);
-  await place(idB, 330, 300);
+  await place(idA, 300, 360);
+  await place(idB, 330, 360);
   const before = await pub(ta);
   const bBefore = of(before.players, idB);
   const logCountBefore = before.logs.length;
@@ -132,8 +132,8 @@ try {
 
   // ---------- 6. 远距离挥锤不命中 ----------
   await advance(1400); // 清掉 A 的锤子冷却
-  await place(idA, 300, 300);
-  await place(idB, 900, 300);
+  await place(idA, 300, 360);
+  await place(idB, 900, 360);
   const farBefore = await pub(ta);
   const far = await action(ta, 'hammer');
   const farAfter = await pub(ta);
@@ -143,8 +143,8 @@ try {
 
   // ---------- 7. 近距离命中（腾空闪避随跳跃一并下线：不再有躲锤窗口）----------
   await advance(1400); // 再清一次 A 的冷却
-  await place(idA, 300, 300);
-  await place(idB, 330, 300);
+  await place(idA, 300, 360);
+  await place(idB, 330, 360);
   const beforeClose = await pub(ta);
   const bBeforeClose = of(beforeClose.players, idB);
   const close = await action(ta, 'hammer');
@@ -155,8 +155,8 @@ try {
 
   // ---------- 9. 落地后能被正常敲中（躲窗口之外）----------
   await advance(1400);
-  await place(idA, 300, 300);
-  await place(idB, 330, 300);
+  await place(idA, 300, 360);
+  await place(idB, 330, 360);
   const ground = await action(ta, 'hammer');
   const groundAfter = await pub(ta);
   check('落地后 A 挥锤正常命中', ground.status === 200 && ground.data.hit === true, JSON.stringify(ground.data));
@@ -186,7 +186,9 @@ try {
     'score', 'floorId', 'spriteFacing', 'facing', 'lastAttackAt', 'lastAttackFacing', 'lastAttackDirection', 'freezeUntil',
     'zoneId',
     // 积分/休战改版：公开休战状态与受击保护标记（生命值本身仍仅本人可见）。
-    'truce', 'protected']);
+    'truce', 'protected',
+    // dev 已有的公开组织档案（目标面板 orgLine），不含身份/血量。
+    'dept', 'deliveryGroup']);
   const extra = sa.data.players.flatMap(p => Object.keys(p).filter(k => !allowed.has(k)));
   check('公共快照未新增隐藏字段（仅visible与锤戏/受惊必要字段）', extra.length === 0, extra.length ? `多余字段: ${[...new Set(extra)].join(',')}` : '无');
   const logCountNow = sa.data.logs.length;
@@ -197,8 +199,8 @@ try {
   const tc = jc.data.sessionToken, idC = jc.data.playerId;
   check('第三名玩家加入成功', jc.data.ok, `C=${idC}`);
   // 合并适配：合并后的地图是七层、每层正好一屏；C 放到 2F，跨层的锤戏字段不可见。
-  await place(idA, 300, 300);
-  await place(idB, 330, 300);
+  await place(idA, 300, 360);
+  await place(idB, 330, 360);
   await place(idC, 300, 300, 2);
   await advance(1400); // 清掉 A 的锤子冷却，同时让 B 此前的晕眩与肿包过期无关化
   const swing = await action(ta, 'hammer');
@@ -250,8 +252,8 @@ try {
   // 阶段3：每层楼板加宽到 1440×400（大于 VIEW_W=960），可见性 = 「同层 且 落在观察者相机窗口内」，
   // 不再等价于「同层」。这里同时断言「窗口内可见」与「同层但在窗口外被裁剪」。
   await advance(1400);
-  await place(idA, 300, 300);
-  await place(idB, 330, 300);
+  await place(idA, 300, 360);
+  await place(idB, 330, 360);
   const hs = await action(ta, 'hammer');
   const expectBumps = of((await pub(ta)).players, idB).bumps;
   check('基线：A 敲中 B 拿到真实肿包数', hs.data.hit === true && expectBumps > 0, `bumps=${expectBumps}`);
@@ -271,7 +273,7 @@ try {
       `visible=${b.visible} bumps=${b.bumps}`);
   }
   await place(idC, 300, 300, 2);
-  await place(idB, 330, 300);
+  await place(idB, 330, 360);
   const vA = await pub(ta), vC = await pub(tc);
   check('自己对自己 visible=true', of(vA.players, idA).visible === true && of(vC.players, idC).visible === true, 'A/C 自视角');
   check('屏幕外目标 visible=false 且锤戏字段为 0',

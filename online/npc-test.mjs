@@ -1,5 +1,6 @@
 'use strict';
-// 开发用 NPC（/api/dev/npc）的真实 HTTP 自测。
+// 开发用 NPC 的真实 HTTP 自测。dev 上 /api/dev/* 已统一迁到管理员面板（410），
+// 本脚本改走 /api/manager/npc（授权码登录 + CSRF + 同源 Origin），NPC 规则断言不变。
 // 只用 Node 内置 fetch + child_process，不装任何依赖。
 // 全程使用临时端口，**不碰 8787 上正在跑的用户试玩服务**。
 import { spawn } from 'node:child_process';
@@ -23,9 +24,10 @@ function check(name, cond, detail) {
 function skip(name, why) { skipped.push(name); console.log(`SKIP  ${name}  → ${why}`); }
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-async function call(port, pathname, { method, token, body, origin, raw } = {}) {
+async function call(port, pathname, { method, token, body, origin, raw, cookie } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['X-Sid-Session'] = token;
+  if (cookie) headers['Cookie'] = cookie;
   if (origin) headers['Origin'] = origin;
   const res = await fetch(`http://127.0.0.1:${port}${pathname}`, {
     method: method || (body ? 'POST' : 'GET'),
@@ -34,11 +36,16 @@ async function call(port, pathname, { method, token, body, origin, raw } = {}) {
   });
   let data = {};
   try { data = await res.json(); } catch { /* ignore */ }
-  return { status: res.status, data, raw };
+  return { status: res.status, data, raw, setCookie: res.headers.get('set-cookie') || '' };
 }
 const join = (port, nickname) => call(port, '/api/join', { body: { nickname } });
-const caps = (port, token, origin) => call(port, '/api/dev/capabilities', { token, origin });
-const npc = (port, token, body) => call(port, '/api/dev/npc', { token, body, origin: ORIGIN });
+// 管理员会话：登录拿 cookie + csrfToken。
+async function managerLogin(port) {
+  const r = await call(port, '/api/manager/login', { body: { code: process.env.SID_MANAGER_CODE || '091256' } });
+  const cookie = (r.setCookie.match(/sid_manager=[^;]+/) || [''])[0];
+  return { cookie, csrf: r.data.csrfToken };
+}
+const npc = (port, mgr, body, origin = `http://127.0.0.1:${port}`) => call(port, '/api/manager/npc', { cookie: mgr && mgr.cookie, body: { ...body, csrfToken: body.csrfToken ?? (mgr && mgr.csrf), faction: body.faction || 'good' }, origin });
 const skill = (port, token, body) => call(port, '/api/skill', { token, body });
 const act = (port, token, kind) => call(port, '/api/action', { token, body: { kind } });
 const st = (port, token) => call(port, '/api/state', { token });
@@ -65,9 +72,8 @@ const collides = (x, y) => WORLD.makeFurniture().some(f =>
   y + WORLD.FOOT_TOP > f.y && y - WORLD.FOOT_BOTTOM < f.y + f.h);
 const uid = () => crypto.randomUUID();
 
-// 主服务：开 SID_DEV。对照服务：不开 SID_DEV，用于验证 403。
-const main = spawnServer(PORT, { SID_DEV: '1' });
-const noDev = spawnServer(PORT + 1, { SID_DEV: '0' });
+const main = spawnServer(PORT, {});
+const noDev = spawnServer(PORT + 1, {});
 let exitCode = 1;
 
 try {
@@ -75,28 +81,24 @@ try {
   if (!await waitReady(PORT + 1)) throw new Error('对照服务未启动');
 
   check('锤子冷却为1000ms', WORLD.ACTION.hammerCooldownMs === 1000);
-  // ---------- ① 门禁 ----------
-  const ndev = await npc(PORT + 1, null, { count: 1, csrfToken: 'x' });
-  check('未开 SID_DEV → 403', ndev.status === 403, `${ndev.status} ${JSON.stringify(ndev.data)}`);
-  const badOrigin = await call(PORT, '/api/dev/npc', { token: null, body: { count: 1, csrfToken: 'x' }, origin: 'http://evil.example' });
-  check('Origin 不同源 → 403', badOrigin.status === 403, `${badOrigin.status} ${JSON.stringify(badOrigin.data)}`);
+  // ---------- ① 门禁（管理员会话 / CSRF / 同源）----------
   const anon = await npc(PORT, null, { count: 1, csrfToken: 'x' });
-  check('无身份 → 401', anon.status === 401, `${anon.status} ${JSON.stringify(anon.data)}`);
+  check('无管理员会话 → 401', anon.status === 401, `${anon.status} ${JSON.stringify(anon.data)}`);
+  const mgr = await managerLogin(PORT);
+  check('管理员登录拿到 CSRF', !!mgr.cookie && typeof mgr.csrf === 'string' && !!mgr.csrf);
+  const wrongCsrf = await npc(PORT, mgr, { count: 1, csrfToken: 'wrong' });
+  check('CSRF 错误 → 403', wrongCsrf.status === 403, `${wrongCsrf.status} ${JSON.stringify(wrongCsrf.data)}`);
+  const badOrigin = await npc(PORT, mgr, { count: 1 }, 'http://evil.example');
+  check('Origin 不同源 → 403', badOrigin.status === 403, `${badOrigin.status} ${JSON.stringify(badOrigin.data)}`);
 
   // ---------- ② 正常添加 ----------
   const j = await join(PORT, '');
   const me = j.data.sessionToken, meId = j.data.playerId;
   check('真人加入成功', j.data.ok, `id=${meId}`);
-  const cap = await caps(PORT, me, ORIGIN);
-  const csrf = cap.data.csrfToken;
-  check('拿到开发 CSRF', cap.status === 200 && typeof csrf === 'string' && !!csrf, `canReset=${cap.data.canReset}`);
-  const wrongCsrf = await npc(PORT, me, { count: 1, csrfToken: 'wrong' });
-  check('CSRF 错误 → 403', wrongCsrf.status === 403, `${wrongCsrf.status} ${JSON.stringify(wrongCsrf.data)}`);
-
-  const made = await npc(PORT, me, { count: 1, csrfToken: csrf });
-  const npc0 = made.data.npcs && made.data.npcs[0];
-  check('添加 NPC 成功并返回完整 S-ID', made.status === 200 && !!npc0 && /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(npc0.sid),
-    `${made.status} ${JSON.stringify(npc0)}`);
+  await place(PORT, { playerId: meId, floorId: 1 });
+  const made = await npc(PORT, mgr, { count: 1, floorId: 1 });
+  const npc0 = made.data.players && made.data.players[0];
+  check('添加 NPC 成功', made.status === 200 && !!npc0, `${made.status} ${JSON.stringify(made.data)}`);
 
   const s1 = await tst(PORT);
   const np = s1.data.players.find(p => p.id === npc0.id);
@@ -163,10 +165,10 @@ try {
   check('NPC 仍然 hasSession=false（未被接管）', npStill && npStill.npc === true && npStill.hasSession === false, `hasSession=${npStill && npStill.hasSession}`);
 
   // ---------- ⑤ 旧击杀入口已取消；场次按时间收局 ----------
-  const made2 = await npc(PORT, me, { count: 1, csrfToken: csrf });
-  const npc1 = made2.data.npcs && made2.data.npcs[0];
+  const made2 = await npc(PORT, mgr, { count: 1, floorId: 1 });
+  const npc1 = made2.data.players && made2.data.players[0];
   check('再加一个 NPC（凑到 2 名 NPC）', made2.status === 200 && !!npc1 && npc1.id !== npc0.id, `id=${npc1 && npc1.id}`);
-  const kill = await skill(PORT, me, { skill: 'kill', targetId: npc1.id, sid: npc1.sid, commandId: uid() });
+  const kill = await skill(PORT, me, { skill: 'kill', targetId: npc1.id, commandId: uid() });
   check('旧 kill 技能被拒', !kill.data.ok, `${kill.status} ${kill.data.resultText || kill.data.error}`);
   const npAlive = (await tst(PORT)).data.players.find(p => p.id === npc1.id);
   check('NPC 未进入休战', npAlive && npAlive.alive === true && npAlive.hp === WORLD.COMBAT.initialHp, `alive=${npAlive && npAlive.alive} hp=${npAlive && npAlive.hp}`);
@@ -174,28 +176,25 @@ try {
   const afterKill = await tst(PORT);
   check('时间到（2 小时）触发结束', afterKill.data.finished === true, `finished=${afterKill.data.finished}`);
   const afterEnd = await act(PORT, me, 'hammer');
-  check('结束后动作被冻结', afterEnd.status === 400 && /结束/.test(afterEnd.data.error || ''), `${afterEnd.status} ${afterEnd.data.error}`);
+  // 场次结束后：房间拒绝（400 已结束）或场次门禁关闭（403 closed）都算冻结。
+  check('结束后动作被冻结', (afterEnd.status === 400 && /结束/.test(afterEnd.data.error || '')) || (afterEnd.status === 403 && afterEnd.data.closed === true), `${afterEnd.status} ${afterEnd.data.error}`);
 
-  // ---------- ⑧ 重置后 NPC 清空 ----------
-  const reset = await call(PORT, '/api/host/reset', { token: me, body: { confirm: true, csrfToken: csrf }, origin: ORIGIN });
-  check('重置成功', reset.status === 200 && reset.data.reset === true, `${reset.status} ${JSON.stringify(reset.data)}`);
+  // ---------- ⑧ 管理员开新场后 NPC 清空；count 只接受 1–5 ----------
+  const before8 = await st(PORT, me);
+  const fin = await call(PORT, '/api/manager/control', { cookie: mgr.cookie, origin: `http://127.0.0.1:${PORT}`,
+    body: { action: 'finish', confirm: true, csrfToken: mgr.csrf, expectedRoundId: before8.data.roundId } });
+  const roundId = (await call(PORT, '/api/manager/state', { cookie: mgr.cookie })).data.activity?.currentRoundId;
+  const start = await call(PORT, '/api/manager/control', { cookie: mgr.cookie, origin: `http://127.0.0.1:${PORT}`,
+    body: { action: 'start', confirm: true, csrfToken: mgr.csrf, expectedRoundId: roundId, minutes: 30, label: 'npc-test', commandId: 'npctest' + Date.now() } });
+  check('结算并开新场成功', fin.status === 200 && start.status === 200 && start.data.ok, `${fin.status} ${start.status} ${JSON.stringify(start.data)}`);
   const afterReset = await tst(PORT);
-  check('重置后 NPC 与玩家全部清空', afterReset.data.players.length === 0, `players=${afterReset.data.players.length}`);
-
-  // ---------- count 截断（1–5，超出按 5 截断且不报错）----------
-  const j2 = await join(PORT, '');
-  const cap2 = await caps(PORT, j2.data.sessionToken, ORIGIN);
-  const capped = await npc(PORT, j2.data.sessionToken, { count: 99, csrfToken: cap2.data.csrfToken });
-  check('count 超出按 5 截断（不报错）',
-    capped.status === 200 && Array.isArray(capped.data.npcs) && capped.data.npcs.length === 5,
-    `${capped.status} 实际=${capped.data.npcs && capped.data.npcs.length}`);
-  const cappedState = await tst(PORT);
-  const cappedNpcs = cappedState.data.players.filter(p => p.npc === true);
+  check('新场 NPC 与玩家全部清空', afterReset.data.players.length === 0, `players=${afterReset.data.players.length}`);
+  const five = await npc(PORT, mgr, { count: 5, floorId: 1 });
+  check('count=5 一次添加 5 名', five.status === 200 && five.data.players.length === 5, `${five.status} ${JSON.stringify(five.data).slice(0, 120)}`);
+  const cappedNpcs = (await tst(PORT)).data.players.filter(p => p.npc === true);
   check('5 名 NPC 全部落点不与家具重叠', cappedNpcs.length === 5 && cappedNpcs.every(p => !collides(p.x, p.y)),
     cappedNpcs.map(p => `(${p.x},${p.y})`).join(' '));
-  check('count=0 / 非法值不报错（按 1 处理）',
-    (await npc(PORT, j2.data.sessionToken, { count: 0, csrfToken: cap2.data.csrfToken })).data.npcs.length === 1,
-    'count=0');
+  check('count 超出 1–5 被拒（不静默截断）', (await npc(PORT, mgr, { count: 99 })).status === 400);
 
   // Current iteration permits isolated loopback servers only. Retain this uncovered case as SKIP.
   skip('非 loopback → 403', '本轮测试仅允许loopback；既有独立QA结果不回填本脚本');

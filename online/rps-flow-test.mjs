@@ -413,8 +413,10 @@ async function request(path, { token, body, method = body === undefined ? 'GET' 
   });
   return { status: res.status, data: await res.json() };
 }
-const httpPlay = (token, kind, extra = {}) => request('/api/play', { token, body: { commandId: nonce(), kind, ...extra } });
 const state = async token => (await request('/api/state', { token })).data;
+// floorGuard：带上当前 roundId 与本人 floorRevision（客户端从快照读取）。
+const guardOf = async token => { const s = await state(token); return { roundId: s.roundId, expectedFloorRevision: s.me.floorRevision }; };
+const httpPlay = async (token, kind, extra = {}) => request('/api/play', { token, body: { commandId: nonce(), kind, ...(await guardOf(token)), ...extra } });
 async function openStream(token) {
   return new Promise((resolve, reject) => {
     const req = http.get(`${base}/api/stream?sid_token=${token}`, res => { res.on('data', () => {}); resolve({ req, res }); });
@@ -447,7 +449,7 @@ try {
     child.once('error', e => { clearTimeout(timer); reject(e); });
     child.once('exit', code => { clearTimeout(timer); reject(new Error(`服务退出${code}\n${output}`)); });
     child.stderr.on('data', d => { output += d; });
-    child.stdout.on('data', d => { output += d; if (output.includes('技能次数恢复周期:')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', d => { output += d; if (output.includes('S-ID 服务已启动')) { clearTimeout(timer); resolve(); } });
   });
   const advanceServer = ms => request('/api/test/advance', { body: { ms } });
   // 加入两名玩家并真实移动到相邻位置（满足猜拳距离/视线要求）。
@@ -456,8 +458,10 @@ try {
     const users = [];
     for (let i = 0; i < 2; i++) users.push((await request('/api/join', { body: { nickname: `H${i}` } })).data);
     const [a, b] = [users[0].sessionToken, users[1].sessionToken];
-    await moveTo(a, 500, 350);
-    await moveTo(b, 545, 350);
+    // SID_TEST=1：直接用 /api/test/place 摆到 1F 同一处空地（真实走位受地图改版影响，不是本用例要测的）。
+    const spot = WORLD.NPCS.find(n => n.floorId === 1);
+    await request('/api/test/place', { body: { playerId: users[0].playerId, floorId: 1, x: spot.x - 20, y: spot.y + 40 } });
+    await request('/api/test/place', { body: { playerId: users[1].playerId, floorId: 1, x: spot.x + 20, y: spot.y + 40 } });
     return { users, a, b };
   };
 

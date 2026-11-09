@@ -8,6 +8,9 @@ import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { setTimeout as pause } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const { createRoom, WORLD } = require('./room.js');
@@ -415,11 +418,14 @@ await test('攻击空挥也1.2秒CD，命中/空挥nonce永久防重与失败不
 await test('J无伤害无淘汰，不改变日志事件技能筹码或猜拳pending，公开控制动画', () => {
   const r = attackFixture(), a = r.find(0), b = r.find(1); b.hp = 1;
   assert.equal(invite(r).ok, true);
-  const before = JSON.stringify(r.room.players.map(p => ({ hp: p.hp, alive: p.alive, skills: p.skills, exploration: p.exploration, games: p.games })));
+  // 积分改版：J 命中可按 J 渠道额度随机加积分（hammerPoints*），除此之外不改变对抗/探索/猜拳状态。
+  const noJ = e => { const { hammerPointsToday, hammerPointsByTarget, ...rest } = e; return rest; };
+  const snap = () => JSON.stringify(r.room.players.map(p => ({ hp: p.hp, alive: p.alive, skills: p.skills, exploration: noJ(p.exploration), games: p.games })));
+  const before = snap();
   const logs = r.publicSnapshot().logs, events = JSON.stringify([...r.room.pending]);
   const result = attack(r);
   assert.equal(result.hitId, 1); assert.match(result.resultText, /眩晕0\.8秒 \/ 僵直1秒，无伤害/); assert.ok(!('hp' in result));
-  assert.equal(JSON.stringify(r.room.players.map(p => ({ hp: p.hp, alive: p.alive, skills: p.skills, exploration: p.exploration, games: p.games }))), before);
+  assert.equal(snap(), before);
   assert.deepEqual(r.publicSnapshot().logs, logs); assert.equal(JSON.stringify([...r.room.pending]), events);
   assert.equal(r.room.eliminateEvents, 0); assert.equal(r.room.finished, false); assert.equal(r.room.challenges.size, 1);
   const pub = r.publicProjection(a), targetPub = r.publicProjection(b), me = r.privateSnapshot(1).me;
@@ -565,8 +571,37 @@ async function request(path, { token, body, method = body === undefined ? 'GET' 
   const response = await fetch(base + path, { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(token ? { 'X-Sid-Session': token } : {}), ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000) });
   return { status: response.status, data: await response.json() };
 }
-const httpPlay = (token, kind, extra = {}) => request('/api/play', { token, body: { commandId: nonce(), kind, ...extra } });
+// 正式服务默认关闭：用管理员授权码登录并手动开一场（与运营流程一致）。
+async function openSessionViaManager() {
+  const login = await fetch(base + '/api/manager/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: process.env.SID_MANAGER_CODE || '091256' }) });
+  const cookie = (login.headers.get('set-cookie') || '').match(/sid_manager=[^;]+/)[0], { csrfToken } = await login.json();
+  const headers = { 'Content-Type': 'application/json', Cookie: cookie, Origin: base };
+  const st = await (await fetch(base + '/api/manager/state', { headers })).json();
+  const res = await fetch(base + '/api/manager/control', { method: 'POST', headers, body: JSON.stringify({ action: 'start', confirm: true, csrfToken,
+    expectedRoundId: st.activity.currentRoundId, minutes: 60, label: 'mechanics-http', commandId: 'mech' + Date.now() }) });
+  const body = await res.json(); assert.equal(body.ok, true, JSON.stringify(body));
+}
 const state = async token => (await request('/api/state', { token })).data;
+// floorGuard：所有玩法写入需带 roundId 与当前楼层修订号（服务端防跨层/跨场重放）。
+const guardOf = async token => { const s = await state(token); return { roundId: s.roundId, expectedFloorId: s.me.floorId, expectedFloorRevision: s.me.floorRevision }; };
+const httpPlay = async (token, kind, extra = {}) => request('/api/play', { token, body: { commandId: nonce(), kind, ...(await guardOf(token)), ...extra } });
+// 贪心走近实体（INTERACT_RANGE 内即停）；卡住 1.5 秒视为不可达，返回 false 而不是断言失败。
+async function moveNear(token, entity) {
+  const deadline = Date.now() + 8000; let last = null, lastMoveAt = Date.now();
+  try {
+    while (Date.now() < deadline) {
+      const s = await state(token), p = s.players.find(q => q.id === s.me.id);
+      if (WORLD.distanceToEntity(p, entity) <= WORLD.INTERACT_RANGE - 6) return true;
+      if (last && (last.x !== p.x || last.y !== p.y)) lastMoveAt = Date.now();
+      if (Date.now() - lastMoveAt > 1500) return false;
+      last = { x: p.x, y: p.y };
+      const dx = entity.x - p.x, dy = entity.y - p.y;
+      await request('/api/input', { token, body: Math.abs(dx) > Math.abs(dy) ? { [dx > 0 ? 'right' : 'left']: true } : { [dy > 0 ? 'down' : 'up']: true } });
+      await pause(40);
+    }
+    return false;
+  } finally { await request('/api/input', { token, body: {} }); }
+}
 async function moveTo(token, x, y) {
   try {
     for (const [axis, value] of [['x', x], ['y', y]]) {
@@ -586,18 +621,22 @@ async function moveTo(token, x, y) {
 }
 try {
   const port = await freePort(); base = `http://127.0.0.1:${port}`;
-  child = spawn(process.execPath, [fileURLToPath(new URL('./server.js', import.meta.url))], { env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), SID_TEST: '0', SID_DEV: '0', SID_SSO: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  // 正式模式（SID_TEST=0）：临时 SQLite 文件，绝不写仓库 .data；开场改由管理员接口完成（与线上一致）。
+  const dbDir = mkdtempSync(path.join(tmpdir(), 'sid-mech-'));
+  child = spawn(process.execPath, [fileURLToPath(new URL('./server.js', import.meta.url))], { env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), SID_TEST: '0', SID_DEV: '0', SID_SSO: '0', SID_DB_FILE: path.join(dbDir, 'sid.sqlite') }, stdio: ['ignore', 'pipe', 'pipe'] });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`服务启动超时\n${output}`)), 10000);
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('exit', code => { clearTimeout(timer); reject(new Error(`服务退出${code}\n${output}`)); });
     child.stderr.on('data', data => { output += data; });
-    child.stdout.on('data', data => { output += data; if (output.includes('技能次数恢复周期:')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', data => { output += data; if (output.includes('S-ID 服务已启动')) { clearTimeout(timer); resolve(); } });
   });
+  await openSessionViaManager();
   await test('正式HTTP无测试/开发权限、鉴权和输入伪造保护', async () => {
     assert.equal((await request('/api/test/state')).status, 404);
     assert.equal((await request('/api/test/advance', { body: { ms: 999999 } })).status, 405);
-    assert.equal((await request('/api/dev/capabilities')).status, 403);
+    // dev 分支已把 /api/dev/* 统一迁到 /manager（410），正式服同样不可用。
+    assert.ok([403, 410].includes((await request('/api/dev/capabilities')).status));
     for (const path of ['/api/play', '/api/attack']) {
       const result = await request(path, { body: { commandId: nonce(), kind: 'wheel', entityId: npc.id, playerId: 0, sessionId: 'fake' } });
       assert.equal(result.status, 400); assert.equal(result.data.ok, false); assert.equal(result.data.exploration, null);
@@ -608,56 +647,56 @@ try {
   const users = [];
   for (let i = 0; i < 4; i++) users.push((await request('/api/join', { body: { nickname: `HTTP玩家${i}` } })).data);
   const [a, b, c] = users.map(u => u.sessionToken);
-  await test('正式HTTP移动忽略坐标和朝向，真实搜索保留2/3与NPC兑换3', async () => {
+  await test('正式HTTP移动忽略坐标和朝向；探索开箱得积分/答题，NPC福利未达探索数不可领', async () => {
     const before = await state(a), position = before.players.find(p => p.id === before.me.id);
     await request('/api/input', { token: a, body: { x: npc.x, y: npc.y, facing: { x: -1, y: 0 } } });
     const after = await state(a), p = after.players.find(p => p.id === after.me.id);
     assert.deepEqual([p.x, p.y], [position.x, position.y]); assert.deepEqual(after.me.combat.facing, { x: 1, y: 0 });
     assert.equal((await httpPlay(a, 'wheel', { entityId: npc.id, x: npc.x, y: npc.y })).status, 400);
-    for (const token of [a, b]) {
-      await moveTo(token, 220, 275);
-      const result = await request('/api/interact', { token, body: { commandId: nonce(), kind: 'search', entityId: 'reception-132-173' } });
-      assert.equal(result.status, 200); assert.equal(result.data.exploration.chips, 3);
+    // 真实移动到一个可达容器：按距离尝试，走不到（家具挡路）就换下一个。
+    let box = null;
+    for (const cand of WORLD.zoneContainers(after.me.floorId, null)
+      .sort((m, n) => Math.hypot(m.x - p.x, m.y - p.y) - Math.hypot(n.x - p.x, n.y - p.y)).slice(0, 6)) {
+      if (await moveNear(a, cand)) { box = cand; break; }
     }
-    await moveTo(a, npc.x, npc.y); await moveTo(b, npc.x + 28, npc.y);
-    const exchanged = await request('/api/interact', { token: a, body: { commandId: nonce(), kind: 'exchange', entityId: npc.id } });
-    assert.equal(exchanged.data.ok, true); assert.equal(exchanged.data.exploration.chips, 0);
-    assert.equal(exchanged.data.exploration.clues.length, 1);
+    assert.ok(box, '附近没有可走到的容器');
+    const opened = await request('/api/search/start', { token: a, body: { commandId: nonce(), containerId: box.id, ...(await guardOf(a)) } });
+    assert.equal(opened.status, 200, JSON.stringify(opened.data)); assert.ok(['empty', 'points', 'quiz'].includes(opened.data.mode));
+    assert.ok(!('chips' in (opened.data.exploration || {})) || opened.data.exploration.chips === 0, '不再产出金币');
+    const again = await request('/api/search/start', { token: a, body: { commandId: nonce(), containerId: box.id, ...(await guardOf(a)) } });
+    if (opened.data.mode === 'quiz') assert.equal(again.data.reused, true, '未答完的答题箱重开只复用原题');
+    else assert.equal(again.status, 400, '同一容器每日只能开一次');
+    await moveTo(a, npc.x, npc.y + 30);
+    const claim = await request('/api/interact', { token: a, body: { commandId: nonce(), kind: 'exchange', entityId: npc.id, effect: 'score', ...(await guardOf(a)) } });
+    assert.equal(claim.status, 400); assert.match(claim.data.error || claim.data.resultText, /探索|解锁/);
   });
-  await test('正式HTTP阶梯收费转盘、nonce防重、刷新保留私有结果与对方投影', async () => {
-    const before = (await state(b)).me.exploration.chips;
+  await test('正式HTTP免费转盘积分、nonce防重、刷新保留私有结果与对方投影', async () => {
+    await moveTo(b, npc.x + 20, npc.y + 30);
+    const before = (await state(b)).me.score;
     const id = nonce(), result = await httpPlay(b, 'wheel', { commandId: id, entityId: npc.id, prize: 999, slotIndex: 999 });
-    assert.equal(result.status, 200);
+    assert.equal(result.status, 200, JSON.stringify(result.data));
     const wheel = result.data.wheel;
     assert.equal(wheel.slots.length, WORLD.WHEEL.slotCount);
     assert.ok(wheel.slotIndex >= 0 && wheel.slotIndex < WORLD.WHEEL.slotCount);
     assert.deepEqual(wheel.item, wheel.slots[wheel.slotIndex]);
     assert.equal(result.data.cost, 0); assert.equal(result.data.spins, 1);
-    assert.equal(result.data.prize, wheel.item.kind === 'chips' ? wheel.item.amount : null);
-    assert.equal(result.data.exploration.chips, before + (wheel.item.kind === 'chips' ? wheel.item.amount : 0));
+    assert.equal(wheel.item.kind, 'points');
+    assert.equal((await state(b)).me.score, before + wheel.item.amount);
     assert.equal((await httpPlay(b, 'wheel', { commandId: id, entityId: npc.id })).status, 400);
-    // 第二次转动：阶梯收费且允许重复转动
     const second = await httpPlay(b, 'wheel', { entityId: npc.id });
-    assert.equal(second.status, 200); assert.equal(second.data.cost, WORLD.wheelSpinCost(1)); assert.equal(second.data.spins, 2);
-    assert.equal((await state(b)).me.games.wheelSpins[npc.id], 2);
+    assert.equal(second.status, 200); assert.equal(second.data.cost, 0, '每次都免费'); assert.equal(second.data.spins, 2);
     const saved = (await state(b)).me.games;
     const revived = await request('/api/join', { token: b, body: { nickname: '不允许替换' } });
     assert.equal(revived.data.revived, true); assert.deepEqual((await state(b)).me.games, saved);
     const other = await state(c);
-    assert.equal(other.me.exploration.chips, 0); assert.deepEqual(other.me.games.wheelSpins, {});
+    assert.equal(other.me.games.wheelDailySpins || 0, 0);
     for (const p of other.players) for (const key of ['games', 'exploration', 'hp', 'choice', 'chips', 'lastResult']) assert.ok(!(key in p));
-    // 甲兑换后余额为0，通过另一个真实筹码容器获得2，不依赖随机转盘奖励。
-    await moveTo(a, 1080, 280);
-    const searched = await request('/api/interact', { token: a, body: { commandId: nonce(), kind: 'search', entityId: 'desk-1035-172' } });
-    assert.equal(searched.data.ok, true); assert.equal(searched.data.exploration.chips, 2);
-    await moveTo(a, npc.x, npc.y);
   });
-  await test('正式HTTP双方自愿猜拳、第三方拒绝、pending刷新、双私有余额及时更新', async () => {
-    const beforeA = (await state(a)).me.exploration.chips, beforeB = (await state(b)).me.exploration.chips;
-    assert.ok(beforeA >= 1 && beforeB >= 1, '双方需各有至少 1 筹码');
-    // 新协议：邀请不带出拳；第三方不能接受/取消；接受后才进入各自出拳，截止才结算。
+  await test('正式HTTP双方自愿猜拳、第三方拒绝、pending刷新、胜者得积分', async () => {
+    await moveTo(a, npc.x - 20, npc.y + 30);
+    const beforeA = (await state(a)).me.score, beforeB = (await state(b)).me.score;
     const result = await httpPlay(a, 'rpsInvite', { targetId: users[1].playerId });
-    assert.equal(result.status, 200); assert.equal(result.data.exploration.chips, beforeA, '邀请不预扣筹码');
+    assert.equal(result.status, 200, JSON.stringify(result.data));
     const pending = (await state(b)).me.games.rpsPending;
     assert.equal(pending.role, 'to'); assert.equal(pending.phase, 'invited');
     assert.ok(!('choice' in pending));
@@ -667,18 +706,15 @@ try {
     assert.equal((await state(a)).me.games.rpsPending.id, pending.id);
     const id = nonce();
     assert.equal((await httpPlay(b, 'rpsReply', { commandId: id, challengeId: pending.id })).status, 200, '接受应成功且不结算');
-    assert.equal((await state(a)).me.exploration.chips, beforeA, '接受不结算');
     assert.equal((await httpPlay(a, 'rpsChoose', { challengeId: pending.id, choice: 'rock', revision: 1 })).status, 200);
     assert.equal((await httpPlay(b, 'rpsChoose', { challengeId: pending.id, choice: 'scissors', revision: 1 })).status, 200);
-    assert.equal((await state(a)).me.exploration.chips, beforeA, '截止前不结算');
+    assert.equal((await state(a)).me.score, beforeA, '截止前不结算');
     const beforeDeadlineState = await state(a);
     const toDeadline = beforeDeadlineState.me.games.rpsPending.deadline - beforeDeadlineState.serverTime;
     assert.ok(toDeadline > 0 && toDeadline <= C.rpsRoundMs, `截止前剩余应在 (0, ${C.rpsRoundMs}]，实测 ${toDeadline}`);
-    // 该套件以 SID_TEST=0 启动（/api/test/* 不存在），因此按真实时间等过共同 deadline：
-    // 服务端 20Hz tick 每帧 syncRoom，到点即结算。
     await pause(toDeadline + 400);
     const aa = await state(a), bb = await state(b);
-    assert.equal(aa.me.exploration.chips, beforeA + 1, '石头胜剪刀 +1'); assert.equal(bb.me.exploration.chips, beforeB - 1);
+    assert.equal(aa.me.score, beforeA + C.minigameWinPoints, '石头胜剪刀，胜者得积分'); assert.equal(bb.me.score, beforeB, '败者不扣分');
     assert.equal(aa.me.games.rpsPending, null); assert.equal(bb.me.games.rpsPending, null);
     assert.equal(aa.me.games.rpsResult.status, 'resolved');
     assert.equal(aa.me.games.rpsResult.outcome, 'win'); assert.equal(aa.me.games.rpsResult.opponentChoice, 'scissors');
@@ -686,14 +722,15 @@ try {
     assert.equal((await httpPlay(b, 'rpsReply', { commandId: id, challengeId: pending.id })).status, 400, '同一 commandId 重放应被拒');
   });
   await test('正式HTTP全阵营J无伤害，公开眩晕僵直动画、状态门禁与CD去重', async () => {
+    { const sa = await state(a), pa = sa.players.find(q => q.id === sa.me.id); await moveTo(b, pa.x + 30, pa.y); }
     const beforeVictim = await state(a), beforeAttacker = await state(b);
     await request('/api/input', { token: b, body: { left: true } }); await request('/api/input', { token: b, body: {} });
-    const id = nonce(), result = await request('/api/attack', { token: b, body: { commandId: id, targetId: users[2].playerId, facing: { x: 1, y: 0 }, x: 1, y: 1 } });
+    const id = nonce(), result = await request('/api/attack', { token: b, body: { commandId: id, targetId: users[2].playerId, facing: { x: 1, y: 0 }, x: 1, y: 1, ...(await guardOf(b)) } });
     assert.equal(result.status, 200); assert.equal(result.data.hitId, users[0].playerId);
     assert.match(result.data.resultText, /眩晕0\.8秒 \/ 僵直1秒，无伤害/); assert.ok(!('hp' in result.data));
     assert.equal(result.data.combat.attackUntil - result.data.combat.lastAttackAt, C.attackCooldownMs);
-    assert.equal((await request('/api/attack', { token: b, body: { commandId: id } })).status, 400);
-    assert.equal((await request('/api/attack', { token: b, body: { commandId: nonce() } })).status, 400);
+    assert.equal((await request('/api/attack', { token: b, body: { commandId: id, ...(await guardOf(b)) } })).status, 400);
+    assert.equal((await request('/api/attack', { token: b, body: { commandId: nonce(), ...(await guardOf(b)) } })).status, 400);
     const victim = await state(a), other = await state(c);
     assert.equal(victim.me.hp, beforeVictim.me.hp); assert.deepEqual(victim.me.pending, beforeVictim.me.pending);
     assert.deepEqual(victim.logs, beforeVictim.logs); assert.equal(victim.finished, beforeVictim.finished);
@@ -703,12 +740,12 @@ try {
     const targetPub = other.players.find(p => p.id === users[0].playerId);
     assert.equal(targetPub.stunUntil, victim.me.combat.stunUntil); assert.equal(targetPub.freezeUntil, victim.me.combat.freezeUntil);
     const position = victim.players.find(p => p.id === users[0].playerId), facing = { ...victim.me.combat.facing };
-    const rejected = await request('/api/attack', { token: a, body: { commandId: nonce() } });
+    const rejected = await request('/api/attack', { token: a, body: { commandId: nonce(), ...(await guardOf(a)) } });
     assert.equal(rejected.status, 400); assert.match(rejected.data.error, /眩晕或僵直/);
     const blockedPlay = await httpPlay(a, 'wheel', { entityId: npc.id });
     assert.equal(blockedPlay.status, 400); assert.match(blockedPlay.data.error, /眩晕或僵直/);
     for (const kind of ['search', 'exchange']) {
-      const blocked = await request('/api/interact', { token: a, body: { commandId: nonce(), kind, entityId: npc.id } });
+      const blocked = await request('/api/interact', { token: a, body: { commandId: nonce(), kind, entityId: npc.id, ...(await guardOf(a)) } });
       assert.equal(blocked.status, 400); assert.match(blocked.data.error, /眩晕或僵直/);
     }
     await request('/api/input', { token: a, body: { right: true, stunUntil: 0, freezeUntil: 0 } });
@@ -723,7 +760,7 @@ try {
     await request('/api/input', { token: a, body: {} });
     const restored = await state(a); assert.ok(restored.players.find(p => p.id === users[0].playerId).x > position.x);
     assert.equal(restored.me.hp, beforeVictim.me.hp); assert.deepEqual(restored.me.pending, beforeVictim.me.pending);
-    assert.equal((await state(c)).me.hp, 1);
+    assert.equal((await state(c)).me.hp, WORLD.COMBAT.initialHp, '新规则好坏双方初始均为3格对抗生命');
     const attacker = other.players.find(p => p.id === users[1].playerId);
     assert.equal(attacker.lastAttackAt, result.data.combat.lastAttackAt); assert.deepEqual(attacker.facing, { x: -1, y: 0 });
     for (const p of other.players) for (const key of ['hp', 'chips', 'games', 'exploration', 'choices', 'resultText']) assert.ok(!(key in p));
