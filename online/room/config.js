@@ -4,9 +4,13 @@ const WORLD = require('../shared/world.js');
 const { normalizeGender, HAIR_PARITY, hairIndexAllowed } = require('../shared/gender.js');
 
 const SKILL_CONFIG = {
-  chargeIntervalMs: 90_000, // 正式版改为 1_200_000（20 分钟）
-  maxCharges: 2,
-  // 身份技能只受储存次数限制，不再设置两次使用之间的短冷却。
+  // 默认取坏人 CD（20 分钟）；正式场由 activity 模板 / 管理页覆盖 good/bad 分别配置。
+  // 试玩可用较短间隔；正式：good 30min / bad 20min。
+  chargeIntervalMs: 90_000,
+  goodChargeIntervalMs: 90_000, // 正式版 1_800_000（30 分钟）
+  badChargeIntervalMs: 90_000,  // 正式版 1_200_000（20 分钟）
+  maxCharges: 1,
+  startCharges: 1,
   probeCooldownMs: 0,
   actionCooldownMs: 0
 };
