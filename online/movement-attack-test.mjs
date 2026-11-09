@@ -157,15 +157,15 @@ await test('stun/freeze冻结外观和位移、截止边界及重新输入恢复
     move(r, 0, { right: true }); assert.equal(p.x, saved[0] + 8); assert.equal(p.spriteFacing, 'right');
   }
 }));
-await test('离线/结束不移动或转身；幽灵（dev 合并语义）可移动但不可行动', () => {
+await test('离线/结束不移动或转身；休战者可移动、可J互动，但不可攻击或使用对抗技能', () => {
   for (const state of ['offline', 'finished']) {
     const r = fixture(), p = r.find(1); move(r, 1, { left: true }); const saved = position(p), facing = { ...p.combat.facing };
     if (state === 'offline') r.setOffline(1); if (state === 'finished') r.finish();
     move(r, 1, { right: true }); assert.deepEqual(position(p), saved); assert.deepEqual(p.combat.facing, facing);
     r.setIntent(1, {}); assert.deepEqual(p.input, blank);
   }
-  // 合并适配：dev 分支把淘汰者变成可穿家具、可吓人的幽灵，因此「已淘汰」不再冻结移动；
-  // 这里改为断言幽灵确实能移动，同时仍不能攻击 / 挥锤 / 使用身份技能（跳跃已下线，jump 也不再是合法动作）。
+  // 积分/休战改版：对抗生命归零进入休战（alive=false），不再是幽灵；休战者照常移动（不穿家具），
+  // 保留 J 互动（挥锤积分）、探索等，但不能攻击或使用指认/刺杀（跳跃已下线，jump 也不再是合法动作）。
   const r = fixture(), p = r.find(1);
   p.x = 500; p.y = 350; p.walk = 0; // 层内安全点：fixture 的 1600 超出 1F 可行走范围，会被边界钳住
   move(r, 1, { left: true }); const saved = position(p);
@@ -177,8 +177,10 @@ await test('离线/结束不移动或转身；幽灵（dev 合并语义）可移
   // 跳跃已下线：'jump' 不再是合法 kind，必须被稳稳拒绝且不抛错。
   assert.equal(r.performAction(p.id, 'jump').ok, false);
   assert.equal(r.performAction(p.id, 'jump').error, '未知动作');
-  assert.equal(r.performAction(p.id, 'hammer').ok, false);
-  assert.equal(r.useSkill(p.sessionId, { commandId: nonce(), skill: 'probe', targetId: r.find(0).id }).ok, false);
+  const hammer = r.performAction(p.id, 'hammer');
+  assert.ok(!/休战|出局|淘汰/.test(hammer.error || ''), '休战不禁止J互动');
+  assert.equal(r.performAction(p.id, 'scare').ok, false, '幽灵吓人已移除');
+  for (const skill of ['accuse', 'assassinate', 'probe']) assert.equal(r.useSkill(p.sessionId, { commandId: nonce(), skill, targetId: r.find(0).id }).ok, false);
   r.setIntent(1, {}); assert.deepEqual(p.input, blank);
 });
 await test('重连保留外观、方向锁定、控制与CD；公私投影向量深拷贝且不泄露私密字段', () => fixedClock(() => {
