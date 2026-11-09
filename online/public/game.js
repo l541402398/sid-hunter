@@ -221,7 +221,7 @@
   let gameClosed = '', gamePausedAt = 0;
   function selfDisabled() {
     if (gameClosed) return true;
-    if (!me || !me.alive || !me.combat) return false;
+    if (!me || !me.combat) return false; // 休战玩家同样会被 J 眩晕
     const t = serverNow();
     return t < (me.combat.stunUntil || 0) || t < (me.combat.freezeUntil || 0);
   }
@@ -465,7 +465,7 @@
     badPoolAvailable = Array.isArray(s.badSlots);
     badSlots = badPoolAvailable ? s.badSlots : [];
     renderBadPool();
-    // 存活/淘汰按服务端全量计数：迷雾层只下发附近玩家，不能拿过滤后的名单去数。
+    // 对抗中/休战按服务端全量计数：迷雾层只下发附近玩家，不能拿过滤后的名单去数。
     aliveCount = typeof s.aliveCount === 'number' ? s.aliveCount : players.filter(p => p.alive).length;
     const totalPlayers = rosterCache.length || players.length;
     outCount = Math.max(0, totalPlayers - aliveCount);
@@ -586,7 +586,7 @@
     return `<small class="roster-match">${text}${shown.length > 2 ? ` 等${shown.length}项` : ''}</small>`;
   }
   function row(p, hits) {
-    const tag = !p.alive ? '<span class="out-label">淘汰</span>'
+    const tag = !p.alive ? '<span class="out-label">休战</span>'
       : p.id === selfId() ? '<span class="self-label">自己</span>'
         : p.online === false ? '<span class="offline-tag">离线</span>' : '';
     return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong><small>${sidHTML(p.sid)}</small>${matchHint(hits)}</span>${tag}</button>`;
@@ -608,7 +608,7 @@
     if (!me) return '';
     if (Number.isSafeInteger(entry.subjectPlayerId)) return entry.subjectPlayerId === me.id ? 'log-mine' : '';
     // 旧后台没有结构化目标，仅识别以完整姓名开头的常见公开事件，避免姓名片段误命中。
-    const ownLegacy = typeof entry.text === 'string' && ['加入了办公室。', '被指认一次。', '已淘汰。', '的S-ID已公开：', ...Object.values(traitNames).map(name => `的${name}已公开：`)]
+    const ownLegacy = typeof entry.text === 'string' && ['加入了办公室。', '被指认一次。', '已淘汰。', '进入休战状态。', '的对抗生命变为', '的S-ID已公开：', ...Object.values(traitNames).map(name => `的${name}已公开：`)]
       .some(suffix => entry.text.startsWith(me.name + suffix));
     return ownLegacy ? 'log-mine' : '';
   }
@@ -718,7 +718,7 @@
     lastTargetSig = ''; renderTarget(); renderRoster();
   }
   // 目标公开档案的组织信息：合约区 + 交付组。显示在原“存活 · 公开档案”的位置；
-  // 没有员工档案（昵称试玩/NPC）时退回原来的存活/淘汰文案。
+  // 没有员工档案（昵称试玩/NPC）时退回对抗中/休战文案。
   function targetOrgLine(p) {
     return [p.dept, p.deliveryGroup].filter(Boolean).map(escapeText).join(' · ');
   }
@@ -727,7 +727,7 @@
     if (!p) { clearPrivate(); $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
     const orgLine = targetOrgLine(p);
-    const status = orgLine || (p.alive ? '在场存活 · 公开档案' : '已出局 · 积分保留');
+    const status = orgLine || (p.alive ? '对抗中 · 公开档案' : '休战中 · 积分保留');
     const prog = sidProgressInfo(p.sid);
     $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '存活' : '已出局'}</span></div><div class="target-sid-row"><p class="sid">${sidHTML(p.sid)}</p><span class="sid-progress-pill ${prog.allPublic ? 'is-full' : ''}">已公开 ${prog.revealedCount}/3 段</span></div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
@@ -740,7 +740,7 @@
         $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true');
       }
     };
-    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}（已公开 ${prog.revealedCount}/3 段身份码）`; updateSkillStatus(); }
+    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''} · 对抗生命仅本人可见`; updateSkillStatus(); }
   }
   // ---------- 私密操作（每人 1 技能：好人指认 / 坏人刺杀） ----------
   function holding() { return privateOpen; }
@@ -897,7 +897,7 @@
     const selfP = selfPlayer();
     const pubProg = sidProgressInfo(selfP ? selfP.sid : '***-***-***');
     $('mine-name').textContent = `我的信息 · ${me.name}`;
-    $('mine-alive').textContent = `${me.alive ? '在场存活' : '已出局（今日积分保留）'} · 对外已公开 ${pubProg.revealedCount}/3 段身份码 · 今日总分 ${typeof me.score === 'number' ? me.score : 0}`;
+    $('mine-alive').textContent = `${me.alive ? `对抗中 · 对抗生命 ${Number.isFinite(me.hp) ? me.hp : '-'}` : '休战中（积分保留，仍可探索、答题、互动与小游戏）'} · 今日总分 ${typeof me.score === 'number' ? me.score : 0}`;
     const bd = me.scoreBreakdown || { participate: 0, survival: 0, combat: me.score || 0 };
     const hist = Number(me.historicalScore) || 0;
     const scoreHTML = `<div class="mine-score-item total"><span>今日总分</span><strong>${typeof me.score === 'number' ? me.score : 0}</strong></div><div class="mine-score-item hist"><span>昨日累计</span><strong>${hist}</strong></div><div class="mine-score-item"><span>参与分</span><strong>${bd.participate || 0}<em>/10</em></strong></div><div class="mine-score-item"><span>存活分</span><strong>${bd.survival || 0}</strong></div><div class="mine-score-item"><span>对抗分</span><strong>${bd.combat || 0}</strong></div>`;
@@ -974,7 +974,7 @@
     return self && entity ? WORLD.distanceToEntity(self, entity) : Infinity;
   }
   function nearbyEntities() {
-    if (!me?.alive || finished) return [];
+    if (!me || finished) return []; // 休战仍可就近探索
     const searched = explorationState().searched;
     const list = [...containers.map(entity => ({ kind: 'container', id: entity.id, entity, done: searched.includes(entity.id) })),
       ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity, done: false }))];
@@ -1006,7 +1006,7 @@
   // 位置还原由服务端保证（zoneReturn），客户端只提交意图。
   function roomDoorCandidate() {
     const self = selfPlayer();
-    if (!self || zoneId || !me?.alive || finished) return null;
+    if (!self || zoneId || !me || finished) return null; // 休战按正常条件进房
     return WORLD.roomDoorNear(floorId, self.x, self.y, WORLD.ROOM_ENTER_PAD);
   }
   function roomExitCandidate() {
@@ -1048,7 +1048,8 @@
   function openLootFor(container) {
     if (!container || !LOOT) return;
     if (!me) return;
-    if (me.alive === false || finished) { showToast(finished ? '游戏已结束，探索已冻结' : '已淘汰，无法搜索'); return; }
+    // 休战（alive=false）仍可探索与答题，只有本局结束才冻结。
+    if (finished) { showToast('游戏已结束，探索已冻结'); return; }
     if (entityDistance(container) > WORLD.INTERACT_RANGE) { showToast('距离太远，请靠近后再搜索（64 像素以内）'); return; }
     if (explorationState().searched.includes(container.id)) { showToast('这个容器你已经搜过了'); return; }
     LOOT.open({
@@ -1064,7 +1065,7 @@
     });
   }
   // ============================================================
-  // NPC 金币兑换（六类即时效果，每人每类每日限兑一次）与状态辅助
+  // NPC 福利（按今日探索数量解锁、免费、每人每类每日限领一次）与状态辅助
   // ============================================================
   function meBuffs() { return me && me.buffs ? me.buffs : { speedMs: 0, shieldMs: 0, focusNext: false }; }
   function updateBuffHUD() {
@@ -1136,8 +1137,11 @@
     const targetList = targetPlayersWithHiddenTrait();
     const badClues = publishedBadClueOptions();
     const hasSid = ownHasRevealedSid();
+    const npcState = me.npcExchange || {};
+    const explored = Number(npcState.exploredCount) || 0;
+    const serverEffects = Object.fromEntries((Array.isArray(npcState.effects) ? npcState.effects : []).map(e => [e.key, e]));
     const sig = JSON.stringify([
-      state.chips, me.score, usedMap, ownTraits,
+      explored, me.score, usedMap, ownTraits,
       targetList.map(p => [p.id, p.name]),
       badClues.map(c => c.value),
       hasSid, inRange, !!interactionFlight, me.alive, finished, selfDisabled()
@@ -1152,7 +1156,8 @@
       const usedCount = Number(usedMap[def.key]) || 0;
       const limit = Number(def.dailyLimit) || 1;
       const exhausted = usedCount >= limit;
-      const enoughChips = state.chips >= def.cost;
+      const unlockAt = Number(def.unlockAt) || 0;
+      const unlocked = serverEffects[def.key] ? !!serverEffects[def.key].unlocked : explored >= unlockAt;
       const row = document.createElement('div');
       row.className = 'bag-item shop npc-exchange-row';
       row.dataset.effect = def.key;
@@ -1160,7 +1165,7 @@
       const meta = document.createElement('div');
       meta.className = 'bag-meta';
       const title = document.createElement('strong');
-      title.textContent = `${def.label} · ${def.cost} 金币`;
+      title.textContent = `${def.label} · 探索 ${unlockAt} 个解锁 · 免费`;
       const desc = document.createElement('span');
       desc.textContent = `${def.desc}（今日 ${Math.min(usedCount, limit)}/${limit}）`;
       meta.append(title, desc);
@@ -1169,7 +1174,7 @@
       let conditionMet = true;
       let conditionHint = '';
       if (def.key === 'revealRandomTrait') {
-        if (!targetList.length) { conditionMet = false; conditionHint = '暂无可公开隐藏属性的其他存活玩家'; }
+        if (!targetList.length) { conditionMet = false; conditionHint = '暂无可公开隐藏属性的其他对抗中玩家'; }
       } else if (def.key === 'hideOwnTrait') {
         if (!ownTraits.length) {
           conditionMet = false;
@@ -1189,7 +1194,7 @@
       } else if (def.key === 'revealTargetTrait') {
         if (!targetList.length) {
           conditionMet = false;
-          conditionHint = '暂无可公开隐藏属性的其他存活玩家';
+          conditionHint = '暂无可公开隐藏属性的其他对抗中玩家';
         } else {
           selectEl = document.createElement('select');
           selectEl.className = 'npc-exchange-select';
@@ -1224,6 +1229,7 @@
           conditionHint = '你当前没有已公开的身份码段';
         }
       }
+      if (!exhausted && !unlocked) { conditionHint = `今日已探索 ${explored}/${unlockAt} 个容器，达到后解锁`; }
       if (!exhausted && conditionHint) {
         const hintEl = document.createElement('small');
         hintEl.className = 'npc-exchange-hint';
@@ -1237,8 +1243,9 @@
       btn.type = 'button';
       btn.id = `npc-exchange-${def.key}`;
       btn.dataset.effect = def.key;
-      btn.textContent = exhausted ? '今日已兑' : !enoughChips ? `需 ${def.cost} 金币` : '兑换';
-      btn.disabled = !!interactionFlight || !me.alive || finished || !inRange || selfDisabled() || exhausted || !enoughChips || !conditionMet;
+      btn.textContent = exhausted ? '今日已领' : !unlocked ? `需探索 ${unlockAt}` : '领取';
+      // 休战玩家同样可以领取福利；只有本局结束、距离、受控、未解锁或已领时禁用。
+      btn.disabled = !!interactionFlight || finished || !inRange || selfDisabled() || exhausted || !unlocked || !conditionMet;
       btn.onclick = () => {
         const extra = { effect: def.key };
         if (def.key === 'hideOwnTrait' && selectEl) extra.traitKey = selectEl.value;
@@ -1257,7 +1264,7 @@
   // E 就近互动：同时比较附近玩家、家具/NPC 与楼梯入口，取距离最近者；已选中的近玩家在距离相当时优先。
   // 玩家必须同层（floorId 一致）才参与就近判定。
   function nearestInteractable() {
-    const self = selfPlayer(); if (!self || !me?.alive || finished) return null;
+    const self = selfPlayer(); if (!self || !me || finished) return null; // 休战仍可 K 互动
     // 优先保证场景可交互物（未搜容器 / NPC / 房间门 / 出口）不被面前的其他玩家挡住 K 键
     const nearItems = nearbyEntities();
     if (nearItems.length) {
@@ -1266,7 +1273,7 @@
     }
     let pBest = null, pD = Infinity;
     for (const p of players) {
-      if (p.id === me.id || !p.alive || p.online === false || p.floorId !== me.floorId) continue;
+      if (p.id === me.id || p.online === false || p.floorId !== me.floorId) continue;
       if (!WORLD.lineClear(self, p, occluders)) continue;
       const d = WORLD.distanceToEntity(self, p);
       if (d <= WORLD.INTERACT_RANGE && d < pD) { pD = d; pBest = { kind: 'player', id: p.id }; }
@@ -1289,7 +1296,7 @@
     $('clue-bag').setAttribute('aria-expanded', 'false');
   }
   function openExploration(kind, id = null) {
-    // 物品背包已取消；容器一律走搜箱面板；NPC 打开大转盘与六类金币兑换面板。
+    // 物品背包已取消；容器一律走搜箱面板；NPC 打开大转盘与探索解锁福利面板。
     if (kind === 'backpack') return;
     const explorationHost = $('exploration');
     if (explorationHost) explorationHost.classList.remove('bag-mode');
@@ -1307,7 +1314,7 @@
     $('clue-bag').setAttribute('aria-expanded', 'false');
     const heading = kind === 'container' ? entity.container.name : entity.name;
     // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
-    host.innerHTML = `<div class="panel-heading"><div><small>NPC EXCHANGE &amp; LUCKY WHEEL</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭面板">×</button></div><div class="exploration-body"><p class="exploration-balance">我的金币：<strong id="exploration-chips"></strong> · 今日积分：<strong id="exploration-score"></strong></p><p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p><p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="wheel-block"><p class="private-title">大转盘（全楼层共享 · 每日上限 3 次）</p><p class="panel-note">10 格随机金币奖励 · 首次免费，另外每次消耗 3 金币</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div><div class="bag-block"><p class="private-title">金币兑换（六类即时效果 · 每人每类每日限兑 1 次）</p><div id="npc-exchange-list" class="bag-items"></div><p class="panel-note">金币每日清零，积分持续累计；各层楼 NPC 功能与次数完全共享。</p></div><p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即关闭面板，不回滚已结算效果。</p></div>`;
+    host.innerHTML = `<div class="panel-heading"><div><small>NPC EXCHANGE &amp; LUCKY WHEEL</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭面板">×</button></div><div class="exploration-body"><p class="exploration-balance">今日已探索：<strong id="exploration-explored"></strong> 个容器 · 今日积分：<strong id="exploration-score"></strong></p><p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p><p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="wheel-block"><p class="private-title">大转盘（全楼层共享 · 每日上限 3 次）</p><p class="panel-note">10 格随机积分奖励 · 每日 3 次全部免费</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div><div class="bag-block"><p class="private-title">NPC 福利（按今日探索数量解锁 · 免费 · 每类每日限领 1 次）</p><div id="npc-exchange-list" class="bag-items"></div><p class="panel-note">探索数量与领取次数每日重置，积分持续累计；各层楼 NPC 进度与次数完全共享。</p></div><p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即关闭面板，不回滚已结算效果。</p></div>`;
     $('exploration-close').onclick = closeExploration;
     if ($('exploration-wheel')) $('exploration-wheel').onclick = () => openWheel(entity.entityId, entity.name);
     // 远处容器/NPC 仍可打开面板查看，但按钮禁用并给出「靠近」提示。
@@ -1321,28 +1328,25 @@
     const { kind, entityId } = explorationPanel, entity = explorationEntity(kind, entityId);
     if (!entity) return;
     const state = explorationState();
-    if ($('exploration-chips')) $('exploration-chips').textContent = state.chips;
+    if ($('exploration-explored')) $('exploration-explored').textContent = Number(me.npcExchange && me.npcExchange.exploredCount) || 0;
     if ($('exploration-score')) $('exploration-score').textContent = selfScore();
     const distance = entityDistance(entity), inRange = distance <= WORLD.INTERACT_RANGE;
     $('exploration-distance').textContent = `距离：${Number.isFinite(distance) ? Math.ceil(distance) + ' 像素' : '未知'} / 范围 ${WORLD.INTERACT_RANGE} · ${inRange ? '可近距离互动' : '距离太远，请靠近后再试'}`;
     $('exploration-state').textContent = finished ? '游戏已结束，互动已冻结'
-      : !me.alive ? '已淘汰，无法互动'
-        : !inRange ? '距离太远，请靠近 NPC 后再兑换或转动转盘'
-          : '每层楼 NPC 功能一致 · 可转动大转盘或使用金币兑换即时效果';
+      : !inRange ? '距离太远，请靠近 NPC 后再领取福利或转动转盘'
+          : '每层楼 NPC 功能一致 · 可转动大转盘或领取已解锁的福利';
     const wheel = $('exploration-wheel');
     if (wheel) {
       const maxSpins = WHEEL.maxDailySpins || 3;
       const spins = wheelSpinsFor(entityId), cost = wheelSpinCost(spins);
       const limitReached = spins >= maxSpins;
-      wheel.disabled = !me.alive || finished || !inRange || selfDisabled();
+      wheel.disabled = finished || !inRange || selfDisabled();
       wheel.textContent = '打开大转盘';
-      $('exploration-wheel-state').textContent = !me.alive ? '已淘汰，无法转动'
-        : finished ? '游戏已结束，转盘已冻结'
+      $('exploration-wheel-state').textContent = finished ? '游戏已结束，转盘已冻结'
           : !inRange ? '距离太远，请靠近后再试'
             : selfDisabled() ? '眩晕/僵直中，暂时无法互动'
               : limitReached ? `今日次数已达上限（${spins}/${maxSpins}）`
-                : cost > 0 && state.chips < cost ? `今日第 ${spins + 1}/${maxSpins} 次 · 需 ${cost} 金币（当前 ${state.chips}）· 金币不足`
-                  : `今日第 ${spins + 1}/${maxSpins} 次 · ${cost === 0 ? '免费' : `需 ${cost} 金币（当前 ${state.chips}）`}`;
+                : `今日第 ${spins + 1}/${maxSpins} 次 · 免费`;
     }
     renderNpcExchangeList(inRange);
     $('exploration-result').textContent = explorationResult;
@@ -1424,18 +1428,14 @@
     $('wheel-title').textContent = wheelTarget.name;
     let costText = limitReached
       ? `今日大转盘次数已达上限（${spins}/${maxSpins}）`
-      : cost === 0
-        ? `今日第 ${spins + 1}/${maxSpins} 次：免费`
-        : `今日第 ${spins + 1}/${maxSpins} 次：${cost} 金币（当前 ${chips}）`;
-    if (!me.alive) costText += ' · 已淘汰';
-    else if (finished) costText += ' · 游戏已结束';
+      : `今日第 ${spins + 1}/${maxSpins} 次：免费`;
+    if (finished) costText += ' · 游戏已结束';
     else if (selfDisabled()) costText += ' · 眩晕/僵直中';
-    else if (!limitReached && cost > chips) costText += ' · 金币不足';
     $('wheel-cost').textContent = costText;
     const button = $('wheel-spin');
-    button.disabled = busy || !me.alive || finished || selfDisabled() || limitReached || cost > chips;
+    button.disabled = busy || finished || selfDisabled() || limitReached;
     button.textContent = busy ? '转动中…' : limitReached ? `今日已满 ${maxSpins} 次` : '转动转盘';
-    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率随机金币奖励。每层楼 NPC 大转盘共享次数，每日上限 ${maxSpins} 次（首次免费，之后每次消耗 3 金币）。`;
+    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率随机积分奖励。每层楼 NPC 大转盘共享次数，每日上限 ${maxSpins} 次，全部免费；休战期间也可转动。`;
   }
   function drawWheel(slots, angle) {
     const canvasEl = $('wheel-canvas'); if (!canvasEl) return;
@@ -1510,7 +1510,7 @@
     wheelSpinFlight = request; wheelResult = ''; showWheelResult(); keys.clear(); lastIntent = '';
     updateWheelControls();
     try {
-      // 沿用既有请求纪律：先确认停止意图，再提交；不做任何本地筹码预扣。
+      // 沿用既有请求纪律：先确认停止意图，再提交；不做任何本地积分预加。
       const stopped = await stopIntent();
       if (!samePanel()) return;
       if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
@@ -1521,7 +1521,7 @@
       const wheel = result.wheel || {};
       const slots = (Array.isArray(wheel.slots) && wheel.slots.length) ? wheel.slots : buildWheelPool(me.faction);
       const slotIndex = Number.isInteger(wheel.slotIndex) ? wheel.slotIndex : 0;
-      // 先旋转到落点；动画结束后才采纳投影并显示结果，避免提前泄露筹码变化。
+      // 先旋转到落点；动画结束后才采纳投影并显示结果，避免提前泄露积分变化。
       wheelSlots = slots;
       wheelAnimating = true; updateWheelControls();
       animateWheel(slots, slotIndex, () => {
@@ -1612,8 +1612,8 @@
     lastClueBatchSig = batchSig;
   }
   function finishReasonText(reason) {
-    return reason === 'aliveFloor' ? '存活人数已淘汰至剩余 100 人'
-      : reason === 'badWiped' ? '潜伏者（坏人）已全部出局'
+    return reason === 'aliveFloor' ? '对抗中人数已降至剩余 100 人'
+      : reason === 'badWiped' ? '潜伏者（坏人）已全部进入休战'
         : reason === 'timeUp' ? '今日场次到点结算'
           : reason === 'host' ? '管理员结算了本场对局' : '本场对局已结束';
   }
@@ -1621,7 +1621,7 @@
     const rank = entry.rank != null ? entry.rank : index + 1;
     const p = entry.id != null ? players.find(pl => pl.id === entry.id) : players.find(pl => pl.name === entry.name);
     const name = entry.name || (p ? p.name : '玩家');
-    const out = entry.alive === false ? '<span class="out-label">出局</span>' : '';
+    const out = entry.alive === false ? '<span class="out-label">休战</span>' : '';
     const daysBadge = entry.days ? `<span class="ranking-days-badge">${entry.days}天</span>` : '';
     return `<div class="ranking-row" ${entry.id != null ? `data-player="${escapeText(entry.id)}"` : ''}><span class="ranking-rank">${rank}</span>${p ? portrait(p) : ''}<span class="ranking-name">${escapeText(name)}</span>${daysBadge}${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
   }
@@ -1657,27 +1657,17 @@
   }
   function formatSettlementReportHTML() {
     if (!finished || !me) return '';
-    const rep = me.settlementReport || { sidReveals: [], eliminatedBy: null };
-    const reveals = Array.isArray(rep.sidReveals) ? rep.sidReveals : [];
-    const revealText = reveals.length
-      ? reveals.map(r => {
-          const seg = `第${Number(r.segment) || 1}段`;
-          if (r.kind === 'selfAccuse') {
-            return `${seg}：误指「<b>${escapeText(r.targetName || '好人')}</b>」自曝`;
-          }
-          const actionLabel = r.kind === 'accuse' ? '指认公开' : '公开身份码';
-          return `${seg}：被「<b>${escapeText(r.byName || '未知')}</b>」${actionLabel}`;
-        }).join(' · ')
-      : '本局未被任何人公开身份码';
+    const rep = me.settlementReport || { eliminatedBy: null };
     const elim = rep.eliminatedBy;
-    const elimText = me.alive !== false
-      ? '存活到最后（未被淘汰）'
-      : elim && elim.byName
-        ? (elim.kind === 'accuse'
-            ? `被「<b>${escapeText(elim.byName)}</b>」指认满 3 段身份码淘汰出局`
-            : `被「<b>${escapeText(elim.byName)}</b>」击杀出局`)
-        : '已出局';
-    return `<div class="settlement-report-card" id="settlement-personal-report"><div class="settlement-report-title"><span>PERSONAL SETTLEMENT · 本局个人复盘</span><span>${me.alive !== false ? '存活' : '已淘汰'}</span></div><p class="settlement-report-row">身份码公开记录：${revealText}</p><p class="settlement-report-row">淘汰记录：${elimText}</p></div>`;
+    const kindText = { accuse: '指认', assassinate: '刺杀', selfAccuse: '误指认自损' };
+    const truceText = me.alive !== false
+      ? '对抗到最后（未进入休战）'
+      : elim && elim.kind === 'selfAccuse'
+        ? '误指认导致对抗生命归零，进入休战'
+        : elim && elim.byName
+          ? `被「<b>${escapeText(elim.byName)}</b>」${kindText[elim.kind] || '命中'}后对抗生命归零，进入休战`
+          : '已进入休战';
+    return `<div class="settlement-report-card" id="settlement-personal-report"><div class="settlement-report-title"><span>PERSONAL SETTLEMENT · 本局个人复盘</span><span>${me.alive !== false ? '对抗中' : '休战'}</span></div><p class="settlement-report-row">对抗记录：${truceText}</p><p class="settlement-report-row">休战不影响已获得积分，探索、答题、互动与小游戏积分照常累计。</p></div>`;
   }
   function syncRanking() {
     const host = $('ranking'); if (!host || host.hidden) return;
@@ -1692,7 +1682,7 @@
     $('ranking-alive').textContent = aliveCount;
     const selfBox = $('ranking-self-summary');
     if (selfBox) {
-      selfBox.innerHTML = `<div class="ranking-self-head"><span class="ranking-self-badge">MY TODAY SCORE · 我的今日实时积分（仅自己可见）</span><span class="ranking-self-state ${me?.alive !== false ? 'is-alive' : 'is-out'}">${me?.alive !== false ? '在场计分中' : '已出局 · 今日积分保留'}</span></div><div class="ranking-self-grid"><div class="ranking-self-cell primary"><span>今日总分</span><strong>${selfScore()}</strong><em class="cell-sub">参与+存活+对抗</em></div><div class="ranking-self-cell hist"><span>截至昨日累计</span><strong>${histScore}</strong><em class="cell-sub">历史已结算场次</em></div><div class="ranking-self-cell"><span>参与分</span><strong>${bd.participate || 0}<small>/10</small></strong><em class="cell-sub">首搜 ${me?.firstSearchDone ? '✓' : '0/5'} · 首游 ${me?.firstMinigameDone ? '✓' : '0/5'}</em></div><div class="ranking-self-cell"><span>存活分</span><strong>${bd.survival || 0}</strong><em class="cell-sub">每满30分钟 +1</em></div><div class="ranking-self-cell"><span>对抗分</span><strong>${bd.combat || 0}</strong><em class="cell-sub">指认/公开/击杀</em></div></div>${formatSettlementReportHTML()}`;
+      selfBox.innerHTML = `<div class="ranking-self-head"><span class="ranking-self-badge">MY TODAY SCORE · 我的今日实时积分（仅自己可见）</span><span class="ranking-self-state ${me?.alive !== false ? 'is-alive' : 'is-out'}">${me?.alive !== false ? '对抗中 · 计分中' : '休战中 · 积分保留，参与分照常累计'}</span></div><div class="ranking-self-grid"><div class="ranking-self-cell primary"><span>今日总分</span><strong>${selfScore()}</strong><em class="cell-sub">参与+对抗中时长+对抗</em></div><div class="ranking-self-cell hist"><span>截至昨日累计</span><strong>${histScore}</strong><em class="cell-sub">历史已结算场次</em></div><div class="ranking-self-cell"><span>参与分</span><strong>${bd.participate || 0}</strong><em class="cell-sub">探索/答题/J/小游戏/转盘</em></div><div class="ranking-self-cell"><span>对抗时长分</span><strong>${bd.survival || 0}</strong><em class="cell-sub">对抗中每满30分钟 +1</em></div><div class="ranking-self-cell"><span>对抗分</span><strong>${bd.combat || 0}</strong><em class="cell-sub">指认/刺杀命中</em></div></div>${formatSettlementReportHTML()}`;
     }
     const tabs = $('ranking-tabs');
     if (tabs) tabs.querySelectorAll('button').forEach(b => {
@@ -1734,7 +1724,7 @@
       if (reportHTML) host.insertAdjacentHTML('afterbegin', reportHTML);
       return;
     }
-    // 存活淘汰至剩余 100 人（ranking 为 null）：不按分数排名，只展示存活到最后的玩家。
+    // 对抗中人数降至剩余 100 人（ranking 为 null）：不按分数排名，只展示对抗到最后的玩家。
     const survivors = players.filter(p => p.alive).sort((a, b) => (b.score || 0) - (a.score || 0));
     host.innerHTML = reportHTML + '<p class="panel-note">该结束方式不按分数排名，以下为存活到最后的玩家：</p>'
       + (survivors.length
@@ -1776,14 +1766,13 @@
         button.textContent = item.kind === 'container' ? `按：K · ${item.entity.container.name}`
           : item.kind === 'door' ? `按：K · 进入「${item.entity.name}」`
             : item.kind === 'exit' ? `按：K · 离开「${item.entity.name}」`
-              : `按：K · ${item.entity.name} · 大转盘 / 金币兑换`;
+              : `按：K · ${item.entity.name} · 大转盘 / NPC 福利`;
       }
       for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
     }
     $('nearby-empty').hidden = nearby.length > 0;
     $('nearby-empty').textContent = !me ? '加入后靠近容器或 NPC'
       : finished ? '游戏已结束，探索已冻结'
-        : !me.alive ? '已淘汰，无法探索'
           : zoneId ? '靠近容器搜索 · 走到门口按 K 离开房间'
             : '靠近容器 / NPC / 房间门，按 K 互动（64 像素）';
   }
@@ -1796,7 +1785,7 @@
   }
   $('clue-bag').onclick = () => {
     if (!me) return;
-    showToast(`当前拥有 ${explorationState().chips} 金币（每日清零，可在任意楼层 NPC 处抽奖或兑换即时效果）`);
+    showToast(`今日已探索 ${Number(me.npcExchange && me.npcExchange.exploredCount) || 0} 个容器 · 今日积分 ${selfScore()}（探索数量达到 5/10/15/20/25 可在任意楼层 NPC 处领取福利）`);
   };
 
   // ---------- 猜拳小游戏：服务端权威 邀请 → 接受 → 10 秒可修改出拳 → 截止揭示 ----------
@@ -1859,19 +1848,20 @@
     return { ...data, status: response.status };
   }
   function isInviteable(p) {
-    if (!p || !me || !me.alive || finished || p.id === me.id || !p.alive || p.online === false) return false;
+    // 休战玩家可以发起/接受猜拳（只按在线、距离、视线判断）。
+    if (!p || !me || finished || p.id === me.id || p.npc || p.online === false) return false;
     const self = selfPlayer(); if (!self) return false;
     return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && p.floorId === me.floorId && WORLD.lineClear(self, p, occluders)
       && !me.games?.rpsPending && rpsNow() >= (me.games?.rpsUntil || 0) && !selfDisabled() && !gamesFlight;
   }
   function inviteDisabled() {
-    return !me || !me.alive || finished || selfDisabled() || !!gamesFlight
+    return !me || finished || selfDisabled() || !!gamesFlight
       || me.games?.rpsPending != null || rpsNow() < (me.games?.rpsUntil || 0);
   }
   // 本地乐观选择 + 合并串行队列：每次点击立即更新 ownChoice，再按修订号递增提交最终最新选择。
   function rpsChoose(choice) {
     const pending = me?.games?.rpsPending;
-    if (!pending || pending.phase !== 'selecting' || rpsNow() >= pending.deadline || !me.alive || finished || selfDisabled() || !['rock', 'paper', 'scissors'].includes(choice)) return;
+    if (!pending || pending.phase !== 'selecting' || rpsNow() >= pending.deadline || finished || selfDisabled() || !['rock', 'paper', 'scissors'].includes(choice)) return;
     rpsLocalChoice = choice;
     rpsRevision++;
     rpsChoosePending = { revision: rpsRevision, choice };
@@ -1981,8 +1971,8 @@
       unconfirmed.hidden = true;
       resultEl.hidden = false;
       resultEl.textContent = status === 'resolved'
-        ? `你出${RPS_LABELS[result.ownChoice]}，对方出${RPS_LABELS[result.opponentChoice]} · ${outcome === 'win' ? `你获胜，金币 +${delta}` : outcome === 'lose' ? `你落败，金币 ${delta}` : '平局，金币不变'}`
-        : `本次取消：${result.reason || '对战已结束'} · 不扣金币、不计胜负`;
+        ? `你出${RPS_LABELS[result.ownChoice]}，对方出${RPS_LABELS[result.opponentChoice]} · ${outcome === 'win' ? `你获胜，积分 +${delta}` : outcome === 'lose' ? '你落败，不扣积分' : '平局，不计分'}`
+        : `本次取消：${result.reason || '对战已结束'} · 不扣积分、不计胜负`;
       resultClose.hidden = false;
       return;
     }
@@ -1990,7 +1980,7 @@
     if (phase === 'invited') {
       phaseEl.textContent = pending.role === 'to' ? `${pending.fromName} 邀请你猜拳，是否接受？` : `已邀请 ${pending.toName}，等待对方接受`;
       const left = Math.max(0, Math.ceil((pending.expiresAt - now) / 1000));
-      timerEl.textContent = `邀请 ${left} 秒后超时自动取消，不扣金币`;
+      timerEl.textContent = `邀请 ${left} 秒后超时自动取消，不扣积分`;
       for (const b of choices) { b.disabled = true; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
       accept.hidden = pending.role !== 'to'; reject.hidden = pending.role !== 'to'; cancel.hidden = false;
       unconfirmed.hidden = true; resultEl.hidden = true; resultClose.hidden = true;
@@ -2000,7 +1990,7 @@
       const settled = now >= deadline; // 截止但权威结果未到
       const left = Math.max(0, Math.ceil((deadline - now) / 1000));
       timerEl.textContent = settled ? '等待结算…' : `剩余 ${left} 秒 · 截止前可改`;
-      const canChoose = !settled && me.alive && !finished && !selfDisabled();
+      const canChoose = !settled && !finished && !selfDisabled();
       for (const b of choices) { b.disabled = !canChoose; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
       accept.hidden = reject.hidden = true; cancel.hidden = false;
       unconfirmed.hidden = !rpsUnconfirmed;
@@ -2010,7 +2000,7 @@
   }
   async function sendRps(extra) {
     if (gamesFlight || !me) return;
-    if (extra.kind === 'rpsInvite' ? inviteDisabled() : (selfDisabled() || !me.alive || finished)) return;
+    if (extra.kind === 'rpsInvite' ? inviteDisabled() : (selfDisabled() || finished)) return;
     const request = { session: sessionGeneration, token: sessionToken, games: JSON.stringify(me.games || {}) };
     // 不依赖面板可见性：关闭后的成功请求不会被丢弃（same 不含 host.hidden）。
     const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
@@ -2036,7 +2026,7 @@
   // ---------- J 敲：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
   async function attack() {
     if (operationModalOpen()) return;
-    if (combatFlight || !me || !me.alive || finished || selfDisabled() || rpsNow() < (me.combat?.attackUntil || 0)) return;
+    if (combatFlight || !me || finished || selfDisabled() || rpsNow() < (me.combat?.attackUntil || 0)) return;
     const request = { session: sessionGeneration, token: sessionToken, combat: JSON.stringify(me.combat || {}) };
     const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
     // 挥锤冷却只限制再次挥锤，保留方向键与服务端移动意图，不给自己加硬控。
@@ -2066,7 +2056,7 @@
     const now = serverNow(), button = $('attack-button'), combat = me?.combat;
     const cooldown = combat ? Math.max(0, Math.ceil(((combat.attackUntil || 0) - now) / 1000)) : 0;
     if (button) {
-      button.disabled = !me || !me.alive || finished || selfDisabled() || !!interactionFlight || !!combatFlight || !!gamesFlight || cooldown > 0;
+      button.disabled = !me || finished || selfDisabled() || !!interactionFlight || !!combatFlight || !!gamesFlight || cooldown > 0;
       button.textContent = cooldown > 0 ? `J · 敲 · 冷却 ${cooldown}s` : 'J · 敲';
     }
     const selfState = $('self-combat-state');
@@ -2410,8 +2400,8 @@
   }
   // ---------- 可交互描边：仅带 container 的家具与每层楼 NPC，且描边状态与真实可交互性一致 ----------
   function interactTier(kind, id) {
-    // idle：自己已淘汰 / 本局结束 / 超出 INTERACT_RANGE。
-    if (!me || !me.alive || finished) return 'idle';
+    // idle：本局结束 / 超出 INTERACT_RANGE（休战仍可互动）。
+    if (!me || finished) return 'idle';
     const entity = explorationEntity(kind, id);
     if (!entity || entityDistance(entity) > WORLD.INTERACT_RANGE) return 'idle';
     // blocked：在范围内但当前不能操作（自己眩晕/僵直 / 容器已搜 / NPC 无可用抽奖或兑换）。
@@ -3245,7 +3235,7 @@
   }
   function sprite(p) {
     if (SID.juliSprites?.draw(ctx, p, clock)) return;
-    if (!p.alive) { ghostSprite(p); return; }
+    // 休战（alive=false）不再画成幽灵：照常绘制角色，名牌追加「休战」标记。
     const x = Math.round(p.x), meId = selfId();
     const ph = p.walk * .13;
     const newShape = window.SID?.characterSprites?.status === 'ready';
@@ -3256,7 +3246,7 @@
       : (p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7));
     const yb = Math.round(p.y) + bob;
     const effectY = yb - (newShape ? 24 : 0);
-    const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
+    const a = (p.alive ? 1 : .7) * (p.online === false ? .55 : 1); // 休战：轻度半透明标识
     const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
     // dev 分支并入：镜头外的互动字段由投影的 visible 字段兜一层（脏值一律不下发）。
     const seen = p.visible !== false;
@@ -3314,7 +3304,7 @@
   let labels = [];
   const nameplateMetrics = new Map();
   function nameplateText(p) {
-    const ghostTag = !p.npc && !p.alive ? ' · 幽灵' : '';
+    const ghostTag = !p.npc && !p.alive ? ' · 休战' : '';
     const selfTag = !p.npc && p.id === selfId() ? ' · 自己' : '';
     const offTag = !p.npc && p.online === false ? ' · 离线' : '';
     return {
@@ -3347,7 +3337,7 @@
     }), ...npcs];
   }
   function makeLabels(list) {
-    // 玩家（含已淘汰幽灵）走到建筑物或家具后方时均显示名牌与玩家姓名。
+    // 玩家（含休战玩家）走到建筑物或家具后方时均显示名牌与玩家姓名。
     labels = list.filter(p => p.x >= drawCamX - 40 && p.x <= drawCamX + viewW + 40 &&
       p.y >= drawCamY - 30 && p.y <= drawCamY + viewH + 30)
       .map(p => {
@@ -3501,7 +3491,7 @@
   // 需求①：楼层上的房间门（门牌 + 地面光垫 + 可进入时的呼吸描边）
   function drawRoomDoors() {
     const self = selfPlayer();
-    const canEnter = !!(self && self.alive !== false && me && me.alive !== false && !finished);
+    const canEnter = !!(self && me && !finished); // 休战玩家按正常条件进入房间
     const t = performance.now() / 1000;
     const lobbyFloor = WORLD.floorById(floorId);
     if (lobbyFloor && lobbyFloor.lobby && window.SID_LOBBY) {
@@ -4098,7 +4088,7 @@
         const card = document.createElement('article');
         card.className = slot.alive ? 'bad-slot' : 'bad-slot is-out';
         const head = document.createElement('header');
-        head.append(text('strong', `坏人${String(index + 1).padStart(2, '0')}`), text('span', slot.alive ? '存活' : '已淘汰', 'bad-status'));
+        head.append(text('strong', `坏人${String(index + 1).padStart(2, '0')}`), text('span', slot.alive ? '对抗中' : '已休战', 'bad-status'));
         card.append(head);
         let known = 0;
         // 只消费新版系统公布记录；旧服务slot.traits来自玩家探查，不可兼容回退。
@@ -4272,7 +4262,7 @@
       if (e.code === 'KeyH') { e.preventDefault(); $('rules-toggle')?.click(); return; }
       if (e.code === 'KeyC') { e.preventDefault(); $('bad-toggle')?.click(); return; }
     }
-    // K 场景交互（原 E）/ J 敲（幽灵 J 吓人）：服务端权威，这里只提交意图。
+    // K 场景交互（原 E）/ J 敲：服务端权威，这里只提交意图（休战玩家同样可以 J 敲，吓人动作已取消）。
     // K 走「就近场景交互」仲裁序列（含进/出房间、乘电梯、搜箱/NPC/玩家档案），不受 isActionTarget 限制；
     // J 只负责手持木锤的无伤害敲击，焦点在按钮/链接上时让给原生 space/enter 激活。
     if (e.code === 'KeyK') {
@@ -4282,13 +4272,12 @@
     }
     if (e.code === 'KeyJ') {
       e.preventDefault(); if (e.repeat || isActionTarget()) return;
-      if (me && !me.alive) sendAction('scare');
-      else attack();
+      attack(); // 对抗中与休战中统一走 J 互动（吓人已取消）
       return;
     }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.code)) {
       e.preventDefault();
-      // 答题进行中不因误触方向键自动关闭面板；普通空箱/金币展示在移动时自动收起。
+      // 答题进行中不因误触方向键自动关闭面板；普通空箱/积分展示在移动时自动收起。
       if (LOOT && LOOT.isOpen()) {
         if (typeof LOOT.isQuizActive === 'function' && LOOT.isQuizActive()) return;
         LOOT.close();

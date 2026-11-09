@@ -249,7 +249,7 @@ await test('技能按钮两行层级、mm:ss补零及跨分钟、20分钟和提�
   assert.equal(e('assassinate-label').textContent,'刺杀 1/1');assert.equal(e('assassinate-timer').textContent,'正在提交…');
   resolve({ok:true});await call;assert.equal(e('assassinate-timer').hidden,true);
 });
-await test('坏人面板按匿名展示顺序01递增，10/100不截断，淘汰卡保留，空状态正常', () => {
+await test('坏人面板按匿名展示顺序01递增，10/100不截断，休战卡保留，空状态正常', () => {
   const node = () => ({children:[],textContent:'',append(...items){this.children.push(...items);},replaceChildren(...items){this.children=items;}});
   const root=node();
   const env={badPoolAvailable:true,lastBadPoolSig:'',MASK:'***',fieldNames:{hair:'发色',top:'上衣颜色',pants:'裤子颜色',shoes:'鞋颜色'},traitNames:{saying:'口头禅',food:'爱吃的食物',sport:'喜欢的运动'},
@@ -261,7 +261,7 @@ await test('坏人面板按匿名展示顺序01递增，10/100不截断，淘汰
   const cards=root.children[0].children;
   assert.equal(cards.length,100);
   for(const [i,title] of [[0,'坏人01'],[1,'坏人02'],[2,'坏人03'],[9,'坏人10'],[99,'坏人100']])assert.equal(cards[i].children[0].children[0].textContent,title);
-  assert.equal(cards[1].children[0].children[1].textContent,'已淘汰');
+  assert.equal(cards[1].children[0].children[1].textContent,'已休战');
   const rows=card=>card.children.filter(n=>n.className==='bad-clue');
   assert.equal(rows(cards[0]).length,7);
   assert.equal(rows(cards[0])[0].children[1].textContent,'银白');
