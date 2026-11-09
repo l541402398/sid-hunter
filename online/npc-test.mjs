@@ -74,7 +74,7 @@ try {
   if (!await waitReady(PORT)) throw new Error('主服务未启动');
   if (!await waitReady(PORT + 1)) throw new Error('对照服务未启动');
 
-  check('锤子/吓人冷却为1000ms且受惊750ms', WORLD.ACTION.hammerCooldownMs === 1000 && WORLD.ACTION.frightMs === 750);
+  check('锤子冷却为1000ms', WORLD.ACTION.hammerCooldownMs === 1000);
   // ---------- ① 门禁 ----------
   const ndev = await npc(PORT + 1, null, { count: 1, csrfToken: 'x' });
   check('未开 SID_DEV → 403', ndev.status === 403, `${ndev.status} ${JSON.stringify(ndev.data)}`);
@@ -104,7 +104,7 @@ try {
   check('NPC 无会话、不可被认领（hasSession=false）', np && np.npc === true && np.hasSession === false, `npc=${np && np.npc} hasSession=${np && np.hasSession}`);
   check('NPC 有完整随机 S-ID 且初始全未公开', np && /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(np.sid) && np.sidRevealed.every(v => v === false),
     `sid=${np && np.sid} revealed=${np && JSON.stringify(np.sidRevealed)}`);
-  check('NPC 血量 1、存活、在线', np && np.hp === 1 && np.alive === true && np.online === true, `hp=${np && np.hp} alive=${np && np.alive} online=${np && np.online}`);
+  check('NPC 对抗生命 3（与真人相同）、存活、在线', np && np.hp === WORLD.COMBAT.initialHp && np.alive === true && np.online === true, `hp=${np && np.hp} alive=${np && np.alive} online=${np && np.online}`);
   check('NPC 落点不与家具重叠', np && !collides(np.x, np.y), `(${np && np.x},${np && np.y})`);
   const pub1 = await st(PORT, me);
   const npPub = pub1.data.players.find(p => p.id === npc0.id);
@@ -118,16 +118,11 @@ try {
   const np6 = (await tst(PORT)).data.players.find(p => p.id === npc0.id);
   check('若干 tick 后 NPC 位置不变（纯站立）', np6.x === before6.x && np6.y === before6.y, `(${before6.x},${before6.y}) → (${np6.x},${np6.y})`);
 
-  // ---------- ③ 探查 NPC ----------
+  // ---------- ③ 旧探查入口已取消 ----------
   const logsBefore = (await st(PORT, me)).data.logs.length;
   const probe = await skill(PORT, me, { skill: 'probe', targetId: npc0.id, commandId: uid() });
-  check('探查 NPC 成功', probe.status === 200 && probe.data.ok && /探查完成/.test(probe.data.resultText || ''),
-    `${probe.status} ${probe.data.resultText || probe.data.error}`);
-  const afterProbe = await st(PORT, me);
-  const npProbe = afterProbe.data.players.find(p => p.id === npc0.id);
-  const revealedTrait = Object.values(npProbe.traits).filter(v => v !== '***');
-  check('探查后 NPC 有一项隐藏属性被公开', revealedTrait.length === 1, JSON.stringify(npProbe.traits));
-  check('公共日志新增了探查条目', afterProbe.data.logs.length === logsBefore + 1, `${logsBefore} → ${afterProbe.data.logs.length}`);
+  check('旧 probe 技能被拒（积分/休战改版）', !probe.data.ok, `${probe.status} ${probe.data.resultText || probe.data.error}`);
+  check('被拒的旧技能不写公共日志', (await st(PORT, me)).data.logs.length === logsBefore);
 
   // ---------- ③ 锤击 NPC（走到锤击范围内）----------
   await place(PORT, { playerId: meId, x: np6.x - 30, y: np6.y });
@@ -138,19 +133,25 @@ try {
   check('NPC 被敲晕（stunUntil 有效）', npHit.stunUntil > afterHit.data.serverTime, `剩余 ${npHit.stunUntil - afterHit.data.serverTime}ms`);
   check('NPC 头顶 bumps=1', npHit.bumps === 1, `bumps=${npHit.bumps}`);
   const npHammerState = (await tst(PORT)).data.players.find(p => p.id === npc0.id);
-  check('锤击不触碰玩法字段（hp 仍为 1、存活、S-ID 未公开）',
-    npHammerState.hp === 1 && npHammerState.alive === true && npHammerState.sidRevealed.every(v => v === false),
+  check('锤击不触碰对抗字段（生命不变、存活、S-ID 未公开）',
+    npHammerState.hp === WORLD.COMBAT.initialHp && npHammerState.alive === true && npHammerState.sidRevealed.every(v => v === false),
     `hp=${npHammerState.hp} alive=${npHammerState.alive} revealed=${JSON.stringify(npHammerState.sidRevealed)}`);
 
-  // ---------- ④ 指认 NPC（好人）→ 自己公开一段，NPC 不掉血 ----------
-  await advance(PORT, 13000); // 越过指认 12s 冷却
-  const accuse = await skill(PORT, me, { skill: 'accuse', targetId: npc0.id, commandId: uid() });
-  check('指认 NPC 受理', accuse.status === 200 && accuse.data.ok, `${accuse.status} ${accuse.data.resultText || accuse.data.error}`);
-  const afterAccuse = await st(PORT, me);
-  const mePub = afterAccuse.data.players.find(p => p.id === meId);
+  // ---------- ④ 刺杀 NPC（首位加入者为坏人）→ NPC 扣 1 格对抗生命，不加分（防刷分）----------
+  const meFaction = (await st(PORT, me)).data.me.faction;
+  const myScoreBefore = (await st(PORT, me)).data.me.score;
+  const hit = await skill(PORT, me, { skill: meFaction === 'bad' ? 'assassinate' : 'accuse', targetId: npc0.id, commandId: uid() });
+  check('对 NPC 使用阵营技能受理', hit.status === 200 && hit.data.ok, `${hit.status} ${hit.data.resultText || hit.data.error}`);
   const npAccuse = (await tst(PORT)).data.players.find(p => p.id === npc0.id);
-  check('错指认好人：自己公开一段 S-ID', mePub.sid !== '***-***-***' && (mePub.sid.match(/[A-Z0-9]{3}/g) || []).length >= 1, `自己公共 SID=${mePub.sid}`);
-  check('NPC 不掉血、仍存活', npAccuse.hp === 1 && npAccuse.alive === true, `hp=${npAccuse.hp} alive=${npAccuse.alive}`);
+  const meAfter = (await st(PORT, me)).data.me;
+  if (meFaction === 'bad') {
+    check('刺杀好人 NPC：NPC 扣 1 格、仍对抗中', npAccuse.hp === WORLD.COMBAT.initialHp - 1 && npAccuse.alive === true, `hp=${npAccuse.hp} alive=${npAccuse.alive}`);
+    check('命中 NPC 不加积分', meAfter.score === myScoreBefore, `${myScoreBefore} → ${meAfter.score}`);
+  } else {
+    check('误指认好人 NPC：自己扣 1 格，NPC 不掉血', meAfter.hp === WORLD.COMBAT.initialHp - 1 && npAccuse.hp === WORLD.COMBAT.initialHp, `me=${meAfter.hp} npc=${npAccuse.hp}`);
+  }
+  const again = await skill(PORT, me, { skill: meFaction === 'bad' ? 'assassinate' : 'accuse', targetId: npc0.id, commandId: uid() });
+  check('同一目标当日不可再次操作', !again.data.ok, again.data.error);
 
   // ---------- ⑦ 同名 join 不会认领 NPC ----------
   const joinSame = await join(PORT, npc0.name);
@@ -161,29 +162,17 @@ try {
   const npStill = afterJoin.data.players.find(p => p.id === npc0.id);
   check('NPC 仍然 hasSession=false（未被接管）', npStill && npStill.npc === true && npStill.hasSession === false, `hasSession=${npStill && npStill.hasSession}`);
 
-  // ---------- ⑤ 击杀 NPC → 淘汰并触发结束（既有规则，只断言不改）----------
+  // ---------- ⑤ 旧击杀入口已取消；场次按时间收局 ----------
   const made2 = await npc(PORT, me, { count: 1, csrfToken: csrf });
   const npc1 = made2.data.npcs && made2.data.npcs[0];
   check('再加一个 NPC（凑到 2 名 NPC）', made2.status === 200 && !!npc1 && npc1.id !== npc0.id, `id=${npc1 && npc1.id}`);
-  // 注意：上一步「同名 join」已经多加了一名真人，所以此时存活 = 我 + NPC0 + 那名真人 + NPC1 = 4。
-  // 要把存活打到 2 需要淘汰两名 NPC（既有 checkFinish 规则：至少一次淘汰且存活 ≤ 2）。
-  const aliveBefore = (await tst(PORT)).data.players.filter(p => p.alive).length;
-  const kill = await skill(PORT, me, { skill: 'kill', targetId: npc0.id, sid: npc0.sid, commandId: uid() });
-  check('用开发接口返回的完整 S-ID 击杀 NPC 成功', kill.status === 200 && kill.data.ok && /淘汰/.test(kill.data.resultText || ''),
-    `${kill.status} ${kill.data.resultText || kill.data.error}`);
-  const npKilled = (await tst(PORT)).data.players.find(p => p.id === npc0.id);
-  check('NPC 已淘汰', npKilled && npKilled.alive === false && npKilled.hp === 0, `alive=${npKilled && npKilled.alive} hp=${npKilled && npKilled.hp}`);
-  await advance(PORT, 13000); // 越过击杀 12s 冷却
-  const kill2 = await skill(PORT, me, { skill: 'kill', targetId: npc1.id, sid: npc1.sid, commandId: uid() });
-  check('击杀第二名 NPC 成功', kill2.status === 200 && kill2.data.ok && /淘汰/.test(kill2.data.resultText || ''),
-    `${kill2.status} ${kill2.data.resultText || kill2.data.error}`);
-  // 合并适配：main 的结束条件是「存活淘汰至剩余 100 人 / 坏人全灭 / 时间到（2 小时）」，
-  // 没有 dev 的「存活 ≤ 2」规则；这里用测试时钟推到 2 小时上限收局，再断言结束后的冻结语义。
+  const kill = await skill(PORT, me, { skill: 'kill', targetId: npc1.id, sid: npc1.sid, commandId: uid() });
+  check('旧 kill 技能被拒', !kill.data.ok, `${kill.status} ${kill.data.resultText || kill.data.error}`);
+  const npAlive = (await tst(PORT)).data.players.find(p => p.id === npc1.id);
+  check('NPC 未进入休战', npAlive && npAlive.alive === true && npAlive.hp === WORLD.COMBAT.initialHp, `alive=${npAlive && npAlive.alive} hp=${npAlive && npAlive.hp}`);
   await advance(PORT, 7200001); await wait(200);
   const afterKill = await tst(PORT);
-  check(`时间到（2 小时）触发结束（存活 ${aliveBefore} → ${afterKill.data.players.filter(p => p.alive).length}，eliminateEvents=${afterKill.data.eliminateEvents}）`,
-    afterKill.data.finished === true && afterKill.data.eliminateEvents > 0,
-    `finished=${afterKill.data.finished} 存活=${afterKill.data.players.filter(p => p.alive).length}`);
+  check('时间到（2 小时）触发结束', afterKill.data.finished === true, `finished=${afterKill.data.finished}`);
   const afterEnd = await act(PORT, me, 'hammer');
   check('结束后动作被冻结', afterEnd.status === 400 && /结束/.test(afterEnd.data.error || ''), `${afterEnd.status} ${afterEnd.data.error}`);
 

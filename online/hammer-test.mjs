@@ -165,10 +165,10 @@ try {
   // ---------- 10. 不触碰既有玩法 ----------
   const sa = await state(ta), sb = await state(tb);
   check('A 的 hp / alive / sid / faction / skills 未被锤戏改动',
-    sa.data.me.hp === 2 && sa.data.me.alive === true && sa.data.me.faction === 'bad' && /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(sa.data.me.sid),
+    sa.data.me.hp === 3 && sa.data.me.alive === true && sa.data.me.faction === 'bad' && /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(sa.data.me.sid),
     `hp=${sa.data.me.hp} alive=${sa.data.me.alive} sid=${sa.data.me.sid}`);
   check('B 的 hp / alive / sid / faction 未被锤戏改动',
-    sb.data.me.hp === 1 && sb.data.me.alive === true && sb.data.me.faction === 'good' && /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(sb.data.me.sid),
+    sb.data.me.hp === 3 && sb.data.me.alive === true && ['good', 'bad'].includes(sb.data.me.faction) && /* 4:1 随机配比，第二人可能为坏人 */ /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(sb.data.me.sid),
     `hp=${sb.data.me.hp} alive=${sb.data.me.alive} sid=${sb.data.me.sid}`);
   check('技能次数仍满（锤子不消耗技能次数）',
     Object.values(sa.data.me.skills).every(s => s.chargesRemaining === s.maxCharges),
@@ -184,7 +184,9 @@ try {
   // 它和 floorId 同级，是地图公开信息，不含任何身份/血量/筹码数据。
   const allowed = new Set(['id', 'name', 'alive', 'online', 'x', 'y', 'colors', 'traits', 'sid', 'visible', 'stunUntil', 'bumps', 'bumpUntil', 'swingAt', 'hitAt', 'frightUntil', 'scareAt', 'frightAt',
     'score', 'floorId', 'spriteFacing', 'facing', 'lastAttackAt', 'lastAttackFacing', 'lastAttackDirection', 'freezeUntil',
-    'zoneId']);
+    'zoneId',
+    // 积分/休战改版：公开休战状态与受击保护标记（生命值本身仍仅本人可见）。
+    'truce', 'protected']);
   const extra = sa.data.players.flatMap(p => Object.keys(p).filter(k => !allowed.has(k)));
   check('公共快照未新增隐藏字段（仅visible与锤戏/受惊必要字段）', extra.length === 0, extra.length ? `多余字段: ${[...new Set(extra)].join(',')}` : '无');
   const logCountNow = sa.data.logs.length;
