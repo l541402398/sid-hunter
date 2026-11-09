@@ -894,9 +894,37 @@ function createRoom(options = {}) {
     // dev 分支并入：离线受击摘要按 epoch + summary id 确认，旧 ACK 永不清掉新摘要。
     return digest.ack(playerId, ids, interaction, room.pending);
   }
-  // 肢体互动（dev 分支并入）：挥锤 / 幽灵吓人。服务端权威，客户端只提交 kind。
+  // 肢体互动（dev 分支并入）：挥锤（幽灵吓人已取消）。服务端权威，客户端只提交 kind。
   // 与技能系统完全隔离：不扣血、不公开 S-ID、不消耗技能次数、不写公共日志。
   // 与主分支的 J 攻击并存：两者都写同一把硬控锁（看门狗取 max），命中判定各自独立。
+  // J 随机积分（建议）：单次 +1，同一目标每日最多 2，渠道日上限 10；休战可参与。
+  // 仅对在线真人目标生效（NPC / 离线 / 自己不产分）。/api/action hammer 与 /api/attack（客户端 J）共用。
+  function awardJPoints(actor, best, t) {
+    if (!actor || !best || best.npc || best.id === actor.id || !best.online || room.finished) return 0;
+    syncDailyEconomy(actor, t);
+    let points = 0;
+    const chance = Number(A.hammerPointChance);
+    const perHit = Number(A.hammerPoint) || Number(WORLD.SCORE.hammerPoint) || 1;
+    const perTargetCap = Number(A.hammerPointPerTargetDaily) || 2;
+    const dailyCap = Number(A.hammerPointDailyCap) || 10;
+    const byTarget = actor.exploration.hammerPointsByTarget || (actor.exploration.hammerPointsByTarget = {});
+    const tid = String(best.id);
+    const targetGot = Number(byTarget[tid]) || 0;
+    const todayGot = Number(actor.exploration.hammerPointsToday) || 0;
+    const rollOk = !Number.isFinite(chance) || wheelRandomInt(10000) < Math.floor(chance * 10000);
+    if (rollOk && todayGot < dailyCap && targetGot < perTargetCap) {
+      const gain = Math.min(perHit, dailyCap - todayGot, perTargetCap - targetGot);
+      if (gain > 0) {
+        ensureScoreState(actor);
+        actor.score += gain;
+        actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + gain;
+        actor.exploration.hammerPointsToday = todayGot + gain;
+        byTarget[tid] = targetGot + gain;
+        points = gain;
+      }
+    }
+    return points;
+  }
   // 注：jump 动作已下线，'jump' 不再是合法 kind（会被「未知动作」拒绝）。
   function performAction(id, kind) {
     const t = now();
@@ -924,29 +952,7 @@ function createRoom(options = {}) {
     best.bumps = (best.bumps || []).concat([{ expiresAt: t + A.bumpMs }]).slice(-A.maxBumps);
     countOfflineHit(best, 'hammer');
     gainAchievement(actor, 'hammer');
-    // J 随机积分（建议）：单次 +1，同一目标每日最多 2，渠道日上限 10；休战可参与
-    syncDailyEconomy(actor, t);
-    let points = 0;
-    const chance = Number(A.hammerPointChance);
-    const perHit = Number(A.hammerPoint) || Number(WORLD.SCORE.hammerPoint) || 1;
-    const perTargetCap = Number(A.hammerPointPerTargetDaily) || 2;
-    const dailyCap = Number(A.hammerPointDailyCap) || 10;
-    const byTarget = actor.exploration.hammerPointsByTarget || (actor.exploration.hammerPointsByTarget = {});
-    const tid = String(best.id);
-    const targetGot = Number(byTarget[tid]) || 0;
-    const todayGot = Number(actor.exploration.hammerPointsToday) || 0;
-    const rollOk = !Number.isFinite(chance) || wheelRandomInt(10000) < Math.floor(chance * 10000);
-    if (rollOk && todayGot < dailyCap && targetGot < perTargetCap) {
-      const gain = Math.min(perHit, dailyCap - todayGot, perTargetCap - targetGot);
-      if (gain > 0) {
-        ensureScoreState(actor);
-        actor.score += gain;
-        actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + gain;
-        actor.exploration.hammerPointsToday = todayGot + gain;
-        byTarget[tid] = targetGot + gain;
-        points = gain;
-      }
-    }
+    const points = awardJPoints(actor, best, t);
     // TODO(实物奖品): J 命中可独立触发实物抽奖，与积分判定分离，受活动期间一次上限与库存约束
     return { ok: true, kind: 'hammer', targetId: best.id, hit: true, points, score: actor.score };
   }
@@ -1835,7 +1841,7 @@ function createRoom(options = {}) {
     const fail = reason => mechanicsResponse(actor, false, reason);
     if (!actor) return fail('身份无效，请重新加入');
     if (room.finished) return fail('游戏已结束，攻击已冻结');
-    if (!actor.alive) return fail('你已淘汰，不能攻击');
+    // 休战玩家同样可以 J 互动（不扣血、不影响对抗）。
     if (!actor.online) return fail('你不在线，不能攻击');
     if (movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能攻击');
     if (!body || typeof body !== 'object') return fail('攻击指令无效');
@@ -1848,7 +1854,7 @@ function createRoom(options = {}) {
     const blockers = floorBlockers(actor.floorId);
     let target = null, nearest = Infinity;
     for (const p of room.players) {
-      if (p.id === actor.id || !p.alive || !p.online || movementLocked(p, t)) continue;
+      if (p.id === actor.id || !p.online || movementLocked(p, t)) continue; // 对抗中与休战中的玩家都可被 J
       if (p.floorId !== actor.floorId) continue; // J 命中只处理当前层
       const dx = p.x - actor.x, dy = p.y - actor.y, distance = Math.hypot(dx, dy);
       if (distance > playConfig.attackRange || distance >= nearest) continue;
@@ -1867,8 +1873,9 @@ function createRoom(options = {}) {
       target.combat.stunUntil = t + playConfig.stunMs;
       target.combat.freezeUntil = t + playConfig.freezeMs;
       target.input = { up: false, down: false, left: false, right: false };
-      award(actor, 'interactHit');
-      resultText = `互动命中${target.name}：眩晕0.8秒 / 僵直1秒，无伤害。`;
+      const jPoints = awardJPoints(actor, target, t);
+      if (!target.npc) { countOfflineHit(target, 'hammer'); gainAchievement(actor, 'hammer'); }
+      resultText = `互动命中${target.name}：眩晕0.8秒 / 僵直1秒，无伤害${jPoints ? `，积分 +${jPoints}` : ''}。`;
     }
     return mechanicsResponse(actor, true, resultText, target ? { hitId: target.id } : {});
   }
@@ -2076,7 +2083,7 @@ function createRoom(options = {}) {
     const fail = reason => ({ ...reject(reason), resultText: reason, exploration: actor ? explorationProjection(actor) : null });
     if (!actor) return fail('身份无效，请重新加入');
     if (room.finished) return fail('游戏已结束，探索已冻结');
-    if (!actor.alive) return fail('你已淘汰，不能搜索');
+    // 休战玩家可正常搜索（沿用正常移动/碰撞/距离条件）。
     if (movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能搜索');
     if (!body || typeof body !== 'object') return fail('搜索指令无效');
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
@@ -2177,7 +2184,7 @@ function createRoom(options = {}) {
     const game = body && body.game;
     if (game === 'spire') {
       if (!room.features.spire) return { ok: false, error: '该小游戏尚未开放' };
-      if (!actor.alive) return { ok: false, error: '你已淘汰，不能开小游戏' };
+      // 休战玩家可参加小游戏。
       if (room.spireBattles.has(actor.id)) return { ok: false, error: '你已有一局卡牌对决' };
       const battle = SPIRE.createBattle(Date.now() % 100000 + actor.id * 7919);
       room.spireBattles.set(actor.id, battle);

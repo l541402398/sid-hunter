@@ -369,12 +369,16 @@ await test('攻击范围48、方向锥、零距离、最近单目标与忽略指
   const q = fixture({}, 1); q.find(0).x = npc.x; q.find(0).y = npc.y;
   assert.equal(attack(q).hitId, undefined); assert.equal(q.find(0).hp, 3);
 });
-await test('攻击足迹LOS、cover隐藏、离线与淘汰目标不命中', () => {
-  for (const mode of ['wall', 'cover', 'offline', 'dead']) {
+await test('攻击足迹LOS、cover隐藏、离线目标不命中；休战目标照常可被J', () => {
+  { // 休战目标：照常命中（只有眩晕/僵直，不扣对抗生命）
+    const r = attackFixture(), b = r.find(1); b.alive = false;
+    assert.equal(attack(r).hitId, 1, 'truce target'); assert.equal(b.hp, 3);
+  }
+  for (const mode of ['wall', 'cover', 'offline']) {
     const r = attackFixture(), a = r.find(0), b = r.find(1);
     if (mode === 'wall') { a.x = b.x = 200; a.y = 210; b.y = 250; r.setIntent(0, { down: true }); assert.equal(WORLD.lineClear(a, b, furniture), false); }
     if (mode === 'cover') { a.x = 160; b.x = 200; a.y = b.y = 190; assert.equal(WORLD.lineClear(a, b, furniture), true); assert.ok(WORLD.coverFor(b, furniture)); }
-    if (mode === 'offline') r.setOffline(1); if (mode === 'dead') b.alive = false;
+    if (mode === 'offline') r.setOffline(1);
     assert.equal(attack(r).hitId, undefined, mode); assert.equal(b.hp, 3);
   }
 });
@@ -399,9 +403,13 @@ await test('攻击空挥也1.2秒CD，命中/空挥nonce永久防重与失败不
   const r = attackFixture(), p = r.find(0);
   for (const body of [null, {}, { commandId: ' ' }, { commandId: 5 }]) assert.equal(r.attack(p.sessionId, body).ok, false);
   assert.equal(r.attack('forged', { commandId: nonce(), targetId: 1 }).ok, false);
-  for (const mode of ['offline', 'dead', 'finished']) {
-    const q = attackFixture(); if (mode === 'offline') q.setOffline(0); if (mode === 'dead') q.find(0).alive = false; if (mode === 'finished') q.finish();
+  for (const mode of ['offline', 'finished']) {
+    const q = attackFixture(); if (mode === 'offline') q.setOffline(0); if (mode === 'finished') q.finish();
     assert.equal(attack(q).ok, false); assert.equal(q.find(0).combat.attackUntil, 0); assert.equal(q.find(1).hp, 3);
+  }
+  { // 新规则：休战玩家仍可 J 互动（不扣血、不影响对抗生命）
+    const q = attackFixture(); q.find(0).alive = false;
+    assert.equal(attack(q).ok, true, '休战玩家可 J'); assert.equal(q.find(1).hp, 3);
   }
 });
 await test('J无伤害无淘汰，不改变日志事件技能筹码或猜拳pending，公开控制动画', () => {
