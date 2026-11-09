@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { createRoom, WORLD } = require('./room.js');
+const { migrateLegacyEconomy } = require('./room/index.js');
 
 let seq = 0, passed = 0, failed = 0;
 const nid = () => `pe-${++seq}`;
@@ -50,7 +51,7 @@ await test('按概率区间开箱：0-4空箱、5-19直接积分、20-99答题�
   assert.equal(quiz.mode, 'quiz'); assert.equal(p.exploration.exploreCount, 3, '答题箱提交前不计探索');
   assert.ok(!('answer' in quiz.quiz), '题目不下发答案');
   const again = open(r, p, cs[0]); assert.equal(again.ok, false); assert.match(again.error, /已经搜索过/);
-  assert.equal(p.exploration.chips, 0, '不再产出金币');
+  assert.ok(!('chips' in p.exploration), '金币余额字段已移除，不再产出金币');
 });
 
 await test('答题：无效答案不计数；提交后计探索，答对+2、答错0；会话只能提交一次', () => {
@@ -129,6 +130,24 @@ await test('休战玩家：可探索、答题、领福利、J挥锤、转盘；�
   const npc = WORLD.NPCS.find(n => n.floorId === bad.floorId); bad.x = npc.x; bad.y = npc.y;
   assert.equal(r.play(bad.sessionId, { commandId: nid(), kind: 'wheel', entityId: npc.id, roundId: r.room.roundId, expectedFloorRevision: bad.floorRevision }).ok, true);
   assert.equal(r.useSkill(bad.sessionId, { commandId: nid(), skill: 'assassinate', targetId: good.id }).ok, false);
+});
+
+await test('旧存档迁移：金币余额/道具/buff 被丢弃，积分保留，恢复后不崩溃', () => {
+  const src = fixture({ n: 2 }), legacy = JSON.parse(JSON.stringify(src.room.players));
+  legacy[0].score = 7;
+  Object.assign(legacy[0].exploration, { chips: 42, items: { gold: 2 }, backpack: [{ key: 'gold' }] });
+  legacy[0].buffs = { speedUntil: Date.now() + 60_000, shieldUntil: 0, focusNext: true };
+  delete legacy[1].exploration.clues; delete legacy[1].exploration.searched;
+  const r = createRoom({ random: () => 0.99, restore: { players: legacy, sessions: [], roundId: src.room.roundId } });
+  const p0 = r.find(0), p1 = r.find(1);
+  assert.equal(p0.score, 7);
+  for (const k of ['chips', 'items', 'backpack']) assert.ok(!(k in p0.exploration), k);
+  assert.ok(!('buffs' in p0));
+  assert.deepEqual(p1.exploration.clues, []); assert.deepEqual(p1.exploration.searched, []);
+  const me = r.privateProjection(p0);
+  for (const k of ['backpack', 'items', 'buffs', 'passive']) assert.ok(!(k in me), `private ${k}`);
+  assert.ok(!('chips' in me.exploration));
+  assert.equal(migrateLegacyEconomy(migrateLegacyEconomy(p0)), p0, '幂等');
 });
 
 console.log(`积分探索测试：${passed} 项通过，${failed} 项失败`);

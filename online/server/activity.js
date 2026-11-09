@@ -269,7 +269,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   }
   function guard(){tick();return room.room.accessClosed||'';}
   block(session?.pausedAt?'本场已暂停':'正在检查场次安排');
-  for(const name of ['join','useSkill','performAction','interact','play','attack','floorChange','enterZone','exitZone','searchStart','searchReveal','searchTake','useItem','sellItem','buyItem','startMinigame','actMinigame','quitMinigame']){
+  for(const name of ['join','useSkill','performAction','interact','play','attack','floorChange','enterZone','exitZone','searchStart','searchTake','startMinigame','actMinigame','quitMinigame']){
     const original=room[name];if(typeof original==='function')room[name]=(...args)=>{const reason=guard();return reason?{ok:false,error:reason,closed:true}:original(...args);};
   }
   const originalIntent=room.setIntent;room.setIntent=(id,input)=>{const reason=guard();if(reason&&input&&['up','down','left','right'].some(k=>input[k]))return false;return originalIntent(id,input);};

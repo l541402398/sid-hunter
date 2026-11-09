@@ -122,7 +122,7 @@
   const RULES = WORLD.RULES || { endRemainingPlayers: 100, timeLimitMs: 7200000 };
   // ---------- 已拆分到 js/core/* 与 js/render/* 的自包含工具（别名回本地，调用点零改动）----------
   const { CHUNK, CHUNK_CACHE_LIMIT, pruneChunks, chunkFor, ensureChunks, get: chunkGet, clear: chunkClear } = SID.chunks;
-  const { WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool } = SID.wheel;
+  const { WHEEL, WHEEL_CHIP_COLOR, buildWheelPool } = SID.wheel;
   const { shade, SKIN } = SID.paint;
   const { escapeText, commandId } = SID.text;
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
@@ -965,7 +965,7 @@
   }
 
   // ---------- 私密探索：权威奖励只读 me.exploration，不进入公开档案 ----------
-  function explorationState() { return me?.exploration || { chips: 0, clues: [], searched: [] }; }
+  function explorationState() { return me?.exploration || { clues: [], searched: [] }; }
   function explorationEntity(kind, id) {
     return kind === 'container' ? containers.find(f => f.id === id) : kind === 'npc' ? npcs.find(n => n.entityId === id) : null;
   }
@@ -1067,7 +1067,6 @@
   // ============================================================
   // NPC 福利（按今日探索数量解锁、免费、每人每类每日限领一次）与状态辅助
   // ============================================================
-  function meBuffs() { return me && me.buffs ? me.buffs : { speedMs: 0, shieldMs: 0, focusNext: false }; }
   function updateBuffHUD() {
     const host = $('buff-bar'); if (!host) return;
     host.replaceChildren();
@@ -1223,11 +1222,6 @@
           if (prevVals.hideBadClue && badClues.some(c => c.value === prevVals.hideBadClue)) selectEl.value = prevVals.hideBadClue;
           meta.append(selectEl);
         }
-      } else if (def.key === 'hideOwnSid') {
-        if (!hasSid) {
-          conditionMet = false;
-          conditionHint = '你当前没有已公开的身份码段';
-        }
       }
       if (!exhausted && !unlocked) { conditionHint = `今日已探索 ${explored}/${unlockAt} 个容器，达到后解锁`; }
       if (!exhausted && conditionHint) {
@@ -1338,7 +1332,7 @@
     const wheel = $('exploration-wheel');
     if (wheel) {
       const maxSpins = WHEEL.maxDailySpins || 3;
-      const spins = wheelSpinsFor(entityId), cost = wheelSpinCost(spins);
+      const spins = wheelSpinsFor(entityId);
       const limitReached = spins >= maxSpins;
       wheel.disabled = finished || !inRange || selfDisabled();
       wheel.textContent = '打开大转盘';
@@ -1422,7 +1416,7 @@
   function updateWheelControls() {
     if (!wheelOpen || !wheelTarget || !me) return;
     const maxSpins = WHEEL.maxDailySpins || 3;
-    const spins = wheelSpinsFor(wheelTarget.entityId), chips = explorationState().chips, cost = wheelSpinCost(spins);
+    const spins = wheelSpinsFor(wheelTarget.entityId);
     const limitReached = spins >= maxSpins;
     const busy = !!wheelSpinFlight || wheelAnimating;
     $('wheel-title').textContent = wheelTarget.name;
@@ -1815,7 +1809,7 @@
     if (!gamesDomReady) {
       gamesDomReady = true;
       // 只建一次 DOM；20Hz 快照 / 帧循环只更新文本、disabled、aria-pressed 与手势槽，绝不重建按钮。
-      host.innerHTML = `<div class="panel-heading"><div><small>RPS</small><h2>猜拳对战</h2></div><button id="games-close" class="icon-button" aria-label="取消并关闭猜拳">×</button></div><div class="games-body"><div id="games-rps" class="rps-arena" hidden><p class="games-balance">我的金币：<strong id="games-chips">0</strong> · 分数 <strong id="games-score">0</strong></p><div class="rps-top"><div class="rps-side rps-self"><span class="rps-role">你</span><span class="rps-name" id="games-self-name"></span><span class="rps-glyph-slot" id="games-self-glyph"></span></div><div class="rps-vs">VS</div><div class="rps-side rps-opp"><span class="rps-role">对手</span><span class="rps-name" id="games-opp-name"></span><span class="rps-glyph-slot" id="games-opp-glyph"></span></div></div><p id="games-phase" class="rps-phase"></p><div class="rps-choices" role="group" aria-label="选择出拳"><button type="button" id="games-choice-rock" data-choice="rock" aria-pressed="false" aria-label="石头">${rpsGlyph('rock')}<span>石头</span></button><button type="button" id="games-choice-scissors" data-choice="scissors" aria-pressed="false" aria-label="剪刀">${rpsGlyph('scissors')}<span>剪刀</span></button><button type="button" id="games-choice-paper" data-choice="paper" aria-pressed="false" aria-label="布">${rpsGlyph('paper')}<span>布</span></button></div><p id="games-timer" class="games-timer"></p><p id="games-unconfirmed" class="rps-unconfirmed" hidden></p><div class="games-pending-actions"><button type="button" id="games-accept" class="rps-accept" hidden>接受</button><button type="button" id="games-reject" class="rps-reject" hidden>拒绝</button><button type="button" id="games-cancel" hidden>取消</button></div><p id="games-result" class="private-result" hidden></p><button type="button" id="games-result-close" class="rps-result-close" hidden>关闭结果</button></div></div>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>RPS</small><h2>猜拳对战</h2></div><button id="games-close" class="icon-button" aria-label="取消并关闭猜拳">×</button></div><div class="games-body"><div id="games-rps" class="rps-arena" hidden><p class="games-balance">我的积分 <strong id="games-score">0</strong></p><div class="rps-top"><div class="rps-side rps-self"><span class="rps-role">你</span><span class="rps-name" id="games-self-name"></span><span class="rps-glyph-slot" id="games-self-glyph"></span></div><div class="rps-vs">VS</div><div class="rps-side rps-opp"><span class="rps-role">对手</span><span class="rps-name" id="games-opp-name"></span><span class="rps-glyph-slot" id="games-opp-glyph"></span></div></div><p id="games-phase" class="rps-phase"></p><div class="rps-choices" role="group" aria-label="选择出拳"><button type="button" id="games-choice-rock" data-choice="rock" aria-pressed="false" aria-label="石头">${rpsGlyph('rock')}<span>石头</span></button><button type="button" id="games-choice-scissors" data-choice="scissors" aria-pressed="false" aria-label="剪刀">${rpsGlyph('scissors')}<span>剪刀</span></button><button type="button" id="games-choice-paper" data-choice="paper" aria-pressed="false" aria-label="布">${rpsGlyph('paper')}<span>布</span></button></div><p id="games-timer" class="games-timer"></p><p id="games-unconfirmed" class="rps-unconfirmed" hidden></p><div class="games-pending-actions"><button type="button" id="games-accept" class="rps-accept" hidden>接受</button><button type="button" id="games-reject" class="rps-reject" hidden>拒绝</button><button type="button" id="games-cancel" hidden>取消</button></div><p id="games-result" class="private-result" hidden></p><button type="button" id="games-result-close" class="rps-result-close" hidden>关闭结果</button></div></div>`;
       $('games-close').onclick = exitRps;
       for (const choice of ['rock', 'paper', 'scissors']) $(`games-choice-${choice}`).onclick = () => rpsChoose(choice);
       $('games-accept').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsAccept', challengeId: p.id }); };
@@ -1933,7 +1927,6 @@
     const games = me.games || {}, pending = games.rpsPending;
     const result = pending ? null : games.rpsResult;
     if ((!pending && !result) || (!pending && result.id === rpsResultDismissId)) { closeGames(); return; }
-    $("games-chips").textContent = explorationState().chips;
     $("games-score").textContent = me.score || 0;
     $("games-rps").hidden = false;
     renderArena(pending, result);
@@ -2410,7 +2403,7 @@
     if (kind === 'container') return !state.searched.includes(id) ? 'ready' : 'blocked';
     const maxSpins = WHEEL.maxDailySpins || 3;
     const spins = wheelSpinsFor();
-    const canWheel = spins < maxSpins && state.chips >= wheelSpinCost(spins);
+    const canWheel = spins < maxSpins; // 转盘免费，只看今日次数
     const usedMap = npcExchangeUsedMap();
     const canExchange = npcExchangeConfigList().some(def => (Number(usedMap[def.key]) || 0) < (Number(def.dailyLimit) || 1) && (Number(me.npcExchange?.exploredCount) || 0) >= (Number(def.unlockAt) || 0));
     return (canWheel || canExchange) ? 'ready' : 'blocked';
@@ -3136,85 +3129,6 @@
     }
     ctx.restore();
   }
-  // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
-  // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
-  // 幽灵（dev 分支并入）：像素风灵体造型升级（4 阶冷蓝紫灵体明暗 + 灵魂光环 + 飘动裙摆 + 发光双眸），不含任何由秘密派生的形状或颜色。
-  function ghostSprite(p) {
-    const x = Math.round(p.x);
-    const wave = Math.sin(clock * 2.4 + p.id * 1.3);
-    const bob = Math.round(wave * 2.5);
-    const y = Math.round(p.y) + bob;
-    const offline = p.online === false;
-    const outC = offline ? '#2d3340' : '#1b2440';
-    const shdC = offline ? '#6c7486' : '#6382b8';
-    const midC = offline ? '#9aa2b2' : '#a8ccf0';
-    const hiC = offline ? '#c8ced9' : '#e6f6ff';
-    const eyeGlow = offline ? '#d8dee9' : '#5ef2ff';
-    ctx.save();
-    // 地面灵体虚影光圈（随浮动高度呼吸缩放）
-    ctx.globalAlpha = offline ? .22 : (.32 - bob * .02);
-    rect(x - 12, Math.round(p.y) + 1, 24, 4, '#1b2440');
-    rect(x - 8, Math.round(p.y) + 2, 16, 2, '#5ef2ff');
-    ctx.globalAlpha = offline ? .52 : .88;
-    // 头顶漂浮灵魂光环与幽火苗
-    const haloOff = Math.round(Math.cos(clock * 3.2 + p.id) * 1.5);
-    const hy = y - 48 + haloOff;
-    rect(x - 7, hy, 14, 2, outC);
-    rect(x - 9, hy + 1, 18, 2, eyeGlow);
-    rect(x - 6, hy + 2, 12, 1, '#ffffff');
-    // 灵体深色像素外轮廓（圆顶兜帽 + 两侧飘袖 + 底部动态波浪尾摆）
-    rect(x - 9, y - 41, 18, 2, outC);
-    rect(x - 12, y - 39, 24, 2, outC);
-    rect(x - 14, y - 37, 28, 4, outC);
-    rect(x - 15, y - 33, 30, 24, outC);
-    // 两侧悬浮小手/灵袖
-    const armY = y - 24 + Math.round(Math.sin(clock * 3.6 + p.id) * 1.5);
-    rect(x - 19, armY, 5, 7, outC); rect(x - 18, armY + 1, 3, 5, midC); rect(x - 18, armY + 1, 2, 2, hiC);
-    rect(x + 14, armY, 5, 7, outC); rect(x + 15, armY + 1, 3, 5, shdC); rect(x + 15, armY + 1, 2, 2, midC);
-    // 灵体主体填充（遵循左上光源：左上高光 hiC → 中间固有色 midC → 右下阴影 shdC）
-    rect(x - 8, y - 39, 16, 2, hiC);
-    rect(x - 11, y - 37, 22, 4, midC);
-    rect(x - 13, y - 33, 26, 22, midC);
-    // 左上受光高光面
-    rect(x - 11, y - 37, 14, 2, hiC);
-    rect(x - 13, y - 35, 9, 16, hiC);
-    rect(x - 10, y - 38, 6, 2, '#ffffff');
-    // 右侧与底部背光体积阴影
-    rect(x + 8, y - 35, 5, 24, shdC);
-    rect(x - 13, y - 14, 26, 4, shdC);
-    // 底部 4 簇像素幽灵波浪尾摆（随相位摆动）
-    const phase = Math.floor((clock * 5 + p.id) % 3);
-    const tails = [-13, -6, 1, 8];
-    for (let i = 0; i < 4; i++) {
-      const tx = x + tails[i];
-      const th = ((i + phase) % 2 === 0) ? 6 : 3;
-      rect(tx - 1, y - 10, 6, th + 1, outC);
-      rect(tx, y - 10, 4, th, i < 2 ? midC : shdC);
-    }
-    // 脸部暗影面罩与发光像素双眸 + 惊叹小嘴
-    rect(x - 9, y - 29, 18, 9, outC);
-    rect(x - 7, y - 27, 4, 5, eyeGlow);
-    rect(x + 3, y - 27, 4, 5, eyeGlow);
-    rect(x - 7, y - 27, 2, 2, '#ffffff');
-    rect(x + 3, y - 27, 2, 2, '#ffffff');
-    // 腮红与灵体小嘴
-    if (!offline) {
-      rect(x - 10, y - 22, 3, 2, '#7ce8ff');
-      rect(x + 7, y - 22, 3, 2, '#7ce8ff');
-    }
-    rect(x - 2, y - 22, 4, 3, outC);
-    rect(x - 1, y - 21, 2, 1, eyeGlow);
-    const scareAge = serverTime - (Number(p.scareAt) || 0);
-    if (p.visible !== false && scareAge >= 0 && scareAge < 300) {
-      ctx.strokeStyle = '#7ce8ff'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x, y - 22, 22, 0, Math.PI * 2); ctx.stroke();
-    }
-    if (p.id === selectedId || p.id === selfId()) {
-      ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 1.5;
-      ctx.strokeRect(x - 19, y - 45, 38, 48);
-    }
-    ctx.restore();
-  }
   // 肿包：只读服务端的 bumps / bumpUntil，到期前 1.5 秒按剩余比例缩小淡出。
   function drawBumps(p, x, yb, a) {
     const n = Math.min(ACTION.maxBumps, Number(p.bumps) || 0);
@@ -3233,6 +3147,8 @@
     }
     ctx.globalAlpha = a;
   }
+  // 角色：统一描边 + 三层明暗 + 五官 + 发型 + 行走摆动。
+  // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
   function sprite(p) {
     if (SID.juliSprites?.draw(ctx, p, clock)) return;
     // 休战（alive=false）不再画成幽灵：照常绘制角色，名牌追加「休战」标记。

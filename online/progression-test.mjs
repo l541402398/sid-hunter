@@ -15,7 +15,7 @@ const { createRoom, WORLD } = require('./room.js');
 const { RULES, SCORE, WHEEL, PLAY_CONFIG: C } = WORLD;
 const furniture = WORLD.makeFurniture();
 const npc = WORLD.NPCS[0];
-const blank = () => ({ chips: 0, clues: [], searched: [] });
+const blank = () => ({ chips: undefined, clues: [], searched: [] }); // chips 已随金币移除
 let sequence = 0, passed = 0, failed = 0;
 const nonce = () => `progression-${++sequence}`;
 async function test(name, fn) {
@@ -40,7 +40,7 @@ await test('WORLD 新常量与函数：浏览器脚本与 CommonJS 双载、无 
   for (const sandbox of [{ window: {} }, {}]) {
     runInNewContext(source, sandbox);
     const w = sandbox.window ? sandbox.window.WORLD : sandbox.WORLD;
-    assert.equal(typeof w.wheelSpinCost, 'function');
+    assert.equal(w.wheelSpinCost, undefined);
     assert.equal(typeof w.buildWheelPool, 'function');
     assert.equal(w.RULES.endRemainingPlayers, 100);
     assert.equal(w.RULES.timeLimitMs, 2 * 60 * 60 * 1000);
@@ -48,12 +48,11 @@ await test('WORLD 新常量与函数：浏览器脚本与 CommonJS 双载、无 
     assert.equal(JSON.stringify(w.EXPLORE), JSON.stringify(WORLD.EXPLORE));
     assert.equal(JSON.stringify(w.COMBAT), JSON.stringify(WORLD.COMBAT));
     assert.equal(w.buildWheelPool('good').length, 10);
-    assert.equal(w.wheelSpinCost(3), 0);
     assert.ok(!('wheelRewards' in w.PLAY_CONFIG));
   }
 });
-await test('wheelSpinCost：积分改版后每日次数内全部免费', () => {
-  for (const n of [-3, 0, 1, 2, 3, 10, 80]) assert.equal(WORLD.wheelSpinCost(n), 0, `第${n}次`);
+await test('转盘：积分改版后免费（无花费函数），每日上限 3 次', () => {
+  assert.equal(WORLD.wheelSpinCost, undefined);
   assert.equal(WHEEL.maxDailySpins, 3);
 });
 await test('buildWheelPool：两阵营十槽全为随机积分，不再有线索券/洗心革面/重生券', () => {

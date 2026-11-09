@@ -26,8 +26,7 @@ await test('配置：积分统一、首搜/首游为0、对抗默认生命3', ()
   assert.equal(WORLD.SCORE.kill, 0);
   assert.equal(WORLD.COMBAT.initialHp, 3);
   assert.equal(WORLD.EXPLORE.emptyChance, 5);
-  assert.equal(WORLD.wheelSpinCost(0), 0);
-  assert.equal(WORLD.wheelSpinCost(2), 0);
+  assert.equal(WORLD.wheelSpinCost, undefined, '转盘免费：金币时代的花费函数已移除');
   assert.ok(WORLD.NPC_EXCHANGE_LIST.every(x => x.cost === 0));
   assert.ok(!WORLD.NPC_EXCHANGE.hideOwnSid);
 });

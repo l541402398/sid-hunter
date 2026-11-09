@@ -15,28 +15,6 @@ const SKILL_CONFIG = {
   actionCooldownMs: 0
 };
 
-// 奖励仅保存在服务端，共享地图不暴露容器内容。
-// 原 9 个容器唯一分配到七层，保留原 ID 与奖励；楼层归属单独存储，不复制经济。
-const EXPLORATION_REWARDS = {
-  'reception-132-173': { kind: 'chips', amount: 3 },
-  'counter-1990-165': { kind: 'chips', amount: 2 },
-  'table-2010-514': { kind: 'clue' },
-  'cabinet-785-160': { kind: 'clue' },
-  'desk-1035-172': { kind: 'chips', amount: 2 },
-  'desk-1690-172': { kind: 'chips', amount: 2 },
-  'desk-2940-172': { kind: 'chips', amount: 2 },
-  'table-2535-513': { kind: 'clue' },
-  'desk-3600-172': { kind: 'chips', amount: 2 },
-  // 任务3（五项场景修改）新增：每层 1 个新可搜容器（与 world.js CONTAINER_IDS 同步登记）。
-  'hall1-340-300': { kind: 'chips', amount: 2 },
-  'printer2-590-370': { kind: 'chips', amount: 1 },
-  'docs3-590-290': { kind: 'clue' },
-  'ticket4-590-280': { kind: 'chips', amount: 2 },
-  'duty5-610-305': { kind: 'chips', amount: 1 },
-  'safe6-640-355': { kind: 'clue' },
-  'bar7-480-300': { kind: 'chips', amount: 1 }
-};
-
 const SEG_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const NAME_POOL = ['小序', '阿澈', '木木', '七禾', '南风', '池雨', '蓝桉', '柚子', '星野', '可颂',
   '松子', '北辰', '秋白', '墨墨', '梨舟', '小满', '照野', '言川', '竹青', '余温',
@@ -65,6 +43,6 @@ const randomColors = gender => {
 const randomTraits = () => Object.fromEntries(Object.keys(TRAIT_POOL).map(k => [k, pick(TRAIT_POOL[k])]));
 
 module.exports = {
-  SKILL_CONFIG, EXPLORATION_REWARDS, SEG_CHARS, NAME_POOL, TRAIT_POOL,
+  SKILL_CONFIG, SEG_CHARS, NAME_POOL, TRAIT_POOL,
   pick, randChar, randomSid, normalizeGender, hairIndexAllowed, hairOptionsForGender, pickHairColor, randomColors, randomTraits
 };

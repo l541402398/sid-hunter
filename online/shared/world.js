@@ -3,18 +3,15 @@
 // 本文件是聚合器：子模块在 online/shared/world/*.js（浏览器需按序先加载它们），导出 window.WORLD / module.exports 保持不变。
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
-  const D = isNode ? Object.assign({}, require('./world/config.js'), { TMJ: require('./world/tmj.js') }, require('./world/geometry.js'), require('./world/furniture.js'), require('./world/dressing.js'), require('./world/sprite-bounds.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/clutter.js'), require('./world/loot.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
+  const D = isNode ? Object.assign({}, require('./world/config.js'), { TMJ: require('./world/tmj.js') }, require('./world/geometry.js'), require('./world/furniture.js'), require('./world/dressing.js'), require('./world/sprite-bounds.js'), require('./world/floors.js'), require('./world/rooms.js'), require('./world/clutter.js'), require('./world/sprite.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
   const WORLD = factory(D);
   root.WORLD = WORLD;
   if (isNode) module.exports = WORLD;
 })(typeof window !== 'undefined' ? window : globalThis, function (D) {
-  const { WORLD_W, WORLD_H, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout: applyTMJLayoutBase, ATTACK_ANIMATION_MS, drawCharacterBody, TMJ } = D;
+  const { WORLD_W, WORLD_H, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome, lineClear, collidesAt, coverFor, pointOccluded, distanceToEntity, spriteDirection, facingVector, deskBranch, deskIsland, FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOOR_SPECS, CONTAINER_NAMES, FLOORS, NPCS, floorById, floorOptions, inHall, advanceGlassDoors, floorBlockers, floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorPortal, elevatorLanding, floorNpcs, floorContainers, inFloor, floorCollides, floorBounds, cameraBounds, makeFurniture, portalAccess, applyTMJLayout: applyTMJLayoutBase, ATTACK_ANIMATION_MS, drawCharacterBody, TMJ } = D;
   const { ROOM_SIZES, WALL_T, DOOR_HALF, ENTER_PAD, ROOM_SPECS, ROOM_LIST, ROOMS, roomById, roomsForFloor,
     roomBlockers, roomCollides, inRoom, roomBounds, roomCamera, roomInteractables, roomDoorNear,
     zoneContainers, zoneFurniture, zoneBlockers, zoneCollides, zoneBounds, zoneCamera, applyTMJRoomDoors } = D;
-  const { RARITY, RARITY_ORDER, ITEMS, PROFILES, profileKeyFor, profileFor, buildSearchPlan, describeSlot,
-    revealDelayMs, SEARCH_CONFIG, EFFECTS, EFFECT_ORDER, SHOP_ITEMS, FLOOR_POOL_ADD, floorPoolFor, containerFloor,
-    PASSIVE_KINDS, PASSIVE_ORDER, passiveOf, passiveTotals } = D;
   const { THEME_PROP, SPRITE_BOUNDS } = D;
   // 房间门口清理（需求③）：把门口 64px 内的纯装饰家具移走，留出可走通道。
   // 只清装饰，**不动容器与 NPC**，避免把战利品/交互点清掉。
@@ -52,7 +49,7 @@
     deskIsland, deskBranch,
     facingVector, portalAccess, floorPortal, elevatorLanding,
     PLAY_CONFIG, rpsOutcome, lineClear, spriteDirection, drawCharacterBody, ATTACK_ANIMATION_MS,
-    RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE,
+    RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE,
     // 七层楼层数据与查询接口（服务端权威、两端同源）。
     FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOORS, CONTAINER_NAMES, floorById, floorBlockers,
     floorOptions, inHall, advanceGlassDoors, cameraBounds,
@@ -67,10 +64,6 @@
     THEME_PROP, SPRITE_BOUNDS,
     roomBounds, roomCamera, roomInteractables, roomDoorNear,
     zoneContainers, zoneFurniture, zoneBlockers, zoneCollides, zoneBounds, zoneCamera,
-    // 搜打撤式物品格搜索（需求③）：物品目录、稀有度、容器档案与确定性掷骰。
-    LOOT: { RARITY, RARITY_ORDER, ITEMS, PROFILES, profileKeyFor, profileFor, buildSearchPlan, describeSlot,
-      revealDelayMs, SEARCH_CONFIG, EFFECTS, EFFECT_ORDER, SHOP_ITEMS, FLOOR_POOL_ADD, floorPoolFor, containerFloor,
-      PASSIVE_KINDS, PASSIVE_ORDER, passiveOf, passiveTotals },
     // 肢体互动（锤子）共享数值表：服务端判定与客户端渲染同源。
     ACTION
   };

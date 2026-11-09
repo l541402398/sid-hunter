@@ -138,7 +138,7 @@ node online/score-export-test.mjs
 ### 其它既有机制
 - **躲藏**：家具视觉与底部碰撞足迹分离，角色身体可被家具遮挡；遮挡时人物与下方名牌同帧隐藏（含自己与 NPC），解除同帧恢复。
 - **交互描边**：仅 9 个容器与 2 名 NPC 有描边，亮色=可操作 / 灰色=范围内不可用 / 暗色=太远。
-- **筹码来源**：搜索容器、NPC 转盘、玩家猜拳（胜 +1 / 负 −1 / 平不变，余额不为负）。
+- **无金币/道具**：金币（筹码）、道具背包、商店、物品格逐格搜索均已移除；探索、转盘、猜拳、J 只产出积分。
 - **J 互动（无伤害）**：所有阵营可用，命中只造成对手 0.8 秒眩晕 + 1 秒僵直，不扣血、不淘汰。
 
 ## 可调参数
@@ -148,14 +148,20 @@ node online/score-export-test.mjs
 | 位置 | 键 | 值 |
 | --- | --- | --- |
 | `RULES` | `endRemainingPlayers` / `timeLimitMs` | `100` / `7200000`（2 小时） |
-| `WHEEL` | `slotCount` / `spinCosts` / `chipAmounts` / `specialCount` / `specials` | `10` / 见上 / 见上 / `{good:2,bad:2}` / `{good:['clue'],bad:['reform','rebirth']}` |
+| `WHEEL` | `slotCount` / `maxDailySpins` / `chipAmounts`（积分槽位，建议值） | `10` / `3` / `[1,2,3,4,5,6,8]`；转盘免费，无花费阶梯与特殊券 |
 | `PLAY_CONFIG` | `rpsStake` `rpsTimeoutMs` `rpsRoundMs` `rpsCooldownMs` `attackRange` `attackCooldownMs` `attackConeCos` `stunMs` `freezeMs` | `1` `30000` `10000` `5000` `48` `1200` `0.5` `800` `1000` |
 | — | `INTERACT_RANGE` | `64`（容器/NPC 互动与猜拳的距离门槛） |
 
+### 旧存档迁移（金币时代 → 积分版）
+
+- 读取旧 SQLite 快照恢复玩家时，`migrateLegacyEconomy`（`online/room/index.js`）会丢弃 `exploration.chips`（金币余额）、`exploration.items` / `exploration.backpack`（道具）和 `buffs`，**不折算成积分**；`score` 原样保留。迁移幂等，旧存档不会因缺字段崩溃。
+- `players` 表的 `chips` / `items_json` 两列为兼容旧库保留，积分版恒写 `0` / `'{}'`，不再读取。
+- 已移除的接口：`/api/search/reveal`、`/api/item/use`、`/api/item/sell`、`/api/shop/buy`（路由已删除）；`WORLD.LOOT`、`WORLD.wheelSpinCost`、`WORLD.WHEEL_ITEMS` 不再导出。
+
 ## 权威性与隐私边界
 
-- 位置、移动、技能、探索奖励、转盘落格与费用、猜拳结算、J 互动、计分与结束判定全部由服务端计算，客户端只提交意图并渲染快照。
-- 公开投影只含位置、公开颜色、已公开属性、已公开 S-ID 段、`score` 以及动画用 `facing`/`lastAttackAt`/`stunUntil`/`freezeUntil`；筹码、线索、技能次数、身份、生命仅本人可见。
+- 位置、移动、技能、探索奖励、转盘落格、猜拳结算、J 互动、计分与结束判定全部由服务端计算，客户端只提交意图并渲染快照。
+- 公开投影只含位置、公开颜色、已公开属性、已公开 S-ID 段、`score` 以及动画用 `facing`/`lastAttackAt`/`stunUntil`/`freezeUntil`；线索、技能次数、身份、生命仅本人可见。
 - 私密线索不进入公开档案、名单搜索与公共日志；猜拳选择阶段仅下发本人出拳，对手出拳只在服务端截止结算后向两位参与者揭示。
 - 服务端 20Hz 快照采用截止时间补偿调度（单次长卡顿只补一次，不突发追赶）。
 
@@ -189,6 +195,8 @@ SID_CHROME=/usr/bin/google-chrome node online/manager-live-browser-test.mjs http
 # 公网部署冒烟（打完线上地址，32 项）
 node online/deploy-smoke.mjs https://game.afann.xyz
 ```
+
+> **测试模式**：`SID_TEST=1` 时服务端使用内存 SQLite（不写 `.data/`），启动即自动开一场 2 小时的「自动测试场」（`SID_TEST_AUTO_OPEN=0` 关闭，`SID_TEST_SESSION_MS` 调整时长），并开放 `/api/test/*` 辅助路由；未设置 `SID_TEST=1` 时这些路由与自动开场都不存在。生产模式下的 HTTP 自测用临时 `SID_DB_FILE`，并经 `/api/manager` 登录后开场。
 
 > Chrome 路径默认取 Windows 的 `C:/Program Files/Google/Chrome/Application/chrome.exe`；在 Linux 上跑浏览器脚本时用 `SID_CHROME=/usr/bin/google-chrome` 覆盖（管理页两个浏览器脚本已支持该环境变量）。
 

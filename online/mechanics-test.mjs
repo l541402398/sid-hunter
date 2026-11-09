@@ -74,7 +74,7 @@ await test('共享契约、全部九种猜拳组合及浏览器导出', async ()
     runInNewContext(source, sandbox);
     const w = sandbox.window ? sandbox.window.WORLD : sandbox.WORLD;
     assert.equal(JSON.stringify(w.PLAY_CONFIG), JSON.stringify(C));
-    for (const key of ['makeFurniture', 'collidesAt', 'coverFor', 'pointOccluded', 'distanceToEntity', 'rpsOutcome', 'lineClear', 'wheelSpinCost', 'buildWheelPool']) assert.equal(typeof w[key], 'function');
+    for (const key of ['makeFurniture', 'collidesAt', 'coverFor', 'pointOccluded', 'distanceToEntity', 'rpsOutcome', 'lineClear', 'buildWheelPool']) assert.equal(typeof w[key], 'function');
     assert.equal(w.rpsOutcome('rock', 'scissors'), 1);
   }
 });
@@ -100,7 +100,7 @@ await test('转盘十槽池、每日免费3次（全楼层共享）、随机积�
   assert.equal(p.score, first.wheel.item.amount); assert.equal(p.exploration.chips, 5, '转盘不再产出/消耗筹码');
   assert.equal(play(r, 0, 'wheel', { commandId: id, entityId: npc.id }).ok, false); assert.equal(draws, 1);
   const second = play(r, 0, 'wheel', { entityId: npc.id });
-  assert.equal(second.ok, true); assert.equal(second.cost, 0); assert.equal(WORLD.wheelSpinCost(1), 0);
+  assert.equal(second.ok, true); assert.equal(second.cost, 0); assert.equal(WORLD.wheelSpinCost, undefined);
   assert.equal(second.spins, 2); assert.equal(p.games.wheelSpins[npc.id], 2);
   second.games.wheelSpins[npc.id] = 999; second.combat.facing.x = -1;
   assert.equal(p.games.wheelSpins[npc.id], 2); assert.equal(p.combat.facing.x, 1);

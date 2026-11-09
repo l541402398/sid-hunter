@@ -17,7 +17,7 @@ const { createDigest } = require('./digest.js');
 const { createEvents } = require('./events.js');
 const charges = require('./charges.js');
 const {
-  SKILL_CONFIG, EXPLORATION_REWARDS, SEG_CHARS, NAME_POOL, TRAIT_POOL,
+  SKILL_CONFIG, SEG_CHARS, NAME_POOL, TRAIT_POOL,
   pick, randChar, randomSid, randomColors, randomTraits, normalizeGender, hairIndexAllowed, pickHairColor
 } = require('./config.js');
 
@@ -27,6 +27,21 @@ const SKINS_SPLIT = process.env.SID_SKINS === '1';
 const LOD_ENABLED = process.env.SID_LOD === '1';
 // AOI 半径（世界像素）：只同步视野附近 ±1 屏的人；纵向按 0.6 收缩（斜俯视）。
 const AOI_RADIUS = Number(process.env.SID_AOI_RADIUS) > 0 ? Number(process.env.SID_AOI_RADIUS) : Math.round(WORLD.VIEW_W / 2);
+// 容器答题会话的闲置过期时间（原 LOOT.SEARCH_CONFIG.sessionTtlMs，数值不变）。
+const SEARCH_SESSION_TTL_MS = 60_000;
+// 金币时代存档迁移：旧快照里的金币余额（exploration.chips）、道具（exploration.items / backpack）与
+// 限时 buff 一律丢弃，不折算成积分（积分版的 score 本身已是权威值）。读取旧存档时调用，幂等。
+function migrateLegacyEconomy(p) {
+  if (!p || typeof p !== 'object') return p;
+  const ex = p.exploration;
+  if (ex && typeof ex === 'object') {
+    delete ex.chips; delete ex.items; delete ex.backpack;
+    if (!Array.isArray(ex.clues)) ex.clues = [];
+    if (!Array.isArray(ex.searched)) ex.searched = [];
+  }
+  delete p.buffs;
+  return p;
+}
 function createRoom(options = {}) {
   const wheelRandomInt = options.randomInt || randomInt;
   // dev 分支并入的可注入随机源：只影响「探查公开哪一项未公开属性」。
@@ -94,6 +109,7 @@ function createRoom(options = {}) {
         if (Array.isArray(entry) && typeof entry[0] === 'string') room.sessions.set(entry[0], Number(entry[1]));
       }
       for (const p of room.players) {
+        migrateLegacyEconomy(p);
         // 重启后一律视为离线：等浏览器带着会话令牌重连时再置回在线。
         p.online = !!p.npc;
         p.lastSeen = 0;
@@ -359,38 +375,6 @@ function createRoom(options = {}) {
   function makeSidState() {
     return { segments: randomSid(), revealed: [false, false, false], revealOrder: [] };
   }
-  function revealSidSegment(p, idx) {
-    if (!p || !p.sid || idx < 0 || idx > 2) return;
-    p.sid.revealed[idx] = true;
-    if (!Array.isArray(p.sid.revealOrder)) p.sid.revealOrder = [];
-    p.sid.revealOrder = p.sid.revealOrder.filter(i => i !== idx);
-    p.sid.revealOrder.push(idx);
-  }
-  function hideLatestOwnSid(actor) {
-    if (!actor || !actor.sid || !Array.isArray(actor.sid.revealed)) return -1;
-    const order = Array.isArray(actor.sid.revealOrder) ? actor.sid.revealOrder : [];
-    for (let i = order.length - 1; i >= 0; i--) {
-      const idx = order[i];
-      if (actor.sid.revealed[idx]) {
-        actor.sid.revealed[idx] = false;
-        actor.sid.revealOrder = order.filter(x => x !== idx);
-        if (actor.faction === 'bad' && actor.alive) {
-          actor.hp = Math.max(1, 3 - actor.sid.revealed.filter(Boolean).length);
-        }
-        return idx;
-      }
-    }
-    for (let idx = actor.sid.revealed.length - 1; idx >= 0; idx--) {
-      if (actor.sid.revealed[idx]) {
-        actor.sid.revealed[idx] = false;
-        if (actor.faction === 'bad' && actor.alive) {
-          actor.hp = Math.max(1, 3 - actor.sid.revealed.filter(Boolean).length);
-        }
-        return idx;
-      }
-    }
-    return -1;
-  }
   function uniqueName(name) {
     if (!room.players.some(p => p.name === name)) return name;
     let n = 2;
@@ -496,8 +480,7 @@ function createRoom(options = {}) {
       input: { up: false, down: false, left: false, right: false },
       walk: 0,
       spriteFacing: 'front',
-      exploration: { chips: 0, clues: [], searched: [], backpack: [], items: {}, exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
-      buffs: { speedUntil: 0, shieldUntil: 0, focusNext: false },
+      exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
       achievements: { points: 0, byKind: {} },
       games: { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
       combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
@@ -585,8 +568,7 @@ function createRoom(options = {}) {
         input: { up: false, down: false, left: false, right: false },
         walk: 0,
         spriteFacing: 'front',
-        exploration: { chips: 0, clues: [], searched: [], backpack: [], items: {}, exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
-        buffs: { speedUntil: 0, shieldUntil: 0, focusNext: false },
+        exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
         achievements: { points: 0, byKind: {} },
         games: { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
         combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
@@ -668,12 +650,8 @@ function createRoom(options = {}) {
       let dy = Number(p.input.down) - Number(p.input.up);
       const len = Math.hypot(dx, dy);
       if (!len) continue;
-      // 第二轮：疾行 buff —— 只在服务端生效，客户端看到的位移由快照驱动，无法伪造。
-      const act = p.buffs && t < (p.buffs.speedUntil || 0) ? 1.45 : 1;
-      const pass = WORLD.LOOT.passiveTotals(p.exploration.items || {});
-      const speedMul = act * (1 + Math.min(40, pass.speed || 0) / 100);
-      dx = dx / len * WORLD.SPEED * speedMul * dt;
-      dy = dy / len * WORLD.SPEED * speedMul * dt;
+      dx = dx / len * WORLD.SPEED * dt;
+      dy = dy / len * WORLD.SPEED * dt;
       const oldX = p.x, oldY = p.y;
       // 需求①：房间内按房间几何裁剪/碰撞，走廊按楼层；休战无穿墙。
       const bounds = zoneBoundsOf(p);
@@ -779,13 +757,6 @@ function createRoom(options = {}) {
       spriteFacing: p.spriteFacing,
       exploration: explorationProjection(p),
       npcExchange: npcExchangeProjection(p),
-      // 需求③：只发给本人的战利品清单（不进公开投影、不进 exploration 的旧结构）。
-      backpack: backpackProjection(p),
-      // 第二轮：道具背包与限时 buff（只发给本人；buff 附带剩余毫秒供客户端画倒计时）。
-      items: itemsProjection(p),
-      buffs: buffsProjection(p),
-      // 背包被动总加成（放在背包就生效；卖掉/用掉立刻消失）。
-      passive: passiveProfile(p),
       achievement: { points: (p.achievements && p.achievements.points) || 0, byKind: { ...((p.achievements && p.achievements.byKind) || {}) } },
       games: gamesProjection(p),
       combat: combatProjection(p),
@@ -963,7 +934,7 @@ function createRoom(options = {}) {
       .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
       .map((p, index) => ({ rank: index + 1, id: p.id, name: p.name,
         points: (p.achievements && p.achievements.points) || 0,
-        chips: p.exploration.chips, alive: p.alive, faction: p.faction }));
+        alive: p.alive, faction: p.faction }));
   }
   function buildRanking() {
     return room.players.slice()
@@ -1072,7 +1043,7 @@ function createRoom(options = {}) {
   function syncDailyEconomy(p, t) {
     if (!p) return;
     const d = accuseDayKey(t);
-    if (!p.exploration) p.exploration = { chips: 0, clues: [], searched: [], backpack: [], items: {}, exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 };
+    if (!p.exploration) p.exploration = { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 };
     if (!p.exploration.exchangedToday || typeof p.exploration.exchangedToday !== 'object') p.exploration.exchangedToday = {};
     if (!Number.isFinite(p.exploration.dailyScoreRedeemed)) p.exploration.dailyScoreRedeemed = 0;
     if (!Number.isFinite(p.exploration.exploreCount)) p.exploration.exploreCount = (p.exploration.searched || []).length;
@@ -1088,8 +1059,6 @@ function createRoom(options = {}) {
     if (p.dailyEconomyDay !== d) {
       p.dailyEconomyDay = d;
       // 积分持续累计；每日重置探索机会、福利领取、转盘、J/小游戏渠道额度
-      // chips 字段保留兼容，不再作为消费货币；跨日不再清零历史积分
-      p.exploration.chips = 0;
       p.exploration.exchangedToday = {};
       p.exploration.dailyScoreRedeemed = 0;
       p.exploration.searched = [];
@@ -1243,68 +1212,8 @@ function createRoom(options = {}) {
       hp: actor.hp, alive: actor.alive, protectUntil: actor.protectUntil || 0 };
   }
   function explorationProjection(p) {
-    // 私密探索投影保持既有三字段形状（chips/clues/searched）不变 —— 多个既有测试按此结构做深比较。
-    // 需求③的战利品清单单独走 `backpack` 字段（privateProjection 里下发），不混进 exploration。
-    return { chips: p.exploration.chips, clues: p.exploration.clues.map(c => ({ ...c })),
-      searched: p.exploration.searched.slice() };
-  }
-  function backpackProjection(p) {
-    const bag = Array.isArray(p.exploration.backpack) ? p.exploration.backpack : [];
-    return bag.map(b => ({ ...b }));
-  }
-  // 第二轮：道具背包（key → 数量）与 buff 剩余时间。两者都只下发给本人。
-  function itemsProjection(p) {
-    const items = p.exploration.items && typeof p.exploration.items === 'object' ? p.exploration.items : {};
-    return Object.fromEntries(Object.entries(items).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)]));
-  }
-  // 第二轮：背包被动加成（放在背包里就生效；卖掉/用掉立刻失效）。
-  function passivesOf(actor) {
-    return WORLD.LOOT.passiveTotals((actor && actor.exploration && actor.exploration.items) || {});
-  }
-  function passiveProfile(p) {
-    return WORLD.LOOT.passiveTotals(p.exploration.items || {});
-  }
-  function buffsProjection(p) {
-    const t = now(), b = p.buffs || {};
-    return {
-      speedUntil: b.speedUntil || 0, shieldUntil: b.shieldUntil || 0,
-      speedMs: Math.max(0, (b.speedUntil || 0) - t), shieldMs: Math.max(0, (b.shieldUntil || 0) - t),
-      focusNext: !!b.focusNext
-    };
-  }
-  // 道具增减的唯一入口：保证 items 里不留 0，且数量不为负。
-  function addItem(p, key, delta) {
-    const items = p.exploration.items || (p.exploration.items = {});
-    const next = Math.max(0, (Number(items[key]) || 0) + Number(delta || 0));
-    if (next > 0) items[key] = next; else delete items[key];
-    return next;
-  }
-  function availableClue(actor, source) {
-    const seen = new Set(actor.exploration.clues.map(c => `${c.targetId}:${c.key}`));
-    for (const target of room.players) {
-      if (!target.alive || target.id === actor.id) continue;
-      for (const key of Object.keys(WORLD.TRAIT_NAMES)) {
-        if (target.traitPublic[key] || seen.has(`${target.id}:${key}`)) continue;
-        const label = WORLD.TRAIT_NAMES[key], value = target.traits[key];
-        return { id: randomUUID(), targetId: target.id, targetName: target.name, key, label, value, source,
-          text: `${target.name}的${label}是「${value}」。` };
-      }
-    }
-    return null;
-  }
-  // 转盘·线索券专用：只挑“存活且为坏人”的其他玩家作为线索目标，按 targetId:key 去重。
-  function availableBadClue(actor) {
-    const seen = new Set(actor.exploration.clues.map(c => `${c.targetId}:${c.key}`));
-    for (const target of room.players) {
-      if (target.faction !== 'bad' || !target.alive || target.id === actor.id) continue;
-      for (const key of Object.keys(WORLD.TRAIT_NAMES)) {
-        if (target.traitPublic[key] || seen.has(`${target.id}:${key}`)) continue;
-        const label = WORLD.TRAIT_NAMES[key], value = target.traits[key];
-        return { id: randomUUID(), targetId: target.id, targetName: target.name, key, label, value, source: '转盘·线索券',
-          text: `${target.name}的${label}是「${value}」。` };
-      }
-    }
-    return null;
+    // 金币时代的 chips 已移除（见 migrateLegacyEconomy）；探索投影只含线索与今日已开容器。
+    return { clues: p.exploration.clues.map(c => ({ ...c })), searched: p.exploration.searched.slice() };
   }
   function openContainerForPlayer(actor, container, body, commandId, t) {
     // 已有未完成答题会话：直接复用，避免关闭弹窗后无法继续答题
@@ -2065,18 +1974,7 @@ function createRoom(options = {}) {
     return s && s.playerId === actor.id ? s : null;
   }
   function expireSearchSessions(t) {
-    for (const [id, s] of room.searchSessions) if (t - s.lastAt > WORLD.LOOT.SEARCH_CONFIG.sessionTtlMs) room.searchSessions.delete(id);
-  }
-  function describeSearchSession(s) {
-    // revealedContent 只回放"该玩家自己已经揭示过的格子"，用于关掉面板再打开时恢复画面；
-    // 未揭示的格子永远不下发内容（只给数量）。
-    const revealedContent = [];
-    for (let i = 0; i < s.revealed.size; i++) revealedContent.push(WORLD.LOOT.describeSlot(s.plan.slots[i]));
-    return { id: s.id, containerId: s.containerId, containerName: s.containerName,
-      cols: s.plan.cols, rows: s.plan.rows, slotCount: s.plan.slots.length,
-      revealed: s.revealed.size, profileKey: s.plan.profileKey,
-      revealDelayMs: WORLD.LOOT.SEARCH_CONFIG.revealDelayMs(s.plan.profileKey),
-      nextRevealAt: s.nextAt, revealedContent, completed: s.revealed.size >= s.plan.slots.length };
+    for (const [id, s] of room.searchSessions) if (t - s.lastAt > SEARCH_SESSION_TTL_MS) room.searchSessions.delete(id);
   }
   function searchStart(sessionId, body) {
     const t = now();
@@ -2097,13 +1995,6 @@ function createRoom(options = {}) {
     if (!container) return fail('搜索目标无效');
     if (WORLD.distanceToEntity(actor, container) > WORLD.INTERACT_RANGE) return fail('距离太远，请靠近后再搜索');
     return openContainerForPlayer(actor, container, body, commandId, t);
-  }
-  function searchReveal(sessionId) {
-    const actor = playerBySession(sessionId);
-    return {
-      ...reject('容器探索已统一为开启即结算（空/积分/答题），无需逐格翻找'),
-      exploration: actor ? explorationProjection(actor) : null
-    };
   }
   function searchTake(sessionId, body) {
     const t = now();
@@ -2144,7 +2035,7 @@ function createRoom(options = {}) {
       ok: true,
       mode: 'quizResult',
       correct: grade.correct,
-      gained: { points: gainedPoints, chips: 0 },
+      gained: { points: gainedPoints },
       correctAnswer: grade.correctAnswer,
       explanation: grade.explanation,
       resultText,
@@ -2155,28 +2046,6 @@ function createRoom(options = {}) {
     };
   }
 
-  // ============================================================
-  // 需求4：取消物品背包及相关拾取、使用、买卖功能
-  // ============================================================
-  function economyResponse(actor, ok, resultText, extra = {}) {
-    return { ok, ...(ok ? {} : { error: resultText }), resultText,
-      items: {},
-      buffs: actor ? buffsProjection(actor) : null,
-      chips: actor ? actor.exploration.chips : 0,
-      score: actor ? actor.score : 0, ...extra };
-  }
-  function useItem(sessionId) {
-    const actor = playerBySession(sessionId);
-    return economyResponse(actor, false, '物品背包及相关使用功能已取消');
-  }
-  function sellItem(sessionId) {
-    const actor = playerBySession(sessionId);
-    return economyResponse(actor, false, '物品背包及相关买卖功能已取消');
-  }
-  function buyItem(sessionId) {
-    const actor = playerBySession(sessionId);
-    return economyResponse(actor, false, '物品背包及相关买卖功能已取消');
-  }
 
   // ===== 小游戏 =====
   function startMinigame(sessionId, body) {
@@ -2283,14 +2152,12 @@ function createRoom(options = {}) {
       return picked;
     },
     invalidateSystemClues: () => badPool.invalidate(),
-    // 需求① / ③：独立房间进出与物品格搜索（服务端权威入口）。
-    enterZone, exitZone, searchStart, searchReveal, searchTake, zoneInfo,
-    // 第二轮：道具经济（使用 / 出售 / 购买）。
-    useItem, sellItem, buyItem, passiveProfile,
+    // 独立房间进出与容器探索（服务端权威入口）。
+    enterZone, exitZone, searchStart, searchTake, zoneInfo,
     startMinigame, actMinigame, minigameState, quitMinigame,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
     playerBySession, playerByEmpNo, find, lastResultSummary, rules, config: SKILL_CONFIG,
     floorFurniture, floorBlockers, safeLanding
   };
 }
-module.exports = { createRoom, SKILL_CONFIG, WORLD, QUIZ };
+module.exports = { createRoom, migrateLegacyEconomy, SKILL_CONFIG, WORLD, QUIZ };

@@ -121,24 +121,10 @@
   const WHEEL = {
     slotCount: 10,
     maxDailySpins: 3,
-    spinCosts: [0, 0, 0],
     // 槽位分值池（建议）；kind 改为 points
-    chipAmounts: [1, 2, 3, 4, 5, 6, 8],
-    specialCount: { good: 0, bad: 0 },
-    specials: { good: [], bad: [] }
-  };
-  const WHEEL_ITEMS = {
-    clue:    { key: 'clue',    label: '线索券',     desc: '已停用', color: '#3B82F6', glyph: '?' },
-    jackpot: { key: 'jackpot', label: '金币福袋',   desc: '已停用', color: '#10B981', glyph: '★' },
-    bounty:  { key: 'bounty',  label: '潜伏补给券', desc: '已停用', color: '#8B5CF6', glyph: '◆' },
-    reform:  { key: 'reform',  label: '洗心革面券', desc: '已停用', color: '#22C55E', glyph: '♻' },
-    rebirth: { key: 'rebirth', label: '轮回券',     desc: '已停用', color: '#EF4444', glyph: '↻' }
+    chipAmounts: [1, 2, 3, 4, 5, 6, 8]
   };
   const WHEEL_CHIP_COLOR = '#F59E0B';
-  // 转盘免费：费用恒为 0（保留函数签名兼容旧调用）。
-  function wheelSpinCost(priorSpins, wheel = WHEEL) {
-    return 0;
-  }
   // 转盘 10 槽全部为随机积分项。
   function buildWheelPool(faction, wheel = WHEEL) {
     const pool = [];
@@ -206,5 +192,5 @@
   // 战争迷雾：5F 地牢回廊。半径是世界像素，服务端裁剪与客户端渲染共用同一份，
   // 否则改客户端会看到"服务端没发、但客户端还画着残影"的不一致。
   const FLOOR_FOG = { 5: { radius: 180 } };
-  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome };
+  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome };
 });

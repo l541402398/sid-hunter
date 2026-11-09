@@ -540,12 +540,12 @@
     g.strokeStyle='#0b1221';g.lineWidth=2;g.stroke();
   }
   function wheelStateText() {
-    const cost=WORLD.wheelSpinCost(wheelSpins);
+    const cost=(WORLD.wheelSpinCost || (() => 0))(wheelSpins);
     return `第 ${wheelSpins+1} 次 · ${cost?`消耗 ${cost} 筹码`:'免费'} · ${self.role==='bad'?'坏人盘（洗心革面券 / 轮回券）':'好人盘（线索券）'}`;
   }
   function updateWheelUI() {
     if(!wheel)return;
-    const cost=WORLD.wheelSpinCost(wheelSpins),n=wheelSpins+1;
+    const cost=(WORLD.wheelSpinCost || (() => 0))(wheelSpins),n=wheelSpins+1;
     if($('wheel-cost'))$('wheel-cost').textContent=cost===0?`第 ${n} 次：免费`:`第 ${n} 次：${cost} 筹码（当前 ${chips}）`;
     const btn=$('wheel-spin');
     if(btn){btn.disabled=wheel.spinning||finished||!self.alive;btn.textContent=wheel.spinning?'转动中…':'转动转盘';}
@@ -638,7 +638,7 @@
   function spinWheelLocal(instant) {
     if(!wheel||finished||!self.alive)return null;
     if(wheel.spinning){if(!instant)return null;settleWheelSpin();}
-    const cost=WORLD.wheelSpinCost(wheelSpins);
+    const cost=(WORLD.wheelSpinCost || (() => 0))(wheelSpins);
     if(chips<cost){
       if($('wheel-result'))$('wheel-result').textContent=`筹码不足：本次转动需要 ${cost} 筹码，当前 ${chips}，未扣除。`;
       return {ok:false,item:null,slotIndex:-1,slots:wheel.slots,cost,spins:wheelSpins,chips,score:self.score};

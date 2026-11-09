@@ -309,8 +309,8 @@ function createStore(options = {}) {
         upsertPlayer.run(
           String(roundId || 'unknown'), Number(p.id), String(p.name || ''),
           String(p.faction || ''), p.alive ? 1 : 0, Number(p.score) || 0,
-          Number(p.exploration && p.exploration.chips) || 0,
-          JSON.stringify((p.exploration && p.exploration.items) || {}),
+          // chips / items_json 列为金币时代遗留：表结构保留以兼容旧库，积分版恒写 0 / '{}'。
+          0, '{}',
           Date.now()
         );
       }
