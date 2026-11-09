@@ -12,7 +12,7 @@ async function test(name, fn) {
 }
 
 function fixture(n = 5) {
-  const r = createRoom();
+  const r = createRoom({ allowForceMode: true });
   for (let i = 0; i < n; i++) r.join(`s${i}`, `P${i}`);
   return r;
 }

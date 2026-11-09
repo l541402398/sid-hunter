@@ -24,7 +24,7 @@ async function test(name, fn) {
 }
 function fixture(count = 3, options = {}) {
   // random 固定：首位为坏人，其余为好人（确定性阵营夹具）。
-  const r = createRoom({ random: () => 0.99, ...options });
+  const r = createRoom({ random: () => 0.99, allowForceMode: true, ...options });
   for (let i = 0; i < count; i++) r.join(`session-${i}`, `玩家${i}`);
   return r;
 }

@@ -43,6 +43,7 @@ function migrateLegacyEconomy(p) {
   return p;
 }
 function createRoom(options = {}) {
+  const allowForceMode = options.allowForceMode === true || process.env.SID_TEST === '1';
   const wheelRandomInt = options.randomInt || randomInt;
   // dev 分支并入的可注入随机源：只影响「探查公开哪一项未公开属性」。
   // 未注入时保持 main 的确定性顺序（第一个未公开项），注入后按注入源随机选择，便于自测。
@@ -1248,7 +1249,9 @@ function createRoom(options = {}) {
 
     const explore = WORLD.EXPLORE || { emptyChance: 5, pointsChance: 15, directPoints: 1, quizPoints: 2 };
     let mode;
-    if (body && ['empty', 'coins', 'points', 'quiz'].includes(body.forceMode)) {
+    // forceMode / questionType 只给自测用（SID_TEST=1 或 createRoom({ allowForceMode: true })）；
+    // 正式服忽略，避免客户端在请求里指定「必出积分」。
+    if (allowForceMode && body && ['empty', 'coins', 'points', 'quiz'].includes(body.forceMode)) {
       mode = body.forceMode === 'coins' ? 'points' : body.forceMode;
     } else {
       const roll = wheelRandomInt(100);
@@ -1287,7 +1290,7 @@ function createRoom(options = {}) {
     }
     // mode === 'quiz'：触发答题；答对得积分；探索计数在提交答案后增加
     const rewardPoints = Number(explore.quizPoints) || Number(WORLD.SCORE.exploreQuiz) || 2;
-    const question = QUIZ.pickQuizQuestion(wheelRandomInt, body && body.questionType);
+    const question = QUIZ.pickQuizQuestion(wheelRandomInt, allowForceMode ? body && body.questionType : undefined);
     room.searchSeq += 1;
     const s = {
       id: `quiz-${room.searchSeq}-${actor.id}`,

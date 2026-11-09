@@ -1056,9 +1056,8 @@
       containerId: container.id,
       containerName: container.container ? container.container.name : (container.label || '容器'),
       api, floorFields, commandId, showToast,
-      onResult: (exploration, score, backpack) => {
+      onResult: (exploration, score) => {
         if (exploration) me = { ...me, exploration };
-        if (Array.isArray(backpack)) me = { ...me, backpack };
         if (typeof score === 'number') me = { ...me, score };
         updateExplorationHUD();
       }
