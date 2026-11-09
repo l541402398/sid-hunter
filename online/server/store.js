@@ -29,6 +29,7 @@ function createStore(options = {}) {
       saveRound() { }, savePlayers() { }, loadLastRound() { return null; },
       saveSnapshot() { return false; }, loadSnapshot() { return null; }, clearSnapshot() { return false; },
       saveFeatures() { return false; }, loadFeatures() { return null; },
+      savePrizes() { return false; }, loadPrizes() { return null; },
       saveEmployees() { return 0; }, getEmployee() { return null; }, employeeCount() { return 0; }, listEmployees() { return null; },
       loadAdmin() { return null; }, saveAdmin() { return false; },
       loadQuizQuestions() { return null; }, saveQuizQuestions() { return false; },
@@ -100,6 +101,11 @@ function createStore(options = {}) {
         title TEXT,
         synced_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS prize_pool (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        state_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS quiz_questions (
         id TEXT PRIMARY KEY,
         sort_order INTEGER NOT NULL DEFAULT 0,
@@ -159,6 +165,12 @@ function createStore(options = {}) {
     ON CONFLICT(id) DO UPDATE SET features_json = excluded.features_json, updated_at = excluded.updated_at
   `);
   const selectSettings = db && db.prepare(`SELECT features_json FROM settings WHERE id = 1`);
+  // 实物奖品池（全活动共享：库存、概率、中奖记录），独立于场次快照，切场 / 重启都不丢。
+  const upsertPrizes = db && db.prepare(`
+    INSERT INTO prize_pool (id, state_json, updated_at) VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
+  `);
+  const selectPrizes = db && db.prepare(`SELECT state_json FROM prize_pool WHERE id = 1`);
   const deleteSnapshot = db && db.prepare(`DELETE FROM snapshot WHERE id = 1`);
   const upsertEmployee = db && db.prepare(`
     INSERT INTO employees (emp_no, name, gender, email, department, delivery_group, title, synced_at)
@@ -207,6 +219,16 @@ function createStore(options = {}) {
   function loadFeatures() {
     if (!state.enabled) return null;
     try { const row = selectSettings.get(); return row ? JSON.parse(row.features_json || '{}') : null; }
+    catch { return null; }
+  }
+  function savePrizes(json) {
+    if (!state.enabled) return false;
+    try { upsertPrizes.run(JSON.stringify(json || {}), Date.now()); return true; }
+    catch (error) { state.error = String(error && error.message || error); return false; }
+  }
+  function loadPrizes() {
+    if (!state.enabled) return null;
+    try { const row = selectPrizes.get(); return row ? JSON.parse(row.state_json || '{}') : null; }
     catch { return null; }
   }
   function clearSnapshot() {
@@ -454,7 +476,7 @@ function createStore(options = {}) {
   function close() { try { if (db) db.close(); } catch { /* ignore */ } }
 
   return { ...state, enabled: state.enabled, file, error: state.error,
-    saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures,
+    saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures, savePrizes, loadPrizes,
     saveEmployees, getEmployee, employeeCount, listEmployees,
     loadAdmin, saveAdmin, loadQuizQuestions, saveQuizQuestions, archiveDay, loadDays, archiveSession, loadSessions,
     close, reason: state.error || 'ok' };

@@ -16,6 +16,7 @@ const { createBadPool } = require('./badpool.js');
 const { createDigest } = require('./digest.js');
 const { createEvents } = require('./events.js');
 const charges = require('./charges.js');
+const { createPrizePool } = require('./prizes.js');
 const {
   SKILL_CONFIG, SEG_CHARS, NAME_POOL, TRAIT_POOL,
   pick, randChar, randomSid, randomColors, randomTraits, normalizeGender, hairIndexAllowed, pickHairColor
@@ -45,6 +46,8 @@ function migrateLegacyEconomy(p) {
 function createRoom(options = {}) {
   const allowForceMode = options.allowForceMode === true || process.env.SID_TEST === '1';
   const wheelRandomInt = options.randomInt || randomInt;
+  // 实物奖品池：服务端注入共享池（跨场次 / 重置保留，落盘在 store）；进程内自测未注入时用纯内存池。
+  const prizes = options.prizes || createPrizePool({ randomInt: n => wheelRandomInt(n), now: () => now() });
   // dev 分支并入的可注入随机源：只影响「探查公开哪一项未公开属性」。
   // 未注入时保持 main 的确定性顺序（第一个未公开项），注入后按注入源随机选择，便于自测。
   const random = typeof options.random === 'function' ? options.random : null;
@@ -758,6 +761,8 @@ function createRoom(options = {}) {
       spriteFacing: p.spriteFacing,
       exploration: explorationProjection(p),
       npcExchange: npcExchangeProjection(p),
+      // 实物奖品：只发给本人（整个活动一次；name/channel/at）。
+      prize: prizeProjection(p),
       achievement: { points: (p.achievements && p.achievements.points) || 0, byKind: { ...((p.achievements && p.achievements.byKind) || {}) } },
       games: gamesProjection(p),
       combat: combatProjection(p),
@@ -897,6 +902,26 @@ function createRoom(options = {}) {
     }
     return points;
   }
+  // 实物奖品（方案 §九）：有效开箱 / J 命中各自独立判定，与积分无关、不额外加分。
+  // J 渠道另有「有效触发次数」上限（每日合计 + 同一目标每日，待定值见 prizes.js），防止无限互锤抽奖。
+  // 返回 { id, name, channel } 或 null；落盘失败时 prizes.tryDraw 已回滚，这里按未中奖处理。
+  function drawPrize(actor, channel, t, target = null) {
+    if (!actor || actor.npc || room.finished) return null;
+    if (!prizes.eligible(actor, room.roundId) || !(prizes.chanceOf(channel) > 0)) return null;
+    if (channel === 'hammer') {
+      if (!target || target.npc || !target.online || target.id === actor.id) return null;
+      syncDailyEconomy(actor, t);
+      const lim = prizes.hammerLimits(), ex = actor.exploration;
+      const byTarget = ex.prizeHammerByTarget && typeof ex.prizeHammerByTarget === 'object' ? ex.prizeHammerByTarget : (ex.prizeHammerByTarget = {});
+      const tid = String(target.id), today = Number(ex.prizeHammerToday) || 0, onTarget = Number(byTarget[tid]) || 0;
+      if (today >= lim.dailyCap || onTarget >= lim.perTargetDaily) return null;
+      ex.prizeHammerToday = today + 1;
+      byTarget[tid] = onTarget + 1;
+    }
+    const r = prizes.tryDraw(actor, channel, { roundId: room.roundId });
+    if (!r || !r.prize) return null;
+    return { id: r.prize.id, name: r.prize.name, channel };
+  }
   // 注：jump 动作已下线，'jump' 不再是合法 kind（会被「未知动作」拒绝）。
   function performAction(id, kind) {
     const t = now();
@@ -927,8 +952,8 @@ function createRoom(options = {}) {
     countOfflineHit(best, 'hammer');
     gainAchievement(actor, 'hammer');
     const points = awardJPoints(actor, best, t);
-    // TODO(实物奖品): J 命中可独立触发实物抽奖，与积分判定分离，受活动期间一次上限与库存约束
-    return { ok: true, kind: 'hammer', targetId: best.id, hit: true, points, score: actor.score };
+    const prize = drawPrize(actor, 'hammer', t, best);
+    return { ok: true, kind: 'hammer', targetId: best.id, hit: true, points, score: actor.score, prize };
   }
   function buildAchievementRanking() {
     return room.players.slice()
@@ -1062,6 +1087,8 @@ function createRoom(options = {}) {
       // 积分持续累计；每日重置探索机会、福利领取、转盘、J/小游戏渠道额度
       p.exploration.exchangedToday = {};
       p.exploration.dailyScoreRedeemed = 0;
+      p.exploration.prizeHammerToday = 0;
+      p.exploration.prizeHammerByTarget = {};
       p.exploration.searched = [];
       p.exploration.exploreCount = 0;
       p.exploration.hammerPointsToday = 0;
@@ -1212,6 +1239,10 @@ function createRoom(options = {}) {
       skills: Object.fromEntries(Object.entries(actor.skills).map(([id, state]) => [id, { ...state }])),
       hp: actor.hp, alive: actor.alive, protectUntil: actor.protectUntil || 0 };
   }
+  function prizeProjection(p) {
+    const c = prizes.claimOf(p, room.roundId);
+    return c ? { name: c.prizeName, channel: c.channel, at: c.at } : null;
+  }
   function explorationProjection(p) {
     // 金币时代的 chips 已移除（见 migrateLegacyEconomy）；探索投影只含线索与今日已开容器。
     return { clues: p.exploration.clues.map(c => ({ ...c })), searched: p.exploration.searched.slice() };
@@ -1242,7 +1273,9 @@ function createRoom(options = {}) {
     // 同一玩家对同一箱子或柜子只能开启一次，开启即登记 searched
     actor.exploration.searched.push(container.id);
     // 空箱/直接积分箱立即计入探索数量；答题箱在提交有效答案后计数（建议口径）
-    // 实物奖品钩子：TODO 独立库存判定，不占普通结果概率
+    // 实物奖品：有效开箱即独立判定（不占空/积分/答题的概率，不影响本次积分）。
+    const prize = drawPrize(actor, 'explore', t);
+    const prizeText = prize ? `另获得实物奖品「${prize.name}」！` : '';
     award(actor, 'search', 'participate');
     awardFirstSearch(actor);
     gainAchievement(actor, 'search');
@@ -1265,9 +1298,9 @@ function createRoom(options = {}) {
 
     if (mode === 'empty') {
       actor.exploration.exploreCount = (Number(actor.exploration.exploreCount) || 0) + 1;
-      const resultText = `开启「${containerName}」：里面空空如也。`;
+      const resultText = `开启「${containerName}」：里面空空如也。${prizeText}`;
       return {
-        ok: true, mode: 'empty', containerId: container.id, containerName,
+        ok: true, mode: 'empty', containerId: container.id, containerName, prize,
         gained: { points: 0 }, resultText,
         exploration: explorationProjection(actor), score: actor.score, serverNow: t,
         npcExchange: npcExchangeProjection(actor)
@@ -1279,9 +1312,9 @@ function createRoom(options = {}) {
       actor.score += amount;
       actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + amount;
       actor.exploration.exploreCount = (Number(actor.exploration.exploreCount) || 0) + 1;
-      const resultText = `开启「${containerName}」：直接获得 ${amount} 积分！`;
+      const resultText = `开启「${containerName}」：直接获得 ${amount} 积分！${prizeText}`;
       return {
-        ok: true, mode: 'points', containerId: container.id, containerName,
+        ok: true, mode: 'points', containerId: container.id, containerName, prize,
         gained: { points: amount }, resultText,
         exploration: explorationProjection(actor), score: actor.score,
         scoreBreakdown: { ...actor.scoreBreakdown }, serverNow: t,
@@ -1309,9 +1342,9 @@ function createRoom(options = {}) {
       lastAt: t
     };
     room.searchSessions.set(s.id, s);
-    const resultText = `开启「${containerName}」触发答题：答对即可获得 ${rewardPoints} 积分！`;
+    const resultText = `开启「${containerName}」触发答题：答对即可获得 ${rewardPoints} 积分！${prizeText}`;
     return {
-      ok: true, mode: 'quiz', containerId: container.id, containerName,
+      ok: true, mode: 'quiz', containerId: container.id, containerName, prize,
       sessionId: s.id, quiz: QUIZ.publicQuestionView(question, rewardPoints),
       resultText, exploration: explorationProjection(actor), score: actor.score, serverNow: t,
       npcExchange: npcExchangeProjection(actor)
@@ -1783,15 +1816,17 @@ function createRoom(options = {}) {
     actor.combat.lastAttackDirection = WORLD.spriteDirection(actor.combat.facing.x, actor.combat.facing.y, actor.spriteFacing);
     actor.combat.attackUntil = t + playConfig.attackCooldownMs;
     let resultText = `攻击空挥，未命中目标，进入${playConfig.attackCooldownMs / 1000}秒冷却。`;
+    let prize = null;
     if (target) {
       target.combat.stunUntil = t + playConfig.stunMs;
       target.combat.freezeUntil = t + playConfig.freezeMs;
       target.input = { up: false, down: false, left: false, right: false };
       const jPoints = awardJPoints(actor, target, t);
+      prize = drawPrize(actor, 'hammer', t, target);
       if (!target.npc) { countOfflineHit(target, 'hammer'); gainAchievement(actor, 'hammer'); }
-      resultText = `互动命中${target.name}：眩晕0.8秒 / 僵直1秒，无伤害${jPoints ? `，积分 +${jPoints}` : ''}。`;
+      resultText = `互动命中${target.name}：眩晕0.8秒 / 僵直1秒，无伤害${jPoints ? `，积分 +${jPoints}` : ''}${prize ? `；获得实物奖品「${prize.name}」！` : ''}。`;
     }
-    return mechanicsResponse(actor, true, resultText, target ? { hitId: target.id } : {});
+    return mechanicsResponse(actor, true, resultText, target ? { hitId: target.id, prize } : { prize: null });
   }
   // 楼层切换（服务端权威）。电梯不分上下方向：客户端进门后弹出选层 UI（1–7，禁选当前层），
   // 提交 body.targetFloorId；服务端校验顺序：会话认证 → 同 roundId → 玩家在线/存活/未结束 →
@@ -2160,7 +2195,9 @@ function createRoom(options = {}) {
     startMinigame, actMinigame, minigameState, quitMinigame,
     publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
     playerBySession, playerByEmpNo, find, lastResultSummary, rules, config: SKILL_CONFIG,
-    floorFurniture, floorBlockers, safeLanding
+    floorFurniture, floorBlockers, safeLanding,
+    // 实物奖品池（管理端配置 / 查看中奖记录）。
+    prizes
   };
 }
 module.exports = { createRoom, migrateLegacyEconomy, SKILL_CONFIG, WORLD, QUIZ };

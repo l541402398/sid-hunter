@@ -153,6 +153,21 @@ async function handle(ctx) {
       const body=await readBody(req);
       return managerReply(res,action==='config'?MANAGER.configure(req,token,body):action==='control'?MANAGER.control(req,token,body):MANAGER.npc(req,token,body));
     }
+    // 实物奖品：GET 读库存 / 概率 / 中奖记录；POST 设置品类库存、各渠道概率与 J 有效触发上限。
+    // 数值均为「待定」，默认空库存、概率 0（关闭）。库存不得低于已发出数量。
+    if (action === 'prizes') {
+      const gate = MANAGER.sessionFor(req, token);
+      if (gate.status !== 200) return managerReply(res, gate);
+      if (!ROOM.prizes) return send(res, 503, { ok: false, error: '奖品池未启用' });
+      if (req.method === 'GET') return managerReply(res, { status: 200, body: { ok: true, prizes: ROOM.prizes.view() } });
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });
+      const body = await readBody(req);
+      const mutation = MANAGER.mutationGate(req, token, body);
+      if (mutation.status !== 200) return managerReply(res, mutation);
+      const result = ROOM.prizes.configure({ items: body.items, chances: body.chances, hammerLimits: body.hammerLimits });
+      return managerReply(res, { status: result.ok ? 200 : (/保存失败/.test(result.error || '') ? 503 : 400), body: result });
+    }
     // 功能开关：GET 读当前配置，POST 覆盖（见 server/features.js）。
     if (action === 'features') {
       const gate = MANAGER.sessionFor(req, token);
