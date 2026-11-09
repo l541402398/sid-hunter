@@ -30,8 +30,10 @@ function validateConfig(input,current) {
   for(let i=1;i<next.slots.length;i++)if(next.slots[i].startTime<next.slots[i-1].endTime)throw Error('场次时间不能重叠');
   next.startTime=next.slots[0].startTime;next.endTime=next.slots.at(-1).endTime;
   if(!Number.isSafeInteger(next.chargeIntervalMs)||next.chargeIntervalMs<1000||next.chargeIntervalMs>86400000)throw Error('恢复时间需为1秒至24小时');
-  if(next.goodChargeIntervalMs==null)next.goodChargeIntervalMs=next.chargeIntervalMs;
-  if(next.badChargeIntervalMs==null)next.badChargeIntervalMs=next.chargeIntervalMs;
+  // 旧版只提交单一 chargeIntervalMs 时视为两阵营统一 CD（兼容旧管理端/脚本）。
+  const legacyOnly=Object.hasOwn(input,'chargeIntervalMs')&&!Object.hasOwn(input,'goodChargeIntervalMs')&&!Object.hasOwn(input,'badChargeIntervalMs');
+  if(next.goodChargeIntervalMs==null||legacyOnly)next.goodChargeIntervalMs=next.chargeIntervalMs;
+  if(next.badChargeIntervalMs==null||legacyOnly)next.badChargeIntervalMs=next.chargeIntervalMs;
   if(!Number.isSafeInteger(next.goodChargeIntervalMs)||next.goodChargeIntervalMs<1000||next.goodChargeIntervalMs>86400000)throw Error('好人技能CD需为1秒至24小时');
   if(!Number.isSafeInteger(next.badChargeIntervalMs)||next.badChargeIntervalMs<1000||next.badChargeIntervalMs>86400000)throw Error('坏人技能CD需为1秒至24小时');
   if(next.initialHp==null)next.initialHp=3;
