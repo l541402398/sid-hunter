@@ -115,6 +115,7 @@
     renderSession();table('daily-ranking',a.dailyRanking||[],true);table('total-ranking',a.totalRanking||[],true);
     if(!featuresLoaded){const f=await api('features');$('manager-features-list').replaceChildren();for(const item of f.features||[]){const label=document.createElement('label');label.className='admin-switch';const box=document.createElement('input');box.type='checkbox';box.dataset.feature=item.key;box.checked=!!item.enabled;label.append(box,document.createTextNode(item.label));$('manager-features-list').append(label);}featuresLoaded=true;}
     if(!quizLoaded){await loadQuiz();quizLoaded=true;}
+    await loadPrizes();
     $('manager-tick').textContent='最近刷新 '+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
   }catch(e){$('manager-storage').textContent=e.message;}finally{loading=false;}}
   async function mutate(path,body,messageId){if(busy)return;busy=true;const host=$(messageId);host.textContent='正在保存…';try{const data=await api(path,body);host.textContent='操作成功';await load();return data;}catch(e){host.textContent=e.message+'；未自动重试，请先核对当前状态。';}finally{busy=false;}}
@@ -203,6 +204,40 @@
       actionTd.append(btn);tr.append(actionTd);tbody.append(tr);
     }
   }
+  // 实物奖品：每次刷新更新库存表与中奖记录；表单只在首次载入或保存成功后回填，避免覆盖正在编辑的草稿。
+  let prizeItems=[],prizeFormFilled=false;
+  const channelText={explore:'探索开箱',hammer:'J 命中'};
+  function cell(row,text){const td=document.createElement('td');td.textContent=String(text);row.append(td);}
+  function renderPrizes(p){
+    prizeItems=p.items||[];
+    $('prize-summary').textContent=`总库存 ${p.totals.stock} · 已发出 ${p.totals.claimed} · 剩余 ${p.totals.remaining} · 探索概率 ${p.chances.explore} · J 概率 ${p.chances.hammer}`+((p.chances.explore>0||p.chances.hammer>0)&&p.totals.remaining>0?'':'（当前不会发放）');
+    $('prize-items-table').replaceChildren();
+    for(const i of prizeItems){const row=document.createElement('tr');cell(row,i.name);cell(row,i.stock);cell(row,i.claimed);cell(row,i.remaining);$('prize-items-table').append(row);}
+    $('prize-claims').replaceChildren();
+    for(const c of p.claims||[]){const row=document.createElement('tr');cell(row,formatTime(c.at));cell(row,c.playerName||'');cell(row,c.empNo||'—');cell(row,c.prizeName);cell(row,channelText[c.channel]||c.channel);$('prize-claims').append(row);}
+    if(!prizeFormFilled){
+      $('prize-items').value=prizeItems.map(i=>`${i.name},${i.stock}`).join('\n');
+      $('prize-chance-explore').value=p.chances.explore;$('prize-chance-hammer').value=p.chances.hammer;
+      $('prize-hammer-target').value=p.hammerLimits.perTargetDaily;$('prize-hammer-daily').value=p.hammerLimits.dailyCap;
+      prizeFormFilled=true;
+    }
+  }
+  async function loadPrizes(){try{const data=await api('prizes');if(data&&data.prizes)renderPrizes(data.prizes);}catch(e){$('prize-summary').textContent='奖品池载入失败：'+e.message;}}
+  function prizeForm(){
+    const byName=new Map(prizeItems.map(i=>[i.name,i.id]));
+    const items=String($('prize-items').value||'').split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
+      const m=line.match(/^(.+?)[,，]\s*(\d+)$/);if(!m)throw Error(`无法识别：「${line}」，格式应为「名称,库存」`);
+      const name=m[1].trim();return {...(byName.has(name)?{id:byName.get(name)}:{}),name,stock:Number(m[2])};
+    });
+    return {items,chances:{explore:Number($('prize-chance-explore').value),hammer:Number($('prize-chance-hammer').value)},
+      hammerLimits:{perTargetDaily:Number($('prize-hammer-target').value),dailyCap:Number($('prize-hammer-daily').value)}};
+  }
+  $('prize-save').onclick=async()=>{
+    let body;try{body=prizeForm();}catch(e){$('prize-message').textContent=e.message;return;}
+    if(!confirm('确认保存奖品配置？立即生效；已中奖记录不受影响。'))return;
+    const result=await mutate('prizes',body,'prize-message');
+    if(result&&result.prizes){prizeFormFilled=false;renderPrizes(result.prizes);$('prize-message').textContent='奖品配置已保存';}
+  };
   async function loadQuiz(){
     try{
       const r=await api('quiz');

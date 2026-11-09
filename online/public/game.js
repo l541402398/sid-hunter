@@ -228,6 +228,27 @@
 
   function selfId() { return me ? me.id : -1; }
   function selfPlayer() { return players.find(p => p.id === selfId()) || null; }
+  // 实物奖品：服务端已锁定给本人，这里只做掉落动画与顶栏「我的奖品」展示（名称一律走 textContent）。
+  function updatePrizeChip() {
+    const chip = $('prize-chip'), name = me && me.prize ? String(me.prize.name || '') : '';
+    if (!chip) return;
+    if (chip.hidden !== !name) chip.hidden = !name;
+    const node = $('prize-name');
+    if (node && node.textContent !== name) node.textContent = name;
+  }
+  function showPrizeDrop(prize) {
+    if (!prize || !prize.name) return;
+    if (me) me = { ...me, prize: { name: prize.name, channel: prize.channel, at: Date.now() } };
+    updatePrizeChip();
+    const drop = document.createElement('div');
+    drop.className = 'prize-drop';
+    drop.setAttribute('role', 'status');
+    const icon = document.createElement('span'); icon.className = 'prize-drop-icon'; icon.textContent = '🎁';
+    const text = document.createElement('span'); text.textContent = `恭喜！获得实物奖品「${prize.name}」（已锁定给你）`;
+    drop.append(icon, text);
+    document.body.append(drop);
+    setTimeout(() => drop.remove(), 4200);
+  }
   function showToast(message) {
     const toast = $('copy-toast');
     clearTimeout(toastTimer); toast.textContent = message; toast.hidden = false;
@@ -1055,7 +1076,7 @@
     LOOT.open({
       containerId: container.id,
       containerName: container.container ? container.container.name : (container.label || '容器'),
-      api, floorFields, commandId, showToast,
+      api, floorFields, commandId, showToast, onPrize: showPrizeDrop,
       onResult: (exploration, score) => {
         if (exploration) me = { ...me, exploration };
         if (typeof score === 'number') me = { ...me, score };
@@ -1548,6 +1569,7 @@
       const chipsText = String(Number(me?.npcExchange?.exploredCount) || 0); // 顶栏「探索」：今日已探索容器数
       if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
     }
+    updatePrizeChip();
   }
   function formatDuration(ms) {
     const total = Math.max(0, Math.floor(ms / 1000)), hh = Math.floor(total / 3600), mm = Math.floor((total % 3600) / 60), ss = total % 60;
@@ -1743,6 +1765,7 @@
       const chipsText = String(Number(me?.npcExchange?.exploredCount) || 0); // 顶栏「探索」：今日已探索容器数
       if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
     }
+    updatePrizeChip();
     const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
     if (sig !== nearbySig) {
       nearbySig = sig;
@@ -2034,6 +2057,7 @@
         if (result.games) me = { ...me, games: result.games };
       }
       if (typeof result.score === 'number') me = { ...me, score: result.score };
+      if (result.ok && result.prize) showPrizeDrop(result.prize);
       combatResult = result.ok
         ? `${result.resultText || '已互动'}（无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营）`
         : (result.error || '互动被拒绝');
@@ -4067,6 +4091,7 @@
   async function sendAction(kind) {
     if (!me || finished || gameClosed || operationModalOpen()) return;
     const r = await api('/api/action', { kind }).catch(() => ({ ok: false, status: 0 }));
+    if (r.ok && r.prize) showPrizeDrop(r.prize);
     if (r.ok || r.auth === false) { actionToast.text = ''; return; }
     if (r.status !== 401 && r.status !== 0) return; // 冷却 / 空中 / 硬控 / 已结束：静默
     const msg = r.status === 401 ? '连接身份已失效，请重新加入。' : '网络暂时不稳定。';

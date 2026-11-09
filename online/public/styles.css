@@ -13,3 +13,23 @@
 @import url("styles/shellmap.css");
 /* 需求①/③：独立空间提示条 + 搜打撤物品格面板（新增分区统一追加在末尾） */
 @import url("styles/loot.css");
+
+/* 实物奖品：掉落动画（方案 §九：奖品直接锁定给触发玩家，无需捡取） */
+.prize-chip { background: #fff4d6; color: #7a4b00; }
+.prize-drop {
+  position: fixed; left: 50%; top: 18%; z-index: 9999; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 12px;
+  background: #fff8e6; color: #5a3600; border: 2px solid #f0b429; box-shadow: 0 8px 24px rgba(0,0,0,.25);
+  font-weight: 700; pointer-events: none; animation: prize-drop 4.2s ease-out forwards;
+}
+.prize-drop-icon { font-size: 28px; animation: prize-bounce .6s ease-out 3; }
+@keyframes prize-drop {
+  0% { opacity: 0; transform: translate(-50%, -120px); }
+  12% { opacity: 1; transform: translate(-50%, 0); }
+  18% { transform: translate(-50%, -10px); }
+  24% { transform: translate(-50%, 0); }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, 0); }
+}
+@keyframes prize-bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) { .prize-drop, .prize-drop-icon { animation: none; } }

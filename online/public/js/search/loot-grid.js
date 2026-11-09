@@ -54,6 +54,7 @@
       floorFields: options.floorFields,
       commandId: options.commandId,
       onResult: options.onResult || (() => {}),
+      onPrize: typeof options.onPrize === "function" ? options.onPrize : null,
       toast: options.toast || (() => {}),
       forceMode: options.forceMode,
       questionType: options.questionType,
@@ -209,6 +210,7 @@
       els.start.hidden = true;
       state.mode = r.mode || 'coins';
       if (state.onResult) state.onResult(r.exploration, r.score);
+      if (r.prize && state.onPrize) state.onPrize(r.prize);
 
       if (state.mode === 'empty') {
         els.bar.style.width = '100%';
