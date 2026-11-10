@@ -263,7 +263,7 @@
     return f;
   }
   function operationModalOpen() {
-    return !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
+    return !!$('annual-review-overlay')?.open || !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
   }
   function sendIntent(force) {
     if (operationModalOpen() || elevatorPicker || gameClosed) keys.clear();
@@ -712,6 +712,7 @@
     // blur 与 hidden 连续发生时零意图签名去重；不重发任何换层 POST。
     sendIntent(false); clearPrivate(true); closeExploration(); closeWheel(); closeBadPool();
   }
+  window.addEventListener('annual-review:open',()=>{if(me)clearAllInput();else keys.clear();});
   function select(id) {
     closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
@@ -3877,6 +3878,7 @@
     $('candidate-close').onclick = () => { $('candidates').hidden = true; $('candidates').replaceChildren(); };
   }
   canvas.addEventListener('click', e => {
+    if ($('annual-review-overlay')?.open) return;
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') { canvas.focus(); return; }
     const { x, y } = canvasPoint(e);
     const list = drawList();
@@ -4213,6 +4215,7 @@
     } else showToast(zoneId ? '走到门口按 K 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
   }
   document.addEventListener('keydown', e => {
+    if ($('annual-review-overlay')?.open) return;
     // F1 碰撞调试层：任何时候都可开关，不改变输入/权威状态。
     if (e.key === 'F1') {
       e.preventDefault();

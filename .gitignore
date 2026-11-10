@@ -43,3 +43,11 @@ Singleton*
 /楼层/
 /楼层.zip
 /tools/
+
+# Local annual-review source references and generation scratch files.
+/tmp/
+/sid-hunter-main-ui_assets/juli原图.zip
+/sid-hunter-main-ui_assets/juli原图/
+/sid-hunter-main-ui_assets/首页-JULI形象设计/
+__MACOSX/
+._*

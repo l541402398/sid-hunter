@@ -1,0 +1,184 @@
+/* Honor entries share the existing paper, two-entry page and folio layout. */
+.people-list .person-card {
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+  padding: 10px 0 8px;
+}
+
+.honor-portraits {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.honor-portraits > .portrait-mount {
+  flex: none;
+  width: 122px;
+  margin: 0;
+  padding: 4px 4px 12px;
+}
+
+.honor-portraits > .portrait-mount img {
+  height: 138px;
+}
+
+.has-co-winners .honor-portraits > .portrait-mount {
+  width: 80px;
+  padding: 3px 3px 8px;
+  transform: translateX(-9px) rotate(-3deg);
+}
+
+.has-co-winners .honor-portraits > .portrait-mount:nth-child(2) {
+  transform: translateX(9px) rotate(3deg);
+}
+
+.has-co-winners .honor-portraits > .portrait-mount img {
+  height: 70px;
+}
+
+.has-co-winners .honor-portraits > .portrait-mount::before {
+  top: -5px;
+  height: 9px;
+}
+
+.has-co-winners .honor-portraits > .portrait-mount > span {
+  bottom: 4px;
+  width: 20px;
+  left: calc(50% - 10px);
+}
+
+.people-list .person-content {
+  min-width: 0;
+  align-self: center;
+}
+
+.honor-title {
+  margin: 8px 0 0;
+  color: #966127;
+  font: 700 23px/1.25 var(--serif);
+  letter-spacing: 0.3px;
+  overflow-wrap: break-word;
+}
+
+.honor-winners {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 20px;
+  row-gap: 8px;
+  min-width: 0;
+}
+
+.honor-winner {
+  min-width: 0;
+}
+
+.honor-winner h4 {
+  margin: 0;
+  font: 600 20px/1.3 var(--ui);
+  letter-spacing: 0.5px;
+  color: var(--ink);
+}
+
+.honor-winner .employee-id {
+  margin: 4px 0 0;
+  font: 11px/1.4 var(--ui);
+  color: #947b56;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+
+.people-list .person-metric {
+  margin: 6px 0 0;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+.people-list .person-metric strong {
+  font: 600 48px/1.25 Georgia, 'Times New Roman', serif;
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: -1.2px;
+  color: #a5622a;
+}
+
+.people-list .person-metric span {
+  font: 16px/1.25 var(--ui);
+  color: #967246;
+}
+
+@media (min-width: 1700px) and (min-height: 950px) {
+  .people-list .person-card {
+    grid-template-columns: 132px minmax(0, 1fr);
+    gap: 22px;
+  }
+}
+
+@media (max-height: 800px) {
+  .people-list .person-card {
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 16px;
+    padding: 10px 0 8px;
+  }
+
+  .honor-portraits > .portrait-mount {
+    width: 104px;
+    padding: 3px 3px 10px;
+  }
+
+  .honor-portraits > .portrait-mount img {
+    height: 114px;
+  }
+
+  .has-co-winners .honor-portraits > .portrait-mount {
+    width: 64px;
+    padding: 3px 3px 8px;
+    transform: translateX(-7px) rotate(-3deg);
+  }
+
+  .has-co-winners .honor-portraits > .portrait-mount:nth-child(2) {
+    transform: translateX(7px) rotate(3deg);
+  }
+
+  .has-co-winners .honor-portraits > .portrait-mount img {
+    height: 58px;
+  }
+
+  .honor-title {
+    margin-top: 6px;
+    font-size: 20px;
+    line-height: 1.25;
+  }
+
+  .honor-winners {
+    column-gap: 16px;
+    row-gap: 7px;
+  }
+
+  .honor-winner h4 {
+    font-size: 17px;
+  }
+
+  .honor-winner .employee-id {
+    margin-top: 3px;
+    font-size: 10px;
+  }
+
+  .people-list .person-metric {
+    margin-top: 5px;
+  }
+
+  .people-list .person-metric strong {
+    font-size: 40px;
+    letter-spacing: -0.9px;
+  }
+
+  .people-list .person-metric span {
+    font-size: 14px;
+  }
+}

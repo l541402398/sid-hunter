@@ -4,7 +4,9 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>S-ID：年终生存战 · 局域网联机</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%23432b18'/%3E%3Ctext x='16' y='23' text-anchor='middle' font-family='Georgia' font-size='23' fill='%23e8bd68'%3ES%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles/annual-review.css">
 <!-- world 子模块必须按序先加载，最后 /shared/world.js 聚合为 window.WORLD -->
 <script src="/shared/world/config.js" defer></script>
 <script src="/shared/world/tmj.js" defer></script>
@@ -51,6 +53,7 @@
 <!-- 需求4/5：容器探索面板（空 / 直接得金币 / 答题得金币），必须先于 game.js -->
 <script src="js/search/loot-icons.js" defer></script>
 <script src="js/search/loot-grid.js" defer></script>
+<script src="js/annual-review.js" defer></script>
 <script src="game.js" defer></script>
 </head>
 <body>
@@ -65,7 +68,7 @@
         <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span></div>
       </div>
       <div class="toolbar" aria-label="公共功能">
-        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P" hidden>待加入玩家 <span id="pending-count">—</span></button><button id="rules-toggle" class="icon-only-btn" aria-label="图解游戏规则" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="图解游戏规则（快捷键 H）"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
+        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P" hidden>待加入玩家 <span id="pending-count">—</span></button><button id="rules-toggle" class="icon-only-btn" aria-label="图解游戏规则" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="图解游戏规则（快捷键 H）"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><button id="annual-review-toggle" type="button" aria-haspopup="dialog" aria-controls="annual-review-overlay" aria-expanded="false">年度纪念册</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
         <div class="intel-hub" id="intel-hub" role="group" aria-label="核心线索与公共日志联动区"><span class="clue-chip intel-item" id="clue-next" title="下一次系统公布坏人线索的时间（到点自动同步至坏人线索与公共日志）"><i class="dot amber"></i>下次线索 <b id="clue-next-left">待开启</b><em id="clue-next-at"></em></span><span class="intel-link" aria-hidden="true">▸</span><button id="bad-toggle" class="intel-btn intel-bad-btn" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog" title="查看系统已公布的匿名坏人线索池 (快捷键 C)"><span>🕵️ 坏人线索</span><span id="bad-toggle-label">展开＋</span></button><span class="intel-link" aria-hidden="true">▸</span><button id="logs-toggle" class="intel-btn intel-logs-btn" type="button" aria-label="打开或关闭公共日志" aria-controls="logs" aria-expanded="true" title="查看包含系统线索的公共日志 (快捷键 G)">📜 公共日志</button></div>
         <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="clue-bag" class="score-chip" title="我的今日金币（每日清零）">金币 <b id="chip-count">0</b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)">⛶ 全屏</button></div>
       </div>
@@ -168,6 +171,10 @@
     <script src="js/markup/rules.js"></script>
   <script src="js/markup/join.js"></script>
 </div>
+<dialog id="annual-review-overlay" aria-label="2026 年度纪念册">
+  <iframe id="annual-review-frame" title="年度纪念册，关闭后返回游戏主页"></iframe>
+  <div id="annual-review-fallback" hidden><p>纪念册暂时无法打开，请稍后再试。</p><button id="annual-review-fallback-close" type="button">返回游戏</button></div>
+</dialog>
 </body>
 </html>
 

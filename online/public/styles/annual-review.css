@@ -1,0 +1,60 @@
+/* The book lives above the real game; its styles remain inside the iframe. */
+#annual-review-overlay {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+  border-radius: 0;
+  overflow: hidden;
+  clip-path: none;
+}
+#annual-review-overlay::backdrop {
+  background: #16120ed6;
+  backdrop-filter: blur(7px) saturate(0.65);
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+#annual-review-overlay[data-exiting='true']::backdrop {
+  opacity: 0;
+}
+#annual-review-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color-scheme: light;
+  visibility: hidden;
+}
+#annual-review-overlay[data-ready='true'] #annual-review-frame {
+  visibility: visible;
+}
+#annual-review-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 20px;
+  color: #f4dfb7;
+}
+#annual-review-fallback p {
+  margin: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  #annual-review-overlay::backdrop {
+    transition: none;
+    backdrop-filter: none;
+  }
+}

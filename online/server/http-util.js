@@ -10,6 +10,7 @@ const { PORT, PUBLIC_DIR, TILED_DIR, ALLOWED_EXT, DEV_ENABLED } = require('./con
 const { FLOOR_SCALE } = require('../shared/world/config.js');
 // shared/ 源码树在 online/ 下（本文件在 online/server/，所以上一级）
 const SHARED_DIR = path.join(__dirname, '..', 'shared');
+const ANNUAL_REVIEW_DIR = path.join(__dirname, '..', '..', 'annual-review');
 
 function everyMs(callback, interval) {
   let target = performance.now() + interval;
@@ -94,20 +95,28 @@ function isLoopback(req) {
 }
 
 function staticServe(req, res, pathname) {
-  // public/ 托管；shared/ 源码树只读（两端共用地图真源）；tiled/ 只读（TMJ 运行时 + F1 调试）。
+  // public/ 托管；shared/ 源码树只读（两端共用地图真源）；tiled/ 只读（TMJ 运行时 + F1 调试）；annual-review/ 纪念册只读。
   // 其余路径不可达。
-  const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (relative.includes('..') || path.isAbsolute(relative)) return send(res, 403, { error: 'forbidden' });
+  let decoded;
+  try { decoded = decodeURIComponent(pathname); } catch { return send(res, 400, { error: 'invalid path' }); }
+  const relative = decoded === '/' ? 'index.html' : decoded.replace(/^\/+/, '');
+  if (relative.includes('..') || relative.includes('\\') || relative.includes('\0') || path.isAbsolute(relative)) return send(res, 403, { error: 'forbidden' });
   const isShared = relative === 'shared' || relative.startsWith('shared/');
   const isTiled = relative === 'tiled' || relative.startsWith('tiled/');
-  const base = isShared ? SHARED_DIR : isTiled ? TILED_DIR : PUBLIC_DIR;
-  const sub = isShared ? relative.slice('shared/'.length) : isTiled ? relative.slice('tiled/'.length) : relative;
+  const isAnnualReview = relative === 'annual-review' || relative.startsWith('annual-review/');
+  if (relative === 'annual-review') {
+    res.writeHead(308, { Location: '/annual-review/', 'Cache-Control': 'no-cache' });
+    return res.end();
+  }
+  const base = isShared ? SHARED_DIR : isTiled ? TILED_DIR : isAnnualReview ? ANNUAL_REVIEW_DIR : PUBLIC_DIR;
+  const sub = isShared ? relative.slice('shared/'.length) : isTiled ? relative.slice('tiled/'.length) : isAnnualReview ? relative.slice('annual-review/'.length) || 'index.html' : relative;
   const target = path.join(base, sub);
   if (!target.startsWith(base)) return send(res, 403, { error: 'forbidden' });
-  if (!ALLOWED_EXT.has(path.extname(target).toLowerCase())) return send(res, 404, { error: 'not found' });
+  const extension = path.extname(target).toLowerCase();
+  if (!ALLOWED_EXT.has(extension) && !(isAnnualReview && extension === '.svg')) return send(res, 404, { error: 'not found' });
   fs.readFile(target, (error, data) => {
     if (error) return send(res, 404, { error: 'not found' });
-    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.tmj': 'application/json; charset=utf-8', '.tsj': 'application/json; charset=utf-8', '.json': 'application/json; charset=utf-8' }[path.extname(target)] || 'application/octet-stream';
+    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.tmj': 'application/json; charset=utf-8', '.tsj': 'application/json; charset=utf-8', '.json': 'application/json; charset=utf-8' }[extension] || 'application/octet-stream';
     // 与浏览器共享地图倍数（见文件头注释）；只改这一份响应，磁盘源码保持原样。
     const body = relative === 'shared/world/config.js'
       ? Buffer.from(`window.__SID_FLOOR_SCALE__=${FLOOR_SCALE};\n` + data.toString('utf8'), 'utf8')

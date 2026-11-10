@@ -40,12 +40,14 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# 服务端运行时只需要这两个目录：
+# 服务端运行时需要以下三个目录：
 # - online/  服务端 + 客户端静态资源 + shared 世界数据
 # - tiled/   TMJ 地图源（server/config.js 以 ../../tiled 相对路径只读托管）
+# - annual-review/ 年度纪念册弹窗，嵌入游戏主页
 # 目录层级必须与仓库一致，相对路径依赖不可拆散。
 COPY online/ ./online/
 COPY tiled/  ./tiled/
+COPY annual-review/ ./annual-review/
 
 # SQLite 数据目录：归属 node 用户，供挂卷持久化
 RUN mkdir -p /app/online/.data && chown -R node:node /app

@@ -35,3 +35,8 @@ online/*results*.json
 online/*report*.json
 
 node_modules/
+tmp/
+annual-review/tests/
+annual-review/serve.cjs
+annual-review/scripts/
+mock/

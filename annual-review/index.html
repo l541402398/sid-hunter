@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>我的2026 · 一册同行的时光</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='5' y='2' width='23' height='28' rx='2' fill='%23744222'/%3E%3Cpath d='M9 2v28M12 6h12v20H12z' stroke='%23e8be6c' fill='none'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="ornaments.css" />
+    <link rel="stylesheet" href="honors.css" />
+    <script src="people.mock.js" defer></script>
+    <script src="content.js" defer></script>
+    <script src="art.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="lobby">
+      <canvas id="office-scene" width="1440" height="900" aria-hidden="true"></canvas>
+      <header class="lobby-header">
+        <a href="#" class="lobby-brand" id="home-link"><span>✦</span> 我的2026</a
+        ><span>年度记忆馆</span><button data-open-review>翻开年度纪念册 ↗</button>
+      </header>
+      <main class="lobby-intro">
+        <p>JULI & YOU · 2026</p>
+        <h1>每一段同行，<br />都值得珍藏。</h1>
+        <p>回望这一年，看看身边的伙伴，也看看努力的自己。</p>
+        <button class="gold-button" data-open-review>打开年度纪念册 <span>→</span></button>
+      </main>
+      <footer class="lobby-footer">
+        <span>晨光溪谷厅 · 年度记忆馆</span><span>OUR YEAR, OUR STORY.</span>
+      </footer>
+    </div>
+    <dialog
+      class="reader"
+      id="review-dialog"
+      aria-labelledby="reader-title"
+      aria-describedby="reader-description"
+    >
+      <header class="reader-header">
+        <div>
+          <span class="tiny-star">✦</span>
+          <h2 id="reader-title">2026 年度纪念册</h2>
+        </div>
+        <button id="close-review" class="close-reader" aria-label="关闭年度纪念册">×</button>
+      </header>
+      <p class="sr-only" id="reader-description">
+        翻开纪念册，阅读开篇寄语、榜样人物与个人回顾。点击左页向前翻、右页向后翻，也可使用左右方向键和章节书签；开篇继续向前翻可合上封面。关闭或按Esc将合书退出，下次从头开启。
+      </p>
+      <div class="book-stage" id="book-stage" data-mode="cover" data-busy="false">
+        <div class="book-aura" aria-hidden="true"></div>
+        <div id="fireflies" class="fireflies" aria-hidden="true"></div>
+        <div class="volume" id="volume">
+          <div class="backing backing-right" aria-hidden="true">
+            <div class="binding"></div>
+            <div class="paper-edges"></div>
+          </div>
+          <div class="backing backing-left" id="left-backing" aria-hidden="true">
+            <div class="binding"></div>
+            <div class="paper-edges"></div>
+          </div>
+          <div class="spread" id="spread" hidden>
+            <section class="paper-page paper-left" id="left-page" aria-label="左页"></section>
+            <section class="paper-page paper-right" id="right-page" aria-label="右页"></section>
+            <button
+              class="page-corner page-corner-left"
+              id="corner-previous"
+              aria-label="翻到上一组双页"
+              title="上一组 · ←"
+            ></button
+            ><button
+              class="page-corner page-corner-right"
+              id="corner-next"
+              aria-label="翻到下一组双页"
+              title="下一组 · →"
+            ></button>
+          </div>
+          <div class="book-gutter" aria-hidden="true"></div>
+          <div class="hard-cover" id="hard-cover">
+            <div class="cover-face cover-front" id="cover-front">
+              <span class="cover-monogram" aria-hidden="true">CQRD</span>
+              <div class="cover-spine" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="cover-border" aria-hidden="true"></div>
+              <i class="metal-corner metal-tl" aria-hidden="true"></i
+              ><i class="metal-corner metal-tr" aria-hidden="true"></i
+              ><i class="metal-corner metal-bl" aria-hidden="true"></i
+              ><i class="metal-corner metal-br" aria-hidden="true"></i>
+              <svg class="cover-vine cover-vine-top" viewBox="0 0 210 150" aria-hidden="true"></svg
+              ><svg
+                class="cover-vine cover-vine-bottom"
+                viewBox="0 0 210 150"
+                aria-hidden="true"
+              ></svg>
+              <p class="cover-overline">我的2026 · 年度珍藏</p>
+              <div class="cover-emblem" aria-hidden="true">✦</div>
+              <p class="cover-year" aria-label="2026年">2026</p>
+              <h3>一册同行的时光</h3>
+              <div class="cover-rule" aria-hidden="true"><span></span>✧<span></span></div>
+              <p class="cover-subtitle">回望闪光的伙伴<br />也珍藏，认真走过这一年的你。</p>
+              <div class="cover-mascot">
+                <i class="mascot-ground" aria-hidden="true"></i
+                ><canvas
+                  class="juli-portrait"
+                  width="360"
+                  height="290"
+                  role="img"
+                  aria-label="轻轻摆动的公司吉祥物黄色 JULI"
+                ></canvas
+                ><span>JULI 陪你翻开回忆</span>
+              </div>
+              <button class="gold-button cover-start" id="start-review">
+                开启年度回忆 <span>→</span>
+              </button>
+              <p class="cover-edition">OUR YEAR · OUR STORY</p>
+              <span class="cover-ribbon" aria-hidden="true">✦</span>
+            </div>
+            <div
+              class="cover-face cover-inside paper-page paper-left"
+              id="cover-inside"
+              aria-hidden="true"
+              inert
+            ></div>
+          </div>
+          <div class="turning-leaf" id="turning-leaf" hidden aria-hidden="true" inert>
+            <div class="leaf-face leaf-front paper-page" id="leaf-front"></div>
+            <div class="leaf-face leaf-back paper-page" id="leaf-back"></div>
+          </div>
+        </div>
+        <nav class="chapter-bookmarks" id="chapter-bookmarks" aria-label="纪念册章节" hidden>
+          <button data-chapter="foreword"><span>01</span>开篇寄语</button
+          ><button data-chapter="people"><span>02</span>榜样人物</button
+          ><button data-chapter="personal"><span>03</span>我的2026</button
+          ><button data-chapter="ending"><span>✦</span>写在最后</button>
+        </nav>
+      </div>
+      <footer class="reader-controls" id="reader-controls">
+        <div class="open-footer" id="open-footer" hidden>
+          <div class="page-navigation">
+            <button class="nav-arrow" id="previous-page" aria-label="向前翻页">←</button>
+            <div class="page-status">
+              <span id="chapter-title"></span><small id="page-progress"></small>
+            </div>
+            <button class="nav-arrow" id="next-page" aria-label="向后翻页">→</button>
+          </div>
+          <span class="keyboard-hint">← → 翻页<span> · </span>Esc 退出</span>
+        </div>
+      </footer>
+      <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" id="reader-status"></p>
+    </dialog>
+  </body>
+</html>
