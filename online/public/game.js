@@ -4166,8 +4166,6 @@
   };
   document.addEventListener('pointercancel', clearAllInput, true);
   const isTyping = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || (document.activeElement && document.activeElement.isContentEditable);
-  // 挥锤额外放行按钮与链接：空格要能正常激活焦点里的按钮，不被游戏劫持。
-  const isActionTarget = () => /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(document.activeElement && document.activeElement.tagName) || !!(document.activeElement && document.activeElement.isContentEditable);
   // 同一条中文原因只弹一次，避免按住键时刷屏。
   const actionToast = { text: '' };
   async function sendAction(kind) {
@@ -4285,15 +4283,15 @@
       if (e.code === 'KeyC') { e.preventDefault(); $('bad-toggle')?.click(); return; }
     }
     // K 场景交互（原 E）/ J 敲（幽灵 J 吓人）：服务端权威，这里只提交意图。
-    // K 走「就近场景交互」仲裁序列（含进/出房间、乘电梯、搜箱/NPC/玩家档案），不受 isActionTarget 限制；
-    // J 只负责手持木锤的无伤害敲击，焦点在按钮/链接上时让给原生 space/enter 激活。
+    // K 走「就近场景交互」仲裁序列（含进/出房间、乘电梯、搜箱/NPC/玩家档案）；
+    // J 只负责手持木锤的无伤害敲击；上方 isTyping 已过滤输入框，按钮/链接焦点不拦截字母 J。
     if (e.code === 'KeyK') {
       e.preventDefault(); if (e.repeat) return;
       interactNearest();
       return;
     }
     if (e.code === 'KeyJ') {
-      e.preventDefault(); if (e.repeat || isActionTarget()) return;
+      e.preventDefault(); if (e.repeat) return;
       if (me && !me.alive) sendAction('scare');
       else attack();
       return;

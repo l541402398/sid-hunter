@@ -47,6 +47,7 @@ const pending = new Map(),
   errors = [],
   failedResources = [],
   inputRequests = [],
+  actionRequests = [],
   passed = [],
   exitTraces = [];
 const call = (method, params = {}) =>
@@ -301,6 +302,20 @@ async function gameControls() {
     );
   }
 }
+async function attackWithRestoredFocus(label) {
+  assert.equal(await evaluate('document.activeElement.id'), 'annual-review-toggle', label);
+  await wait('!document.getElementById("attack-button").disabled');
+  const before = await evaluate('fetch("/api/state").then(r=>r.json()).then(s=>s.me.combat)');
+  const baseline = actionRequests.length;
+  await key('j', 'KeyJ');
+  await wait(
+    `fetch("/api/state").then(r=>r.json()).then(s=>s.me.combat.attackUntil>${before.attackUntil} && s.me.combat.lastAttackAt>${before.lastAttackAt})`
+  );
+  assert.equal(actionRequests.slice(baseline).filter(({ path }) => path === '/api/attack').length, 1,
+    label + ': J did not submit one real attack');
+  assert.equal(await evaluate('document.activeElement.id'), 'annual-review-toggle',
+    label + ': J moved focus away from the restored button');
+}
 
 try {
   let available = false;
@@ -343,17 +358,18 @@ try {
       if (response.status >= 400 && !path.startsWith('/api/'))
         failedResources.push({ url: response.url, status: response.status });
     }
-    if (
-      message.method === 'Network.requestWillBeSent' &&
-      new URL(message.params.request.url).pathname === '/api/input'
-    ) {
+    if (message.method === 'Network.requestWillBeSent') {
+      const path = new URL(message.params.request.url).pathname;
+      if (!['/api/input', '/api/attack', '/api/action'].includes(path)) return;
       let payload;
       try {
         payload = JSON.parse(message.params.request.postData || '{}');
       } catch {
         payload = { raw: message.params.request.postData };
       }
-      inputRequests.push({ time: Date.now(), payload });
+      const request = { time: Date.now(), payload };
+      if (path === '/api/input') inputRequests.push(request);
+      else actionRequests.push({ ...request, path });
     }
   };
   await call('Page.enable');
@@ -432,6 +448,7 @@ try {
 
   await check('Keyboard focus on the host modal cannot operate the game beneath it', async () => {
     const baseline = inputRequests.length;
+    const actionBaseline = actionRequests.length;
     await evaluate(
       'document.getElementById("annual-review-overlay").tabIndex=-1;document.getElementById("annual-review-overlay").focus()'
     );
@@ -456,6 +473,7 @@ try {
       true
     );
     assert.equal(await hostOpen(), true);
+    assert.equal(actionRequests.length, actionBaseline, 'J escaped the review modal');
     assert(
       inputRequests
         .slice(baseline)
@@ -471,21 +489,19 @@ try {
       await geometry('1440 open');
       await capture('integration-03-open-1440.png');
       await traceExit('Escape', '1440 initial Escape');
+      assert.equal(await evaluate('document.activeElement.id'), 'annual-review-toggle');
       await capture('integration-02-home-1440.png');
     }
   );
-  await check(
-    'The original game toolbar and real keyboard shortcuts work after closing',
-    gameControls
-  );
 
   await check(
-    'A joined player stops moving while reading and keeps the same game session after closing',
+    'J works with restored button focus after initial and later closes, and reading blocks game actions',
     async () => {
       await evaluate(
         'document.getElementById("nickname").value="预览检查";document.getElementById("join-form").requestSubmit()'
       );
       await wait('document.getElementById("join-page").hidden');
+      await attackWithRestoredFocus('First automatic review close');
       const player = await evaluate(
         'fetch("/api/state").then(r=>r.json()).then(s=>{const p=s.players.find(p=>p.id===s.me.id);return{id:p.id,x:p.x,y:p.y};})'
       );
@@ -515,6 +531,13 @@ try {
           .some(({ payload }) => !payload.up && !payload.down && !payload.left && !payload.right),
         'Opening the book did not release the held movement key'
       );
+      const actionBaseline = actionRequests.length;
+      await key('j', 'KeyJ');
+      await evaluate('document.getElementById("annual-review-overlay").focus()');
+      await key('j', 'KeyJ');
+      await delay(150);
+      assert.equal(actionRequests.length, actionBaseline,
+        'J submitted an attack/action while the joined player was reading');
       await traceExit('Escape', 'joined player Escape');
       await call('Input.dispatchKeyEvent', {
         type: 'keyUp',
@@ -527,8 +550,13 @@ try {
         await evaluate('fetch("/api/state").then(r=>r.json()).then(s=>s.me.id)'),
         player.id
       );
+      await attackWithRestoredFocus('Manually reopened review close');
       await capture('integration-07-joined-game-1440.png');
     }
+  );
+  await check(
+    'The original game toolbar and real keyboard shortcuts work after closing',
+    gameControls
   );
 
   await check(
@@ -608,6 +636,7 @@ try {
         errors,
         failedResources,
         inputRequests,
+        actionRequests,
         messages: await evaluate('window.__integrationMessages'),
         exitTraces
       },
@@ -632,6 +661,7 @@ try {
           errors,
           failedResources,
           inputRequests,
+          actionRequests,
           exitTraces,
           state
         },
