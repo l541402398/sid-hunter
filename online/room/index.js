@@ -726,9 +726,10 @@ function createRoom(options = {}) {
       : null;
     return { sidReveals, eliminatedBy };
   }
-  function privateProjection(p) {
+  function privateProjection(p, opts) {
     const t = now();
-    syncRoom(t);
+    // 推流路径（streamSnapshot）已在本 tick 统一 syncRoom 过一次，这里跳过，避免 300 人时变成 O(n²)。
+    if (!(opts && opts.skipSync)) syncRoom(t);
     syncCharges(p, t);
     ensureScoreState(p);
     const histMap = room.historicalScores || {};
@@ -845,7 +846,7 @@ function createRoom(options = {}) {
       lod: LOD_ENABLED || undefined,
       // roster 只在可见性分层启用时才下发，保持默认快照形状不变（既有测试按形状做深比较）。
       roster: (AOI_ENABLED || SKINS_SPLIT || LOD_ENABLED || fogActive) && (++room._snapNo || 0) % 20 === 0
-        ? room.players.map(p => ({ id: p.id, name: p.name, score: p.score, alive: p.alive, faction: p.faction }))
+        ? room.players.map(p => ({ id: p.id, name: p.name, score: room.finished ? p.score : 0, alive: p.alive }))
         : undefined,
       skins: (SKINS_SPLIT && room._snapNo % 20 === 0)
         ? Object.fromEntries(room.players.map(p => [p.id, { colors: p.colors, traits: p.traits }]))
@@ -861,6 +862,213 @@ function createRoom(options = {}) {
     const p = find(playerId);
     if (!p) return { ok: false, error: 'identity not found' };
     return { ok: true, me: privateProjection(p) };
+  }
+  // ============================================================
+  // 高并发推流快照（仅 SSE 20Hz 推流使用；publicSnapshot / /api/state 语义保持不变）
+  // ============================================================
+  // 300 人同时在线时，旧做法是每位观众每 50ms 各自生成一份含全部 300 人坐标的完整快照（约 185KB），
+  // 服务端每 tick 需要 ~1.5s CPU（预算 50ms），每个浏览器每秒要解析 ~3.7MB JSON —— 两端都会卡死。
+  // 这里分三层削减：
+  //   1) 与观众无关的部分（日志、坏人线索池、排行榜、玩家名录……）每 tick 只算一次、全体共享；
+  //   2) 慢变字段按版本号增量下发：某条连接已拿到同一版本就不再重复发送（客户端缺省即沿用旧值）；
+  //   3) 带坐标的实时 players 只发「同楼层同空间」的人；全员公开档案（无坐标）走 directory，变化时才发。
+  const STREAM_SHARED_MS = 40;
+  let streamShared = null;
+  const streamVersions = Object.create(null);
+  // 名录按条目增量：每条记录改变时打上全局递增序号；连接只补发序号大于自己已收到的条目。
+  // （若整份名录一变就重发，300 人时任何人乘个电梯/上下线都会让全员各收一次 ~90KB。）
+  const directoryState = { seq: 0, roundId: null, byId: new Map() };
+  // 名录已经带了的静态公开字段（name/colors/dept/deliveryGroup/traits/sid）不进实时 players，
+  // 客户端按 id 从名录合并回来。其余字段与 publicProjection 逐项一致（坐标保留 1 位小数），
+  // 且取值等于 STREAM_DEFAULTS 的字段直接省略（绝大多数人大部分时间都没在挨锤/被眩晕），
+  // 客户端用同一份默认值补齐。改这里必须同步改 game.js 的 STREAM_DEFAULTS。
+  const STREAM_DEFAULTS = { alive: true, truce: false, protected: false, online: true, score: 0, zoneId: null,
+    lastAttackAt: 0, stunUntil: 0, freezeUntil: 0, visible: false, bumps: 0, bumpUntil: 0, swingAt: 0, hitAt: 0,
+    frightUntil: 0, scareAt: 0, frightAt: 0, lastAttackDirection: 'right' };
+  function streamProjection(p, seen, showScore, t) {
+    const c = p.combat;
+    const full = {
+      id: p.id,
+      alive: p.alive,
+      truce: !p.alive,
+      protected: !!(p.protectUntil && t < p.protectUntil),
+      online: p.online,
+      score: showScore ? p.score : 0,
+      x: Math.round(p.x * 10) / 10,
+      y: Math.round(p.y * 10) / 10,
+      floorId: p.floorId,
+      zoneId: p.zoneId || null,
+      spriteFacing: p.spriteFacing,
+      facing: { x: c.facing.x, y: c.facing.y },
+      lastAttackAt: c.lastAttackAt,
+      lastAttackFacing: { x: c.lastAttackFacing.x, y: c.lastAttackFacing.y },
+      lastAttackDirection: c.lastAttackDirection,
+      stunUntil: Math.max(c.stunUntil || 0, p.stunUntil || 0),
+      freezeUntil: c.freezeUntil,
+      visible: seen,
+      bumps: seen ? Math.min(p.bumps.length, A.maxBumps) : 0,
+      bumpUntil: seen ? p.bumpMax : 0,
+      swingAt: seen ? p.lastSwingAt : 0,
+      hitAt: seen ? p.lastHitAt : 0,
+      frightUntil: seen ? p.frightUntil : 0,
+      scareAt: seen ? p.scareAt : 0,
+      frightAt: seen ? p.frightAt : 0
+    };
+    const out = {};
+    for (const key in full) {
+      const v = full[key];
+      if (key in STREAM_DEFAULTS && (v === STREAM_DEFAULTS[key] || (v == null && STREAM_DEFAULTS[key] === 0))) continue;
+      out[key] = v;
+    }
+    return out;
+  }
+  function directoryEntry(p, t) {
+    return {
+      id: p.id,
+      name: p.name,
+      alive: p.alive,
+      truce: !p.alive,
+      protected: !!(p.protectUntil && t < p.protectUntil),
+      online: p.online,
+      // 与 publicProjection 一致：进行中只有本人能看到自己的分数（本人分数走实时 players / me）。
+      score: room.finished ? p.score : 0,
+      colors: p.colors,
+      dept: p.dept || null,
+      deliveryGroup: p.deliveryGroup || null,
+      traits: Object.fromEntries(Object.keys(p.traits).map(k => [k, p.traitPublic[k] ? p.traits[k] : WORLD.MASK])),
+      sid: p.sid.segments.map((s, i) => p.sid.revealed[i] ? s : WORLD.MASK).join('-')
+    };
+  }
+  function syncDirectory(t) {
+    if (directoryState.roundId !== room.roundId) {
+      directoryState.roundId = room.roundId; directoryState.byId.clear();
+    }
+    const alive = new Set();
+    for (const p of room.players) {
+      alive.add(p.id);
+      const entry = directoryEntry(p, t), json = JSON.stringify(entry);
+      const prev = directoryState.byId.get(p.id);
+      if (!prev || prev.json !== json) directoryState.byId.set(p.id, { entry, json, seq: ++directoryState.seq });
+    }
+    for (const id of directoryState.byId.keys()) if (!alive.has(id)) directoryState.byId.delete(id);
+  }
+  function streamSharedPart(t) {
+    if (streamShared && t >= streamShared.at && t - streamShared.at < STREAM_SHARED_MS && streamShared.roundId === room.roundId
+      && streamShared.finished === room.finished) return streamShared;
+    checkFinish(t);
+    syncRoom(t);
+    if (room.finished && t !== finishedExpiryAt) {
+      for (const p of room.players) expireBumps(p, t);
+      finishedExpiryAt = t;
+    }
+    updateGlassDoors(t);
+    minigames.tick();
+    const values = {
+      ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
+      historicalRanking: Array.isArray(room.historicalRanking) ? room.historicalRanking.map(r => ({ ...r })) : [],
+      rankingAchievement: room.rankingAchievement ? room.rankingAchievement.map(r => ({ ...r })) : null,
+      achievementLeaders: room.players.slice()
+        .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
+        .slice(0, 10)
+        .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, points: (p.achievements && p.achievements.points) || 0, alive: p.alive })),
+      rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs, speed: WORLD.SPEED },
+      floorList: WORLD.floorOptions(),
+      features: { ...room.features },
+      badSlots: anonymousBadSlots(),
+      logs: room.logs.slice(),
+      config: { chargeIntervalMs: room.chargeIntervalMs, tmj: !!(WORLD.TMJ && WORLD.TMJ.isEnabled()) }
+    };
+    syncDirectory(t);
+    const fields = {};
+    for (const [key, value] of Object.entries(values)) {
+      const json = JSON.stringify(value);
+      const prev = streamVersions[key];
+      if (!prev || prev.json !== json) streamVersions[key] = { json, ver: (prev ? prev.ver : 0) + 1 };
+      fields[key] = { json, ver: streamVersions[key].ver };
+    }
+    // 按「楼层|空间」分组：每位观众只遍历自己那一组，而不是全部 300 人。
+    const groups = new Map();
+    for (const p of room.players) {
+      const key = p.floorId + '|' + (p.zoneId || '');
+      let list = groups.get(key);
+      if (!list) groups.set(key, list = []);
+      list.push(p);
+    }
+    streamShared = { at: t, roundId: room.roundId, finished: room.finished, fields, groups,
+      // 每人每 tick 只序列化一次（镜头内/镜头外两种变体），再按观众拼接。
+      projJson: new Map(),
+      aliveCount: room.players.filter(p => p.alive).length };
+    return streamShared;
+  }
+  function cachedProjectionJson(shared, p, seen, t) {
+    let entry = shared.projJson.get(p.id);
+    if (!entry) shared.projJson.set(p.id, entry = { seen: null, unseen: null });
+    const slot = seen ? 'seen' : 'unseen';
+    if (entry[slot] === null) entry[slot] = JSON.stringify(streamProjection(p, seen, room.finished, t));
+    return entry[slot];
+  }
+  // 生成一帧推流（已序列化的 JSON 字符串）。conn：每条 SSE 连接各自持有的状态
+  // （已收到的慢变字段版本 versions、名录序号 dirSeq、上一份 me），首帧传空对象即可拿到全量。
+  function streamFrame(viewerId, conn) {
+    const t = now();
+    const shared = streamSharedPart(t);
+    const viewer = find(viewerId);
+    if (!viewer) return null;
+    if (!conn) conn = {};
+    if (!conn.versions) conn.versions = Object.create(null);
+    const camX = cameraXOf(viewer);
+    const fog = !viewer.zoneId && WORLD.FLOOR_FOG && WORLD.FLOOR_FOG[viewer.floorId] ? WORLD.FLOOR_FOG[viewer.floorId] : null;
+    const parts = [JSON.stringify(streamProjection(viewer, true, true, t))];
+    for (const p of shared.groups.get(viewer.floorId + '|' + (viewer.zoneId || '')) || []) {
+      if (p.id === viewer.id) continue;
+      if (fog && Math.hypot(p.x - viewer.x, p.y - viewer.y) > fog.radius) continue;
+      parts.push(cachedProjectionJson(shared, p, visibleTo(viewer, camX, p), t));
+    }
+    const head = {
+      type: 'snapshot',
+      scope: 'floor',
+      serverTime: t,
+      roundId: room.roundId,
+      finished: room.finished,
+      availability: room.accessClosed || '',
+      pausedAt: room.pausedAt || 0,
+      daily: room.daily || null,
+      finishReason: room.finishReason || null,
+      glassDoors: WORLD.floorById(viewer.floorId).glassDoors.map(d => ({ id: d.id, open: !!room.glassDoors[viewer.floorId][d.id].open })),
+      aliveCount: shared.aliveCount,
+      totalPlayers: room.players.length,
+      nextClueAt: Number(room.nextClueAt) || 0
+    };
+    let json = JSON.stringify(head).slice(0, -1) + ',"players":[' + parts.join(',') + ']';
+    for (const [key, field] of Object.entries(shared.fields)) {
+      if (conn.versions[key] === field.ver) continue;
+      json += ',' + JSON.stringify(key) + ':' + field.json;
+      conn.versions[key] = field.ver;
+    }
+    // 名录：新连接/新一局给全量 directory，之后只给变化过的条目 directoryPatch。
+    if (conn.dirRound !== room.roundId || !conn.dirSeq) {
+      json += ',"directory":[' + [...directoryState.byId.values()].map(d => d.json).join(',') + ']';
+      conn.dirRound = room.roundId; conn.dirSeq = directoryState.seq;
+    } else if (directoryState.seq > conn.dirSeq) {
+      const patch = [];
+      for (const d of directoryState.byId.values()) if (d.seq > conn.dirSeq) patch.push(d.json);
+      if (patch.length) json += ',"directoryPatch":[' + patch.join(',') + ']';
+      conn.dirSeq = directoryState.seq;
+    }
+    // 私密 me 只在内容变化时下发（客户端缺省沿用上一份）；首帧必带，且至少每 20 帧（约 1 秒）
+    // 强制带一次，兜底客户端本地对 me 做过的乐观修改。
+    const meJson = JSON.stringify(privateProjection(viewer, { skipSync: true }));
+    conn.meAge = (conn.meAge || 0) + 1;
+    if (conn.meJson !== meJson || conn.meAge >= 20) {
+      json += ',"me":' + meJson;
+      conn.meJson = meJson; conn.meAge = 0;
+    }
+    return json + '}';
+  }
+  // 对象形式（测试/调试用），语义与 streamFrame 相同。
+  function streamSnapshot(viewerId, conn) {
+    const json = streamFrame(viewerId, conn);
+    return json === null ? null : JSON.parse(json);
   }
   function ack(playerId, eventIds, interaction) {
     const ids = new Set(Array.isArray(eventIds) ? eventIds : []);
@@ -1063,8 +1271,14 @@ function createRoom(options = {}) {
   function doSpy() { return reject('公开身份码技能已取消'); }
   function doProbe() { return reject('调查属性技能已取消'); }
   function doKill() { return reject('单独击杀操作已取消'); }
+  // 北京时间日期键。syncRoom 每次都会对全部玩家调用（300 人时每秒数十万次），
+  // 而 toISOString 很贵：按「北京日序号」缓存，同一天内只做一次整数除法。
+  let dayKeyCacheNo = NaN, dayKeyCacheStr = '';
   function accuseDayKey(t) {
-    return new Date((Number.isFinite(t) ? t : now()) + 8 * 3600000).toISOString().slice(0, 10);
+    const ms = (Number.isFinite(t) ? t : now()) + 8 * 3600000;
+    const dayNo = Math.floor(ms / 86400000);
+    if (dayNo !== dayKeyCacheNo) { dayKeyCacheNo = dayNo; dayKeyCacheStr = new Date(dayNo * 86400000).toISOString().slice(0, 10); }
+    return dayKeyCacheStr;
   }
   function syncDailyEconomy(p, t) {
     if (!p) return;
@@ -2193,7 +2407,7 @@ function createRoom(options = {}) {
     // 独立房间进出与容器探索（服务端权威入口）。
     enterZone, exitZone, searchStart, searchTake, zoneInfo,
     startMinigame, actMinigame, minigameState, quitMinigame,
-    publicSnapshot, privateSnapshot, privateProjection, publicProjection, reset, finish,
+    publicSnapshot, privateSnapshot, privateProjection, publicProjection, streamSnapshot, streamFrame, reset, finish,
     playerBySession, playerByEmpNo, find, lastResultSummary, rules, config: SKILL_CONFIG,
     floorFurniture, floorBlockers, safeLanding,
     // 实物奖品池（管理端配置 / 查看中奖记录）。

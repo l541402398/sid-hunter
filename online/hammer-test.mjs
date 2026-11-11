@@ -244,8 +244,11 @@ try {
     const sC = (snap.players || []).find(p => p.id === idC);
     check('SSE 流里同屏目标带真实锤戏字段', !!sB && sB.bumps > 0 && sB.hitAt > 0, sB && `B.bumps=${sB.bumps} B.hitAt=${sB.hitAt}`);
     // 合并适配：stunUntil 是 main 的公开战斗字段，不做跨层裁剪，这里只校验 dev 的锤戏字段。
-    check('SSE 流里屏幕外目标字段全为 0', !!sC && sC.bumps === 0 && sC.swingAt === 0 && sC.hitAt === 0 && sC.visible === false,
-      sC && `C.bumps=${sC.bumps} C.visible=${sC.visible}`);
+    // 300 人性能改造后：SSE 推流只下发同楼层同空间的实时坐标（跨层的人只出现在无坐标的名录里），
+    // 且取默认值（0/false）的字段会省略、由客户端补齐。所以跨层的 C 要么根本不在推流里，要么字段全为 0。
+    const zero = v => v === undefined || v === 0;
+    check('SSE 流里屏幕外目标字段全为 0', !sC || (zero(sC.bumps) && zero(sC.swingAt) && zero(sC.hitAt) && !sC.visible),
+      sC ? `C.bumps=${sC.bumps} C.visible=${sC.visible}` : 'C 不在推流（跨层裁剪）');
   }
 
   // ---------- 13. visible 布尔 + 相机窗口裁剪（把推算变成断言）----------

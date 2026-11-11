@@ -107,14 +107,17 @@
       y: spanH <= viewH ? Math.round((minY + maxY - viewH) / 2) : clamp(focusY - viewH / 2, minY, maxY - viewH)
     };
   }
+  // 只在内容真正变化时才写 DOM：这些函数每帧都会被调用，重复写同值也会让浏览器每帧重算样式与布局。
+  function setText(node, text) { if (node && node.textContent !== text) node.textContent = text; }
+  function setProp(node, prop, value) { if (node && node[prop] !== value) node[prop] = value; }
   function syncZoneBanner() {
     const banner = $('zone-banner'), name = $('zone-banner-name');
     if (!banner || !name) return;
-    banner.hidden = !zoneId;
-    if (zoneId) name.textContent = `${floorId}F · ${zoneName}`;
+    setProp(banner, 'hidden', !zoneId);
+    if (zoneId) setText(name, `${floorId}F · ${zoneName}`);
     const chip = $('zone-name'), coord = $('coordinate');
-    if (chip) chip.textContent = zoneId ? zoneName : floorName;
-    if (coord) coord.textContent = zoneId ? `${floorId}F · ${zoneName}` : `${floorId}F / 7F`;
+    setText(chip, zoneId ? zoneName : floorName);
+    setText(coord, zoneId ? `${floorId}F · ${zoneName}` : `${floorId}F / 7F`);
   }
   loadFloorLocal(1);
   // 互动、结束条件、计分与转盘全部读服务端共享配置（window.WORLD），客户端不新增硬编码数值。
@@ -212,6 +215,22 @@
   let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
   let wheelSpinFlight = null, wheelResult = '';
   let playerCache = new Map(), skinCache = new Map(), rosterCache = [];
+  // directory：全员公开档案（无坐标，变化时才由推流下发）；players：同层同空间的实时坐标。
+  // everyone()：名单、搜索、目标档案、排行用的合并视图——同层玩家用实时数据覆盖名录条目。
+  let directory = [], directoryById = new Map(), everyoneCache = null;
+  // 推流省略的默认值字段（必须与服务端 room/index.js 的 STREAM_DEFAULTS 一致）。
+  const STREAM_DEFAULTS = Object.freeze({ alive: true, truce: false, protected: false, online: true, score: 0, zoneId: null,
+    lastAttackAt: 0, stunUntil: 0, freezeUntil: 0, visible: false, bumps: 0, bumpUntil: 0, swingAt: 0, hitAt: 0,
+    frightUntil: 0, scareAt: 0, frightAt: 0, lastAttackDirection: 'right' });
+  function everyone() {
+    if (everyoneCache) return everyoneCache;
+    if (!directory.length) return (everyoneCache = players);
+    const live = new Map(players.map(p => [p.id, p]));
+    const merged = directory.map(d => live.get(d.id) || d);
+    const known = new Set(directory.map(d => d.id));
+    for (const p of players) if (!known.has(p.id)) merged.push(p);
+    return (everyoneCache = merged);
+  }
   let rulesInfo = null, finishReason = '', rankingList = null, historicalRanking = [], achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
   // 下一次「系统公布线索」的服务端时间戳（0 = 本场没有下一次）。只用来显示倒计时，
   // 不含任何线索内容，所以放在公共快照里也不构成泄露。
@@ -471,17 +490,28 @@
     finished = !!s.finished;
     gameClosed = s.availability || '';
     gamePausedAt = Number(s.pausedAt) || 0;
-    $('game-availability').hidden = !gameClosed;
-    $('game-availability').textContent = gameClosed;
+    setProp($('game-availability'), 'hidden', !gameClosed);
+    setText($('game-availability'), gameClosed);
     if (gameClosed && keys.size) { keys.clear(); sendIntent(false); }
     if (s.rules) rulesInfo = s.rules;
     nextClueAt = Number(s.nextClueAt) || 0;
-    rankingList = Array.isArray(s.ranking) ? s.ranking : null;
-    historicalRanking = Array.isArray(s.historicalRanking) ? s.historicalRanking : [];
-    achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
-    achievementLeaders = Array.isArray(s.achievementLeaders) ? s.achievementLeaders : [];
+    // 推流快照（scope:'floor'）对慢变字段做增量下发：字段缺省 = 与上一帧相同，必须沿用旧值；
+    // 完整快照（/api/state）则总是带齐全部字段，按原语义覆盖。
+    const delta = s.scope === 'floor';
+    if (!delta || 'ranking' in s) rankingList = Array.isArray(s.ranking) ? s.ranking : null;
+    if (!delta || 'historicalRanking' in s) historicalRanking = Array.isArray(s.historicalRanking) ? s.historicalRanking : [];
+    if (!delta || 'rankingAchievement' in s) achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
+    if (!delta || 'achievementLeaders' in s) achievementLeaders = Array.isArray(s.achievementLeaders) ? s.achievementLeaders : [];
     if (typeof s.finishReason === 'string') finishReason = s.finishReason;
     if (Array.isArray(s.logs)) logs = s.logs;
+    // 全员公开名录（无坐标）：推流只发同层玩家的实时坐标，名单/搜索/目标档案改由名录兜底。
+    // 推流里先给全量 directory，之后只给变化条目 directoryPatch。
+    if (Array.isArray(s.directory)) { directory = s.directory; directoryById = new Map(directory.map(d => [d.id, d])); }
+    else if (!delta) { directory = []; directoryById = new Map(); }
+    if (Array.isArray(s.directoryPatch) && s.directoryPatch.length) {
+      for (const d of s.directoryPatch) directoryById.set(d.id, d);
+      directory = [...directoryById.values()];
+    }
     // LOD/skins merge: keep entities that are missing from this frame (far ring is 5Hz).
     if (s.skins) for (const [sid, v] of Object.entries(s.skins)) skinCache.set(Number(sid), v);
     if (Array.isArray(s.roster)) rosterCache = s.roster;
@@ -490,15 +520,21 @@
       players = [...playerCache.values()].map(pp => (pp.colors ? pp : Object.assign({}, pp, skinCache.get(pp.id) || {})));
     } else {
       players = s.players || [];
+      // 推流里的实时 players 省略了名录已有的静态字段（姓名/颜色/属性/身份码/组织）以及取默认值的字段，
+      // 按 id 从名录合并回来，再用 STREAM_DEFAULTS 补齐（与服务端 room/index.js 同名常量保持一致）。
+      if (delta) players = players.map(pp => (pp.colors ? Object.assign({}, STREAM_DEFAULTS, pp) : Object.assign({}, STREAM_DEFAULTS, directoryById.get(pp.id) || {}, pp)));
       playerCache = new Map(players.map(pp => [pp.id, pp]));
       if (skinCache.size) players = players.map(pp => (pp.colors ? pp : Object.assign({}, pp, skinCache.get(pp.id) || {})));
     }
-    badPoolAvailable = Array.isArray(s.badSlots);
-    badSlots = badPoolAvailable ? s.badSlots : [];
-    renderBadPool();
+    everyoneCache = null;
+    if (!delta || 'badSlots' in s) {
+      badPoolAvailable = Array.isArray(s.badSlots);
+      badSlots = badPoolAvailable ? s.badSlots : [];
+      renderBadPool();
+    }
     // 对抗中/休战按服务端全量计数：迷雾层只下发附近玩家，不能拿过滤后的名单去数。
     aliveCount = typeof s.aliveCount === 'number' ? s.aliveCount : players.filter(p => p.alive).length;
-    const totalPlayers = rosterCache.length || players.length;
+    const totalPlayers = typeof s.totalPlayers === 'number' ? s.totalPlayers : (rosterCache.length || players.length);
     outCount = Math.max(0, totalPlayers - aliveCount);
     if (s.me && s.me.id !== undefined) {
       // The first snapshot after (re)connecting carries everything queued while offline.
@@ -513,6 +549,10 @@
       if (me.skills.action) me = { ...me, legacy: true, skills: me.faction === 'bad'
         ? { spy: me.skills.probe, kill: me.skills.action }
         : { probe: me.skills.probe, accuse: me.skills.action } };
+    }
+    // 推流的 me 只在变化时下发：楼层/空间对账必须每帧都用当前 me 跑一遍，不能只在收到新 me 那一帧跑，
+    // 否则换层确认恰好落在过渡状态切换之前时，后续帧再也不会收敛。
+    if (me && me.id !== undefined) {
       // 权威楼层采纳：非过渡期间若服务端楼层与本地不同（例如重连、被动换层、换层结果未确认后
       // 权威对账），整层原子切换。UNCONFIRMED/FAILED_SOURCE 在对账成立后收敛回 IDLE。
       if (floorFlight && floorFlight.submitted && me.floorId === floorFlight.targetFloorId &&
@@ -550,7 +590,7 @@
     for (const id of renderMap.keys()) {
       if (!activePlayerIds.has(id)) renderMap.delete(id);
     }
-    if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
+    if (selectedId !== null && !everyone().some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
     if ((!$('roster').hidden || !$('pending-players').hidden) && me && !pendingFlight && Date.now() >= pendingNextCheck) {
       refreshPendingPlayers();
     }
@@ -737,10 +777,12 @@
     if ($('roster').hidden) return;
     const query = $('search').value.trim().toLowerCase();
     // 20Hz position snapshots must not replace a button between pointerdown/pointerup.
-    const sig = JSON.stringify([query, selectedId, players.map(({ x, y, ...p }) => p), pendingData, pendingFlight]);
+    // 签名只取名单行真正会显示/搜索的字段：300 人时不能把每帧都变的战斗/坐标字段拿来序列化比较。
+    const all = everyone();
+    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.sid, p.traits, p.colors, p.dept, p.deliveryGroup]), pendingData, pendingFlight]);
     if (sig === lastRosterSig) return;
     lastRosterSig = sig;
-    const result = players.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
+    const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
     $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的已登录玩家</p>';
     bindRows($('roster-items'));
     renderRosterUnjoined(query);
@@ -783,7 +825,8 @@
   }
   function renderLogs() {
     const mine = me ? [me.id, me.name] : null;
-    $('log-count').textContent = logs.length;
+    const logCountText = String(logs.length), logCountNode = $('log-count');
+    if (logCountNode.textContent !== logCountText) logCountNode.textContent = logCountText;
     // 常驻栏只在公开日志或本人标记变化时更新，避免20Hz刷新打断阅读与滚动。
     const sig = JSON.stringify([mine, logs]);
     if (sig === lastLogSig) return;
@@ -813,17 +856,18 @@
     syncLogsScrollButton();
   }
   function renderPublic() {
-    $('alive-count').textContent = aliveCount;
-    $('out-count').textContent = outCount;
-    $('player-count').textContent = `${players.length} 位玩家 · 服务端权威${finished ? ' · 游戏已结束' : ''}`;
-    $('roster-count').textContent = players.length;
+    setText($('alive-count'), String(aliveCount));
+    setText($('out-count'), String(outCount));
+    const headcount = everyone().length;
+    setText($('player-count'), `${headcount} 位玩家 · 服务端权威${finished ? ' · 游戏已结束' : ''}`);
+    setText($('roster-count'), String(headcount));
     renderRoster(); renderLogs();
   }
   window.addEventListener('sid-character-assets-ready', () => {
     lastRosterSig = ''; lastTargetSig = '';
     renderRoster(); if (selected()) renderTarget();
   });
-  function selected() { return selectedId === null ? null : players.find(p => p.id === selectedId) || null; }
+  function selected() { return selectedId === null ? null : everyone().find(p => p.id === selectedId) || null; }
   function syncTarget() {
     const p = selected();
     const sig = p ? JSON.stringify([(({ x, y, ...profile }) => profile)(p), isInviteable(p), me?.games?.rpsPending?.id || null, me?.games?.rpsResult?.id || null]) : '';
@@ -1085,7 +1129,7 @@
     $('copy-toast').hidden = true; $('copy-toast').textContent = ''; clearTimeout(toastTimer);
     sessionToken = null; devCsrf = null;
     localStorage.removeItem('sid_session_token'); localStorage.removeItem('sid_lan');
-    players = []; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
+    players = []; directory = []; directoryById = new Map(); everyoneCache = null; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
     badSlots = []; badPoolAvailable = false; lastBadPoolSig = '';
     $('bad-slots').hidden = true; $('bad-toggle').setAttribute('aria-expanded', 'false');
     $('bad-toggle-label').textContent = '展开＋'; renderBadPool();
@@ -1217,8 +1261,8 @@
   // ============================================================
   function updateBuffHUD() {
     const host = $('buff-bar'); if (!host) return;
-    host.replaceChildren();
-    host.hidden = true;
+    if (host.childElementCount) host.replaceChildren();
+    setProp(host, 'hidden', true);
   }
   let npcExchangeSig = '';
   function npcExchangeConfigList() {
@@ -1242,7 +1286,7 @@
   }
   function targetPlayersWithHiddenTrait() {
     if (!me) return [];
-    return players.filter(p => p.alive && p.id !== me.id && Object.keys(traitNames).some(k => !p.traits || p.traits[k] === MASK));
+    return everyone().filter(p => p.alive && p.id !== me.id && Object.keys(traitNames).some(k => !p.traits || p.traits[k] === MASK));
   }
   function publishedBadClueOptions() {
     const opts = [];
@@ -1706,10 +1750,10 @@
   function syncTimeLeft() {
     const node = $('time-left'); if (!node) return;
     const endsAt = rulesInfo && rulesInfo.endsAt;
-    if (!endsAt) { node.textContent = finished ? '已结束' : '--:--'; }
+    if (!endsAt) { setText(node, finished ? '已结束' : '--:--'); }
     else {
       const left = endsAt - serverNow();
-      node.textContent = left <= 0 ? (finished ? '已结束' : '00:00:00') : formatDuration(left);
+      setText(node, left <= 0 ? (finished ? '已结束' : '00:00:00') : formatDuration(left));
     }
     syncNextClue();
   }
@@ -1721,26 +1765,26 @@
     const chip = $('clue-next'), label = $('clue-next-left'), at = $('clue-next-at');
     if (!chip || !label) return;
     // 核心情报联动区常驻展示「下次线索 ▸ 坏人线索 ▸ 公共日志」：未开启/已结束时显示对应状态文案，保持三者视觉串联。
-    chip.hidden = false;
+    setProp(chip, 'hidden', false);
     if (finished) {
-      label.textContent = '已结束';
-      if (at) at.textContent = '';
+      setText(label, '已结束');
+      if (at) setText(at, '');
       lastClueBatchSig = '';
       return;
     }
     if (!nextClueAt) {
-      label.textContent = '待开启';
-      if (at) at.textContent = '';
+      setText(label, '待开启');
+      if (at) setText(at, '');
       lastClueBatchSig = '';
       return;
     }
     const left = nextClueAt - serverNow();
-    if (left <= 0) { label.textContent = '即将公布'; }
+    if (left <= 0) { setText(label, '即将公布'); }
     else {
       const total = Math.ceil(left / 1000), mm = Math.floor(total / 60), ss = total % 60;
-      label.textContent = `${String(mm).padStart(2, '0')}分${String(ss).padStart(2, '0')}秒`;
+      setText(label, `${String(mm).padStart(2, '0')}分${String(ss).padStart(2, '0')}秒`);
     }
-    if (at) at.textContent = '';
+    if (at) setText(at, '');
     // 系统线索条目变化 = 刚刚公布过一轮；给胶囊一次高亮，让玩家知道倒计时被重置了。
     const batchSig = String(logs.filter(l => l.type === 'systemClue').length) + '|' + (logs.find(l => l.type === 'systemClue')?.time || '');
     if (lastClueBatchSig && batchSig !== lastClueBatchSig) {
@@ -1759,7 +1803,7 @@
   }
   function rankingRowHTML(entry, index) {
     const rank = entry.rank != null ? entry.rank : index + 1;
-    const p = entry.id != null ? players.find(pl => pl.id === entry.id) : players.find(pl => pl.name === entry.name);
+    const all = everyone(), p = entry.id != null ? all.find(pl => pl.id === entry.id) : all.find(pl => pl.name === entry.name);
     const name = entry.name || (p ? p.name : '玩家');
     const out = entry.alive === false ? '<span class="out-label">休战</span>' : '';
     const daysBadge = entry.days ? `<span class="ranking-days-badge">${entry.days}天</span>` : '';
@@ -1853,7 +1897,7 @@
   }
   function renderFinish() {
     const overlay = $('finish-overlay'); if (!overlay) return;
-    const sig = JSON.stringify([finishReason, rankingList, me?.settlementReport, me?.alive, players.map(p => [p.id, p.name, p.score || 0, p.alive])]);
+    const sig = JSON.stringify([finishReason, rankingList, me?.settlementReport, me?.alive, everyone().map(p => [p.id, p.name, p.score || 0, p.alive])]);
     if (sig === lastFinishSig) return;
     lastFinishSig = sig;
     $('finish-reason').textContent = finishReasonText(finishReason);
@@ -1865,7 +1909,7 @@
       return;
     }
     // 对抗中人数降至剩余 100 人（ranking 为 null）：不按分数排名，只展示对抗到最后的玩家。
-    const survivors = players.filter(p => p.alive).sort((a, b) => (b.score || 0) - (a.score || 0));
+    const survivors = everyone().filter(p => p.alive).sort((a, b) => (b.score || 0) - (a.score || 0));
     host.innerHTML = reportHTML + '<p class="panel-note">该结束方式不按分数排名，以下为存活到最后的玩家：</p>'
       + (survivors.length
         ? survivors.map(p => `<div class="ranking-row" data-player="${escapeText(p.id)}"><span class="ranking-rank">✓</span>${portrait(p)}<span class="ranking-name">${escapeText(p.name)}</span><span class="ranking-score">${p.score || 0} 分</span></div>`).join('')
@@ -1883,8 +1927,8 @@
   }
   function updateExplorationHUD() {
     const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
-    $('cover-status').textContent = self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入';
-    $('clue-bag').disabled = !me;
+    setText($('cover-status'), self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入');
+    setProp($('clue-bag'), 'disabled', !me);
     const chipNode = $('chip-count');
     if (chipNode) {
       const chipsText = String(Number(me?.npcExchange?.exploredCount) || 0); // 顶栏「探索」：今日已探索容器数
@@ -1911,11 +1955,11 @@
       }
       for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
     }
-    $('nearby-empty').hidden = nearby.length > 0;
-    $('nearby-empty').textContent = !me ? '加入后靠近容器或 NPC'
+    setProp($('nearby-empty'), 'hidden', nearby.length > 0);
+    setText($('nearby-empty'), !me ? '加入后靠近容器或 NPC'
       : finished ? '游戏已结束，探索已冻结'
           : zoneId ? '靠近容器搜索 · 走到门口按 K 离开房间'
-            : '靠近容器 / NPC / 房间门，按 K 互动（64 像素）';
+            : '靠近容器 / NPC / 房间门，按 K 互动（64 像素）');
   }
   // 就近列表点击与 K 键共用同一套分流逻辑（门 → 容器 → NPC → 玩家档案）。
   function activateNearby(kind, id) {
@@ -2197,14 +2241,14 @@
     const now = serverNow(), button = $('attack-button'), combat = me?.combat;
     const cooldown = combat ? Math.max(0, Math.ceil(((combat.attackUntil || 0) - now) / 1000)) : 0;
     if (button) {
-      button.disabled = !me || finished || selfDisabled() || !!interactionFlight || !!combatFlight || !!gamesFlight || cooldown > 0;
-      button.textContent = cooldown > 0 ? `J · 敲 · 冷却 ${cooldown}s` : 'J · 敲';
+      setProp(button, 'disabled', !me || finished || selfDisabled() || !!interactionFlight || !!combatFlight || !!gamesFlight || cooldown > 0);
+      setText(button, cooldown > 0 ? `J · 敲 · 冷却 ${cooldown}s` : 'J · 敲');
     }
     const selfState = $('self-combat-state');
-    if (selfState) selfState.textContent = !me ? '' : now < (combat?.freezeUntil || 0) ? '你被冻结中 · 暂时无法移动/互动'
-      : now < (combat?.stunUntil || 0) ? '你被僵直中 · 暂时无法移动/互动' : '';
+    setText(selfState, !me ? '' : now < (combat?.freezeUntil || 0) ? '你被冻结中 · 暂时无法移动/互动'
+      : now < (combat?.stunUntil || 0) ? '你被僵直中 · 暂时无法移动/互动' : '');
     const status = $('combat-status');
-    if (status) { status.textContent = combatResult; status.hidden = !combatResult; }
+    if (status) { setText(status, combatResult); setProp(status, 'hidden', !combatResult); }
   }
   $('attack-button').onclick = () => attack();
   $('ranking-toggle').onclick = () => { if ($('ranking').hidden) openRanking(); else closeRanking(); };
@@ -2219,15 +2263,15 @@
     const banner = $('offline-banner'), list = pendingList();
     const digest = me && me.interactionSummary;
     const offlineCount = list.filter(e => offlineEvents.has(e.eventId)).length;
-    if (!list.length && !digest) { banner.hidden = true; banner.textContent = ''; return; }
+    if (!list.length && !digest) { setProp(banner, 'hidden', true); setText(banner, ''); return; }
     if (digest && !list.length) {
-      banner.hidden = false; banner.textContent = '有一份离线私密摘要 · 点击查看';
+      setProp(banner, 'hidden', false); setText(banner, '有一份离线私密摘要 · 点击查看');
       banner.onclick = () => renderSummary(1); return;
     }
-    banner.hidden = false;
-    banner.textContent = offlineCount
+    setProp(banner, 'hidden', false);
+    setText(banner, offlineCount
       ? `离线期间有 ${offlineCount} 条涉及你的事件 · 点击查看详情`
-      : `有 ${list.length} 条涉及你的事件 · 点击查看详情`;
+      : `有 ${list.length} 条涉及你的事件 · 点击查看详情`);
     banner.onclick = () => renderSummary(offlineCount);
   }
   function renderSummary(offlineCount) {
@@ -3670,7 +3714,7 @@
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
     if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
-    if (SCENE && !currentRoom) SCENE.halls(ctx, f, glassDoorStates);
+    if (SCENE && !currentRoom) SCENE.halls(ctx, f, glassDoorStates, frameDt);
     // 需求①：楼层上画出通往各独立房间的门（门牌 + 地面指示灯带），让"哪面墙能进去"一眼可见。
     if (!currentRoom) drawRoomDoors();
     // 电梯地坪、门和提示统一属于场景背景，必须先于人物绘制，不能盖住门前的角色。
@@ -3847,13 +3891,15 @@
   function step(dt) {
     clock += dt;
     const k = 1 - Math.exp(-16 * dt);
+    let moving = false;
     for (const p of players) {
       const r = renderMap.get(p.id); if (!r) continue;
       const dx = p.x - r.x, dy = p.y - r.y;
       r.x += dx * k; r.y += dy * k;
       r.moving = Math.hypot(dx, dy) > 0.6;
-      if (r.moving) r.walk += Math.hypot(dx * k, dy * k);
+      if (r.moving) { r.walk += Math.hypot(dx * k, dy * k); moving = true; }
     }
+    sceneMoving = moving;
     const self = selfPlayer() ? renderMap.get(selfId()) : null;
     const fl = WORLD.floorById(floorId);
     // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
@@ -3872,7 +3918,7 @@
       cameraY = zoneId ? cam.y : clamp(cameraY, -136, Math.max(0, fl.height + 80 - viewH));
       document.body.classList.remove('near-elevator');
     }
-    $('floor-indicator').textContent = `${floorId}F`;
+    setText($('floor-indicator'), `${floorId}F`);
     // 需求①：空间提示条 / 坐标随 zone 变化（房间内显示房间名）。
     syncZoneBanner();
     const tick = Math.floor(serverNow() / 1000);
@@ -3890,9 +3936,24 @@
     updateCombatHUD();
     if (!$('games').hidden) syncGames();
   }
-  let lastNow = performance.now();
+  let lastNow = performance.now(), frameDt = 0.016;
+  // 帧率调度（性能）：整幅画布重绘的光栅成本是常量，挂机时没必要按显示器刷新率（60/144Hz）满速重绘。
+  //   · 有操作/有人在动/换层过渡中：≤60fps（高刷屏也不超过 60）；
+  //   · 静止挂机：30fps（呼吸起伏、火把闪烁、挥锤动画依然连贯）；
+  //   · 窗口失焦（切到别的程序但浏览器仍可见）：10fps。标签页隐藏时浏览器本身会暂停 rAF。
+  // 插值用实际经过的时间推进（step 内 dt 上限 0.2s），所以降帧只影响平滑度，不影响位置正确性。
+  let sceneMoving = false;
+  function frameBudgetMs() {
+    if (typeof document.hasFocus === 'function' && !document.hasFocus()) return 100;
+    const transitioning = floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET';
+    return (keys.size || sceneMoving || transitioning) ? 1000 / 60 : 1000 / 30;
+  }
   function frame(now) {
-    step(Math.max(0, Math.min(0.2, (now - lastNow) / 1000)));
+    requestAnimationFrame(frame);
+    // 留 2ms 余量，避免 60Hz 屏上因 rAF 时间戳抖动被误判为“未到时间”而掉到 30fps。
+    if (now - lastNow < frameBudgetMs() - 2) return;
+    frameDt = Math.max(0, Math.min(0.2, (now - lastNow) / 1000));
+    step(frameDt);
     lastNow = now;
     draw();
     const selfR = selfPlayer() ? renderMap.get(selfId()) : null;
@@ -3902,7 +3963,6 @@
         updateExplorationHUD();
       }
     }
-    requestAnimationFrame(frame);
   }
 
   // ---------- 交互 ----------

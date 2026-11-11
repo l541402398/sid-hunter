@@ -15,8 +15,13 @@ function openStream(req, res, player) {
   // 20Hz snapshots, plus a cheap heartbeat every tick. The heartbeat is what makes a
   // dropped TCP connection visible: a write to a dead socket surfaces the failure, and
   // the sweep below is the deterministic fallback that marks the player offline.
-  const write = payload => { res.write(`data: ${JSON.stringify(payload)}\n\n`); };
-  try { write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me }); } catch { }
+  const write = payload => { res.write(`data: ${typeof payload === 'string' ? payload : JSON.stringify(payload)}\n\n`); };
+  // 每条连接独立记录已下发的慢变字段版本/名录序号/上一份 me（见 room.streamFrame）：重连即新连接，会重新拿到全量。
+  const conn = { versions: Object.create(null) };
+  const frame = () => (typeof ROOM.streamFrame === 'function'
+    ? ROOM.streamFrame(player.id, conn)
+    : { ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
+  try { const first = frame(); if (first) write(first); } catch { }
   const previousEntry = ROOM.streams.get(player.id);
   const entry = { res, lastAck: Date.now(), close };
   ROOM.streams.set(player.id, entry);
@@ -26,8 +31,10 @@ function openStream(req, res, player) {
       if (res.writableEnded || res.destroyed) throw new Error('closed');
       // 慢客户端或后台标签页出现 TCP 发送缓冲积压（writableNeedDrain）时跳过中间快照帧，
       // 防止积压数十帧后一次性爆发投递导致客户端人物瞬移与主线程卡顿。
+      // 跳帧时不生成快照，因此不会把未送达的慢变字段误记为「已下发」。
       if (!res.writableNeedDrain) {
-        write({ ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
+        const payload = frame();
+        if (payload) write(payload);
       }
       entry.lastAck = Date.now();
       res.write(': ping\n\n');
