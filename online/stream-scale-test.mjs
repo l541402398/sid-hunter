@@ -26,9 +26,15 @@ function makeRoom(n) {
   }
   return R;
 }
-const SECRET_KEYS = ['faction', 'hp', 'skills', 'empNo', 'gender', 'sessionId', 'exploration', 'input'];
+const SECRET_KEYS = ['faction', 'skills', 'empNo', 'gender', 'sessionId', 'exploration', 'input'];
 function noSecrets(obj, where) {
   for (const k of SECRET_KEYS) assert.ok(!(k in obj), `${where} 不应包含私密字段 ${k}`);
+}
+function publicHealth(obj, where) {
+  assert.ok(Number.isSafeInteger(obj.maxHp) && obj.maxHp > 0, `${where} maxHp 应为合法公开生命上限`);
+  assert.ok(Number.isSafeInteger(obj.hp) && obj.hp >= 0 && obj.hp <= obj.maxHp,
+    `${where} hp 应在 0..maxHp 内`);
+  noSecrets(obj, where);
 }
 
 await test('推流只带同楼层同空间玩家坐标；名录覆盖全员且无私密字段', () => {
@@ -37,7 +43,7 @@ await test('推流只带同楼层同空间玩家坐标；名录覆盖全员且�
   const s = R.streamSnapshot(viewer.id, {});
   assert.equal(s.scope, 'floor');
   assert.ok(s.players.length > 1);
-  for (const p of s.players) { assert.equal(p.floorId, viewer.floorId); noSecrets(p, 'players'); }
+  for (const p of s.players) { assert.equal(p.floorId, viewer.floorId); publicHealth(p, 'players'); }
   // 取默认值的字段会被省略（客户端用 STREAM_DEFAULTS 补齐），所以 0 分时 score 缺省。
   viewer.score = 7;
   const s2 = R.streamSnapshot(viewer.id, {});
@@ -46,13 +52,33 @@ await test('推流只带同楼层同空间玩家坐标；名录覆盖全员且�
   assert.equal(s.directory.length, 70);
   assert.equal(s.totalPlayers, 70);
   for (const d of s.directory) {
-    noSecrets(d, 'directory');
+    publicHealth(d, 'directory');
     assert.ok(!('x' in d) && !('y' in d), '名录不含坐标');
     assert.match(d.sid, /^[A-Z0-9*]{3}-[A-Z0-9*]{3}-[A-Z0-9*]{3}$/);
     assert.ok(Object.values(d.traits).every(v => v === W.MASK), '未公开属性保持遮罩');
     assert.equal(d.score, 0, '进行中名录不泄露他人分数');
   }
   assert.ok(Array.isArray(s.logs) && Array.isArray(s.badSlots) && s.me && s.me.id === viewer.id, '首帧带齐慢变字段与 me');
+});
+
+await test('生命公开并随损伤和休战同步；阵营与技能仍不进入公共玩家或名录', () => {
+  const R = makeRoom(4), [viewer, target] = R.room.players;
+  target.floorId = viewer.floorId; target.zoneId = viewer.zoneId; target.x = viewer.x; target.y = viewer.y;
+  target.hp = 1;
+  const damaged = R.streamSnapshot(viewer.id, {});
+  for (const list of [damaged.players, damaged.directory]) {
+    const p = list.find(p => p.id === target.id);
+    assert.ok(p, '受伤玩家应同时出现在当前层和名录中');
+    publicHealth(p, 'damaged');
+    assert.equal(p.hp, 1);
+  }
+  target.hp = 0; target.alive = false;
+  const truce = R.publicSnapshot(viewer.id);
+  const p = truce.players.find(p => p.id === target.id);
+  publicHealth(p, 'public snapshot');
+  assert.equal(p.hp, 0);
+  assert.equal(p.alive, false);
+  assert.ok(Object.keys(R.privateSnapshot(viewer.id).me.skills).length > 0, '本人技能投影仍应存在');
 });
 
 await test('慢变字段增量：未变化不重发，变化后只发一次；名录只补变化条目', () => {

@@ -13,6 +13,7 @@
 @import url("styles/shellmap.css");
 /* 需求①/③：独立空间提示条 + 搜打撤物品格面板（新增分区统一追加在末尾） */
 @import url("styles/loot.css");
+@import url("styles/combat.css");
 
 /* 实物奖品：掉落动画（方案 §九：奖品直接锁定给触发玩家，无需捡取） */
 .prize-chip { background: #fff4d6; color: #7a4b00; }

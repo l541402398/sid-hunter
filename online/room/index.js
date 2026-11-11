@@ -28,8 +28,6 @@ const SKINS_SPLIT = process.env.SID_SKINS === '1';
 const LOD_ENABLED = process.env.SID_LOD === '1';
 // AOI 半径（世界像素）：只同步视野附近 ±1 屏的人；纵向按 0.6 收缩（斜俯视）。
 const AOI_RADIUS = Number(process.env.SID_AOI_RADIUS) > 0 ? Number(process.env.SID_AOI_RADIUS) : Math.round(WORLD.VIEW_W / 2);
-// 容器答题会话的闲置过期时间（原 LOOT.SEARCH_CONFIG.sessionTtlMs，数值不变）。
-const SEARCH_SESSION_TTL_MS = 60_000;
 // 金币时代存档迁移：旧快照里的金币余额（exploration.chips）、道具（exploration.items / backpack）与
 // 限时 buff 一律丢弃，不折算成积分（积分版的 score 本身已是权威值）。读取旧存档时调用，幂等。
 function migrateLegacyEconomy(p) {
@@ -48,8 +46,7 @@ function createRoom(options = {}) {
   const wheelRandomInt = options.randomInt || randomInt;
   // 实物奖品池：服务端注入共享池（跨场次 / 重置保留，落盘在 store）；进程内自测未注入时用纯内存池。
   const prizes = options.prizes || createPrizePool({ randomInt: n => wheelRandomInt(n), now: () => now() });
-  // dev 分支并入的可注入随机源：只影响「探查公开哪一项未公开属性」。
-  // 未注入时保持 main 的确定性顺序（第一个未公开项），注入后按注入源随机选择，便于自测。
+  // 自测可注入随机小数源；真人阵营默认使用 crypto 随机数，不从加入序号推定。
   const random = typeof options.random === 'function' ? options.random : null;
   const playConfig = WORLD.PLAY_CONFIG;
   // 结束规则默认取 WORLD.RULES；测试可通过 options.rules 覆盖（如小房间活人阈值）。
@@ -90,15 +87,30 @@ function createRoom(options = {}) {
     // 独立于 processed（技能/J 的成功 nonce 表），reset 清空。
     floorReceipts: new Map(),
     glassDoors: {},
-    // 搜打撤式物品格搜索：会话只在服务端内存里，键 sessionId → {playerId, containerId, floorId, zoneId,
-    // plan, revealed:Set, taken:Set, createdAt, lastAt}。reset 清空。绝不进入公共快照。
+    // 同场答题按玩家/容器保留原题、答案与提交状态；仅写服务端存档，不进入玩家快照。
+    // 键为答题 sessionId；reset 清空，关面板、离线与进程重启不会丢失未完成题。
     searchSessions: new Map(),
     searchSeq: 0,
     roundId: randomUUID()
   };
+  // 本人投影与重开容器只查询其自己的会话，避免高频推流扫描全场所有题目。
+  const quizSessionsByPlayer = new Map();
+  function rememberQuizSession(session) {
+    let sessions = quizSessionsByPlayer.get(session.playerId);
+    if (!sessions) quizSessionsByPlayer.set(session.playerId, sessions = new Map());
+    const previous = sessions.get(session.containerId);
+    if (previous) {
+      // 兼容损坏/旧重复存档时，已提交记录优先，绝不能恢复出第二份领奖机会。
+      if (previous.taken || !session.taken) return;
+      room.searchSessions.delete(previous.id);
+    }
+    sessions.set(session.containerId, session);
+    room.searchSessions.set(session.id, session);
+  }
   // 多日长局恢复：从 SQLite 快照把玩家与会话原样塞回来（NPC 不落盘，重启后由 dev 钩子重新生成）。
   if (options && options.restore) {
     const r = options.restore;
+    if (Number.isSafeInteger(r.initialHp) && r.initialHp >= 1 && r.initialHp <= 20) room.initialHp = r.initialHp;
     if (Array.isArray(r.players) && r.players.length) {
       room.players = r.players.filter(p => p && (!p.npc || r.includeNpcs));
       if (r.includeNpcs) {
@@ -120,6 +132,20 @@ function createRoom(options = {}) {
         p.sessionId = p.sessionId || null;
         if (!room.pending.has(p.id)) room.pending.set(p.id, []);
       }
+      // 题库可能已更新；恢复存档里的完整题目，确保续答仍按当时答案判分。
+      const playerIds = new Set(room.players.map(p => p.id));
+      for (const entry of (Array.isArray(r.searchSessions) ? r.searchSessions : [])) {
+        if (!Array.isArray(entry) || entry.length !== 2) continue;
+        const [id, session] = entry;
+        if (typeof id !== 'string' || !session || session.id !== id || session.mode !== 'quiz' ||
+            !playerIds.has(session.playerId) || typeof session.containerId !== 'string' ||
+            !session.question || !Array.isArray(session.question.options) ||
+            (session.roundId && session.roundId !== room.roundId)) continue;
+        rememberQuizSession({ ...session, roundId: room.roundId });
+        const sequence = /^quiz-(\d+)-/.exec(id);
+        if (sequence) room.searchSeq = Math.max(room.searchSeq, Number(sequence[1]));
+      }
+      if (Number.isSafeInteger(r.searchSeq) && r.searchSeq >= 0) room.searchSeq = Math.max(room.searchSeq, r.searchSeq);
     }
   }
   // 楼层查询：家具/墙体碰撞一律按玩家当前层取，服务端与两端共享同一份世界数据。
@@ -369,6 +395,8 @@ function createRoom(options = {}) {
     for (const p of room.players) for (const skill of Object.values(p.skills || {})) {
       skill.chargeIntervalMs = chargeIntervalFor(p.faction);
     }
+    // 旧存档尚无 maxHp 时使用恢复的场次配置补齐；已有玩家的上限不随配置调整变化。
+    for (const p of room.players) combatHealth(p);
     return {
       initialHp: room.initialHp,
       protectMs: room.protectMs,
@@ -404,15 +432,11 @@ function createRoom(options = {}) {
     if (deliveryGroup) player.deliveryGroup = deliveryGroup;
     return player;
   }
-  // 好人:坏人 ≈ 4:1 随机分配；不按加入顺序暴露身份。
+  // 每位真人独立以 20% 概率成为坏人；首位及重启后新加入者同样随机。
+  // 不用固定五人袋，避免已知前四人身份后可推定第五人；人数比例按活动规模趋近 4:1。
   function assignFaction() {
-    const humans = room.players.filter(p => !p.npc);
-    const bad = humans.filter(p => p.faction === 'bad').length;
-    const total = humans.length + 1;
-    const idealBad = Math.max(1, Math.round(total * ((WORLD.COMBAT && WORLD.COMBAT.factionBadRatio) || 0.2)));
-    if (bad < idealBad) return 'bad';
-    if (bad > idealBad) return 'good';
-    return (random || Math.random)() < ((WORLD.COMBAT && WORLD.COMBAT.factionBadRatio) || 0.2) ? 'bad' : 'good';
+    const ratio = (WORLD.COMBAT && WORLD.COMBAT.factionBadRatio) || 0.2;
+    return (random ? random() : randomInt(1_000_000) / 1_000_000) < ratio ? 'bad' : 'good';
   }
   function join(sessionId, nickname, identity) {
     const empNo = identity && identity.empNo ? String(identity.empNo) : '';
@@ -462,6 +486,7 @@ function createRoom(options = {}) {
       sid: makeSidState(),
       faction,
       hp: room.initialHp,
+      maxHp: room.initialHp,
       alive: true, // false = 休战（仍可探索/答题/J/小游戏/NPC/转盘，不可对抗）
       score: 0,
       joinedAt: t,
@@ -552,6 +577,7 @@ function createRoom(options = {}) {
         sid: makeSidState(),
         faction,
         hp: room.initialHp,
+        maxHp: room.initialHp,
         alive: true,
         score: 0,
         joinedAt: now(),
@@ -669,6 +695,15 @@ function createRoom(options = {}) {
       if (moved > 1e-6) p.spriteFacing = WORLD.spriteDirection(actualDx, actualDy, p.spriteFacing);
     }
   }
+  function combatHealth(p) {
+    if (!Number.isSafeInteger(p.maxHp) || p.maxHp < 1) {
+      const savedHp = Number.isFinite(p.hp) ? Math.max(0, Math.ceil(p.hp)) : 0;
+      p.maxHp = Math.max(room.initialHp, savedHp);
+    }
+    if (!p.alive) p.hp = 0;
+    else p.hp = Math.max(0, Math.min(p.maxHp, Number.isFinite(p.hp) ? Math.floor(p.hp) : p.maxHp));
+    return { hp: p.hp, maxHp: p.maxHp };
+  }
   function publicProjection(p, viewer, camX) {
     const t = now();
     // dev 分支并入：镜头外的肢体互动字段一律归零，visible 区分「裁剪产生的 0」与真实 0。
@@ -676,6 +711,7 @@ function createRoom(options = {}) {
     return {
       id: p.id,
       name: p.name,
+      ...combatHealth(p),
       alive: p.alive,
       truce: !p.alive,
       protected: !!(p.protectUntil && t < p.protectUntil),
@@ -739,7 +775,7 @@ function createRoom(options = {}) {
       name: p.name,
       faction: p.faction,
       sid: p.sid.segments.join('-'),
-      hp: p.hp,
+      ...combatHealth(p),
       alive: p.alive,
       truce: !p.alive,
       protectUntil: p.protectUntil || 0,
@@ -889,6 +925,7 @@ function createRoom(options = {}) {
     const c = p.combat;
     const full = {
       id: p.id,
+      ...combatHealth(p),
       alive: p.alive,
       truce: !p.alive,
       protected: !!(p.protectUntil && t < p.protectUntil),
@@ -926,6 +963,7 @@ function createRoom(options = {}) {
     return {
       id: p.id,
       name: p.name,
+      ...combatHealth(p),
       alive: p.alive,
       truce: !p.alive,
       protected: !!(p.protectUntil && t < p.protectUntil),
@@ -1249,7 +1287,7 @@ function createRoom(options = {}) {
     if (!Number.isSafeInteger(body.expectedFloorRevision) || body.expectedFloorRevision !== p.floorRevision) return '楼层版本不一致，请重新同步';
     return '';
   }
-  const TRUCE_TOAST = '你已进入休战状态，本日不再参与对抗。仍可探索、答题、趣味互动和参加小游戏，继续赢取积分与奖品！';
+  const TRUCE_TOAST = '你已进入休战状态，本场不再参与对抗。仍可探索、答题、趣味互动和参加小游戏，继续赢取积分与奖品！';
   function enterTruce(target, t, meta = null) {
     if (!target || !target.alive) return;
     syncSurvivalScore(target, t);
@@ -1261,7 +1299,7 @@ function createRoom(options = {}) {
     badPool.invalidate();
     room.eliminateEvents += 1;
     // 休战仍可参与猜拳等，不因休战取消挑战（与旧幽灵不同）
-    queueEvent(target.id, { type: 'truce', message: TRUCE_TOAST });
+    queueEvent(target.id, { type: 'truce', message: TRUCE_TOAST, ...combatHealth(target), protectUntil: 0 });
     // 公共日志只报生命/状态变化，不泄露操作者与技能
     log(`${target.name}进入休战状态。`, { subjectPlayerId: target.id });
   }
@@ -1356,7 +1394,7 @@ function createRoom(options = {}) {
       return { truce: true, hp: 0 };
     }
     target.protectUntil = t + room.protectMs;
-    queueEvent(target.id, { type: 'hit', hp: target.hp, protectUntil: target.protectUntil });
+    queueEvent(target.id, { type: 'hit', ...combatHealth(target), protectUntil: target.protectUntil });
     return { truce: false, hp: target.hp };
   }
   function doAccuse(actor, target, t) {
@@ -1383,7 +1421,7 @@ function createRoom(options = {}) {
       enterTruce(actor, t, { byId: actor.id, byName: actor.name, kind: 'selfAccuse' });
       selfTruce = true;
     } else {
-      queueEvent(actor.id, { type: 'selfHit', hp: actor.hp });
+      queueEvent(actor.id, { type: 'selfHit', ...combatHealth(actor), protectUntil: actor.protectUntil || 0 });
     }
     return {
       ok: true, kind: 'accuse',
@@ -1451,7 +1489,7 @@ function createRoom(options = {}) {
     }
     return { ...resolved, serverTime: t, accusedToday: accusedTodayList(actor, t).slice(),
       skills: Object.fromEntries(Object.entries(actor.skills).map(([id, state]) => [id, { ...state }])),
-      hp: actor.hp, alive: actor.alive, protectUntil: actor.protectUntil || 0 };
+      ...combatHealth(actor), alive: actor.alive, protectUntil: actor.protectUntil || 0 };
   }
   function prizeProjection(p) {
     const c = prizes.claimOf(p, room.roundId);
@@ -1459,12 +1497,21 @@ function createRoom(options = {}) {
   }
   function explorationProjection(p) {
     // 金币时代的 chips 已移除（见 migrateLegacyEconomy）；探索投影只含线索与今日已开容器。
-    return { clues: p.exploration.clues.map(c => ({ ...c })), searched: p.exploration.searched.slice() };
+    const pendingQuizContainerIds = [];
+    for (const s of (quizSessionsByPlayer.get(p.id)?.values() || [])) {
+      if (s.roundId === room.roundId && s.playerId === p.id && s.mode === 'quiz' && !s.taken)
+        pendingQuizContainerIds.push(s.containerId);
+    }
+    return { clues: p.exploration.clues.map(c => ({ ...c })), searched: p.exploration.searched.slice(), pendingQuizContainerIds };
   }
   function openContainerForPlayer(actor, container, body, commandId, t) {
     // 已有未完成答题会话：直接复用，避免关闭弹窗后无法继续答题
-    for (const s of room.searchSessions.values()) {
-      if (s.playerId === actor.id && s.containerId === container.id && !s.taken && s.mode === 'quiz') {
+    const existing = quizSessionsByPlayer.get(actor.id)?.get(container.id);
+    if (existing) {
+      const s = existing;
+      if (s.roundId === room.roundId && s.mode === 'quiz') {
+        if (s.taken) return { ok: false, error: '你已经搜索过这个容器，答题已提交', resultText: '答题已提交，不能重复领取积分', exploration: explorationProjection(actor) };
+        s.lastAt = t;
         const pts = Number(s.rewardPoints) || Number(WORLD.SCORE.exploreQuiz) || 2;
         return {
           ok: true,
@@ -1537,10 +1584,11 @@ function createRoom(options = {}) {
     }
     // mode === 'quiz'：触发答题；答对得积分；探索计数在提交答案后增加
     const rewardPoints = Number(explore.quizPoints) || Number(WORLD.SCORE.exploreQuiz) || 2;
-    const question = QUIZ.pickQuizQuestion(wheelRandomInt, allowForceMode ? body && body.questionType : undefined);
+    const question = JSON.parse(JSON.stringify(QUIZ.pickQuizQuestion(wheelRandomInt, allowForceMode ? body && body.questionType : undefined)));
     room.searchSeq += 1;
     const s = {
       id: `quiz-${room.searchSeq}-${actor.id}`,
+      roundId: room.roundId,
       mode: 'quiz',
       playerId: actor.id,
       containerId: container.id,
@@ -1555,7 +1603,7 @@ function createRoom(options = {}) {
       createdAt: t,
       lastAt: t
     };
-    room.searchSessions.set(s.id, s);
+    rememberQuizSession(s);
     const resultText = `开启「${containerName}」触发答题：答对即可获得 ${rewardPoints} 积分！${prizeText}`;
     return {
       ok: true, mode: 'quiz', containerId: container.id, containerName, prize,
@@ -1812,8 +1860,7 @@ function createRoom(options = {}) {
     }
     checkFinish(t, false);
     if (room.pausedAt && !room.finished) return;
-    // 搜索会话按时间过期：玩家中途关页面时，容器不会永久卡在"搜到一半"的状态。
-    expireSearchSessions(t);
+    // 未完成答题在整场内保留；关面板或离线不会让已登记的容器失去续答入口。
     if (room.finished) {
       for (const ch of [...room.challenges.values()]) cancelChallenge(ch, t, '游戏已结束');
       return;
@@ -2223,10 +2270,7 @@ function createRoom(options = {}) {
   }
   function searchSessionFor(actor, sessionId) {
     const s = room.searchSessions.get(String(sessionId || ''));
-    return s && s.playerId === actor.id ? s : null;
-  }
-  function expireSearchSessions(t) {
-    for (const [id, s] of room.searchSessions) if (t - s.lastAt > SEARCH_SESSION_TTL_MS) room.searchSessions.delete(id);
+    return s && s.roundId === room.roundId && s.playerId === actor.id ? s : null;
   }
   function searchStart(sessionId, body) {
     const t = now();
@@ -2262,7 +2306,8 @@ function createRoom(options = {}) {
     const grade = QUIZ.checkQuizAnswer(s.question, body && body.answer);
     if (!grade.valid) return fail(grade.error || '请先选择答案');
     s.taken = true;
-    room.searchSessions.delete(s.id);
+    s.submittedAt = t;
+    s.submittedAnswer = grade.normalized;
     actor.input = { up: false, down: false, left: false, right: false };
     // 答题箱：提交有效答案后计入探索数量（答错也算）
     if (!s.counted) {
@@ -2283,6 +2328,8 @@ function createRoom(options = {}) {
         : (s.question.type === 'judge' ? (grade.correctAnswer === 'T' ? '正确' : '错误') : grade.correctAnswer);
       resultText = `回答错误，未获得积分（正确答案：${ansText}）。`;
     }
+    // 完成记录与题目一起存档；任何刷新/重连重放都不能再次发奖或更换答案。
+    s.result = { correct: grade.correct, points: gainedPoints };
     return {
       ok: true,
       mode: 'quizResult',
@@ -2372,6 +2419,7 @@ function createRoom(options = {}) {
     room.floorReceipts.clear();
     room.glassDoors = {};
     room.searchSessions.clear();
+    quizSessionsByPlayer.clear();
     room.searchSeq = 0;
     badPool.reset(); digest.reset(); finishedExpiryAt = -Infinity;
     room.roundId = randomUUID();

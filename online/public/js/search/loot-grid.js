@@ -74,13 +74,13 @@
     els.summary.replaceChildren();
     els.start.hidden = false;
     els.start.disabled = false;
-    els.start.textContent = '开启容器(K)';
+    els.start.textContent = options.resumeQuiz ? '继续答题(K)' : '开启容器(K)';
     els.take.hidden = true;
     els.take.disabled = true;
     els.take.textContent = '提交答案(K)';
     els.bar.style.width = '0%';
-    els.meta.textContent = '同一容器每人限开启一次 · 随机为空、直接获得积分或答题获得积分';
-    setStatus('正在开启容器…');
+    els.meta.textContent = options.resumeQuiz ? '继续上次未完成的题目 · 本场提交后只结算一次' : '同一容器每场限开启一次 · 未完成题目可随时回来继续';
+    setStatus(options.resumeQuiz ? '正在恢复未完成的题目…' : '正在开启容器…');
     if (options.autoStart !== false) {
       beginSearch();
     }
@@ -189,6 +189,7 @@
 
   async function beginSearch() {
     if (!state || state.busy) return;
+    const own = state;
     state.busy = true;
     els.start.disabled = true;
     setStatus('正在开启容器…');
@@ -201,7 +202,7 @@
       if (state.forceMode) payload.forceMode = state.forceMode;
       if (state.questionType) payload.questionType = state.questionType;
       const r = await state.api('/api/search/start', payload);
-      if (!state) return;
+      if (state !== own) return;
       if (r.status !== 200 || !r.ok) {
         setStatus(r.error || '容器无法开启，请靠近后再试。');
         els.start.hidden = true;
@@ -240,9 +241,9 @@
         els.take.textContent = '提交答案(K)';
       }
     } catch {
-      if (state) setStatus('网络异常，开启容器未确认。');
+      if (state === own) setStatus('网络异常，开启容器未确认。');
     } finally {
-      if (state) state.busy = false;
+      if (state === own) state.busy = false;
     }
   }
 
@@ -253,6 +254,7 @@
 
   async function submitQuizAnswer() {
     if (!state || state.mode !== 'quiz' || !state.sessionId || state.busy || state.done) return;
+    const own = state;
     if (!state.selected.length) {
       setStatus('请先选择答案后再提交');
       return;
@@ -271,7 +273,7 @@
         answer,
         ...state.floorFields()
       });
-      if (!state) return;
+      if (state !== own) return;
       if (r.status !== 200 || !r.ok) {
         setStatus(r.error || '提交答案失败');
         els.take.disabled = false;
@@ -292,12 +294,12 @@
       );
       if (state.onResult) state.onResult(r.exploration, r.score);
     } catch {
-      if (state) {
+      if (state === own) {
         setStatus('网络异常，答题结果未确认。');
         els.take.disabled = false;
       }
     } finally {
-      if (state) state.busy = false;
+      if (state === own) state.busy = false;
     }
   }
 

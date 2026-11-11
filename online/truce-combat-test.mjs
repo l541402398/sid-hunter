@@ -11,8 +11,9 @@ async function test(name, fn) {
   catch (e) { failed++; console.error(`失败 ${name}\n${e.stack}`); }
 }
 
-function fixture(n = 5) {
-  const r = createRoom({ allowForceMode: true });
+function fixture(n = 5, factionRolls = [.1, .99, .99, .99, .1]) {
+  let draw = 0;
+  const r = createRoom({ allowForceMode: true, random: () => factionRolls[draw++ % factionRolls.length] });
   for (let i = 0; i < n; i++) r.join(`s${i}`, `P${i}`);
   return r;
 }
@@ -31,8 +32,9 @@ await test('配置：积分统一、首搜/首游为0、对抗默认生命3', ()
   assert.ok(!WORLD.NPC_EXCHANGE.hideOwnSid);
 });
 
-await test('入场：双方生命相同，各仅一个技能，阵营约4:1', () => {
-  const r = fixture(10);
+await test('入场：双方生命相同、各仅一个技能；独立随机以20%边界分配阵营', () => {
+  const rolls = [.99, .199999, .2, 0, .8, .4, .6, .3, .7, .9];
+  const r = fixture(rolls.length, rolls);
   const humans = r.room.players.filter(p => !p.npc);
   for (const p of humans) {
     assert.equal(p.hp, r.room.initialHp);
@@ -42,8 +44,12 @@ await test('入场：双方生命相同，各仅一个技能，阵营约4:1', ()
     assert.equal(p.skills[keys[0]].maxCharges, 1);
     assert.equal(p.skills[keys[0]].chargesRemaining, 1);
   }
-  const bad = humans.filter(p => p.faction === 'bad').length;
-  assert.ok(bad >= 1 && bad <= 4, `bad=${bad}`);
+  assert.equal(WORLD.COMBAT.factionBadRatio, .2);
+  assert.deepEqual(humans.map(p => p.faction), rolls.map(value => value < .2 ? 'bad' : 'good'));
+  assert.equal(humans.filter(p => p.faction === 'bad').length, 2, '此确定性抽样含两个低于20%的值');
+  assert.equal(fixture(1, [0]).find(0).faction, 'bad', '首位同样可能抽到坏人');
+  assert.ok(fixture(10, [.99]).room.players.every(p => p.faction === 'good'), '每次独立抽样，不按人数强制补坏人');
+  assert.ok(fixture(10, [0]).room.players.every(p => p.faction === 'bad'), '每次独立抽样，不按配额强制改成好人');
 });
 
 await test('指认命中坏人：扣血+10分+保护；同目标当日不可再操作', () => {
@@ -89,6 +95,7 @@ await test('刺杀命中好人 +3；刺同阵营无效果但仍耗次', () => {
   const bad = r.room.players.find(p => p.faction === 'bad');
   const good = r.room.players.find(p => p.faction === 'good');
   const otherBad = r.room.players.find(p => p.faction === 'bad' && p.id !== bad.id);
+  assert.ok(otherBad, '同阵营刺杀场景必须实际覆盖另一位坏人，不能因随机分配而跳过');
   good.x = bad.x; good.y = bad.y;
   const before = bad.score;
   let res = r.useSkill(bad.sessionId, { commandId: nid(), skill: 'assassinate', targetId: good.id });

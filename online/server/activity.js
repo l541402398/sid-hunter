@@ -65,7 +65,8 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   if(session&&!session.settled)room.rules.timeLimitMs=session.endsAt-room.room.startedAt;
   room.setChargeInterval(config.chargeIntervalMs);
   if(typeof room.setCombatConfig==='function')room.setCombatConfig({initialHp:config.initialHp,protectMs:config.protectMs,goodChargeIntervalMs:config.goodChargeIntervalMs,badChargeIntervalMs:config.badChargeIntervalMs});
-  function snapshot(){const r=room.room;return{roundId:r.roundId,startedAt:r.startedAt,players:r.players,sessions:[...r.sessions],features:r.features,
+  function snapshot(){const r=room.room;return{roundId:r.roundId,startedAt:r.startedAt,initialHp:r.initialHp,players:r.players,sessions:[...r.sessions],features:r.features,
+    searchSessions:[...r.searchSessions],searchSeq:r.searchSeq,
     finished:r.finished,finishReason:r.finishReason,lastResult:r.lastResult,ranking:r.ranking,logs:r.logs,eliminateEvents:r.eliminateEvents,pausedAt:r.pausedAt||0};}
   function record(){return{version:3,config,session,planDay,plan,consumed,revision,clueSchedule:{...clueSchedule},liveSnapshot:snapshot()};}
   function block(reason){room.room.accessClosed=reason;for(const p of room.room.players)p.input={up:false,down:false,left:false,right:false};}
@@ -270,7 +271,14 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   function guard(){tick();return room.room.accessClosed||'';}
   block(session?.pausedAt?'本场已暂停':'正在检查场次安排');
   for(const name of ['join','useSkill','performAction','interact','play','attack','floorChange','enterZone','exitZone','searchStart','searchTake','startMinigame','actMinigame','quitMinigame']){
-    const original=room[name];if(typeof original==='function')room[name]=(...args)=>{const reason=guard();return reason?{ok:false,error:reason,closed:true}:original(...args);};
+    const original=room[name];if(typeof original==='function')room[name]=(...args)=>{
+      const reason=guard();if(reason)return{ok:false,error:reason,closed:true};
+      const result=original(...args);
+      // 原题与提交记录同步存档后再确认成功，避免刚关页面/重启就丢题或再次领奖。
+      if(result?.ok&&(result.mode==='quiz'||result.mode==='quizResult')&&!persist())
+        return{ok:false,error,resultText:error,closed:true};
+      return result;
+    };
   }
   const originalIntent=room.setIntent;room.setIntent=(id,input)=>{const reason=guard();if(reason&&input&&['up','down','left','right'].some(k=>input[k]))return false;return originalIntent(id,input);};
   return{tick,state,saveConfig,addNpc,guard,persist,settle,pause,resume,finishSession,startManual,control,openTestSession,isReady:()=>!!store.enabled&&!error};

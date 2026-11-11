@@ -11,7 +11,9 @@ async function test(name, fn) {
   catch (e) { failed++; console.error('FAIL', name, e.stack); }
 }
 function fixture() {
-  const r = createRoom({ random: () => 0.2 });
+  let draw = 0;
+  // 六人对抗夹具显式安排一坏五好，reset后下一名也可用于“新坏人”验证。
+  const r = createRoom({ random: () => draw++ % 6 === 0 ? .1 : .99 });
   for (let i = 0; i < 6; i++) r.join('charge-session-' + i, '测试' + i);
   return r;
 }
@@ -125,6 +127,7 @@ await test('旧 probe/spy/kill 入口拒绝；阵营不能互用；幂等 comman
 });
 
 const source = readFileSync(new URL('./public/game.js', import.meta.url), 'utf8');
+const healthSection = source.slice(source.indexOf('  function healthState('), source.indexOf('  function row('));
 const section = source.slice(source.indexOf('  const secondsLeft ='), source.indexOf('  // Personal privacy choices'));
 function ui(faction = 'good') {
   const elements = new Map();
@@ -139,11 +142,11 @@ function ui(faction = 'good') {
   const env = { me:{id:0,alive:true,faction,skills,accusedToday:[]}, finished:false, gameClosed:'', gamePausedAt:0, now:1000, serverTime:1000,
     privateGeneration:1, sessionGeneration:1, privateOpen:true, privateResult:'', pending:null, selectedId:2,
     target:{id:2,alive:true,sid:'***-***-***',name:'目标',traits:{saying:'***',food:'***',sport:'***'},protected:false},
-    traitNames:{saying:'口头禅',food:'食物',sport:'运动'}, MASK:'***', apiCalls:0,
+    traitNames:{saying:'口头禅',food:'食物',sport:'运动'}, MASK:'***', WORLD, apiCalls:0,
     $:element, holding:()=>env.privateOpen, selected:()=>env.target, serverNow:()=>env.now,
     escapeText:s=>String(s), commandId:()=>String(++seq), api:async()=>{ env.apiCalls++; return{ok:true}; } };
   const context = vm.createContext(env);
-  vm.runInContext(section + '\n globalThis.uiAPI={skillButtonText,skillStatus,renderPrivate,updateSkillStatus,renderConfirmation,commit};', context);
+  vm.runInContext(healthSection + section + '\n globalThis.uiAPI={skillButtonText,skillStatus,renderPrivate,updateSkillStatus,renderConfirmation,commit};', context);
   return {env,api:env.uiAPI,e:element};
 }
 
@@ -205,6 +208,30 @@ await test('结束/休战不显示虚假的恢复倒计时；今日已操作或�
   env.me.accusedToday=[2];api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'今日已操作过');
   env.me.accusedToday=[];env.target.protected=true;api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'目标保护中');
   env.target.protected=false;env.target.alive=false;api.updateSkillStatus();assert.equal(e('accuse').disabled,true,'休战目标不可操作');
+});
+await test('已打开私密面板的生命与保护随快照更新，不重建技能按钮或点击处理器', () => {
+  const {env,api,e}=ui();env.target.hp=3;env.target.maxHp=5;api.renderPrivate();
+  const button=e('accuse'),handler=button.onclick;
+  assert.match(e('private-target-health').innerHTML,/aria-valuenow="3"/);
+  env.target.hp=2;env.target.protected=true;api.updateSkillStatus();
+  assert.match(e('private-target-health').innerHTML,/aria-valuenow="2"/);
+  assert.match(e('private-target-health').innerHTML,/aria-valuemax="5"/);
+  assert.match(e('private-target-health').innerHTML,/data-protected="true"/);
+  assert.equal(e('accuse'),button);assert.equal(button.onclick,handler);
+  assert.equal(button.disabled,true);
+  env.target.hp=0;env.target.alive=false;env.target.protected=false;api.updateSkillStatus();
+  assert.match(e('private-target-health').innerHTML,/aria-valuenow="0"/);
+  assert.match(e('private-target-health').innerHTML,/data-truce="true"/);
+  assert.equal(e('accuse'),button);assert.equal(button.onclick,handler);
+});
+await test('使对方进入休战只提示该操作结果，不误报操作者自己休战', async () => {
+  const {env,api,e}=ui();api.renderPrivate();env.pending={kind:'accuse',target:2};
+  const toasts=[];env.showToast=message=>toasts.push(message);
+  env.api=async()=>({ok:true,serverTime:1000,skills:env.me.skills,hp:3,alive:true,resultText:'指认成功，积分+10，对方进入休战。'});
+  assert.equal(await api.commit(''),true);assert.equal(env.me.alive,true);
+  assert.deepEqual(toasts,['指认成功，积分+10，对方进入休战。']);
+  assert.ok(!toasts.some(text=>text.includes('你已进入休战')));
+  assert.match(e('result-host').innerHTML,/对方进入休战/);
 });
 await test('连续提交只有网络在途锁；成功响应立即更新次数，没有额外冷却', async () => {
   const {env,api,e} = ui(); api.renderPrivate(); env.pending={kind:'accuse',target:2};

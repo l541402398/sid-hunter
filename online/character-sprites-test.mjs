@@ -1,7 +1,7 @@
 // 真渲染模块集成回归：本地PNG解码+内存Canvas。无HTTP/Chrome，不碰真实游戏。
-import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import zlib from 'node:zlib';import {createRequire} from 'node:module';
+import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import zlib from 'node:zlib';import {createRequire} from 'node:module';import {fileURLToPath} from 'node:url';
 const require=createRequire(import.meta.url),{createCharacterRenderer}=require('./public/js/render/characters.js'),WORLD=require('./shared/world.js');
-const ROOT=path.dirname(new URL(import.meta.url).pathname);let passed=0;const test=(s,fn)=>{fn();passed++;console.log('PASS',s);};
+const ROOT=path.dirname(fileURLToPath(import.meta.url));let passed=0;const test=(s,fn)=>{fn();passed++;console.log('PASS',s);};
 function png(file){const b=fs.readFileSync(file);let p=8,w,h,color,depth,raw=[];while(p<b.length){const n=b.readUInt32BE(p),type=b.toString('ascii',p+4,p+8),data=b.subarray(p+8,p+8+n);p+=n+12;if(type==='IHDR'){w=data.readUInt32BE(0);h=data.readUInt32BE(4);depth=data[8];color=data[9];}if(type==='IDAT')raw.push(data);}
  assert.equal(depth,8);assert.ok(color===6||color===2);const channels=color===6?4:3,stride=w*channels,src=zlib.inflateSync(Buffer.concat(raw)),out=new Uint8ClampedArray(w*h*4);let prev=Buffer.alloc(stride);
  const paeth=(a,b,c)=>{const p=a+b-c,pa=Math.abs(p-a),pb=Math.abs(p-b),pc=Math.abs(p-c);return pa<=pb&&pa<=pc?a:pb<=pc?b:c;};
@@ -18,7 +18,17 @@ const env={Image:LocalImage,document:{createElement:t=>{assert.equal(t,'canvas')
 const renderer=createCharacterRenderer(env);assert.equal(await renderer.load(),true);
 const colors=Object.fromEntries(Object.entries(WORLD.PALETTES).map(([k,v])=>[k,v[0]]));const p={x:60,y:90,colors,alive:true,online:true,moving:true,walk:10,spriteFacing:'front'};
 test('有限公开色板一次预烘焙36 atlas，加载事件与重复加载幂等',()=>{assert.equal(renderer.status,'ready');assert.equal(renderer.metrics.tintCache,36);assert.equal(renderer.metrics.pixelScans,36);assert.deepEqual(events,['sid-character-assets-ready']);assert.equal(renderer.load(),renderer.load());});
-test('四向/待机/离线/位移驱动6行走帧正确，静止不继续迈步',()=>{for(const [i,d]of ['front','left','right','back'].entries())assert.equal(renderer.frame({...p,spriteFacing:d}).row,i);assert.equal(renderer.frame({...p,moving:false}).col,0);assert.equal(renderer.frame({...p,online:false}).col,0);assert.equal(renderer.frame({...p,alive:false}).col,0);const cols=new Set();for(let i=0;i<6;i++)cols.add(renderer.frame({...p,walk:(i+.1)*144/6}).col);assert.equal(cols.size,6);});
+test('四向/待机/离线/位移驱动6行走帧正确，静止不继续迈步',()=>{for(const [i,d]of ['front','left','right','back'].entries())assert.equal(renderer.frame({...p,spriteFacing:d}).row,i);assert.equal(renderer.frame({...p,moving:false}).col,0);assert.equal(renderer.frame({...p,online:false}).col,0);const cols=new Set();for(let i=0;i<6;i++)cols.add(renderer.frame({...p,walk:(i+.1)*144/6}).col);assert.equal(cols.size,6);});
+test('休战沿用全部行走帧和步行起伏，离线休战保持待机',()=>{
+  const columns=new Set();
+  for(let i=0;i<6;i++){
+    const player={...p,walk:(i+.1)*144/6};
+    const active=renderer.frame(player,'right',1),truce=renderer.frame({...player,alive:false,truce:true},'right',1);
+    assert.deepEqual(truce,active);columns.add(truce.col);
+  }
+  assert.equal(columns.size,6);
+  assert.equal(renderer.frame({...p,alive:false,truce:true,online:false},'right',1).col,0);
+});
 test('男女形象只由公开发色决定，不读id/姓名/阵营/SID技能等秘密',()=>{for(let hi=0;hi<5;hi++){const safe=new Proxy({colors:{...colors,hair:WORLD.PALETTES.hair[hi]}},{get:(o,k)=>{assert.equal(k,'colors');return o[k];}});assert.equal(renderer.style(safe),hi%2?'female':'male');}});
 test('实际drawBody循环只贴5层，不扫描像素，影像平滑开关恢复',()=>{let n=0;const ctx={imageSmoothingEnabled:true,drawImage(...a){n++;assert.equal(a[3],64);assert.equal(a[4],112);assert.equal(a[7],51.2);assert.ok(Math.abs(a[8]-89.6)<1e-9);assert.ok(Math.abs(a[5]+32*.8-Math.round(p.x))<1e-9);const q={...p,walk:Math.floor((n-1)/5)*.5};assert.ok(Math.abs(a[6]+104*.8-Math.round(q.y)-renderer.bodyBob(q,0))<1e-9);}};const before=renderer.metrics.pixelScans;for(let i=0;i<120;i++)assert.equal(renderer.drawBody(ctx,{...p,walk:i*.5},'left',0),true);assert.equal(n,600);assert.equal(renderer.metrics.pixelScans,before);assert.equal(ctx.imageSmoothingEnabled,true);});
 test('走路每步起伏、站立呼吸起伏，地面影子始终留在脚底不跟着动',()=>{

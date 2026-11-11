@@ -52,7 +52,8 @@
     return Math.round(IDLE_BOB-Math.sin(t*2.6+(Number.isFinite(id)?id*1.9:0))*IDLE_BOB);
   }
   function phaseOf(p){return Math.max(0,Number(p.walk)||0)*(Math.PI*2/STEP_PX);}
-  function walkingOf(p){return !!(p.moving&&p.online!==false&&p.alive!==false);}
+  // 休战只限制对抗；行走仍跟随位移，离线角色才停在待机帧。
+  function walkingOf(p){return !!(p.moving&&p.online!==false);}
   function bodyBob(p,clock){return bobOffset(p,clock,walkingOf(p),phaseOf(p));}
   function frame(p,direction,clock){
     const row=Math.max(0,DIRS.indexOf(direction||p.spriteFacing||'front'));

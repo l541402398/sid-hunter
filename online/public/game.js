@@ -471,7 +471,8 @@
     if (!s || s.type !== 'snapshot') return;
     snapshotGen++;
     if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) {
-      sessionGeneration++; skillFlight = null; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel(); closeGames();
+      notifiedCombatEvents.clear();
+    sessionGeneration++; skillFlight = null; interactionFlight = null; clearPrivate(true); closeExploration(); closeWheel(); closeGames();
       // 身份切换：清空猜拳本地乐观状态与队列，隔离旧响应生成。
       rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
       rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
@@ -486,6 +487,7 @@
       $('pending-count').textContent = '—'; $('pending-items').replaceChildren();
       if ($('roster-unjoined')) $('roster-unjoined').replaceChildren();
       $('pending-summary').textContent = '正在读取本场待加入名单…'; closeInviteDialog();
+      notifiedCombatEvents.clear();
       roundId = s.roundId;
     }
     serverPerfBase = performance.now();
@@ -661,11 +663,30 @@
     const text = shown.slice(0, 2).map(h => `${escapeText(h.label)}：${escapeText(h.text)}`).join(' · ');
     return `<small class="roster-match">${text}${shown.length > 2 ? ` 等${shown.length}项` : ''}</small>`;
   }
+  function healthState(p) {
+    const maxHp = Math.max(1, Math.min(20, Math.round(Number(p?.maxHp) || WORLD.COMBAT?.initialHp || 3)));
+    const hp = Math.max(0, Math.min(maxHp, Math.round(Number(p?.hp) || 0)));
+    return { hp, maxHp, truce: p?.alive === false || !!p?.truce, protected: p?.alive !== false && !!p?.protected };
+  }
+  function healthHTML(p, compact = false) {
+    const state = healthState(p);
+    const cells = Array.from({ length: state.maxHp }, (_, index) =>
+      '<i class="health-cell' + (index < state.hp ? ' filled' : '') + '"></i>').join('');
+    const label = '对抗生命 ' + state.hp + '/' + state.maxHp + (state.truce ? '，休战中' : state.protected ? '，受击保护中' : '');
+    return '<span class="combat-health' + (compact ? ' compact' : '') + '" role="meter" aria-label="' + label +
+      '" aria-valuemin="0" aria-valuenow="' + state.hp + '" aria-valuemax="' + state.maxHp +
+      '" data-hp="' + state.hp + '" data-max-hp="' + state.maxHp + '" data-protected="' + state.protected +
+      '" data-truce="' + state.truce + '"><span class="health-cells" aria-hidden="true">' + cells +
+      '</span><span class="health-value" aria-hidden="true">' + state.hp + '/' + state.maxHp + '</span></span>';
+  }
+  function protectionHTML(p) {
+    return p?.protected && p.alive !== false ? '<span class="protection-tag">受击保护中</span>' : '';
+  }
   function row(p, hits) {
     const tag = !p.alive ? '<span class="out-label">休战</span>'
       : p.id === selfId() ? '<span class="self-label">自己</span>'
         : p.online === false ? '<span class="offline-tag">离线</span>' : '';
-    return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong><small>${sidHTML(p.sid)}</small>${matchHint(hits)}</span>${tag}</button>`;
+    return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong>${healthHTML(p, true)}${matchHint(hits)}</span>${tag}</button>`;
   }
   function bindRows(container) { container.querySelectorAll('[data-player]').forEach(b => b.onclick = () => select(Number(b.dataset.player))); }
   function renderRosterUnjoined(query) {
@@ -781,7 +802,7 @@
     // 20Hz position snapshots must not replace a button between pointerdown/pointerup.
     // 签名只取名单行真正会显示/搜索的字段：300 人时不能把每帧都变的战斗/坐标字段拿来序列化比较。
     const all = everyone();
-    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.sid, p.traits, p.colors, p.dept, p.deliveryGroup]), pendingData, pendingFlight]);
+    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup]), pendingData, pendingFlight]);
     if (sig === lastRosterSig) return;
     lastRosterSig = sig;
     const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
@@ -846,7 +867,7 @@
     // 涉及自己的条目仅对自己高亮：不新增任何信息，只是把已有的公开条目标出来。
     list.innerHTML = chronological.length ? chronological.map(l => {
       const highlight = logHighlightClass(l);
-      return `<li${highlight ? ` class="${highlight}"` : ''}><time>${escapeText(l.time)}</time>${highlight === 'log-mine' ? '<span class="log-event-tag">与你有关</span>' : highlight === 'log-system-clue' ? '<span class="log-event-tag">系统线索</span>' : ''}<p>${escapeText(l.text).replace(/[A-Z0-9*]{3}-[A-Z0-9*]{3}-[A-Z0-9*]{3}/g, sidHTML)}</p></li>`;
+      return `<li${highlight ? ` class="${highlight}"` : ''}><time>${escapeText(l.time)}</time>${highlight === 'log-mine' ? '<span class="log-event-tag">与你有关</span>' : highlight === 'log-system-clue' ? '<span class="log-event-tag">系统线索</span>' : ''}<p>${escapeText(l.text)}</p></li>`;
     }).join('') : '<li class="log-empty"><p>暂无公共事件</p></li>';
     if (hasScrollLayout && wasAtBottom) {
       list.scrollTop = list.scrollHeight;
@@ -930,8 +951,7 @@
     $('target').hidden = false;
     const orgLine = targetOrgLine(p);
     const status = orgLine || (p.alive ? '对抗中 · 公开档案' : '休战中 · 积分保留');
-    const prog = sidProgressInfo(p.sid);
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '存活' : '已出局'}</span></div><div class="target-sid-row"><p class="sid">${sidHTML(p.sid)}</p><span class="sid-progress-pill ${prog.allPublic ? 'is-full' : ''}">已公开 ${prog.revealedCount}/3 段</span></div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     $('private-gate').onclick = () => {
       if (privateOpen) clearPrivate();
@@ -942,16 +962,11 @@
         $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true');
       }
     };
-    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''} · 对抗生命仅本人可见`; updateSkillStatus(); }
+    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''}`; updateSkillStatus(); }
   }
   // ---------- 私密操作（每人 1 技能：好人指认 / 坏人刺杀） ----------
   function holding() { return privateOpen; }
   const secondsLeft = until => Math.max(0, Math.ceil((Number(until || 0) - (gamePausedAt || serverNow())) / 1000));
-  function sidProgressInfo(sidStr) {
-    const parts = String(sidStr || '***-***-***').split('-');
-    const revealedCount = parts.filter(seg => seg && seg !== MASK).length;
-    return { revealedCount, total: 3, allPublic: revealedCount === 3 };
-  }
   const skillNames = { accuse: '指认', assassinate: '刺杀', probe: '调查属性', spy: '公开身份码', kill: '击杀' };
   const skillEffects = {
     accuse: '指认潜伏者：目标扣 1 格对抗生命并 +10 分；误指好人则自己扣 1 格（不触发保护）。每日对同一人限一次；受击保护期内无效。',
@@ -973,10 +988,6 @@
     const allowed = me.faction === 'bad' ? ['assassinate'] : ['accuse'];
     return allowed.filter(id => me.skills[id]);
   }
-  function isTargetSidAllPublic(p) {
-    if (!p || !p.sid) return false;
-    return !String(p.sid).split('-').includes(MASK);
-  }
   function isAccusedToday(p) {
     return !!(p && me && Array.isArray(me.accusedToday) && me.accusedToday.includes(p.id));
   }
@@ -996,17 +1007,20 @@
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
-    $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''} · 对抗生命仅本人可见`;
+    $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''}`;
     const ids = availableSkills();
     const factionLabel = me.faction === 'good' ? '调查员（好人）专属技能' : '潜伏者（坏人）专属技能';
-    const renderedSid = typeof sidHTML === 'function' ? sidHTML(p.sid) : escapeText(p.sid);
-    host.innerHTML = `<div class="private-block"><div class="private-banner-row"><p class="private-title">${factionLabel} · 仅本人可见</p><span class="private-target-sid">${renderedSid}</span></div><div class="skill-row">${ids.map(id => `<div class="private-skill" id="skill-card-${id}"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能次数与恢复计时</summary><p id="skill-info" class="skill-info"></p></details></div>`;
+    const targetHealth = healthHTML(p, true);
+    host.innerHTML = `<div class="private-block"><div class="private-banner-row"><p class="private-title">${factionLabel} · 仅本人可见</p><span id="private-target-health">${targetHealth}</span></div><div class="skill-row">${ids.map(id => `<div class="private-skill" id="skill-card-${id}"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能次数与恢复计时</summary><p id="skill-info" class="skill-info"></p></details></div>`;
     for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
   function updateSkillStatus() {
     if (!holding() || !me) return;
     const p = selected(), info = $('skill-info'); if (!info || !p) return;
+    const targetHealthHost = $('private-target-health');
+    const targetHealth = healthHTML(p, true);
+    if (targetHealthHost && targetHealthHost.innerHTML !== targetHealth) targetHealthHost.innerHTML = targetHealth;
     const ids = availableSkills();
     info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : me.alive ? '自己或已休战目标不可操作。 ' : '你已休战，不能使用对抗技能。 ') : '')
       + ids.map(id => skillStatus(id, me.skills[id])).join('；');
@@ -1059,9 +1073,6 @@
     if (session === sessionGeneration && result.skills && Number(result.serverTime) >= serverTime && me) {
       me = { ...me, skills: result.skills, hp: result.hp ?? me.hp, alive: result.alive ?? me.alive, protectUntil: result.protectUntil ?? me.protectUntil,
         ...(Array.isArray(result.accusedToday) ? { accusedToday: result.accusedToday } : {}) };
-      if (result.ok && /休战/.test(result.resultText || '') && typeof showToast === 'function') {
-        showToast('你已进入休战状态，本日不再参与对抗。仍可探索、答题、趣味互动和参加小游戏，继续赢取积分与奖品！');
-      }
     }
     if (session !== sessionGeneration || generation !== privateGeneration || !holding()) { updateSkillStatus(); return false; }
     privateResult = !result.ok && /冷却中/.test(result.error || '')
@@ -1081,14 +1092,14 @@
     if (returnFocus) $('my-info').focus({ preventScroll: true });
   }
   const eyeIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path class="eye-slash" d="M3 3 21 21" stroke="currentColor" stroke-width="2"/></svg>';
-  const personalFields = { identity: '身份详情', sid: '身份码 S-ID', ...traitNames };
+  const personalFields = { identity: '身份详情', ...traitNames };
   function renderMine() {
     const host = $('mine');
     if (!mineOpen || !me) { closeMine(); return; }
     host.hidden = false;
     // Build eyes once; snapshot refreshes update only value slots, never focusable controls.
     if (!host.childElementCount) {
-      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-score-card" class="mine-score-card"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${['sid', ...Object.keys(traitNames)].map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">${id === 'sid' ? '***-***-***' : '***'}</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">***</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
       if ($('mine-logout')) $('mine-logout').onclick = () => $('sso-logout')?.click();
       host.querySelectorAll('[data-field]').forEach(button => button.onclick = () => {
@@ -1098,9 +1109,10 @@
       });
     }
     const selfP = selfPlayer();
-    const pubProg = sidProgressInfo(selfP ? selfP.sid : '***-***-***');
     $('mine-name').textContent = `我的信息 · ${me.name}`;
     $('mine-alive').textContent = `${me.alive ? `对抗中 · 对抗生命 ${Number.isFinite(me.hp) ? me.hp : '-'}` : '休战中（积分保留，仍可探索、答题、互动与小游戏）'} · 今日总分 ${typeof me.score === 'number' ? me.score : 0}`;
+    const health = healthHTML(me) + protectionHTML(me);
+    if ($('mine-health').innerHTML !== health) $('mine-health').innerHTML = health;
     const bd = me.scoreBreakdown || { participate: 0, survival: 0, combat: me.score || 0 };
     const hist = Number(me.historicalScore) || 0;
     const scoreHTML = `<div class="mine-score-item total"><span>今日总分</span><strong>${typeof me.score === 'number' ? me.score : 0}</strong></div><div class="mine-score-item hist"><span>昨日累计</span><strong>${hist}</strong></div><div class="mine-score-item"><span>参与分</span><strong>${bd.participate || 0}<em>/10</em></strong></div><div class="mine-score-item"><span>存活分</span><strong>${bd.survival || 0}</strong></div><div class="mine-score-item"><span>对抗分</span><strong>${bd.combat || 0}</strong></div>`;
@@ -1112,8 +1124,8 @@
       const revealed = revealedFieldIds.has(id), value = $(`mine-value-${id}`), eye = $(`eye-${id}`);
       eye.setAttribute('aria-pressed', String(revealed));
       eye.setAttribute('aria-label', `${revealed ? '隐藏' : '显示'}${personalFields[id]}`);
-      const html = !revealed ? (id === 'sid' ? '***-***-***' : id === 'identity' ? '已隐藏' : '***')
-        : id === 'sid' ? sidHTML(me.sid) : escapeText(id === 'identity' ? (me.faction === 'good' ? '调查员（好人）' : '潜伏者（坏人）') : me.traits[id]);
+      const html = !revealed ? (id === 'identity' ? '已隐藏' : '***')
+        : escapeText(id === 'identity' ? (me.faction === 'good' ? '调查员（好人）' : '潜伏者（坏人）') : me.traits[id]);
       if (value.innerHTML !== html) value.innerHTML = html;
     }
     const details = $('mine-identity-details');
@@ -1175,6 +1187,8 @@
 
   // ---------- 私密探索：权威奖励只读 me.exploration，不进入公开档案 ----------
   function explorationState() { return me?.exploration || { clues: [], searched: [] }; }
+  function hasPendingQuiz(id) { return (explorationState().pendingQuizContainerIds || []).includes(id); }
+  function containerDone(id) { return explorationState().searched.includes(id) && !hasPendingQuiz(id); }
   function explorationEntity(kind, id) {
     return kind === 'container' ? containers.find(f => f.id === id) : kind === 'npc' ? npcs.find(n => n.entityId === id) : null;
   }
@@ -1184,8 +1198,7 @@
   }
   function nearbyEntities() {
     if (!me || finished) return []; // 休战仍可就近探索
-    const searched = explorationState().searched;
-    const list = [...containers.map(entity => ({ kind: 'container', id: entity.id, entity, done: searched.includes(entity.id) })),
+    const list = [...containers.map(entity => ({ kind: 'container', id: entity.id, entity, done: containerDone(entity.id) })),
       ...npcs.map(entity => ({ kind: 'npc', id: entity.entityId, entity, done: false }))];
     // 需求①：楼层上的房间门 / 房间内的出口也进入「就近互动」候选，
     // 这样 K 键与 HUD 只需一套排序逻辑，不需要给门单独开一条输入路径。
@@ -1260,10 +1273,11 @@
     // 休战（alive=false）仍可探索与答题，只有本局结束才冻结。
     if (finished) { showToast('游戏已结束，探索已冻结'); return; }
     if (entityDistance(container) > WORLD.INTERACT_RANGE) { showToast('距离太远，请靠近后再搜索（64 像素以内）'); return; }
-    if (explorationState().searched.includes(container.id)) { showToast('这个容器你已经搜过了'); return; }
+    if (containerDone(container.id)) { showToast('这个容器你已经搜过了'); return; }
     LOOT.open({
       containerId: container.id,
       containerName: container.container ? container.container.name : (container.label || '容器'),
+      resumeQuiz: hasPendingQuiz(container.id),
       api, floorFields, commandId, showToast, onPrize: showPrizeDrop,
       onResult: (exploration, score) => {
         if (exploration) me = { ...me, exploration };
@@ -1330,12 +1344,6 @@
     });
     return opts;
   }
-  function ownHasRevealedSid() {
-    if (me && Array.isArray(me.sidRevealed)) return me.sidRevealed.some(Boolean);
-    const self = selfPlayer();
-    if (!self || !self.sid) return false;
-    return String(self.sid).split('-').some(seg => seg && seg !== MASK);
-  }
   function renderNpcExchangeList(inRange) {
     const host = $('npc-exchange-list'); if (!host || !me) return;
     const state = explorationState();
@@ -1343,7 +1351,6 @@
     const ownTraits = ownPublicTraitOptions();
     const targetList = targetPlayersWithHiddenTrait();
     const badClues = publishedBadClueOptions();
-    const hasSid = ownHasRevealedSid();
     const npcState = me.npcExchange || {};
     const explored = Number(npcState.exploredCount) || 0;
     const serverEffects = Object.fromEntries((Array.isArray(npcState.effects) ? npcState.effects : []).map(e => [e.key, e]));
@@ -1351,7 +1358,7 @@
       explored, me.score, usedMap, ownTraits,
       targetList.map(p => [p.id, p.name]),
       badClues.map(c => c.value),
-      hasSid, inRange, !!interactionFlight, me.alive, finished, selfDisabled()
+      inRange, !!interactionFlight, me.alive, finished, selfDisabled()
     ]);
     if (sig === npcExchangeSig) return;
     npcExchangeSig = sig;
@@ -2274,9 +2281,30 @@
   $('finish-close').onclick = hideFinish;
 
   // ---------- 离线事件：横幅 + 一次性摘要（不含操作者） ----------
+  const notifiedCombatEvents = new Set();
+  $('offline-banner').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.code === 'Space') {
+      event.preventDefault();
+      $('offline-banner').click();
+    }
+  });
   function pendingList() { return (me && me.pending) || []; }
+  function notifyCombatEvents(list) {
+    let latest = null;
+    for (const event of list) {
+      if (!['hit', 'selfHit', 'truce'].includes(event.type) || notifiedCombatEvents.has(event.eventId)) continue;
+      notifiedCombatEvents.add(event.eventId);
+      latest = event;
+    }
+    if (notifiedCombatEvents.size > 400) {
+      const current = new Set(list.map(event => event.eventId));
+      for (const id of notifiedCombatEvents) if (!current.has(id)) notifiedCombatEvents.delete(id);
+    }
+    if (latest) showToast(latest.text);
+  }
   function updateOfflineUI() {
     const banner = $('offline-banner'), list = pendingList();
+    notifyCombatEvents(list);
     const digest = me && me.interactionSummary;
     const offlineCount = list.filter(e => offlineEvents.has(e.eventId)).length;
     if (!list.length && !digest) { setProp(banner, 'hidden', true); setText(banner, ''); return; }
@@ -2285,15 +2313,16 @@
       banner.onclick = () => renderSummary(1); return;
     }
     setProp(banner, 'hidden', false);
-    setText(banner, offlineCount
-      ? `离线期间有 ${offlineCount} 条涉及你的事件 · 点击查看详情`
-      : `有 ${list.length} 条涉及你的事件 · 点击查看详情`);
+    const latestCombat = [...list].reverse().find(event => ['hit', 'selfHit', 'truce'].includes(event.type));
+    setText(banner, latestCombat ? latestCombat.text + ' · 查看详情' : offlineCount
+      ? '离线期间有 ' + offlineCount + ' 条涉及你的事件 · 点击查看详情'
+      : '有 ' + list.length + ' 条涉及你的事件 · 点击查看详情');
     banner.onclick = () => renderSummary(offlineCount);
   }
   function renderSummary(offlineCount) {
     const list = pendingList();
     const digest = me && me.interactionSummary;
-    const digestText = digest ? `<li><p>离线期间被敲${digest.counts.hammer}次、被鬼吓${digest.counts.scare}次</p></li>` : '';
+    const digestText = digest ? `<li><p>离线期间被敲 ${digest.counts.hammer} 次${digest.counts.scare ? `、其他互动 ${digest.counts.scare} 次` : ''}</p></li>` : '';
     const panel = $('offline-summary');
     panel.hidden = false;
     panel.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DIGEST</small><h2>${offlineCount ? '离线期间事件' : '涉及你的事件'}</h2></div><button id="summary-close" class="icon-button" aria-label="关闭事件摘要">×</button></div><ul class="summary-list">${digestText}${list.map(e => `<li><time>${new Date(e.occurredAt).toLocaleTimeString('zh-CN', { hour12: false })}</time><p>${escapeText(e.text)}</p></li>`).join('')}</ul><p class="hold-note">摘要只说明你身上发生了什么，不含操作者。关闭后不再重复提示。</p>`;
@@ -2608,7 +2637,7 @@
     // blocked：在范围内但当前不能操作（自己眩晕/僵直 / 容器已搜 / NPC 无可用抽奖或兑换）。
     if (selfDisabled()) return 'blocked';
     const state = explorationState();
-    if (kind === 'container') return !state.searched.includes(id) ? 'ready' : 'blocked';
+    if (kind === 'container') return !containerDone(id) ? 'ready' : 'blocked';
     const maxSpins = WHEEL.maxDailySpins || 3;
     const spins = wheelSpinsFor();
     const canWheel = spins < maxSpins; // 转盘免费，只看今日次数
@@ -3376,6 +3405,7 @@
     const seen = p.visible !== false;
     ctx.save();
     WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection);
+    SID.combatVisuals.drawShield(ctx, p, clock, newShape ? 77 : 53);
     // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
     if (p.freezeUntil && p.freezeUntil > now) {
       ctx.globalAlpha = .4 * a; rect(x - 13, effectY - 55, 26, newShape ? 86 : 62, '#bfe8ff');
@@ -3433,7 +3463,7 @@
     const offTag = !p.npc && p.online === false ? ' · 离线' : '';
     return {
       name: p.name + (p.npc ? ' · NPC' : `${ghostTag}${selfTag}${offTag}`),
-      detail: p.npc ? '商店' : p.sid
+      detail: p.npc ? '商店' : healthState(p).hp + '/' + healthState(p).maxHp + ' 生命'
     };
   }
   function nameplateSize(text) {
@@ -3466,7 +3496,7 @@
       p.y >= drawCamY - 30 && p.y <= drawCamY + viewH + 30)
       .map(p => {
         const text = nameplateText(p), size = nameplateSize(text);
-        return { x: p.x - size.w / 2, y: p.y + 10, ...size, text, ids: (p.npc || !p.alive) ? [] : [p.id], p };
+        return { x: p.x - size.w / 2, y: p.y + 10, ...size, text, ids: p.npc ? [] : [p.id], p };
       });
   }
   // ---------- 任务7：上半部分后墙（墙带 + 窗户 + 标语展示区，星露谷风） ----------
@@ -3847,7 +3877,10 @@
       ctx.fillText(l.text.name, l.x + l.w / 2, l.y + 11);
       ctx.font = '10px ui-monospace,SFMono-Regular,monospace';
       ctx.fillStyle = active ? '#bbd9f3' : '#b0c5dd';
-      ctx.fillText(l.text.detail, l.x + l.w / 2, l.y + 23);
+      if (l.p.npc) ctx.fillText(l.text.detail, l.x + l.w / 2, l.y + 23);
+      else SID.combatVisuals.drawHealthBar(ctx, {
+        x: l.x + 9, y: l.y + 17, width: l.w - 18, height: 6, ...healthState(l.p)
+      });
     }
     for (const badge of readyPromptBadges) {
       const hitLabel = labels.some(l => Math.abs(badge.cx - (l.x + l.w / 2)) < (21 + l.w / 2 + 4) && badge.cy + 14 > l.y - 2 && badge.cy < l.y + l.h + 2);
@@ -3995,7 +4028,7 @@
   }
   function showCandidates(ids) {
     closeExploration(); clearPrivate(true); closeWheel();
-    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id && p.alive && p.floorId === floorId)).sort((a, b) => a - b);
+    const list = [...new Set(ids)].filter(id => players.some(p => p.id === id && p.floorId === floorId)).sort((a, b) => a - b);
     $('candidates').hidden = false;
     $('candidates').innerHTML = `<div class="panel-heading"><div><small>OVERLAPPING PLAYERS</small><h2>请选择目标</h2></div><button id="candidate-close" class="icon-button" aria-label="关闭重叠候选">×</button></div><p>同一点击点有${list.length}位玩家，不会自动选人。</p>${list.map(id => row(players.find(p => p.id === id))).join('')}`;
     bindRows($('candidates'));
@@ -4019,9 +4052,7 @@
     const hits = [...new Set([...labelHits.flatMap(l => l.ids), ...bodyHits])];
     if (hits.length > 1) showCandidates(hits);
     else if (hits.length === 1) {
-      const label = labelHits.find(l => l.ids.includes(hits[0]));
-      if (label && y >= label.y + 13) copySID(label.p.sid);
-      else select(hits[0]);
+      select(hits[0]);
     } else {
       // 需求①：点在房间门牌上 → 进入该房间（门牌本身就是交互热区）。
       if (!zoneId) {
@@ -4496,34 +4527,6 @@
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   });
-  // ---------- 剪贴板：局域网非安全上下文必须手动回退 ----------
-  async function copySID(text) {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
-      else {
-        const focused = document.activeElement;
-        const input = document.createElement('textarea'); input.value = text;
-        input.style.cssText = 'position:fixed;left:-9999px;top:0';
-        document.body.append(input); input.select();
-        const ok = document.execCommand('copy'); input.remove();
-        if (focused && focused.isConnected) focused.focus({ preventScroll: true });
-        if (!ok) throw new Error('copy unavailable');
-      }
-      showToast('已复制');
-    } catch { showToast('复制失败，请允许剪贴板权限或手动复制'); }
-  }
-  const sidHTML = sid => `<span class="sid-copy" role="button" tabindex="0" aria-label="复制当前显示的S-ID" data-copy-sid>${escapeText(sid)}</span>`;
-  // 只复制渲染出来的文本：公开掩码仍是掩码，不会读到任何隐藏段。
-  document.addEventListener('pointerdown', e => {
-    const item = e.target.closest && e.target.closest('[data-copy-sid]');
-    if (item && e.button === 0) { e.preventDefault(); e.stopPropagation(); copySID(item.textContent); }
-  });
-  document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-copy-sid]')) e.stopPropagation(); }, true);
-  document.addEventListener('keydown', e => {
-    const item = e.target.closest && e.target.closest('[data-copy-sid]');
-    if (item && (e.key === 'Enter' || e.code === 'Space')) { e.preventDefault(); e.stopImmediatePropagation(); copySID(item.textContent); }
-  }, true);
-
   boot();
 })();
 

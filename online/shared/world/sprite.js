@@ -271,8 +271,9 @@
     const bob = p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + (p.spriteIndex ?? p.id) * 1.9) * .7);
     const yb = Math.round(p.y) + bob;
     const liftL = Math.max(0, sw) * 2, liftR = Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
-    const a = (p.alive ? 1 : .4) * (p.online === false ? .55 : 1);
-    const attacking = p.alive && Number.isFinite(attackAgeMs) && attackAgeMs >= 0 && attackAgeMs < ATTACK_ANIMATION_MS;
+    const a = (p.alive === false || p.truce ? .7 : 1) * (p.online === false ? .55 : 1);
+    // J 是无伤害互动，休战后仍照常播放挥锤，和对抗生命无关。
+    const attacking = Number.isFinite(attackAgeMs) && attackAgeMs >= 0 && attackAgeMs < ATTACK_ANIMATION_MS;
     const direction = (attacking ? attackDirection : p.spriteFacing) || p.spriteFacing || 'front';
     const drawAttack = () => drawLegacyAttack(rect, x, yb, direction, attackAgeMs,
       { outline: OL, skin, skinLo, topLo, topHi });

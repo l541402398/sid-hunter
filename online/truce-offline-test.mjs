@@ -14,7 +14,9 @@ async function test(name, fn) {
   catch (e) { failed++; console.error(`失败 ${name}\n${e.stack}`); }
 }
 function fixture(n = 6, rules) {
-  const r = createRoom({ random: () => 0.99, ...(rules ? { rules } : {}) });
+  let draw = 0;
+  // 对抗场景显式安排一坏多好，不依赖生产随机恰好抽中所需阵营。
+  const r = createRoom({ random: () => draw++ === 0 ? .1 : .99, ...(rules ? { rules } : {}) });
   for (let i = 0; i < n; i++) r.join(`s${i}`, `T${i}`);
   return r;
 }

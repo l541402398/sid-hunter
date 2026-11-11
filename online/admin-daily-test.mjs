@@ -2,14 +2,16 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdtempSync,rmSync,readFileSync} from 'node:fs';
-import {join} from 'node:path';
+import {isAbsolute,join,relative,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 const require=createRequire(import.meta.url),{createRoom}=require('./room.js'),{createManager}=require('./manager.js');
 const {createActivity,TEMPLATES,at,dayOf}=require('./server/activity.js'),{createStore}=require('./server/store.js');
 const clone=x=>JSON.parse(JSON.stringify(x));
 let clock=at('2026-10-20','09:00'),passed=0,failed=0;const real=Date.now;Date.now=()=>clock;
 function test(name,fn){try{fn();passed++;console.log('PASS',name);}catch(e){failed++;console.error('FAIL',name,e.stack);}}
 function memory(){let state=null,results=[];return{enabled:true,fail:false,loadAdmin(){return state?clone(state):null;},saveAdmin(s){if(this.fail)return false;state=clone(s);return true;},loadSessions(){return clone(results);},archiveSession(r,s){if(this.fail)return false;if(!results.some(x=>x.roundId===r.roundId))results.push(clone(r));state=clone(s);return true;}};}
-function fixture(time='09:00',opts={}){clock=at('2026-10-20',time);const store=memory(),room=createRoom({random:()=>0.99}),activity=createActivity({room,store});assert.equal(activity.saveConfig({...TEMPLATES.development,...opts,enabled:true}).ok,true);return{store,room,activity};}
+// 场次规则测试明确安排每场首位坏人、随后好人；生产阵营不再依赖加入顺序。
+function fixture(time='09:00',opts={}){clock=at('2026-10-20',time);const store=memory(),room=createRoom({random:()=>room.room.players.length ? .99 : .1}),activity=createActivity({room,store});assert.equal(activity.saveConfig({...TEMPLATES.development,...opts,enabled:true}).ok,true);return{store,room,activity};}
 const person=(r,s='p',emp='E1')=>r.join(s,null,{empNo:emp,name:'员工'+emp}).player;
 const pair=[{id:'morning',label:'上午场',startTime:'09:00',endTime:'12:00'},{id:'afternoon',label:'下午场',startTime:'14:00',endTime:'17:00'}];
 const use=(r,s,skill,target=0)=>r.useSkill(s,{commandId:Math.random().toString(),skill,targetId:target});
@@ -23,7 +25,8 @@ test('同日上下午独立新场与存档，单场/当日/总分准确且不重
  const {room,activity}=fixture('08:59',{slots:pair});assert.ok(activity.guard());clock=at('2026-10-20','09:00');activity.tick();const first=room.room.roundId;person(room).score=12;person(room,'g','E2');
  clock=at('2026-10-20','12:00');activity.tick();assert.equal(activity.state().history.length,1);assert.equal(activity.state().active,false);
  clock=at('2026-10-20','14:00');activity.tick();assert.notEqual(room.room.roundId,first);assert.equal(room.room.players.length,0);const p=person(room,'p2');assert.equal(p.hp,3);assert.equal(p.skills.assassinate.chargesRemaining,1);p.score=8;person(room,'g2','E2');
- clock=at('2026-10-20','17:00');activity.tick();assert.equal(activity.state().history.length,2);const total=activity.state().totalRanking.find(p=>p.score===20);assert.ok(total);assert.equal(total.sessions,2);assert.equal(total.days,1);assert.equal(activity.state().dailyRanking.find(p=>p.key===total.key).score,20);activity.tick();assert.equal(activity.state().history.length,2);
+ // 两个三小时场各获得6个半小时存活分，连同显式设置的12+8共32分。
+ clock=at('2026-10-20','17:00');activity.tick();assert.equal(activity.state().history.length,2);const total=activity.state().totalRanking.find(p=>p.score===32);assert.ok(total);assert.equal(total.sessions,2);assert.equal(total.days,1);assert.equal(activity.state().dailyRanking.find(p=>p.key===total.key).score,32);activity.tick();assert.equal(activity.state().history.length,2);
 });
 test('同日可手动多场，每场独立积分，结束不关闭自动安排',()=>{
  const {room,activity}=fixture();person(room).score=7;activity.finishSession();assert.equal(activity.state().config.enabled,true);
@@ -80,10 +83,10 @@ test('管理场次控制需会话/CSRF/同源/确认，旧清空reset拒绝',()=
  try{assert.equal(m.control(req,null,{action:'finish'}).status,401);const login=m.login(req,{code:'private-test'}),token=login.cookie.split(';')[0].split('=')[1],csrfToken=login.body.csrfToken;assert.equal(m.control(req,token,{csrfToken:'bad',action:'finish'}).status,403);assert.equal(m.control({...req,headers:{...req.headers,origin:'http://evil'}},token,{csrfToken,confirm:true}).status,403);assert.equal(m.control(req,token,{csrfToken,action:'finish'}).status,400);assert.equal(m.control(req,token,{csrfToken,confirm:true,action:'pause',expectedRoundId:room.room.roundId}).status,200);assert.equal(m.reset(req,token,{csrfToken,confirm:true}).status,409);}finally{m.close();}
 });
 test('真实SQLite同日多场独立/重启总分不丢，旧daily兼容按round去重',()=>{
- const dir=mkdtempSync(join(new URL('../outputs/',import.meta.url).pathname,'session-db-'));let store;
+ const outputRoot=fileURLToPath(new URL('../outputs/',import.meta.url)),dir=mkdtempSync(join(outputRoot,'session-db-'));let store;
  try{clock=at('2026-10-20','09:00');const file=join(dir,'test.sqlite');store=createStore({file});assert.equal(store.enabled,true);const r=createRoom(),a=createActivity({room:r,store});a.saveConfig({...TEMPLATES.development,enabled:true});person(r).score=10;a.finishSession();const first=store.loadSessions()[0];a.startManual({minutes:30});person(r,'new').score=20;a.finishSession();assert.equal(store.loadSessions().length,2);assert.equal(store.archiveSession({...first,ranking:[]},store.loadAdmin()),true);assert.equal(store.loadSessions().find(x=>x.roundId===first.roundId).ranking[0].score,10);
  store.archiveDay({...first,roundId:'legacy-distinct',label:'历史单日场'},store.loadAdmin());assert.equal(store.loadSessions().length,3);store.close();store=createStore({file});const prior=store.loadAdmin(),restored=createRoom({restore:{...prior.liveSnapshot,includeNpcs:true}}),b=createActivity({room:restored,store,initial:prior});assert.equal(b.state().history.length,3);assert.equal(b.state().totalRanking[0].score,40);assert.equal(store.loadDays().length,1);
- }finally{store?.close();rmSync(dir,{recursive:true,force:true});}
+ }finally{store?.close();const child=relative(outputRoot,resolve(dir));assert.ok(child&&!child.startsWith('..')&&!isAbsolute(child),'临时数据库只能从outputs内清理');rmSync(dir,{recursive:true,force:true});}
 });
 test('暂停请求跨越紧邻场次边界，不得暂停新场；暂停到点自动换下场',()=>{
  const adjoining=[{id:'a',label:'第一场',startTime:'09:00',endTime:'10:00'},{id:'b',label:'第二场',startTime:'10:00',endTime:'11:00'}];

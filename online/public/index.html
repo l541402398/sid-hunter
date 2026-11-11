@@ -44,6 +44,7 @@
 <script src="js/render/paint.js" defer></script>
 <!-- 新人物透明层与四色预烘焙，加载失败时保留旧角色。仅前端外观，不改变身份/碰撞规则。 -->
 <script src="js/render/characters.js" defer></script>
+<script src="js/render/combat.js" defer></script>
 <!-- Juli吉祥物仅替换接待员/档案员场景NPC，加载失败仍保留原外观。 -->
 <script src="js/render/juli.js" defer></script>
 <!-- F1 碰撞调试层：只读 TMJ/旧碰撞，不参与权威移动；必须在 game.js 之前挂到 window.SID -->
@@ -78,7 +79,7 @@
       <!-- 第二轮：限时 buff 条（疾行 / 护体 / 专注），由服务端剩余毫秒驱动 -->
       <div id="buff-bar" class="buff-bar" hidden aria-live="polite"></div>
       <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> 移动 <i>·</i> 点击角色查档案 <i>·</i> <kbd>J</kbd> 敲 <i>·</i> <kbd>K</kbd> 交互/乘梯 <i>·</i> <kbd>C</kbd> 坏人线索 <i>·</i> <kbd>G</kbd> 日志 <i>·</i> <kbd>L</kbd> 排行榜 <i>·</i> <kbd>R</kbd> 名单 <i>·</i> <kbd>M</kbd> 档案 <i>·</i> <kbd>H</kbd> 规则 <i>·</i> <kbd>Esc</kbd> 退出全屏/关闭</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
-      <div id="offline-banner" class="offline-banner" hidden></div>
+      <div id="offline-banner" class="offline-banner" role="button" tabindex="0" aria-label="查看我的事件通知" hidden></div>
       <!-- 需求①：进入独立小房间后的空间提示条（房间名 + 如何离开） -->
       <div id="zone-banner" class="zone-banner" hidden aria-live="polite">
         <span class="zone-banner-tag">独立空间</span>

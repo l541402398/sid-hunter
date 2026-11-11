@@ -12,10 +12,11 @@ async function test(name, fn) {
   try { await fn(); passed++; console.log(`通过 ${name}`); }
   catch (e) { failed++; console.error(`失败 ${name}\n${e.stack}`); }
 }
-// rolls：依次返回的随机整数（用尽后返回 50 → 答题）；首位玩家为坏人，其余为好人。
+// rolls：探索随机整数（用尽后50→答题）；阵营通过独立random夹具显式安排一坏多好。
 function fixture({ rolls = [], n = 3, rules } = {}) {
   const queue = rolls.slice();
-  const r = createRoom({ random: () => 0.99, randomInt: max => (queue.length ? queue.shift() : 50) % max, ...(rules ? { rules } : {}) });
+  let factionDraw = 0;
+  const r = createRoom({ random: () => factionDraw++ === 0 ? .1 : .99, randomInt: max => (queue.length ? queue.shift() : 50) % max, ...(rules ? { rules } : {}) });
   for (let i = 0; i < n; i++) r.join(`s${i}`, `P${i}`);
   return r;
 }
