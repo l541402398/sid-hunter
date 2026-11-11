@@ -49,10 +49,10 @@ function createMinigames({ room, now, find, gainAchievement }) {
     const g = String(game || '');
     if (!room.features[g]) return { ok: false, error: '该小游戏尚未开放' };
     if (g !== 'tank') return { ok: false, error: '该小游戏还不能玩' };
-    if (!actor || !actor.alive) return { ok: false, error: '你已淘汰，不能开小游戏' };
+    if (!actor) return { ok: false, error: '身份无效' }; // 休战可开小游戏
     if (matchOf(actor.id)) return { ok: false, error: '你已经在别的对局里' };
     const foe = opponentId != null ? find(Number(opponentId)) : null;
-    if (!foe || !foe.alive || foe.npc || foe.id === actor.id) return { ok: false, error: '需要选一名在线玩家' };
+    if (!foe || foe.npc || foe.id === actor.id || !foe.online) return { ok: false, error: '需要选一名在线玩家' };
     if (!viaArcade && foe.floorId !== actor.floorId) return { ok: false, error: '对手不在同一层（跨楼层请用楼层游戏机）' };
     if (matchOf(foe.id)) return { ok: false, error: '对手正在别的对局里' };
     const m = newMatch(g, actor, foe);

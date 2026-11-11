@@ -43,11 +43,16 @@
   // 注：jump 动作已下线，原 jumpMs / jumpHeight / jumpDodgeFrom / jumpDodgeTo 一并移除。
   const ACTION = {
     hammerRange: 58,      // 锤子作用半径（地面坐标欧氏距离）
-    hammerCooldownMs: 1000, // J 挥锤 / 幽灵吓人共用 1 秒冷却
+    hammerCooldownMs: 1000, // J 挥锤冷却
     frightMs: 750,        // 受惊锁地图动作，不封身份技能
     stunMs: 750,          // 被敲晕时长
     bumpMs: 15000,        // 头顶肿包保留时长
-    maxBumps: 3           // 头顶同时最多显示的肿包数
+    maxBumps: 3,          // 头顶同时最多显示的肿包数
+    // J 积分（建议值，待定）：命中后随机触发；单次 +1；同一操作者→目标每日最多 2；渠道日上限 10
+    hammerPointChance: 0.35,
+    hammerPoint: 1,
+    hammerPointPerTargetDaily: 2,
+    hammerPointDailyCap: 10
   };
   const PALETTES = {
     hair: [['银白', '#d3dce9'], ['栗棕', '#9f6748'], ['墨黑', '#263244'], ['金黄', '#e7bd6b'], ['紫灰', '#9986b2']],
@@ -59,117 +64,124 @@
   // 转盘奖励（原 wheelRewards）已迁移到 WHEEL：单局连续对局取消“每局一次”限制，
   // 首次免费、之后每次消耗筹码且次数越多越贵，每次放置 slotCount 个物品（筹码 + 特殊券）。
   const PLAY_CONFIG = {
-    rpsStake: 1, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, rpsRoundMs: 10000,
-    attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000
+    // rpsStake 保留字段兼容旧客户端；新规则猜拳不再押注金币，胜者直接得积分
+    rpsStake: 0, rpsTimeoutMs: 30000, rpsCooldownMs: 5000, rpsRoundMs: 10000,
+    attackRange: 48, attackCooldownMs: 1200, attackConeCos: 0.5, stunMs: 800, freezeMs: 1000,
+    // 小游戏共享每日积分额度（建议值）
+    minigameWinPoints: 2,
+    minigameDailyCap: 10
   };
   // 结束规则：按《年会对抗游戏业务方案.md》§一，默认按每日配置截止或管理员结算，不因剩100人或坏人全灭自动结束（100是获奖人数）。
   const RULES = { endRemainingPlayers: 100, timeLimitMs: 2 * 60 * 60 * 1000 };
-  // 所有游戏行为记分表（服务端权威，见《年会对抗游戏业务方案.md》§九）：
-  // 对抗分：好人指认坏人新公开一段 +10；坏人公开好人新一段 +2；坏人击杀好人 +5（击杀坏人 0）。
-  // 参与分：当天首次有效搜索 +5；当天首次正常完成指定小游戏 +5。
-  // 存活分：从当天首次加入起，每满 30 分钟存活 +1。
-  // 调查属性、重复小游戏/搜索、锤击、转盘、出售不增加排名分。
+  // 积分来源（整改后：统一积分，取消独立金币与首搜/首游/身份码/单独击杀奖励）
+  // 建议分值见整改方案；标注建议的数值可在管理页或后续版本调整。
   const SCORE = {
-    accuseHit: 10,
-    spy: 2,
-    kill: 5,
-    firstSearch: 5,
-    firstMinigame: 5,
-    survivalTick: 1,
+    accuseHit: 10,             // 好人正确指认坏人并扣血
+    assassinateHit: 3,         // 坏人正确刺杀好人并扣血
+    survivalTick: 1,           // 对抗中每满 30 分钟 +1（休战后停止）
     survivalIntervalMs: 30 * 60 * 1000,
+    exploreDirect: 1,          // 建议：开箱直接积分
+    exploreQuiz: 2,            // 建议：开箱答题正确
+    hammerPoint: 1,            // 建议：J 随机触发
+    rpsWin: 2,                 // 建议：猜拳获胜（小游戏共享日额度）
+    rpsDraw: 0,
+    rpsLose: 0,
+    npcScorePack: 10,          // 建议：NPC 积分礼包
+    // 以下保留键名兼容旧调用，分值一律为 0
+    spy: 0,
+    kill: 0,
+    firstSearch: 0,
+    firstMinigame: 0,
     search: 0,
     exchange: 0,
     clue: 0,
-    rpsWin: 0,
-    rpsDraw: 0,
-    rpsLose: 0,
     interactHit: 0,
     probe: 0,
     wheelPrize: 0
   };
-  // 转盘配置：NPC 中的大转盘保留，内容为获得随机金币，每日上限 3 次（全楼层 NPC 共享），免费 1 次，另外每次消耗 3 金币。
+  // 探索普通结果建议概率（空 / 直接积分 / 答题）；实物奖品独立判定，不占此表。
+  const EXPLORE = {
+    emptyChance: 5,
+    pointsChance: 15,   // 累计区间：empty..empty+points
+    quizChance: 80,     // 其余
+    directPoints: 1,
+    quizPoints: 2
+  };
+  // 对抗生命与受击保护（管理页可覆盖 room 级字段）
+  const COMBAT = {
+    initialHp: 3,
+    protectMs: 5 * 60 * 1000,
+    goodChargeIntervalMs: 30 * 60 * 1000,
+    badChargeIntervalMs: 20 * 60 * 1000,
+    maxCharges: 1,
+    startCharges: 1,
+    factionBadRatio: 0.2      // 好人:坏人 ≈ 4:1
+  };
+  // 转盘：免费随机积分，每日上限 3 次（全楼层 NPC 共享），不消耗积分。
   const WHEEL = {
     slotCount: 10,
     maxDailySpins: 3,
-    spinCosts: [0, 3, 3],
-    chipAmounts: [1, 2, 3, 4, 5, 6, 8],
-    specialCount: { good: 0, bad: 0 },
-    specials: { good: [], bad: [] }
-  };
-  const WHEEL_ITEMS = {
-    clue:    { key: 'clue',    label: '线索券',     desc: '已停用', color: '#3B82F6', glyph: '?' },
-    jackpot: { key: 'jackpot', label: '金币福袋',   desc: '已停用', color: '#10B981', glyph: '★' },
-    bounty:  { key: 'bounty',  label: '潜伏补给券', desc: '已停用', color: '#8B5CF6', glyph: '◆' },
-    reform:  { key: 'reform',  label: '洗心革面券', desc: '已停用', color: '#22C55E', glyph: '♻' },
-    rebirth: { key: 'rebirth', label: '轮回券',     desc: '已停用', color: '#EF4444', glyph: '↻' }
+    // 槽位分值池（建议）；kind 改为 points
+    chipAmounts: [1, 2, 3, 4, 5, 6, 8]
   };
   const WHEEL_CHIP_COLOR = '#F59E0B';
-  // 第 priorSpins 次转动的费用：首次免费（0 金币），第 2、3 次各消耗 3 金币。
-  function wheelSpinCost(priorSpins, wheel = WHEEL) {
-    const costs = wheel.spinCosts;
-    const spins = Math.max(0, Math.floor(Number(priorSpins) || 0));
-    if (spins < costs.length) return costs[spins];
-    return costs[costs.length - 1];
-  }
-  // 转盘 10 槽全部为随机金币项（不含特殊券）。
+  // 转盘 10 槽全部为随机积分项。
   function buildWheelPool(faction, wheel = WHEEL) {
     const pool = [];
     for (let i = 0; i < wheel.slotCount; i++) {
       const amount = wheel.chipAmounts[i % wheel.chipAmounts.length];
-      pool.push({ kind: 'chips', amount, label: `${amount} 金币`, color: WHEEL_CHIP_COLOR, glyph: '●' });
+      pool.push({ kind: 'points', amount, label: `${amount} 积分`, color: WHEEL_CHIP_COLOR, glyph: '●' });
     }
     return pool;
   }
-  // NPC 金币兑换六类即时效果（不同价格，每人每类效果每日限兑 1 次；积分每日最多兑换 10 分）。
+  // NPC 福利：按探索档位解锁后免费领取（cost=0）；每 5 个不同容器解锁一项；所有楼层 NPC 共享进度与次数。
+  // unlockAt = 需要已探索的容器数（5/10/15/…）；档位顺序建议值，待定。
   const NPC_EXCHANGE_LIST = Object.freeze([
     Object.freeze({
       key: 'score',
-      label: '兑换积分（每日最多10分）',
-      shortLabel: '兑换积分',
-      cost: 2,
-      maxPoints: 10,
+      label: '积分礼包',
+      shortLabel: '积分礼包',
+      cost: 0,
+      points: 10,
+      unlockAt: 5,
       dailyLimit: 1,
-      desc: '立即获得 +10 积分（计入今日与累计总积分，每日最多 10 分）'
+      desc: '免费领取 +10 积分（建议值；每日一次）'
     }),
     Object.freeze({
       key: 'revealRandomTrait',
       label: '公开随机玩家的一条隐藏属性',
       shortLabel: '公开随机玩家隐藏属性',
-      cost: 3,
+      cost: 0,
+      unlockAt: 10,
       dailyLimit: 1,
-      desc: '随机公开一名存活玩家的 1 条未公开隐藏属性并全员公告'
-    }),
-    Object.freeze({
-      key: 'hideOwnTrait',
-      label: '隐藏自己的一条已公开属性',
-      shortLabel: '隐藏自己已公开属性',
-      cost: 4,
-      dailyLimit: 1,
-      desc: '将自己已公开的 1 条个人属性重新设为隐藏（***）'
+      desc: '随机公开一名对抗中玩家的 1 条未公开隐藏属性并全员公告'
     }),
     Object.freeze({
       key: 'revealTargetTrait',
       label: '公开指定玩家的一条隐藏属性',
       shortLabel: '公开指定玩家隐藏属性',
-      cost: 5,
+      cost: 0,
+      unlockAt: 15,
       dailyLimit: 1,
-      desc: '选择一名存活玩家，公开其 1 条未公开隐藏属性并全员公告'
+      desc: '选择一名对抗中玩家，公开其 1 条未公开隐藏属性并全员公告'
+    }),
+    Object.freeze({
+      key: 'hideOwnTrait',
+      label: '隐藏自己的一条已公开属性',
+      shortLabel: '隐藏自己已公开属性',
+      cost: 0,
+      unlockAt: 20,
+      dailyLimit: 1,
+      desc: '将自己已公开的 1 条个人属性重新设为隐藏（***）'
     }),
     Object.freeze({
       key: 'hideBadClue',
       label: '隐藏指定匿名坏人卡上的一条已公布线索',
       shortLabel: '隐藏匿名坏人卡线索',
-      cost: 6,
+      cost: 0,
+      unlockAt: 25,
       dailyLimit: 1,
       desc: '指定一张匿名坏人卡，隐藏其上 1 条已公布的系统线索'
-    }),
-    Object.freeze({
-      key: 'hideOwnSid',
-      label: '隐藏自己最近公开的一段身份码',
-      shortLabel: '隐藏最近公开身份码',
-      cost: 8,
-      dailyLimit: 1,
-      desc: '将自己最近被公开的 1 段身份码重新设为隐藏（***）'
     })
   ]);
   const NPC_EXCHANGE = Object.freeze(Object.fromEntries(NPC_EXCHANGE_LIST.map(item => [item.key, item])));
@@ -180,5 +192,5 @@
   // 战争迷雾：5F 地牢回廊。半径是世界像素，服务端裁剪与客户端渲染共用同一份，
   // 否则改客户端会看到"服务端没发、但客户端还画着残影"的不一致。
   const FLOOR_FOG = { 5: { radius: 180 } };
-  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, WHEEL, WHEEL_ITEMS, WHEEL_CHIP_COLOR, wheelSpinCost, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome };
+  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome };
 });

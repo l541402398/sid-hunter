@@ -13,7 +13,7 @@ let t=at('2026-10-20','09:00'),passed=0,failed=0;
 const realNow=Date.now;Date.now=()=>t;
 function test(name,fn){try{fn();passed++;console.log('PASS',name);}catch(e){failed++;console.error('FAIL',name,e.stack);}}
 function mem(){let state=null,days=[];return{enabled:true,fail:false,writes:0,loadAdmin(){return state?clone(state):null;},saveAdmin(s){if(this.fail)return false;this.writes++;state=clone(s);return true;},loadSessions(){return clone(days);},archiveSession(d,s){if(this.fail)return false;days.push(clone(d));state=clone(s);return true;},saveRound(){return !this.fail;}};}
-function f(input={}){t=at('2026-10-20','09:00');const room=createRoom(),store=mem(),activity=createActivity({room,store});assert.equal(activity.saveConfig({...TEMPLATES.development,...input,enabled:true}).ok,true);room.join('a','首个坏人');room.join('b','好人');return{room,store,activity};}
+function f(input={}){t=at('2026-10-20','09:00');const room=createRoom({random:()=>0.99}),store=mem(),activity=createActivity({room,store});assert.equal(activity.saveConfig({...TEMPLATES.development,...input,enabled:true}).ok,true);room.join('a','首个坏人');room.join('b','好人');return{room,store,activity};}
 const total=r=>r.room.players.reduce((n,p)=>n+Object.keys(p.systemClues?.colors||{}).length+Object.keys(p.systemClues?.traits||{}).length,0);
 const next=a=>a.state().cluePublication.nextAt;
 try{
@@ -27,7 +27,7 @@ test('开发2分钟/生产30分钟默认，管理员全参数校验且无效设�
  assert.equal(activity.state().config.clueIntervalMs,245000);
 });
 test('公布条数按20%向上取整，最低最高上限，无存活坏人0条',()=>{
- const room=createRoom();room.join('a','首个坏人');room.join('b','好人');
+ const room=createRoom({random:()=>0.99});room.join('a','首个坏人');room.join('b','好人');
  for(let i=0;i<5;i++)room.spawnNpc(5,{floorId:1},'bad');
  for(const [n,want] of [[0,0],[1,1],[5,1],[6,2],[10,2],[11,3],[15,3],[16,4],[20,4],[21,5],[26,5]]){
   room.room.players.filter(p=>p.faction==='bad').forEach((p,i)=>{p.alive=i<n;});
@@ -35,7 +35,7 @@ test('公布条数按20%向上取整，最低最高上限，无存活坏人0条'
  }
 });
 test('跨过精确到期点仅公布一轮，系统池与探查/公开档案隔离',()=>{
- const {room,activity}=f();const bad=room.find(0);assert.equal(room.useSkill('b',{commandId:'probe',skill:'probe',targetId:0}).ok,true);
+ const {room,activity}=f();const bad=room.find(0);assert.equal(room.useSkill('b',{commandId:'accuse',skill:'accuse',targetId:0}).ok,true);
  assert.equal(total(room),0);const reveal=clone(bad.traitPublic);const due=next(activity);
  t=due-1;activity.tick();assert.equal(total(room),0);
  t++;activity.tick();assert.equal(total(room),1);assert.equal(activity.state().cluePublication.lastCount,1);assert.deepEqual(bad.traitPublic,reveal);

@@ -3,8 +3,8 @@
 const { createHash } = require('node:crypto');
 const DEFAULT_SLOTS = [{ id:'daily',label:'每日场',startTime:'09:00',endTime:'17:00' }];
 const TEMPLATES = Object.freeze({
-  development: Object.freeze({template:'development',startTime:'09:00',endTime:'17:00',slots:DEFAULT_SLOTS,chargeIntervalMs:90000,clueIntervalMs:120000,cluePercent:20,clueMin:1,clueMax:5}),
-  production: Object.freeze({template:'production',startTime:'09:00',endTime:'17:00',slots:DEFAULT_SLOTS,chargeIntervalMs:1200000,clueIntervalMs:1800000,cluePercent:20,clueMin:1,clueMax:5})
+  development: Object.freeze({template:'development',startTime:'09:00',endTime:'17:00',slots:DEFAULT_SLOTS,chargeIntervalMs:90000,goodChargeIntervalMs:90000,badChargeIntervalMs:90000,initialHp:3,protectMs:5*60*1000,clueIntervalMs:120000,cluePercent:20,clueMin:1,clueMax:5}),
+  production: Object.freeze({template:'production',startTime:'09:00',endTime:'17:00',slots:DEFAULT_SLOTS,chargeIntervalMs:1200000,goodChargeIntervalMs:30*60*1000,badChargeIntervalMs:20*60*1000,initialHp:3,protectMs:5*60*1000,clueIntervalMs:1800000,cluePercent:20,clueMin:1,clueMax:5})
 });
 const clone=x=>JSON.parse(JSON.stringify(x));
 const dayOf=t=>new Date(t+8*3600000).toISOString().slice(0,10);
@@ -13,7 +13,7 @@ const timeOK=s=>typeof s==='string'&&/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(s);
 function validateConfig(input,current) {
   if(!input||typeof input!=='object')throw Error('配置不能为空');
   const next=clone(current);
-  for(const k of ['template','chargeIntervalMs','enabled','clueIntervalMs','cluePercent','clueMin','clueMax','slots','startTime','endTime'])if(Object.hasOwn(input,k))next[k]=input[k];
+  for(const k of ['template','chargeIntervalMs','goodChargeIntervalMs','badChargeIntervalMs','initialHp','protectMs','enabled','clueIntervalMs','cluePercent','clueMin','clueMax','slots','startTime','endTime'])if(Object.hasOwn(input,k))next[k]=input[k];
   if(!Object.hasOwn(TEMPLATES,next.template))throw Error('未知模板来源');
   // 兼容旧版单时段配置，不把运行模式与模板绑定。
   if(!Object.hasOwn(input,'slots')&&(Object.hasOwn(input,'startTime')||Object.hasOwn(input,'endTime'))){
@@ -30,6 +30,16 @@ function validateConfig(input,current) {
   for(let i=1;i<next.slots.length;i++)if(next.slots[i].startTime<next.slots[i-1].endTime)throw Error('场次时间不能重叠');
   next.startTime=next.slots[0].startTime;next.endTime=next.slots.at(-1).endTime;
   if(!Number.isSafeInteger(next.chargeIntervalMs)||next.chargeIntervalMs<1000||next.chargeIntervalMs>86400000)throw Error('恢复时间需为1秒至24小时');
+  // 旧版只提交单一 chargeIntervalMs 时视为两阵营统一 CD（兼容旧管理端/脚本）。
+  const legacyOnly=Object.hasOwn(input,'chargeIntervalMs')&&!Object.hasOwn(input,'goodChargeIntervalMs')&&!Object.hasOwn(input,'badChargeIntervalMs');
+  if(next.goodChargeIntervalMs==null||legacyOnly)next.goodChargeIntervalMs=next.chargeIntervalMs;
+  if(next.badChargeIntervalMs==null||legacyOnly)next.badChargeIntervalMs=next.chargeIntervalMs;
+  if(!Number.isSafeInteger(next.goodChargeIntervalMs)||next.goodChargeIntervalMs<1000||next.goodChargeIntervalMs>86400000)throw Error('好人技能CD需为1秒至24小时');
+  if(!Number.isSafeInteger(next.badChargeIntervalMs)||next.badChargeIntervalMs<1000||next.badChargeIntervalMs>86400000)throw Error('坏人技能CD需为1秒至24小时');
+  if(next.initialHp==null)next.initialHp=3;
+  if(!Number.isSafeInteger(next.initialHp)||next.initialHp<1||next.initialHp>20)throw Error('初始对抗生命需为1–20');
+  if(next.protectMs==null)next.protectMs=5*60*1000;
+  if(!Number.isSafeInteger(next.protectMs)||next.protectMs<0||next.protectMs>86400000)throw Error('受击保护时长无效');
   if(!Number.isSafeInteger(next.clueIntervalMs)||next.clueIntervalMs<1000||next.clueIntervalMs>86400000||next.clueIntervalMs%1000)throw Error('线索间隔需为1秒至24小时的整秒');
   if(!Number.isFinite(next.cluePercent)||next.cluePercent<=0||next.cluePercent>100)throw Error('公布比例需大于0且不超过100%');
   if(!Number.isSafeInteger(next.clueMin)||!Number.isSafeInteger(next.clueMax)||next.clueMin<1||next.clueMax>1000||next.clueMax<next.clueMin)throw Error('公布条数需为1–1000整数，最高不小于最低');
@@ -54,6 +64,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   room.room.pausedAt=session?.pausedAt||0;
   if(session&&!session.settled)room.rules.timeLimitMs=session.endsAt-room.room.startedAt;
   room.setChargeInterval(config.chargeIntervalMs);
+  if(typeof room.setCombatConfig==='function')room.setCombatConfig({initialHp:config.initialHp,protectMs:config.protectMs,goodChargeIntervalMs:config.goodChargeIntervalMs,badChargeIntervalMs:config.badChargeIntervalMs});
   function snapshot(){const r=room.room;return{roundId:r.roundId,startedAt:r.startedAt,players:r.players,sessions:[...r.sessions],features:r.features,
     finished:r.finished,finishReason:r.finishReason,lastResult:r.lastResult,ranking:r.ranking,logs:r.logs,eliminateEvents:r.eliminateEvents,pausedAt:r.pausedAt||0};}
   function record(){return{version:3,config,session,planDay,plan,consumed,revision,clueSchedule:{...clueSchedule},liveSnapshot:snapshot()};}
@@ -113,7 +124,9 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     if(slotId)consumed.push(`${session.day}:${slotId}`);
     // 手动场重叠的自动场视为已占用，不在手动场结束后偷偷插入同一时段。
     if(source==='manual')for(const s of plan.slots){if(at(planDay,s.startTime)<endsAt&&at(planDay,s.endTime)>startedAt)consumed.push(`${planDay}:${s.id}`);}
-    room.setChargeInterval(config.chargeIntervalMs);clueSchedule={nextAt:now()+config.clueIntervalMs,lastAt:0,lastCount:0};revision++;
+    room.setChargeInterval(config.chargeIntervalMs);
+    if(typeof room.setCombatConfig==='function')room.setCombatConfig({initialHp:config.initialHp,protectMs:config.protectMs,goodChargeIntervalMs:config.goodChargeIntervalMs,badChargeIntervalMs:config.badChargeIntervalMs});
+    clueSchedule={nextAt:now()+config.clueIntervalMs,lastAt:0,lastCount:0};revision++;
     results=readResults();syncHistorical();
     if(!persist())return{ok:false,error};
     return{ok:true,session:{...session}};
@@ -166,7 +179,9 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     if(!startedToday){planDay=today;plan={enabled:next.enabled,slots:clone(next.slots)};}
     if(isActive()&&next.clueIntervalMs!==old.clueIntervalMs){clueSchedule.nextAt=(session.pausedAt||now())+next.clueIntervalMs;}
     if(!persist()){config=old;clueSchedule=oldClue;plan=oldPlan;planDay=oldPlanDay;return{ok:false,error};}
-    room.setChargeInterval(config.chargeIntervalMs);tick();
+    room.setChargeInterval(config.chargeIntervalMs);
+    if(typeof room.setCombatConfig==='function')room.setCombatConfig({initialHp:config.initialHp,protectMs:config.protectMs,goodChargeIntervalMs:config.goodChargeIntervalMs,badChargeIntervalMs:config.badChargeIntervalMs});
+    tick();
     return error?{ok:false,error}:{ok:true,config:clone(config),scheduleEffective:startedToday?'tomorrow':'today',message:startedToday?'已保存。场次安排与自动开局从明天生效；当前场不受影响，玩法参数按说明应用。':'已保存。今日尚未开过场，场次安排现在生效；开放时段内会开局。'};
   }
   function pause(){
@@ -192,6 +207,15 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     clueSchedule.nextAt+=duration;session.pausedAt=0;room.room.pausedAt=0;
     if(!persist()){for(const [o,k,v]of changes)o[k]=v;clueSchedule=oldSchedule;session.pausedAt=oldPause;room.room.pausedAt=oldPause;return{ok:false,error};}
     tick();return{ok:true,paused:false};
+  }
+  // 仅 SID_TEST=1：服务启动即开一场测试场，HTTP 回归无需先走管理端开场。生产环境调用直接拒绝。
+  function openTestSession(ms){
+    if(process.env.SID_TEST!=='1')return{ok:false,error:'仅测试模式可用'};
+    if(isActive())return{ok:true,alreadyActive:true};
+    const t=now(),dur=Number.isSafeInteger(ms)&&ms>0?ms:2*3600*1000;
+    const opened=openSession({label:'自动测试场',source:'test',startedAt:t,endsAt:t+dur});
+    if(opened.ok){room.room.accessClosed='';room.room.daily={day:session.day,startAt:session.startedAt,endAt:session.endsAt,enabled:true};}
+    return opened;
   }
   function finishSession(){
     // 处理截止与过场，但不自动开新的定时场作为手动结算目标。
@@ -245,10 +269,10 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   }
   function guard(){tick();return room.room.accessClosed||'';}
   block(session?.pausedAt?'本场已暂停':'正在检查场次安排');
-  for(const name of ['join','useSkill','performAction','interact','play','attack','floorChange','enterZone','exitZone','searchStart','searchReveal','searchTake','useItem','sellItem','buyItem','startMinigame','actMinigame','quitMinigame']){
+  for(const name of ['join','useSkill','performAction','interact','play','attack','floorChange','enterZone','exitZone','searchStart','searchTake','startMinigame','actMinigame','quitMinigame']){
     const original=room[name];if(typeof original==='function')room[name]=(...args)=>{const reason=guard();return reason?{ok:false,error:reason,closed:true}:original(...args);};
   }
   const originalIntent=room.setIntent;room.setIntent=(id,input)=>{const reason=guard();if(reason&&input&&['up','down','left','right'].some(k=>input[k]))return false;return originalIntent(id,input);};
-  return{tick,state,saveConfig,addNpc,guard,persist,settle,pause,resume,finishSession,startManual,control};
+  return{tick,state,saveConfig,addNpc,guard,persist,settle,pause,resume,finishSession,startManual,control,openTestSession};
 }
 module.exports={createActivity,TEMPLATES,dayOf,at,validateConfig};

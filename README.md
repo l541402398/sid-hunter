@@ -101,36 +101,39 @@ node online/score-export-test.mjs
 
 **已取消“局数”概念**：整个活动是一局，直到满足结束条件为止。转盘等行为不再有“每局一次”的限制。
 
-### 结束方式（仅三种）
-1. **存活人数淘汰至剩余 100 人**（`RULES.endRemainingPlayers`；仅当房间总人数大于该值时判定，小房间不会因此提前结束）。
-2. **坏人全灭**（曾有坏人且当前存活坏人为 0）。
-3. **时间到**（`RULES.timeLimitMs` 默认 2 小时）。
+> **2026-11 积分与休战整改（分支 `feature/points-truce-refactor`）**：完整需求见 [`design/积分与休战整改方案.md`](design/积分与休战整改方案.md)，标“建议/待定”的数值均为方案建议值，未最终拍板。下列内容已按新规则更新；本文后面的历史变更记录（S-ID 公开、探查/刺探/击杀、幽灵、金币、首搜/首游等）仅作历史参考。
 
-其中②③会按分数产出结算排名；①不排名（只展示存活到最后的人）。
+### 阵营、对抗生命与休战
+- 好人/坏人随机分配（建议 4∶1），每人每天 **3 格对抗生命**（`WORLD.COMBAT.initialHp`，仅本人可见）。
+- 每人只有 1 个身份技能、1 次机会、冷却恢复：好人 **指认**（命中坏人 +10，目标 -1 生命；误指好人则自己 -1，不加分、无保护，CD 建议 30 分钟），坏人 **刺杀**（命中好人 +3，目标 -1 生命；对坏人双方不变、0 分，CD 建议 20 分钟）。
+- 有效命中后目标获得约 5 分钟受击保护；同一操作者每天对同一目标只能有效操作 1 次；无效请求不扣生命、不加分、不耗次数、不进 CD。
+- 生命归零进入 **休战**：积分保留，停止对抗时长分与对抗技能/得分；仍可移动、进房、探索、答题、J、猜拳/小游戏、领 NPC 福利、转盘。旧 S-ID 分段公开、探查/刺探/击杀、幽灵/吓人已取消。
 
-### 计分（`WORLD.SCORE`）
-| 行为 | 分值 |
-| --- | --- |
-| 搜索容器 | 2 |
-| 兑换线索 | 1 |
-| 获得线索（搜索或线索券） | 2 |
-| 猜拳 胜 / 平 / 负 | 2 / 1 / 0 |
-| J 互动命中 | 1 |
-| 探查 | 3 |
-| 刺探 | 2 |
-| 指认命中 | 8 |
-| 击杀 | 10 |
+### 结束方式
+- 正式活动默认只在 **时间到**（`RULES.timeLimitMs`）或管理员结算时结束。
+- “对抗中人数降至 `RULES.endRemainingPlayers`”与“坏人全部休战”保留为可选开关（`enableAliveFloor` / `enableBadWiped`，默认关闭）。
 
-分数公开（用于排名），只增不减。
+### 计分（`WORLD.SCORE` / `WORLD.EXPLORE` / `WORLD.ACTION`，均为建议值）
+| 行为 | 分值与额度 | 休战后 |
+| --- | --- | --- |
+| 探索容器（每容器每日 1 次） | 空 5% / 直接 +1（15%）/ 答题 80%，答对 +2 | 可得 |
+| J 互动命中在线真人 | 随机 +1，同一目标每日 ≤2，渠道每日 ≤10；NPC/离线不产分 | 可得 |
+| 猜拳等小游戏 | 胜者 +2，共享每日上限 10；不再押注 | 可得 |
+| NPC 福利 | 当日探索满 5/10/15/20/25 个容器依次解锁，免费领取，每类每日 1 次 | 可得 |
+| NPC 大转盘 | 每日 3 次、全部免费、全楼层共享，10 格随机积分 | 可得 |
+| 对抗中每满 30 分钟 | +1 | 停止 |
+| 正确指认 / 正确刺杀 | +10 / +3（无额外击杀奖励） | 停止 |
 
-### NPC 大转盘（可重复）
-- 点击 NPC 互动面板的「打开大转盘」弹出**真实转盘界面**，每次放置 **10 个物品**，等概率落格。
-- **首次免费**，之后每次消耗筹码且**次数越多越贵**：`WORLD.WHEEL.spinCosts = [0,1,2,4,6,9,12,16,20,25,30,36,42,49,56,64]`，超出后按末级增量线性外推。计数按“每个玩家 × 每个 NPC”独立。
-- 物品构成（`WORLD.WHEEL` / `WORLD.WHEEL_ITEMS`）：
-  - **不同数量的筹码**：`chipAmounts = [0,1,2,3,5,8]`。
-  - **线索券**（蓝，仅好人转盘）：获取一名坏人的一条线索。
-  - **洗心革面券**（绿，仅坏人转盘）：将自己由坏人转换为好人。
-  - **轮回券**（红，仅坏人转盘）：重新随机自己的身份特征（颜色/隐藏属性/S-ID，并重置公开状态）。
+已取消：金币（`exploration.chips` 已移除，旧存档见下方「旧存档迁移」）、首次搜索/首次小游戏 +5、公开身份码/击杀奖励。积分只累计排名，不用于消费。
+
+### 实物奖品（方案 §九；`online/room/prizes.js`）
+- **渠道**：有效开箱（每容器每人每日首开）与 J 命中在线真人（`/api/action` 锤子、`/api/attack` 两条路径）。与积分独立判定，中奖本身不加分，同次行为的积分照常发放。
+- **资格**：每位员工（工号）整个活动最多中一次，所有渠道、所有场次共用；进入休战、切场、重启都不刷新。昵称试玩（无工号）按「局 + 玩家」计，NPC 不参与，打 NPC/离线目标不触发。
+- **库存**：全服共享，按剩余数量加权选品类；抽取、扣库存、登记、落盘在同一同步调用里完成，不超发；落盘失败立即回滚并按未中奖返回，不先宣布中奖。存储在独立表 `prize_pool`，不随场次快照清空。
+- **J 有效触发上限**：同一目标每日 / 每日合计（默认 2 / 10，与 J 积分渠道同口径，**待定**），北京时间跨日重置。
+- **管理**：`/manager`「实物奖品」模块（`GET/POST /api/manager/prizes`，授权码 + CSRF + 同源）设置品类与库存、各渠道概率、J 触发上限，并查看中奖记录。库存不能低于已发出数量，已有中奖的品类不能删除；分批投放可按天追加库存。
+- **默认关闭**：品类、份数、概率、投放时段均为**待定**，默认空库存、概率 0，不会发放任何奖品。
+- **玩家端**：中奖时弹出掉落动画，顶栏显示「🎁 我的奖品」（只在本人私密状态 `me.prize` 中下发，公开快照不含）。
 
 ### 联机猜拳：邀请确认与十秒选择
 
@@ -144,7 +147,7 @@ node online/score-export-test.mjs
 ### 其它既有机制
 - **躲藏**：家具视觉与底部碰撞足迹分离，角色身体可被家具遮挡；遮挡时人物与下方名牌同帧隐藏（含自己与 NPC），解除同帧恢复。
 - **交互描边**：仅 9 个容器与 2 名 NPC 有描边，亮色=可操作 / 灰色=范围内不可用 / 暗色=太远。
-- **筹码来源**：搜索容器、NPC 转盘、玩家猜拳（胜 +1 / 负 −1 / 平不变，余额不为负）。
+- **无金币/道具**：金币（筹码）、道具背包、商店、物品格逐格搜索均已移除；探索、转盘、猜拳、J 只产出积分。
 - **J 互动（无伤害）**：所有阵营可用，命中只造成对手 0.8 秒眩晕 + 1 秒僵直，不扣血、不淘汰。
 
 ## 可调参数
@@ -154,14 +157,20 @@ node online/score-export-test.mjs
 | 位置 | 键 | 值 |
 | --- | --- | --- |
 | `RULES` | `endRemainingPlayers` / `timeLimitMs` | `100` / `7200000`（2 小时） |
-| `WHEEL` | `slotCount` / `spinCosts` / `chipAmounts` / `specialCount` / `specials` | `10` / 见上 / 见上 / `{good:2,bad:2}` / `{good:['clue'],bad:['reform','rebirth']}` |
+| `WHEEL` | `slotCount` / `maxDailySpins` / `chipAmounts`（积分槽位，建议值） | `10` / `3` / `[1,2,3,4,5,6,8]`；转盘免费，无花费阶梯与特殊券 |
 | `PLAY_CONFIG` | `rpsStake` `rpsTimeoutMs` `rpsRoundMs` `rpsCooldownMs` `attackRange` `attackCooldownMs` `attackConeCos` `stunMs` `freezeMs` | `1` `30000` `10000` `5000` `48` `1200` `0.5` `800` `1000` |
 | — | `INTERACT_RANGE` | `64`（容器/NPC 互动与猜拳的距离门槛） |
 
+### 旧存档迁移（金币时代 → 积分版）
+
+- 读取旧 SQLite 快照恢复玩家时，`migrateLegacyEconomy`（`online/room/index.js`）会丢弃 `exploration.chips`（金币余额）、`exploration.items` / `exploration.backpack`（道具）和 `buffs`，**不折算成积分**；`score` 原样保留。迁移幂等，旧存档不会因缺字段崩溃。
+- `players` 表的 `chips` / `items_json` 两列为兼容旧库保留，积分版恒写 `0` / `'{}'`，不再读取。
+- 已移除的接口：`/api/search/reveal`、`/api/item/use`、`/api/item/sell`、`/api/shop/buy`（路由已删除）；`WORLD.LOOT`、`WORLD.wheelSpinCost`、`WORLD.WHEEL_ITEMS` 不再导出。
+
 ## 权威性与隐私边界
 
-- 位置、移动、技能、探索奖励、转盘落格与费用、猜拳结算、J 互动、计分与结束判定全部由服务端计算，客户端只提交意图并渲染快照。
-- 公开投影只含位置、公开颜色、已公开属性、已公开 S-ID 段、`score` 以及动画用 `facing`/`lastAttackAt`/`stunUntil`/`freezeUntil`；筹码、线索、技能次数、身份、生命仅本人可见。
+- 位置、移动、技能、探索奖励、转盘落格、猜拳结算、J 互动、计分与结束判定全部由服务端计算，客户端只提交意图并渲染快照。
+- 公开投影只含位置、公开颜色、已公开属性、已公开 S-ID 段、`score` 以及动画用 `facing`/`lastAttackAt`/`stunUntil`/`freezeUntil`；线索、技能次数、身份、生命仅本人可见。
 - 私密线索不进入公开档案、名单搜索与公共日志；猜拳选择阶段仅下发本人出拳，对手出拳只在服务端截止结算后向两位参与者揭示。
 - 服务端 20Hz 快照采用截止时间补偿调度（单次长卡顿只补一次，不突发追赶）。
 
@@ -171,7 +180,10 @@ node online/score-export-test.mjs
 # 服务端（零依赖，直接 node 运行）
 node online/rps-flow-test.mjs              # 新猜拳状态机、隐私与截止边界
 node online/mechanics-test.mjs             # 机制：29 项
-node online/exploration-test.mjs           # 探索/兑换/重置：25 项
+node online/exploration-test.mjs           # 旧金币探索夹具（整改前已失效，保留作历史参考）
+node online/points-explore-test.mjs        # 整改：探索/答题/NPC 解锁福利/J 额度/休战可玩：7 项
+node online/truce-offline-test.mjs         # 整改：休战公开投影、碰撞、J、技能冻结、重连（取代 ghost-offline-test）
+node online/skill-charges-test.mjs         # 指认/刺杀单技能、按阵营 CD 与 UI 文案：20 项
 node online/progression-test.mjs           # 转盘/特殊券/计分/三种结束：15 项
 node online/self-test.mjs                  # 11 项
 node online/rules-skill-test.mjs           # 14 项
@@ -180,6 +192,7 @@ node online/qa-verify.mjs                  # 35 项
 node online/privacy-reset-test.mjs         # 23 项
 node online/privacy-reset-qa.mjs           # 23 项
 node online/manager-test.mjs               # 管理控制台：授权码/上局排名/开新局/限流：60 项
+node online/prizes-test.mjs                # 实物奖品：一次上限/共享库存/落盘回滚/J 触发上限/管理端 HTTP：13 项
 
 # 真实 Chrome（原生 CDP，需系统 Chrome）
 SID_CHROME=/usr/bin/google-chrome node online/rps-browser-test.mjs # 双玩家猜拳与窄屏验收
@@ -192,6 +205,8 @@ SID_CHROME=/usr/bin/google-chrome node online/manager-live-browser-test.mjs http
 # 公网部署冒烟（打完线上地址，32 项）
 node online/deploy-smoke.mjs https://game.afann.xyz
 ```
+
+> **测试模式**：`SID_TEST=1` 时服务端使用内存 SQLite（不写 `.data/`），启动即自动开一场 2 小时的「自动测试场」（`SID_TEST_AUTO_OPEN=0` 关闭，`SID_TEST_SESSION_MS` 调整时长），并开放 `/api/test/*` 辅助路由；未设置 `SID_TEST=1` 时这些路由与自动开场都不存在。生产模式下的 HTTP 自测用临时 `SID_DB_FILE`，并经 `/api/manager` 登录后开场。
 
 > Chrome 路径默认取 Windows 的 `C:/Program Files/Google/Chrome/Application/chrome.exe`；在 Linux 上跑浏览器脚本时用 `SID_CHROME=/usr/bin/google-chrome` 覆盖（管理页两个浏览器脚本已支持该环境变量）。
 

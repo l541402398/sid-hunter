@@ -4,33 +4,15 @@ const WORLD = require('../shared/world.js');
 const { normalizeGender, HAIR_PARITY, hairIndexAllowed } = require('../shared/gender.js');
 
 const SKILL_CONFIG = {
-  chargeIntervalMs: 90_000, // 正式版改为 1_200_000（20 分钟）
-  maxCharges: 2,
-  // 身份技能只受储存次数限制，不再设置两次使用之间的短冷却。
+  // 默认取坏人 CD（20 分钟）；正式场由 activity 模板 / 管理页覆盖 good/bad 分别配置。
+  // 试玩可用较短间隔；正式：good 30min / bad 20min。
+  chargeIntervalMs: 90_000,
+  goodChargeIntervalMs: 90_000, // 正式版 1_800_000（30 分钟）
+  badChargeIntervalMs: 90_000,  // 正式版 1_200_000（20 分钟）
+  maxCharges: 1,
+  startCharges: 1,
   probeCooldownMs: 0,
   actionCooldownMs: 0
-};
-
-// 奖励仅保存在服务端，共享地图不暴露容器内容。
-// 原 9 个容器唯一分配到七层，保留原 ID 与奖励；楼层归属单独存储，不复制经济。
-const EXPLORATION_REWARDS = {
-  'reception-132-173': { kind: 'chips', amount: 3 },
-  'counter-1990-165': { kind: 'chips', amount: 2 },
-  'table-2010-514': { kind: 'clue' },
-  'cabinet-785-160': { kind: 'clue' },
-  'desk-1035-172': { kind: 'chips', amount: 2 },
-  'desk-1690-172': { kind: 'chips', amount: 2 },
-  'desk-2940-172': { kind: 'chips', amount: 2 },
-  'table-2535-513': { kind: 'clue' },
-  'desk-3600-172': { kind: 'chips', amount: 2 },
-  // 任务3（五项场景修改）新增：每层 1 个新可搜容器（与 world.js CONTAINER_IDS 同步登记）。
-  'hall1-340-300': { kind: 'chips', amount: 2 },
-  'printer2-590-370': { kind: 'chips', amount: 1 },
-  'docs3-590-290': { kind: 'clue' },
-  'ticket4-590-280': { kind: 'chips', amount: 2 },
-  'duty5-610-305': { kind: 'chips', amount: 1 },
-  'safe6-640-355': { kind: 'clue' },
-  'bar7-480-300': { kind: 'chips', amount: 1 }
 };
 
 const SEG_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -61,6 +43,6 @@ const randomColors = gender => {
 const randomTraits = () => Object.fromEntries(Object.keys(TRAIT_POOL).map(k => [k, pick(TRAIT_POOL[k])]));
 
 module.exports = {
-  SKILL_CONFIG, EXPLORATION_REWARDS, SEG_CHARS, NAME_POOL, TRAIT_POOL,
+  SKILL_CONFIG, SEG_CHARS, NAME_POOL, TRAIT_POOL,
   pick, randChar, randomSid, normalizeGender, hairIndexAllowed, hairOptionsForGender, pickHairColor, randomColors, randomTraits
 };

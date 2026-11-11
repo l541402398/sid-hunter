@@ -2,6 +2,7 @@
 // 服务入口：统一管理员日程、权威房间与低频持久化。环境变量只配置监听/认证等基础设施。
 const http = require('http');
 const { createRoom, WORLD, QUIZ } = require('./room.js');
+const { createPrizePool } = require('./room/prizes.js');
 const { createManager } = require('./manager.js');
 const { PORT, HOST, TICK_MS, SSO_REQUIRED, MANAGER_CODE } = require('./server/config.js');
 const { everyMs, lanAddresses, send } = require('./server/http-util.js');
@@ -28,7 +29,9 @@ const admin = STORE.loadAdmin();
 const restoredSnapshot = admin?.liveSnapshot
   ? { ...admin.liveSnapshot, includeNpcs:true }
   : STORE.loadSnapshot();
-const ROOM = createRoom(restoredSnapshot ? { restore:restoredSnapshot, features:restoredSnapshot.features } : {});
+// 实物奖品池：全活动共享，独立表落盘；每次中奖/改库存同步写库，写失败即回滚（不先宣布中奖）。
+const PRIZES = createPrizePool({ initial: STORE.loadPrizes(), persist: state => STORE.enabled ? STORE.savePrizes(state) : false });
+const ROOM = createRoom({ prizes: PRIZES, ...(restoredSnapshot ? { restore:restoredSnapshot, features:restoredSnapshot.features } : {}) });
 require('./server/auth.js').bindRoom(ROOM);
 // 重启恢复的玩家可能来自旧代码：用员工库补一次组织信息，目标档案无需等重连即可显示。
 for (const player of ROOM.room.players) {
@@ -42,6 +45,11 @@ for (const player of ROOM.room.players) {
 const restored = STORE.loadLastRound();
 if(!admin?.liveSnapshot&&restored&&!ROOM.room.lastResult) ROOM.room.lastResult={ finishReason:restored.finishReason,finishedAt:restored.finishedAt,roster:restored.roster||[],ranking:restored.ranking||[] };
 const ACTIVITY = createActivity({room:ROOM,store:STORE,initial:admin});
+// 测试模式（SID_TEST=1，且未设 SID_TEST_AUTO_OPEN=0）：内存库 + 自动开一场测试场，HTTP 回归可直接 join/操作。
+if(process.env.SID_TEST==='1'&&process.env.SID_TEST_AUTO_OPEN!=='0'){
+  const opened=ACTIVITY.openTestSession(Number(process.env.SID_TEST_SESSION_MS)||undefined);
+  if(!opened.ok)console.error('[test] 自动开场失败：',opened.error);
+}
 const resetTokens = new Map();
 const MANAGER = createManager({room:ROOM,passcode:MANAGER_CODE,activity:ACTIVITY});
 const { openStream, startOfflineSweep } = makeSse(ROOM);

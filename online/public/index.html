@@ -21,10 +21,9 @@
 <script src="/shared/world/layouts/f6.js" defer></script>
 <script src="/shared/world/layouts/f7.js" defer></script>
 <script src="/shared/world/floors.js" defer></script>
-<!-- rooms.js 依赖 floors.js；clutter.js 依赖 floors+rooms（按楼层撒装饰）；loot.js 无依赖 -->
+<!-- rooms.js 依赖 floors.js；clutter.js 依赖 floors+rooms（按楼层撒装饰） -->
 <script src="/shared/world/rooms.js" defer></script>
 <script src="/shared/world/clutter.js" defer></script>
-<script src="/shared/world/loot.js" defer></script>
 <script src="/shared/world/sprite.js" defer></script>
 <script src="/shared/world.js" defer></script>
 <script src="/shared/scene.js" defer></script>
@@ -48,8 +47,7 @@
 <!-- F1 碰撞调试层：只读 TMJ/旧碰撞，不参与权威移动；必须在 game.js 之前挂到 window.SID -->
 <script src="js/render/tmj-debug.js" defer></script>
 <script src="js/render/tmj-visual.js" defer></script>
-<!-- 需求4/5：容器探索面板（空 / 直接得金币 / 答题得金币），必须先于 game.js -->
-<script src="js/search/loot-icons.js" defer></script>
+<!-- 需求4/5：容器探索面板（空 / 直接得积分 / 答题得积分），必须先于 game.js -->
 <script src="js/search/loot-grid.js" defer></script>
 <script src="game.js" defer></script>
 </head>
@@ -65,13 +63,13 @@
         <div class="public-stats"><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button></div>
       </div>
       <div class="toolbar" aria-label="公共功能">
-        <div class="toolbar-left"><button id="rules-toggle" type="button" aria-label="图解游戏规则" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="图解游戏规则（快捷键 H）"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>游戏规则</button><button id="ranking-toggle" type="button" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><button id="roster-toggle" type="button" aria-expanded="false" aria-controls="roster" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P" hidden>待加入玩家 <span id="pending-count">—</span></button><span id="floor-indicator" class="floor-indicator" aria-live="polite" hidden>1F</span><span class="hud-stat"><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span class="hud-stat"><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span></div>
+        <div class="toolbar-left"><button id="rules-toggle" type="button" aria-label="图解游戏规则" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="图解游戏规则（快捷键 H）"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>游戏规则</button><button id="ranking-toggle" type="button" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><button id="roster-toggle" type="button" aria-expanded="false" aria-controls="roster" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P" hidden>待加入玩家 <span id="pending-count">—</span></button><span id="floor-indicator" class="floor-indicator" aria-live="polite" hidden>1F</span><span class="hud-stat"><i class="dot green"></i>对抗中 <b id="alive-count">0</b></span><span class="hud-stat"><i class="dot gray"></i>休战 <b id="out-count">0</b></span></div>
         <div class="intel-hub" id="intel-hub" role="group" aria-label="核心线索区"><span class="clue-chip intel-item" id="clue-next" title="下一次系统公布坏人线索的剩余时间"><i class="dot amber"></i>线索公布剩余 <b id="clue-next-left">待开启</b><em id="clue-next-at" hidden></em></span><span class="intel-link" aria-hidden="true">▸</span><button id="bad-toggle" class="intel-btn intel-bad-btn" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog" title="查看系统已公布的匿名坏人线索池 (快捷键 C)"><span>🕵️ 坏人线索</span><span id="bad-toggle-label">展开＋</span></button></div>
-        <div class="toolbar-right"><button id="logs-toggle" class="intel-btn intel-logs-btn" type="button" aria-label="打开或关闭公告栏" aria-controls="logs" aria-expanded="true" title="打开或关闭公告栏 (快捷键 G)">📢 公告栏</button><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="clue-bag" class="score-chip" title="我的今日金币（每日清零）">金币 <b id="chip-count">0</b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)">⛶ 全屏</button></div>
+        <div class="toolbar-right"><button id="logs-toggle" class="intel-btn intel-logs-btn" type="button" aria-label="打开或关闭公告栏" aria-controls="logs" aria-expanded="true" title="打开或关闭公告栏 (快捷键 G)">📢 公告栏</button><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="clue-bag" class="score-chip" title="今日已探索容器数（每日重置，5/10/15/20/25 解锁 NPC 福利）">探索 <b id="chip-count">0</b></span><span id="prize-chip" class="score-chip prize-chip" title="我的实物奖品（整个活动最多一次，已锁定给你）" hidden>🎁 我的奖品 <b id="prize-name"></b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)">⛶ 全屏</button></div>
       </div>
     </div>
     <div class="map-view" id="map-view">
-      <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，J 敲，K 与场景交互（幽灵 J 吓人），点击角色或公开标签选择目标。点击容器或NPC，或按K打开近距离互动；Esc关闭私密面板。"></canvas>
+      <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，J 敲，K 与场景交互（休战中也可 J 敲与互动），点击角色或公开标签选择目标。点击容器或NPC，或按K打开近距离互动；Esc关闭私密面板。"></canvas>
       <div class="world-chip" hidden><span class="live-square"></span><span id="zone-name">接待区</span><small>七层楼面 / 电梯连通</small></div>
       <div class="exploration-hud" aria-label="就近互动"><p id="cover-status" hidden></p><div id="nearby-items" class="nearby-items"></div><p id="nearby-empty" hidden></p><div class="combat-hud"><button id="attack-button" type="button" hidden>J 敲</button><p id="self-combat-state" class="self-combat-state" hidden aria-live="polite"></p><span class="combat-note" hidden></span></div></div>
       <!-- 第二轮：限时 buff 条（疾行 / 护体 / 专注），由服务端剩余毫秒驱动 -->
@@ -122,7 +120,7 @@
       <aside id="pending-players" class="panel roster pending-players" hidden aria-labelledby="pending-title">
         <div class="panel-heading"><div><small>WAITING TO JOIN</small><h2 id="pending-title">待加入玩家</h2></div><button id="pending-close" type="button" class="icon-button" aria-label="收起待加入玩家">×</button></div>
         <div class="pending-tools"><p id="pending-summary" class="panel-note" role="status">正在读取同事表…</p><button id="pending-refresh" type="button">刷新</button></div>
-        <p class="panel-note">点击交付组展开 / 收起 · 组内按工号排序 · 离线或淘汰者仍算已加入</p>
+        <p class="panel-note">点击交付组展开 / 收起 · 组内按工号排序 · 离线或休战者仍算已加入</p>
         <div id="pending-items" class="roster-items"></div>
       </aside>
       <section id="target" class="panel target" hidden aria-label="目标公开档案"></section>
