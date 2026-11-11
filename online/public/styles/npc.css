@@ -1,0 +1,36 @@
+/* Compact NPC panel: the wheel stays visible while the benefit list scrolls. */
+#exploration.exploration{width:min(472px,calc(100vw - 24px));max-height:calc(100dvh - 32px);padding:9px 12px;display:flex;flex-direction:column;gap:8px}
+#exploration[hidden]{display:none}
+#exploration>.panel-heading{margin:0;flex:none}
+#exploration .panel-heading small{font-size:9px;letter-spacing:1px}
+#exploration .npc-summary{display:flex;justify-content:space-between;gap:12px;flex:none;font-size:11px;color:var(--ink-2);padding:0 2px}
+#exploration .npc-summary strong{font:800 13px ui-monospace,monospace;color:var(--brand-dk)}
+#exploration .npc-wheel-entry{display:flex;align-items:center;gap:12px;width:100%;min-height:78px;padding:10px 12px;flex:none;text-align:left;cursor:pointer;color:#fff0cb;border:2px solid #ad803e;background:linear-gradient(115deg,#6b4520,#3c2e19);box-shadow:inset 0 1px #ffe6ad66,inset 0 -2px #2e1a0c;clip-path:var(--clip-plaque)}
+#exploration .npc-wheel-entry:hover:not(:disabled){border-color:#dbb86b;background:linear-gradient(115deg,#80572b,#493720)}
+#exploration .npc-wheel-entry:focus-visible{outline:2px solid #c48b32;outline-offset:2px}
+#exploration .npc-wheel-entry:disabled{opacity:.6;cursor:not-allowed}
+#exploration .npc-wheel-icon{width:48px;height:48px;flex:none}
+#exploration .npc-wheel-copy{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
+#exploration .npc-wheel-copy strong{font-size:17px;font-weight:800;letter-spacing:1px}
+#exploration .npc-wheel-copy>span{font-size:10px;color:#e8d7b1;line-height:1.4}
+#exploration .npc-wheel-action{font-size:11px;font-weight:800;padding:8px 9px;background:#e9bd66;color:#3b270e;clip-path:var(--clip-card);white-space:nowrap}
+#exploration .npc-availability{margin:0;padding:5px 8px;flex:none;font-size:11px;color:#8b3e16;background:var(--sun-soft);border-left:2px solid var(--sun-line);line-height:1.4}
+#exploration .npc-availability[hidden]{display:none}
+#exploration .exploration-body{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+#exploration .npc-benefits-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:3px 0 7px}
+#exploration .npc-benefits-heading h3{font-size:12px;color:var(--ink);margin:0}
+#exploration .npc-benefits-heading>span{font-size:10px;color:var(--ink-3)}
+#exploration #npc-exchange-list{max-height:none;overflow:visible;gap:6px}
+#exploration .npc-exchange-row{padding:8px 9px;gap:9px;align-items:center}
+#exploration .npc-benefit-title{display:flex;align-items:baseline;justify-content:space-between;gap:5px;flex-wrap:wrap}
+#exploration .npc-benefit-title strong{font-size:12px;letter-spacing:0}
+#exploration .npc-unlock-tag{font-size:10px;line-height:1.4;color:var(--ink-3);white-space:nowrap}
+#exploration .npc-exchange-row .bag-meta>span{font-size:10px;line-height:1.5}
+#exploration .npc-exchange-select{width:100%;margin-top:3px}
+#exploration .npc-exchange-row .bag-actions button{min-width:54px;min-height:30px;padding:0 7px}
+#exploration .npc-exchange-row[data-state='claimed']{background:#ece6d7}
+#exploration .npc-exchange-row[data-state='claimed'] .bag-meta>span{color:var(--ink-3)}
+#exploration .npc-panel-note{font-size:10px;line-height:1.5;color:var(--ink-3);text-align:center;margin:8px 0 0}
+#exploration .private-result{margin:7px 0 0}
+@media(max-width:500px){#exploration.exploration{padding:8px;width:calc(100vw - 16px);max-height:calc(100dvh - 20px)}#exploration .npc-wheel-entry{gap:8px;padding:9px;min-height:70px}#exploration .npc-wheel-icon{width:38px;height:38px}#exploration .npc-wheel-copy strong{font-size:15px}#exploration .npc-wheel-action{font-size:10px;padding:7px}}
+@media(max-height:760px){#exploration.exploration{gap:6px;max-height:calc(100dvh - 20px)}#exploration .npc-wheel-entry{min-height:70px;padding:8px 10px}#exploration .npc-exchange-row{padding:7px 8px}}

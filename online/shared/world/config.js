@@ -145,7 +145,7 @@
       points: 10,
       unlockAt: 5,
       dailyLimit: 1,
-      desc: '免费领取 +10 积分（建议值；每日一次）'
+      desc: '领取后获得 10 积分'
     }),
     Object.freeze({
       key: 'revealRandomTrait',

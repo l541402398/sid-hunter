@@ -1943,7 +1943,7 @@ function createRoom(options = {}) {
       ensureScoreState(actor);
       actor.score += amount;
       actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + amount;
-      const resultText = `转盘第${spins + 1}/${maxSpins}次：获得${amount}积分（免费）。`;
+      const resultText = `转盘第${spins + 1}/${maxSpins}次：获得${amount}积分。`;
       const nextSpins = spins + 1;
       actor.games.wheelDailySpins = nextSpins;
       for (const n of WORLD.NPCS) {

@@ -1287,7 +1287,7 @@
     });
   }
   // ============================================================
-  // NPC 福利（按今日探索数量解锁、免费、每人每类每日限领一次）与状态辅助
+  // NPC 福利（按本场探索数量解锁、各楼层共用领取记录）与状态辅助
   // ============================================================
   function updateBuffHUD() {
     const host = $('buff-bar'); if (!host) return;
@@ -1375,70 +1375,78 @@
       const row = document.createElement('div');
       row.className = 'bag-item shop npc-exchange-row';
       row.dataset.effect = def.key;
+      row.dataset.state = exhausted ? 'claimed' : unlocked ? 'unlocked' : 'locked';
 
       const meta = document.createElement('div');
       meta.className = 'bag-meta';
       const title = document.createElement('strong');
-      title.textContent = `${def.label} · 探索 ${unlockAt} 个解锁 · 免费`;
+      title.textContent = def.shortLabel || def.label;
+      const threshold = document.createElement('small');
+      threshold.className = 'npc-unlock-tag';
+      threshold.textContent = '探索 ' + unlockAt + ' 次';
       const desc = document.createElement('span');
-      desc.textContent = `${def.desc}（今日 ${Math.min(usedCount, limit)}/${limit}）`;
-      meta.append(title, desc);
+      desc.textContent = def.desc;
+      const titleRow = document.createElement('div');
+      titleRow.className = 'npc-benefit-title';
+      titleRow.append(title, threshold);
+      meta.append(titleRow, desc);
 
       let selectEl = null;
       let conditionMet = true;
       let conditionHint = '';
-      if (def.key === 'revealRandomTrait') {
-        if (!targetList.length) { conditionMet = false; conditionHint = '暂无可公开隐藏属性的其他对抗中玩家'; }
-      } else if (def.key === 'hideOwnTrait') {
-        if (!ownTraits.length) {
-          conditionMet = false;
-          conditionHint = '你当前没有已公开的隐藏属性';
-        } else {
-          selectEl = document.createElement('select');
-          selectEl.className = 'npc-exchange-select';
-          selectEl.dataset.select = 'hideOwnTrait';
-          for (const opt of ownTraits) {
-            const o = document.createElement('option');
-            o.value = opt.key; o.textContent = opt.label;
-            selectEl.append(o);
+      if (unlocked && !exhausted) {
+        if (def.key === 'revealRandomTrait') {
+          if (!targetList.length) { conditionMet = false; conditionHint = '暂无可公开隐藏属性的其他对抗中玩家'; }
+        } else if (def.key === 'hideOwnTrait') {
+          if (!ownTraits.length) {
+            conditionMet = false;
+            conditionHint = '你当前没有已公开的隐藏属性';
+          } else {
+            selectEl = document.createElement('select');
+            selectEl.className = 'npc-exchange-select';
+            selectEl.dataset.select = 'hideOwnTrait';
+            for (const opt of ownTraits) {
+              const o = document.createElement('option');
+              o.value = opt.key; o.textContent = opt.label;
+              selectEl.append(o);
+            }
+            if (prevVals.hideOwnTrait && ownTraits.some(o => o.key === prevVals.hideOwnTrait)) selectEl.value = prevVals.hideOwnTrait;
+            meta.append(selectEl);
           }
-          if (prevVals.hideOwnTrait && ownTraits.some(o => o.key === prevVals.hideOwnTrait)) selectEl.value = prevVals.hideOwnTrait;
-          meta.append(selectEl);
-        }
-      } else if (def.key === 'revealTargetTrait') {
-        if (!targetList.length) {
-          conditionMet = false;
-          conditionHint = '暂无可公开隐藏属性的其他对抗中玩家';
-        } else {
-          selectEl = document.createElement('select');
-          selectEl.className = 'npc-exchange-select';
-          selectEl.dataset.select = 'revealTargetTrait';
-          for (const p of targetList) {
-            const o = document.createElement('option');
-            o.value = String(p.id); o.textContent = p.name;
-            selectEl.append(o);
+        } else if (def.key === 'revealTargetTrait') {
+          if (!targetList.length) {
+            conditionMet = false;
+            conditionHint = '暂无可公开隐藏属性的其他对抗中玩家';
+          } else {
+            selectEl = document.createElement('select');
+            selectEl.className = 'npc-exchange-select';
+            selectEl.dataset.select = 'revealTargetTrait';
+            for (const p of targetList) {
+              const o = document.createElement('option');
+              o.value = String(p.id); o.textContent = p.name;
+              selectEl.append(o);
+            }
+            if (prevVals.revealTargetTrait && targetList.some(p => String(p.id) === prevVals.revealTargetTrait)) selectEl.value = prevVals.revealTargetTrait;
+            meta.append(selectEl);
           }
-          if (prevVals.revealTargetTrait && targetList.some(p => String(p.id) === prevVals.revealTargetTrait)) selectEl.value = prevVals.revealTargetTrait;
-          meta.append(selectEl);
-        }
-      } else if (def.key === 'hideBadClue') {
-        if (!badClues.length) {
-          conditionMet = false;
-          conditionHint = '匿名坏人卡上暂无已公布线索';
-        } else {
-          selectEl = document.createElement('select');
-          selectEl.className = 'npc-exchange-select';
-          selectEl.dataset.select = 'hideBadClue';
-          for (const c of badClues) {
-            const o = document.createElement('option');
-            o.value = c.value; o.textContent = c.label;
-            selectEl.append(o);
+        } else if (def.key === 'hideBadClue') {
+          if (!badClues.length) {
+            conditionMet = false;
+            conditionHint = '匿名坏人卡上暂无已公布线索';
+          } else {
+            selectEl = document.createElement('select');
+            selectEl.className = 'npc-exchange-select';
+            selectEl.dataset.select = 'hideBadClue';
+            for (const c of badClues) {
+              const o = document.createElement('option');
+              o.value = c.value; o.textContent = c.label;
+              selectEl.append(o);
+            }
+            if (prevVals.hideBadClue && badClues.some(c => c.value === prevVals.hideBadClue)) selectEl.value = prevVals.hideBadClue;
+            meta.append(selectEl);
           }
-          if (prevVals.hideBadClue && badClues.some(c => c.value === prevVals.hideBadClue)) selectEl.value = prevVals.hideBadClue;
-          meta.append(selectEl);
         }
       }
-      if (!exhausted && !unlocked) { conditionHint = `今日已探索 ${explored}/${unlockAt} 个容器，达到后解锁`; }
       if (!exhausted && conditionHint) {
         const hintEl = document.createElement('small');
         hintEl.className = 'npc-exchange-hint';
@@ -1452,7 +1460,8 @@
       btn.type = 'button';
       btn.id = `npc-exchange-${def.key}`;
       btn.dataset.effect = def.key;
-      btn.textContent = exhausted ? '今日已领' : !unlocked ? `需探索 ${unlockAt}` : '领取';
+      btn.textContent = exhausted ? '已领取' : !unlocked ? '未解锁' : '领取';
+      btn.title = !unlocked ? `探索 ${unlockAt} 次后解锁` : conditionHint;
       // 休战玩家同样可以领取福利；只有本局结束、距离、受控、未解锁或已领时禁用。
       btn.disabled = !!interactionFlight || finished || !inRange || selfDisabled() || exhausted || !unlocked || !conditionMet;
       btn.onclick = () => {
@@ -1523,7 +1532,11 @@
     $('clue-bag').setAttribute('aria-expanded', 'false');
     const heading = kind === 'container' ? entity.container.name : entity.name;
     // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
-    host.innerHTML = `<div class="panel-heading"><div><small>NPC EXCHANGE &amp; LUCKY WHEEL</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭面板">×</button></div><div class="exploration-body"><p class="exploration-balance">今日已探索：<strong id="exploration-explored"></strong> 个容器 · 今日积分：<strong id="exploration-score"></strong></p><p id="exploration-distance" class="panel-note"></p><p id="exploration-state" class="search-state"></p><p class="npc-dialogue">${escapeText(entity.dialogue)}</p><div class="wheel-block"><p class="private-title">大转盘（全楼层共享 · 每日上限 3 次）</p><p class="panel-note">10 格随机积分奖励 · 每日 3 次全部免费</p><button id="exploration-wheel" type="button">打开大转盘</button><p id="exploration-wheel-state" class="search-state"></p></div><div class="bag-block"><p class="private-title">NPC 福利（按今日探索数量解锁 · 免费 · 每类每日限领 1 次）</p><div id="npc-exchange-list" class="bag-items"></div><p class="panel-note">探索数量与领取次数每日重置，积分持续累计；各层楼 NPC 进度与次数完全共享。</p></div><p id="exploration-result" class="private-result" hidden></p><p class="hold-note">仅自己可见 · 关闭、Esc、切出页面、选择玩家、规则或重置立即关闭面板，不回滚已结算效果。</p></div>`;
+    host.innerHTML = `<div class="panel-heading"><div><small>NPC 福利</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭面板">×</button></div>
+      <div class="npc-summary"><span>本场探索 <strong id="exploration-explored"></strong> 次</span><span>积分 <strong id="exploration-score"></strong></span></div>
+      <button id="exploration-wheel" class="npc-wheel-entry" type="button"><svg class="npc-wheel-icon" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="25" r="19" fill="#5a3820" stroke="#f4d48b" stroke-width="2"/><path d="M24 25V7A18 18 0 0 1 40 34Z" fill="#a4b76c"/><path d="M24 25L40 34A18 18 0 0 1 8 34Z" fill="#d78b4d"/><path d="M24 25L8 34A18 18 0 0 1 24 7Z" fill="#dfbd68"/><circle cx="24" cy="25" r="5" fill="#fff0bf" stroke="#6f4725"/><path d="M19 2h10l-5 10Z" fill="#fff1c4" stroke="#6f4725"/></svg><span class="npc-wheel-copy"><strong>幸运大转盘</strong><span id="exploration-wheel-state"></span></span><span class="npc-wheel-action">去转盘 <span aria-hidden="true">→</span></span></button>
+      <p id="exploration-state" class="npc-availability" role="status" hidden></p>
+      <div class="exploration-body"><section class="npc-benefits"><div class="npc-benefits-heading"><h3>探索福利</h3><span>每项每场 1 次</span></div><div id="npc-exchange-list" class="bag-items"></div></section><p id="exploration-result" class="private-result" role="status" hidden></p><p class="npc-panel-note">各楼层共用探索进度与领取次数</p></div>`;
     $('exploration-close').onclick = closeExploration;
     if ($('exploration-wheel')) $('exploration-wheel').onclick = () => openWheel(entity.entityId, entity.name);
     // 远处容器/NPC 仍可打开面板查看，但按钮禁用并给出「靠近」提示。
@@ -1536,26 +1549,22 @@
     if (!explorationPanel || !me) return;
     const { kind, entityId } = explorationPanel, entity = explorationEntity(kind, entityId);
     if (!entity) return;
-    const state = explorationState();
-    if ($('exploration-explored')) $('exploration-explored').textContent = Number(me.npcExchange && me.npcExchange.exploredCount) || 0;
-    if ($('exploration-score')) $('exploration-score').textContent = selfScore();
-    const distance = entityDistance(entity), inRange = distance <= WORLD.INTERACT_RANGE;
-    $('exploration-distance').textContent = `距离：${Number.isFinite(distance) ? Math.ceil(distance) + ' 像素' : '未知'} / 范围 ${WORLD.INTERACT_RANGE} · ${inRange ? '可近距离互动' : '距离太远，请靠近后再试'}`;
-    $('exploration-state').textContent = finished ? '游戏已结束，互动已冻结'
-      : !inRange ? '距离太远，请靠近 NPC 后再领取福利或转动转盘'
-          : '每层楼 NPC 功能一致 · 可转动大转盘或领取已解锁的福利';
+    setText($('exploration-explored'), String(Number(me.npcExchange?.exploredCount) || 0));
+    setText($('exploration-score'), String(selfScore()));
+    const inRange = entityDistance(entity) <= WORLD.INTERACT_RANGE;
+    const unavailable = finished ? '本场已结束'
+      : !inRange ? '靠近 NPC 后即可转盘或领取福利'
+        : selfDisabled() ? '眩晕或僵直中，请稍后再试' : '';
+    setText($('exploration-state'), unavailable);
+    setProp($('exploration-state'), 'hidden', !unavailable);
     const wheel = $('exploration-wheel');
     if (wheel) {
       const maxSpins = WHEEL.maxDailySpins || 3;
-      const spins = wheelSpinsFor(entityId);
-      const limitReached = spins >= maxSpins;
-      wheel.disabled = finished || !inRange || selfDisabled();
-      wheel.textContent = '打开大转盘';
-      $('exploration-wheel-state').textContent = finished ? '游戏已结束，转盘已冻结'
-          : !inRange ? '距离太远，请靠近后再试'
-            : selfDisabled() ? '眩晕/僵直中，暂时无法互动'
-              : limitReached ? `今日次数已达上限（${spins}/${maxSpins}）`
-                : `今日第 ${spins + 1}/${maxSpins} 次 · 免费`;
+      const remaining = Math.max(0, maxSpins - wheelSpinsFor(entityId));
+      setProp(wheel, 'disabled', finished || !inRange || selfDisabled());
+      setText($('exploration-wheel-state'), remaining
+        ? '赢取随机积分 · 本场剩余 ' + remaining + '/' + maxSpins + ' 次'
+        : '本场 ' + maxSpins + ' 次已用完');
     }
     renderNpcExchangeList(inRange);
     $('exploration-result').textContent = explorationResult;
@@ -1634,17 +1643,17 @@
     const spins = wheelSpinsFor(wheelTarget.entityId);
     const limitReached = spins >= maxSpins;
     const busy = !!wheelSpinFlight || wheelAnimating;
-    $('wheel-title').textContent = wheelTarget.name;
+    $('wheel-title').textContent = '幸运大转盘';
     let costText = limitReached
-      ? `今日大转盘次数已达上限（${spins}/${maxSpins}）`
-      : `今日第 ${spins + 1}/${maxSpins} 次：免费`;
+      ? `本场转盘次数已用完（${spins}/${maxSpins}）`
+      : `本场第 ${spins + 1}/${maxSpins} 次 · 随机积分奖励`;
     if (finished) costText += ' · 游戏已结束';
     else if (selfDisabled()) costText += ' · 眩晕/僵直中';
     $('wheel-cost').textContent = costText;
     const button = $('wheel-spin');
     button.disabled = busy || finished || selfDisabled() || limitReached;
-    button.textContent = busy ? '转动中…' : limitReached ? `今日已满 ${maxSpins} 次` : '转动转盘';
-    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格等概率随机积分奖励。每层楼 NPC 大转盘共享次数，每日上限 ${maxSpins} 次，全部免费；休战期间也可转动。`;
+    button.textContent = busy ? '转动中…' : limitReached ? `本场已用完 ${maxSpins} 次` : '转动转盘';
+    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格积分奖励 · 每场 ${maxSpins} 次 · 各楼层共享次数`;
   }
   function drawWheel(slots, angle) {
     const canvasEl = $('wheel-canvas'); if (!canvasEl) return;
