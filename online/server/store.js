@@ -14,18 +14,22 @@ const fs = require('fs');
 const path = require('path');
 
 function createStore(options = {}) {
-  const disabled = options.enabled === false || process.env.SID_DB === '0' || process.env.SID_TEST === '1';
-  const file = options.file || process.env.SID_DB_FILE || path.join(__dirname, '..', '.data', 'sid.sqlite');
+  // SID_TEST=1：默认使用进程内 SQLite（':memory:'），测试可完整走存档/场次流程，但绝不落盘、不碰正式库。
+  // SID_DB=0 仍然显式关闭存档（用于验证「存档不可用」时的冻结行为）。
+  const testMode = process.env.SID_TEST === '1';
+  const disabled = options.enabled === false || process.env.SID_DB === '0';
+  const file = options.file || (testMode ? ':memory:' : (process.env.SID_DB_FILE || path.join(__dirname, '..', '.data', 'sid.sqlite')));
   const state = { enabled: false, file, error: null, lastRoundId: null };
 
   if (disabled) {
     return {
       ...state,
       enabled: false,
-      reason: process.env.SID_TEST === '1' ? 'SID_TEST=1（测试隔离，不落盘）' : 'SID_DB=0',
+      reason: 'SID_DB=0',
       saveRound() { }, savePlayers() { }, loadLastRound() { return null; },
       saveSnapshot() { return false; }, loadSnapshot() { return null; }, clearSnapshot() { return false; },
       saveFeatures() { return false; }, loadFeatures() { return null; },
+      savePrizes() { return false; }, loadPrizes() { return null; },
       saveEmployees() { return 0; }, getEmployee() { return null; }, employeeCount() { return 0; }, listEmployees() { return null; },
       loadAdmin() { return null; }, saveAdmin() { return false; },
       loadQuizQuestions() { return null; }, saveQuizQuestions() { return false; },
@@ -36,7 +40,7 @@ function createStore(options = {}) {
   let db = null;
   try {
     const { DatabaseSync } = require('node:sqlite');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
     db = new DatabaseSync(file);
     db.exec(`
       PRAGMA journal_mode = WAL;
@@ -97,6 +101,11 @@ function createStore(options = {}) {
         title TEXT,
         synced_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS prize_pool (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        state_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS quiz_questions (
         id TEXT PRIMARY KEY,
         sort_order INTEGER NOT NULL DEFAULT 0,
@@ -150,6 +159,18 @@ function createStore(options = {}) {
       saved_at = excluded.saved_at
   `);
   const selectSnapshot = db && db.prepare(`SELECT * FROM snapshot WHERE id = 1`);
+  // 修复：saveFeatures/loadFeatures 原先引用了未定义的语句（ReferenceError 被吞，开关从未真正落盘）。
+  const upsertSettings = db && db.prepare(`
+    INSERT INTO settings (id, features_json, updated_at) VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET features_json = excluded.features_json, updated_at = excluded.updated_at
+  `);
+  const selectSettings = db && db.prepare(`SELECT features_json FROM settings WHERE id = 1`);
+  // 实物奖品池（全活动共享：库存、概率、中奖记录），独立于场次快照，切场 / 重启都不丢。
+  const upsertPrizes = db && db.prepare(`
+    INSERT INTO prize_pool (id, state_json, updated_at) VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at
+  `);
+  const selectPrizes = db && db.prepare(`SELECT state_json FROM prize_pool WHERE id = 1`);
   const deleteSnapshot = db && db.prepare(`DELETE FROM snapshot WHERE id = 1`);
   const upsertEmployee = db && db.prepare(`
     INSERT INTO employees (emp_no, name, gender, email, department, delivery_group, title, synced_at)
@@ -198,6 +219,16 @@ function createStore(options = {}) {
   function loadFeatures() {
     if (!state.enabled) return null;
     try { const row = selectSettings.get(); return row ? JSON.parse(row.features_json || '{}') : null; }
+    catch { return null; }
+  }
+  function savePrizes(json) {
+    if (!state.enabled) return false;
+    try { upsertPrizes.run(JSON.stringify(json || {}), Date.now()); return true; }
+    catch (error) { state.error = String(error && error.message || error); return false; }
+  }
+  function loadPrizes() {
+    if (!state.enabled) return null;
+    try { const row = selectPrizes.get(); return row ? JSON.parse(row.state_json || '{}') : null; }
     catch { return null; }
   }
   function clearSnapshot() {
@@ -300,8 +331,8 @@ function createStore(options = {}) {
         upsertPlayer.run(
           String(roundId || 'unknown'), Number(p.id), String(p.name || ''),
           String(p.faction || ''), p.alive ? 1 : 0, Number(p.score) || 0,
-          Number(p.exploration && p.exploration.chips) || 0,
-          JSON.stringify((p.exploration && p.exploration.items) || {}),
+          // chips / items_json 列为金币时代遗留：表结构保留以兼容旧库，积分版恒写 0 / '{}'。
+          0, '{}',
           Date.now()
         );
       }
@@ -445,7 +476,7 @@ function createStore(options = {}) {
   function close() { try { if (db) db.close(); } catch { /* ignore */ } }
 
   return { ...state, enabled: state.enabled, file, error: state.error,
-    saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures,
+    saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures, savePrizes, loadPrizes,
     saveEmployees, getEmployee, employeeCount, listEmployees,
     loadAdmin, saveAdmin, loadQuizQuestions, saveQuizQuestions, archiveDay, loadDays, archiveSession, loadSessions,
     close, reason: state.error || 'ok' };

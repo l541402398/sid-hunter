@@ -48,15 +48,10 @@ async function handle(ctx) {
     const result = ROOM.exitZone(actingSession(req, url), body);
     return send(res, result.ok ? 200 : 400, result);
   }
-  // 需求③：搜打撤式物品格搜索三段式（开始 → 逐格揭示 → 全部拾取）。
+  // 容器探索：开启即结算（空 / 直接积分 / 答题），答题经 take/answer 提交。
   if (pathname === '/api/search/start' && req.method === 'POST') {
     const body = await readBody(req);
     const result = ROOM.searchStart(actingSession(req, url), body);
-    return send(res, result.ok ? 200 : 400, result);
-  }
-  if (pathname === '/api/search/reveal' && req.method === 'POST') {
-    const body = await readBody(req);
-    const result = ROOM.searchReveal(actingSession(req, url), body);
     return send(res, result.ok ? 200 : 400, result);
   }
   if (pathname === '/api/search/take' && req.method === 'POST') {
@@ -67,22 +62,6 @@ async function handle(ctx) {
   if (pathname === '/api/search/answer' && req.method === 'POST') {
     const body = await readBody(req);
     const result = ROOM.searchTake(actingSession(req, url), body);
-    return send(res, result.ok ? 200 : 400, result);
-  }
-  // 第二轮：道具经济（使用 / 出售 / 购买）。
-  if (pathname === '/api/item/use' && req.method === 'POST') {
-    const body = await readBody(req);
-    const result = ROOM.useItem(actingSession(req, url), body);
-    return send(res, result.ok ? 200 : 400, result);
-  }
-  if (pathname === '/api/item/sell' && req.method === 'POST') {
-    const body = await readBody(req);
-    const result = ROOM.sellItem(actingSession(req, url), body);
-    return send(res, result.ok ? 200 : 400, result);
-  }
-  if (pathname === '/api/shop/buy' && req.method === 'POST') {
-    const body = await readBody(req);
-    const result = ROOM.buyItem(actingSession(req, url), body);
     return send(res, result.ok ? 200 : 400, result);
   }
   // 小游戏（坦克 v1）：开始 / 出招 / 查状态 / 退出。

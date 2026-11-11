@@ -61,21 +61,12 @@ async function handle(ctx) {
     const action = pathname.replace('/api/test/', '');
     const body = req.method === 'POST' ? await readBody(req) : {};
     if (action === 'advance') { ROOM.room.clockOffset += Number(body.ms) || 0; return send(res, 200, { ok: true, offset: ROOM.room.clockOffset }); }
-    // 测试专用资源注入：猜拳要求双方各至少 1 筹码，但真实玩家从 0 筹码起步且获取途径是
-    // 随机转盘/搜寻，端到端用例需要确定性前置条件。仅在 SID_TEST=1 下存在。
+    // 测试专用资源注入：直接设置积分，便于端到端用例构造确定性前置条件。仅在 SID_TEST=1 下存在。
     if (action === 'resources') {
       const target = ROOM.find(Number(body.playerId));
       if (!target) return send(res, 404, { ok: false, error: 'player not found' });
-      if (Number.isFinite(Number(body.chips))) target.exploration.chips = Math.max(0, Number(body.chips));
       if (Number.isFinite(Number(body.score))) target.score = Math.max(0, Number(body.score));
-      // 第二轮：给指定玩家塞道具，便于端到端验证"使用/出售/购买"闭环。
-      if (typeof body.item === 'string' && WORLD.LOOT.ITEMS[body.item]) {
-        const n = Math.max(1, Math.min(20, Math.floor(Number(body.count) || 1)));
-        target.exploration.items = target.exploration.items || {};
-        target.exploration.items[body.item] = (target.exploration.items[body.item] || 0) + n;
-      }
-      return send(res, 200, { ok: true, playerId: target.id, chips: target.exploration.chips, score: target.score,
-        items: target.exploration.items || {} });
+      return send(res, 200, { ok: true, playerId: target.id, score: target.score });
     }
     if (action === 'sessions') {
       return send(res, 200, { ok: true, sessions: [...ROOM.room.sessions].map(([sessionId, playerId]) => ({ sessionId, playerId })) });
@@ -124,10 +115,8 @@ async function handle(ctx) {
         ok: true,
         // npc / hasSession 供自测断言 NPC 不可被会话认领；真实会话令牌不下发。
         players: ROOM.room.players.map(p => ({ id: p.id, name: p.name, faction: p.faction, hp: p.hp, alive: p.alive, online: p.online, x: p.x, y: p.y, floorId: p.floorId, zoneId: p.zoneId || null, sid: p.sid.segments.join('-'), sidRevealed: p.sid.revealed.slice(), skills: p.skills, npc: !!p.npc, hasSession: !!p.sessionId, score: p.score,
-          items: p.exploration.items || {},
-          buffs: p.buffs || null,
-          // 仅 SID_TEST=1：把私密探索状态一并暴露给自测，用于验证"搜打撤"记账确实落在服务端。
-          exploration: { chips: p.exploration.chips, searched: p.exploration.searched.slice(), backpack: (p.exploration.backpack || []).slice(), clues: p.exploration.clues.length } })),
+          // 仅 SID_TEST=1：把私密探索状态一并暴露给自测，用于验证探索记账确实落在服务端。
+          exploration: { searched: p.exploration.searched.slice(), clues: p.exploration.clues.length, exploreCount: Number(p.exploration.exploreCount) || 0 } })),
         finished: ROOM.room.finished,
         finishReason: ROOM.room.finishReason || null,
         ranking: ROOM.room.ranking,

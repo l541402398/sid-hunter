@@ -45,7 +45,12 @@ const setClock = ms => { CLOCK = ms; syncRoom(); };
 const pend = (r, id = 0) => r.privateSnapshot(id).me.games.rpsPending;
 
 function fixture(count = 5) {
-  const r = createRoom();
+  // random 固定：首位为坏人，其余为好人（确定性阵营夹具）。
+  const r = createRoom({ random: () => 0.99 });
+  // dev 新增 floorGuard：play 指令须携带当前 roundId 与本人 floorRevision（客户端从快照读取）。
+  const rawPlay = r.play;
+  r.play = (sid, body) => rawPlay(sid, body && typeof body === 'object'
+    ? { roundId: r.room.roundId, expectedFloorRevision: r.playerBySession(sid)?.floorRevision, ...body } : body);
   LIVE_ROOM = r;
   r.room.clockOffset = CLOCK - r.now();
   ROOMS.push(r);
@@ -76,18 +81,20 @@ function settleBoth(r, fromChoice, toChoice) {
   return cid;
 }
 
-// ===== 1. 九种结果组合：筹码 ±rpsStake 与 SCORE 胜负平 =====
-await test('九种出拳组合双向结算：筹码±stake，积分按胜负平', () => {
+// ===== 1. 九种结果组合：不押筹码；胜者 +minigameWinPoints 积分，负/平不计分 =====
+await test('九种出拳组合双向结算：筹码不变，胜者+2积分', () => {
   for (const a of CHOICES) for (const b of CHOICES) {
     const r = fixture(), from = r.find(0), to = r.find(1);
     assert.equal(invite(r).ok, true);
     assert.equal(accept(r).ok, true);
     settleBoth(r, a, b);
     const outcome = WORLD.rpsOutcome(a, b); // 1: from 胜, -1: from 负, 0: 平
-    assert.equal(from.exploration.chips, 3 + outcome, `from chips ${a} vs ${b}`);
-    assert.equal(to.exploration.chips, 3 - outcome, `to chips ${a} vs ${b}`);
-    const expectFrom = outcome > 0 ? SCORE.rpsWin : outcome < 0 ? SCORE.rpsLose : SCORE.rpsDraw;
-    const expectTo = outcome > 0 ? SCORE.rpsLose : outcome < 0 ? SCORE.rpsWin : SCORE.rpsDraw;
+    assert.equal(from.exploration.chips, 3, `from chips ${a} vs ${b}`);
+    assert.equal(to.exploration.chips, 3, `to chips ${a} vs ${b}`);
+    const win = C.minigameWinPoints;
+    assert.equal(win, SCORE.rpsWin);
+    const expectFrom = outcome > 0 ? win : 0;
+    const expectTo = outcome < 0 ? win : 0;
     assert.equal(from.score, expectFrom);
     assert.equal(to.score, expectTo);
     assert.equal(r.room.challenges.size, 0);
@@ -95,9 +102,9 @@ await test('九种出拳组合双向结算：筹码±stake，积分按胜负平'
     const af = from.games.rpsResult, tf = to.games.rpsResult;
     assert.equal(af.status, 'resolved'); assert.equal(af.ownChoice, a); assert.equal(af.opponentChoice, b);
     assert.equal(af.outcome, outcome > 0 ? 'win' : outcome < 0 ? 'lose' : 'draw');
-    assert.equal(af.delta, outcome); assert.equal(af.reason, 'settled');
+    assert.equal(af.delta, expectFrom); assert.equal(af.reason, 'settled');
     assert.equal(tf.ownChoice, b); assert.equal(tf.opponentChoice, a);
-    assert.equal(tf.delta, -outcome);
+    assert.equal(tf.delta, expectTo);
   }
 });
 
@@ -302,7 +309,7 @@ await test('接受重校验距离/LOS/余额；旧 choice 不锁定', () => {
 });
 
 // ===== 11. 断线 setOffline 立即取消；淘汰/ finish/ reset =====
-await test('断线/淘汰/finish/reset 取消挑战无扣', () => {
+await test('断线/finish/reset 取消挑战无扣；休战不取消', () => {
   // 断线
   let r = fixture();
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
@@ -312,12 +319,13 @@ await test('断线/淘汰/finish/reset 取消挑战无扣', () => {
   assert.equal(r.find(0).exploration.chips, 3); assert.equal(r.find(1).exploration.chips, 3);
   assert.equal(r.find(1).games.rpsResult.status, 'cancelled');
   assert.match(r.find(1).games.rpsResult.reason, /离线/);
-  // 淘汰：另一坏人存在避免 badWiped 直接结束
-  r = fixture(); r.find(4).faction = 'bad'; r.find(0).hp = 1;
+  // 休战：对抗生命归零进入休战后仍可继续猜拳（挑战不取消）
+  r = fixture();
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
-  const b = r.find(1);
-  assert.equal(r.useSkill(r.find(0).sessionId, { commandId: nonce(), skill: 'kill', targetId: 1, sid: b.sid.segments.join('-') }).ok, true);
-  assert.equal(r.room.challenges.size, 0, '被淘汰方参与挑战应被取消');
+  const b = r.find(1); b.hp = 1;
+  assert.equal(r.useSkill(r.find(0).sessionId, { commandId: nonce(), skill: 'assassinate', targetId: 1 }).ok, true);
+  assert.equal(b.alive, false);
+  assert.equal(r.room.challenges.size, 1, '休战方参与的挑战保留');
   assert.equal(r.find(0).exploration.chips, 3);
   // finish 取消所有
   r = fixture();
@@ -330,23 +338,26 @@ await test('断线/淘汰/finish/reset 取消挑战无扣', () => {
   r.reset();
   assert.equal(r.room.challenges.size, 0);
   const fresh = r.join('session-0', '新').player;
-  assert.deepEqual(fresh.games, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null });
+  assert.deepEqual({ ...fresh.games, wheelDailySpins: undefined }, { wheelSpins: {}, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null, wheelDailySpins: undefined });
 });
 
-// ===== 12. 筹码不足不负、积分不重复 =====
-await test('筹码不足不负、积分只结算一次', () => {
-  // 结算时筹码不足 -> 取消（不扣、不负、不积分）
+// ===== 12. 不再押注筹码；积分只结算一次，受每日小游戏上限约束 =====
+await test('筹码不影响结算、积分只结算一次且受每日上限', () => {
   let r = fixture(), from = r.find(0), to = r.find(1);
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
   choose(r, 0, 'rock', 1); choose(r, 1, 'scissors', 1);
-  from.exploration.chips = 0; // 结算前把发起方筹码降为不足
+  from.exploration.chips = 0; // 筹码为 0 也照常结算
   const dl = pend(r,0).deadline; setClock(dl + 1); r.step(0);
   assert.equal(r.room.challenges.size, 0);
-  assert.equal(from.exploration.chips, 0, '不应出现负筹码');
-  assert.equal(to.exploration.chips, 3);
-  assert.equal(from.score, 0); assert.equal(to.score, 0);
-  assert.equal(from.games.rpsResult.status, 'cancelled');
-  assert.match(from.games.rpsResult.reason, /结算条件不满足/);
+  assert.equal(from.exploration.chips, 0); assert.equal(to.exploration.chips, 3);
+  assert.equal(from.score, C.minigameWinPoints); assert.equal(to.score, 0);
+  assert.equal(from.games.rpsResult.status, 'resolved');
+  // 每日共享上限：已达上限后胜利不再加分
+  r = fixture(); from = r.find(0);
+  from.exploration.minigamePointsToday = C.minigameDailyCap;
+  assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
+  settleBoth(r, 'rock', 'scissors');
+  assert.equal(from.score, 0, '达到每日上限不再加分'); assert.equal(from.games.rpsResult.delta, 0);
   // 积分只结算一次：重复触发 syncRoom 不重复加分
   r = fixture();
   assert.equal(invite(r).ok, true); assert.equal(accept(r).ok, true);
@@ -368,7 +379,7 @@ await test('结束同帧优先级：游戏结束后截止不结算', () => {
   assert.equal(r.room.finished, true);
   setClock(dl + 1);
   r.step(0);
-  assert.equal(r.find(0).exploration.chips, 3, '结束后不应结算筹码');
+  assert.equal(r.find(0).exploration.chips, 3, '结束后筹码不变');
   assert.equal(r.find(0).score, 0, '结束后不应结算积分');
   assert.equal(r.find(0).games.rpsResult.status, 'cancelled', '结束后挑战应取消');
   assert.match(r.find(0).games.rpsResult.reason, /游戏已结束/);
@@ -402,8 +413,10 @@ async function request(path, { token, body, method = body === undefined ? 'GET' 
   });
   return { status: res.status, data: await res.json() };
 }
-const httpPlay = (token, kind, extra = {}) => request('/api/play', { token, body: { commandId: nonce(), kind, ...extra } });
 const state = async token => (await request('/api/state', { token })).data;
+// floorGuard：带上当前 roundId 与本人 floorRevision（客户端从快照读取）。
+const guardOf = async token => { const s = await state(token); return { roundId: s.roundId, expectedFloorRevision: s.me.floorRevision }; };
+const httpPlay = async (token, kind, extra = {}) => request('/api/play', { token, body: { commandId: nonce(), kind, ...(await guardOf(token)), ...extra } });
 async function openStream(token) {
   return new Promise((resolve, reject) => {
     const req = http.get(`${base}/api/stream?sid_token=${token}`, res => { res.on('data', () => {}); resolve({ req, res }); });
@@ -436,21 +449,19 @@ try {
     child.once('error', e => { clearTimeout(timer); reject(e); });
     child.once('exit', code => { clearTimeout(timer); reject(new Error(`服务退出${code}\n${output}`)); });
     child.stderr.on('data', d => { output += d; });
-    child.stdout.on('data', d => { output += d; if (output.includes('技能次数恢复周期:')) { clearTimeout(timer); resolve(); } });
+    child.stdout.on('data', d => { output += d; if (output.includes('S-ID 服务已启动')) { clearTimeout(timer); resolve(); } });
   });
   const advanceServer = ms => request('/api/test/advance', { body: { ms } });
   // 加入两名玩家并真实移动到相邻位置（满足猜拳距离/视线要求）。
-  // 猜拳要求双方各至少 1 筹码，而真实玩家从 0 起步，这里用测试端点注入确定性资源。
+  // 积分改版：猜拳不再需要筹码，真实玩家加入后直接靠近即可邀请。
   const joinClose = async () => {
     const users = [];
     for (let i = 0; i < 2; i++) users.push((await request('/api/join', { body: { nickname: `H${i}` } })).data);
     const [a, b] = [users[0].sessionToken, users[1].sessionToken];
-    await moveTo(a, 500, 350);
-    await moveTo(b, 545, 350);
-    for (const u of users) {
-      const seeded = await request('/api/test/resources', { body: { playerId: u.playerId, chips: 3 } });
-      assert.equal(seeded.status, 200, '测试资源注入应成功');
-    }
+    // SID_TEST=1：直接用 /api/test/place 摆到 1F 同一处空地（真实走位受地图改版影响，不是本用例要测的）。
+    const spot = WORLD.NPCS.find(n => n.floorId === 1);
+    await request('/api/test/place', { body: { playerId: users[0].playerId, floorId: 1, x: spot.x - 20, y: spot.y + 40 } });
+    await request('/api/test/place', { body: { playerId: users[1].playerId, floorId: 1, x: spot.x + 20, y: spot.y + 40 } });
     return { users, a, b };
   };
 
@@ -474,7 +485,8 @@ try {
     const toDeadline = st.me.games.rpsPending.deadline - st.serverTime;
     await advanceServer(Math.max(0, toDeadline - 50));
     st = await state(a);
-    assert.equal(st.me.exploration.chips, 3, '截止前不结算');
+    const scoreBefore = st.me.score;
+    assert.equal(st.me.games.rpsResult, null, '截止前不结算');
     assert.notEqual(st.me.games.rpsPending, null, '截止前仍在选择');
     // 推进越过 deadline，等待 20Hz 快照触发 syncRoom 结算
     await advanceServer(200);
@@ -482,9 +494,9 @@ try {
     const sa = await state(a), sb = await state(b);
     assert.equal(sa.me.games.rpsResult.status, 'resolved');
     assert.equal(sa.me.games.rpsResult.outcome, 'win');
-    assert.equal(sa.me.games.rpsResult.delta, 1);
-    assert.equal(sa.me.exploration.chips, 4, 'A 胜 +1 筹码');
-    assert.equal(sb.me.exploration.chips, 2, 'B 负 -1 筹码');
+    assert.equal(sa.me.games.rpsResult.delta, C.minigameWinPoints);
+    assert.equal(sa.me.score, scoreBefore + C.minigameWinPoints, 'A 胜 +2 积分');
+    assert.equal(sb.me.games.rpsResult.delta, 0, 'B 负不扣分');
     assert.equal(sa.me.games.rpsResult.opponentChoice, 'scissors');
     assert.equal(sb.me.games.rpsResult.opponentChoice, 'rock');
   });
@@ -501,7 +513,7 @@ try {
     const sa = await state(a), sb = await state(b);
     assert.equal(sa.me.games.rpsResult.status, 'cancelled');
     assert.equal(sb.me.games.rpsResult.status, 'cancelled');
-    assert.equal(sa.me.exploration.chips, 3, '取消不扣筹码');
+    assert.equal(sa.me.games.rpsResult.delta, 0, '取消不计分');
     // A 已出拳、B 未出拳：A 看到「对方未出拳」，B 看到「你未出拳」。
     assert.match(sa.me.games.rpsResult.reason, /对方未出拳/);
     assert.match(sb.me.games.rpsResult.reason, /你未出拳/);

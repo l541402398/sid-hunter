@@ -31,6 +31,11 @@
   function showApp(){$('manager-app').hidden=false;$('manager-login-card').hidden=true;authed=true;}
   function fill(config){templateSource=config.template;draftSlots=(config.slots||[{id:'daily',label:'每日场',startTime:config.startTime,endTime:config.endTime}]).map(s=>({...s}));renderSlots();
     $('config-minutes').value=Math.floor(config.chargeIntervalMs/60000);$('config-seconds').value=config.chargeIntervalMs/1000%60;
+    const goodCd=config.goodChargeIntervalMs||config.chargeIntervalMs, badCd=config.badChargeIntervalMs||config.chargeIntervalMs;
+    if($('good-cd-minutes')){$('good-cd-minutes').value=Math.floor(goodCd/60000);$('good-cd-seconds').value=goodCd/1000%60;}
+    if($('bad-cd-minutes')){$('bad-cd-minutes').value=Math.floor(badCd/60000);$('bad-cd-seconds').value=badCd/1000%60;}
+    if($('config-initial-hp'))$('config-initial-hp').value=config.initialHp||3;
+    if($('config-protect-seconds'))$('config-protect-seconds').value=Math.floor((config.protectMs||300000)/1000);
     $('clue-minutes').value=Math.floor(config.clueIntervalMs/60000);$('clue-seconds').value=config.clueIntervalMs/1000%60;
     $('clue-percent').value=config.cluePercent;$('clue-min').value=config.clueMin;$('clue-max').value=config.clueMax;
     if(typeof config.enabled==='boolean')$('config-enabled').checked=config.enabled;
@@ -41,7 +46,14 @@
     const cm=Number($('clue-minutes').value),cs=Number($('clue-seconds').value),percent=Number($('clue-percent').value),low=Number($('clue-min').value),high=Number($('clue-max').value);
     if(!Number.isInteger(cm)||!Number.isInteger(cs)||cm<0||cs<0||cs>59||(cm*60+cs)<1||(cm*60+cs)>86400)throw Error('公布间隔需为1秒至24小时，秒数0–59');
     if(!Number.isFinite(percent)||percent<=0||percent>100||!Number.isSafeInteger(low)||!Number.isSafeInteger(high)||low<1||high<low||high>1000)throw Error('线索比例需大于0且不超过100%，条数为1–1000且最高不小于最低');
-    return{template:templateSource,slots:draftSlots.map(s=>({...s})),chargeIntervalMs:(min*60+sec)*1000,enabled:$('config-enabled').checked,
+    const gMin=Number($('good-cd-minutes')?.value??min),gSec=Number($('good-cd-seconds')?.value??sec);
+    const bMin=Number($('bad-cd-minutes')?.value??min),bSec=Number($('bad-cd-seconds')?.value??sec);
+    const initialHp=Number($('config-initial-hp')?.value??3),protectSec=Number($('config-protect-seconds')?.value??300);
+    if(!Number.isInteger(initialHp)||initialHp<1||initialHp>20)throw Error('初始对抗生命需为1–20');
+    if(!Number.isInteger(protectSec)||protectSec<0||protectSec>86400)throw Error('受击保护需为0–86400秒');
+    return{template:templateSource,slots:draftSlots.map(s=>({...s})),chargeIntervalMs:(min*60+sec)*1000,
+      goodChargeIntervalMs:(gMin*60+gSec)*1000,badChargeIntervalMs:(bMin*60+bSec)*1000,
+      initialHp,protectMs:protectSec*1000,enabled:$('config-enabled').checked,
       clueIntervalMs:(cm*60+cs)*1000,cluePercent:percent,clueMin:low,clueMax:high};}
   function previewClues(){
     if(!clueStats){$('clue-preview').textContent='等待载入当前存活坏人数；预览不保存设置。';return;}
@@ -51,7 +63,7 @@
   }
   for(const id of ['clue-minutes','clue-seconds','clue-percent','clue-min','clue-max'])$(id).oninput=previewClues;
   function table(id,rows,total=false){const host=$(id);host.replaceChildren();
-    for(const p of rows){const tr=document.createElement('tr');for(const value of [p.rank,p.name,p.score,total?p.sessions:(p.alive?'存活':'淘汰')]){const td=document.createElement('td');td.textContent=String(value??'—');tr.append(td);}host.append(tr);}
+    for(const p of rows){const tr=document.createElement('tr');for(const value of [p.rank,p.name,p.score,total?p.sessions:(p.alive?'对抗中':'休战中')]){const td=document.createElement('td');td.textContent=String(value??'—');tr.append(td);}host.append(tr);}
     if(!rows.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='暂无已归档成绩';tr.append(td);host.append(tr);}
   }
   function renderSession(){
@@ -103,6 +115,7 @@
     renderSession();table('daily-ranking',a.dailyRanking||[],true);table('total-ranking',a.totalRanking||[],true);
     if(!featuresLoaded){const f=await api('features');$('manager-features-list').replaceChildren();for(const item of f.features||[]){const label=document.createElement('label');label.className='admin-switch';const box=document.createElement('input');box.type='checkbox';box.dataset.feature=item.key;box.checked=!!item.enabled;label.append(box,document.createTextNode(item.label));$('manager-features-list').append(label);}featuresLoaded=true;}
     if(!quizLoaded){await loadQuiz();quizLoaded=true;}
+    await loadPrizes();
     $('manager-tick').textContent='最近刷新 '+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
   }catch(e){$('manager-storage').textContent=e.message;}finally{loading=false;}}
   async function mutate(path,body,messageId){if(busy)return;busy=true;const host=$(messageId);host.textContent='正在保存…';try{const data=await api(path,body);host.textContent='操作成功';await load();return data;}catch(e){host.textContent=e.message+'；未自动重试，请先核对当前状态。';}finally{busy=false;}}
@@ -191,6 +204,40 @@
       actionTd.append(btn);tr.append(actionTd);tbody.append(tr);
     }
   }
+  // 实物奖品：每次刷新更新库存表与中奖记录；表单只在首次载入或保存成功后回填，避免覆盖正在编辑的草稿。
+  let prizeItems=[],prizeFormFilled=false;
+  const channelText={explore:'探索开箱',hammer:'J 命中'};
+  function cell(row,text){const td=document.createElement('td');td.textContent=String(text);row.append(td);}
+  function renderPrizes(p){
+    prizeItems=p.items||[];
+    $('prize-summary').textContent=`总库存 ${p.totals.stock} · 已发出 ${p.totals.claimed} · 剩余 ${p.totals.remaining} · 探索概率 ${p.chances.explore} · J 概率 ${p.chances.hammer}`+((p.chances.explore>0||p.chances.hammer>0)&&p.totals.remaining>0?'':'（当前不会发放）');
+    $('prize-items-table').replaceChildren();
+    for(const i of prizeItems){const row=document.createElement('tr');cell(row,i.name);cell(row,i.stock);cell(row,i.claimed);cell(row,i.remaining);$('prize-items-table').append(row);}
+    $('prize-claims').replaceChildren();
+    for(const c of p.claims||[]){const row=document.createElement('tr');cell(row,formatTime(c.at));cell(row,c.playerName||'');cell(row,c.empNo||'—');cell(row,c.prizeName);cell(row,channelText[c.channel]||c.channel);$('prize-claims').append(row);}
+    if(!prizeFormFilled){
+      $('prize-items').value=prizeItems.map(i=>`${i.name},${i.stock}`).join('\n');
+      $('prize-chance-explore').value=p.chances.explore;$('prize-chance-hammer').value=p.chances.hammer;
+      $('prize-hammer-target').value=p.hammerLimits.perTargetDaily;$('prize-hammer-daily').value=p.hammerLimits.dailyCap;
+      prizeFormFilled=true;
+    }
+  }
+  async function loadPrizes(){try{const data=await api('prizes');if(data&&data.prizes)renderPrizes(data.prizes);}catch(e){$('prize-summary').textContent='奖品池载入失败：'+e.message;}}
+  function prizeForm(){
+    const byName=new Map(prizeItems.map(i=>[i.name,i.id]));
+    const items=String($('prize-items').value||'').split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
+      const m=line.match(/^(.+?)[,，]\s*(\d+)$/);if(!m)throw Error(`无法识别：「${line}」，格式应为「名称,库存」`);
+      const name=m[1].trim();return {...(byName.has(name)?{id:byName.get(name)}:{}),name,stock:Number(m[2])};
+    });
+    return {items,chances:{explore:Number($('prize-chance-explore').value),hammer:Number($('prize-chance-hammer').value)},
+      hammerLimits:{perTargetDaily:Number($('prize-hammer-target').value),dailyCap:Number($('prize-hammer-daily').value)}};
+  }
+  $('prize-save').onclick=async()=>{
+    let body;try{body=prizeForm();}catch(e){$('prize-message').textContent=e.message;return;}
+    if(!confirm('确认保存奖品配置？立即生效；已中奖记录不受影响。'))return;
+    const result=await mutate('prizes',body,'prize-message');
+    if(result&&result.prizes){prizeFormFilled=false;renderPrizes(result.prizes);$('prize-message').textContent='奖品配置已保存';}
+  };
   async function loadQuiz(){
     try{
       const r=await api('quiz');

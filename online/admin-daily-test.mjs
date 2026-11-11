@@ -9,7 +9,7 @@ const clone=x=>JSON.parse(JSON.stringify(x));
 let clock=at('2026-10-20','09:00'),passed=0,failed=0;const real=Date.now;Date.now=()=>clock;
 function test(name,fn){try{fn();passed++;console.log('PASS',name);}catch(e){failed++;console.error('FAIL',name,e.stack);}}
 function memory(){let state=null,results=[];return{enabled:true,fail:false,loadAdmin(){return state?clone(state):null;},saveAdmin(s){if(this.fail)return false;state=clone(s);return true;},loadSessions(){return clone(results);},archiveSession(r,s){if(this.fail)return false;if(!results.some(x=>x.roundId===r.roundId))results.push(clone(r));state=clone(s);return true;}};}
-function fixture(time='09:00',opts={}){clock=at('2026-10-20',time);const store=memory(),room=createRoom(),activity=createActivity({room,store});assert.equal(activity.saveConfig({...TEMPLATES.development,...opts,enabled:true}).ok,true);return{store,room,activity};}
+function fixture(time='09:00',opts={}){clock=at('2026-10-20',time);const store=memory(),room=createRoom({random:()=>0.99}),activity=createActivity({room,store});assert.equal(activity.saveConfig({...TEMPLATES.development,...opts,enabled:true}).ok,true);return{store,room,activity};}
 const person=(r,s='p',emp='E1')=>r.join(s,null,{empNo:emp,name:'员工'+emp}).player;
 const pair=[{id:'morning',label:'上午场',startTime:'09:00',endTime:'12:00'},{id:'afternoon',label:'下午场',startTime:'14:00',endTime:'17:00'}];
 const use=(r,s,skill,target=0)=>r.useSkill(s,{commandId:Math.random().toString(),skill,targetId:target});
@@ -22,7 +22,7 @@ test('默认每天一场、旧单时段迁移与时段重叠/跨日校验',()=>{
 test('同日上下午独立新场与存档，单场/当日/总分准确且不重复',()=>{
  const {room,activity}=fixture('08:59',{slots:pair});assert.ok(activity.guard());clock=at('2026-10-20','09:00');activity.tick();const first=room.room.roundId;person(room).score=12;person(room,'g','E2');
  clock=at('2026-10-20','12:00');activity.tick();assert.equal(activity.state().history.length,1);assert.equal(activity.state().active,false);
- clock=at('2026-10-20','14:00');activity.tick();assert.notEqual(room.room.roundId,first);assert.equal(room.room.players.length,0);const p=person(room,'p2');assert.equal(p.hp,3);assert.equal(p.skills.spy.chargesRemaining,2);p.score=8;person(room,'g2','E2');
+ clock=at('2026-10-20','14:00');activity.tick();assert.notEqual(room.room.roundId,first);assert.equal(room.room.players.length,0);const p=person(room,'p2');assert.equal(p.hp,3);assert.equal(p.skills.assassinate.chargesRemaining,1);p.score=8;person(room,'g2','E2');
  clock=at('2026-10-20','17:00');activity.tick();assert.equal(activity.state().history.length,2);const total=activity.state().totalRanking.find(p=>p.score===20);assert.ok(total);assert.equal(total.sessions,2);assert.equal(total.days,1);assert.equal(activity.state().dailyRanking.find(p=>p.key===total.key).score,20);activity.tick();assert.equal(activity.state().history.length,2);
 });
 test('同日可手动多场，每场独立积分，结束不关闭自动安排',()=>{
@@ -44,25 +44,25 @@ test('保存不结束当前场，改日程/自动开关次日生效，截止不�
  clock=at('2026-10-20','17:00');activity.tick();clock=at('2026-10-21','10:00');activity.tick();assert.equal(activity.state().active,false);assert.ok(activity.guard());
 });
 test('暂停技能/线索剩余时间不流逝、禁输入加入施技，继续平移而不延长截止',()=>{
- const {room,activity}=fixture();person(room,'bad');const good=person(room,'good','E2');assert.equal(use(room,'good','probe').ok,true);const due=good.skills.probe.nextChargeAt,clue=activity.state().cluePublication.nextAt;
- clock+=30000;activity.pause();const paused=clock;assert.equal(room.publicSnapshot().pausedAt,paused);clock+=600000;activity.tick();assert.equal(activity.state().paused,true);assert.ok(room.join('outsider','人').closed);assert.ok(use(room,'good','probe').closed);assert.equal(room.setIntent(good.id,{right:true}),false);
- assert.equal(room.privateSnapshot(good.id).me.skills.probe.chargesRemaining,1);assert.equal(good.skills.probe.nextChargeAt,due);assert.equal(activity.state().cluePublication.remainingMs,clue-paused);assert.equal(activity.state().cluePublication.nextAt,null);
- assert.equal(activity.resume().ok,true);assert.equal(good.skills.probe.nextChargeAt,due+600000);assert.equal(activity.state().cluePublication.nextAt,clue+600000);assert.equal(activity.state().session.endsAt,at('2026-10-20','17:00'));clock=due+600000;assert.equal(room.privateSnapshot(good.id).me.skills.probe.chargesRemaining,2);
+ const {room,activity}=fixture();person(room,'bad');const good=person(room,'good','E2');assert.equal(use(room,'good','accuse').ok,true);const due=good.skills.accuse.nextChargeAt,clue=activity.state().cluePublication.nextAt;
+ clock+=30000;activity.pause();const paused=clock;assert.equal(room.publicSnapshot().pausedAt,paused);clock+=600000;activity.tick();assert.equal(activity.state().paused,true);assert.ok(room.join('outsider','人').closed);assert.ok(use(room,'good','accuse').closed);assert.equal(room.setIntent(good.id,{right:true}),false);
+ assert.equal(room.privateSnapshot(good.id).me.skills.accuse.chargesRemaining,0);assert.equal(good.skills.accuse.nextChargeAt,due);assert.equal(activity.state().cluePublication.remainingMs,clue-paused);assert.equal(activity.state().cluePublication.nextAt,null);
+ assert.equal(activity.resume().ok,true);assert.equal(good.skills.accuse.nextChargeAt,due+600000);assert.equal(activity.state().cluePublication.nextAt,clue+600000);assert.equal(activity.state().session.endsAt,at('2026-10-20','17:00'));clock=due+600000;assert.equal(room.privateSnapshot(good.id).me.skills.accuse.chargesRemaining,1);
 });
 test('暂停期间保存恢复/公布周期，技能保持已有剩余，线索新周期继续后起算',()=>{
- const {room,activity}=fixture();person(room,'bad');const good=person(room,'good','E2');use(room,'good','probe');clock+=10000;activity.pause();const due=good.skills.probe.nextChargeAt;clock+=300000;
- activity.saveConfig({chargeIntervalMs:1200000,clueIntervalMs:60000});assert.equal(good.skills.probe.nextChargeAt,due);assert.equal(activity.state().cluePublication.remainingMs,60000);activity.resume();assert.equal(activity.state().cluePublication.nextAt,clock+60000);assert.equal(good.skills.probe.nextChargeAt,due+300000);assert.equal(good.skills.probe.chargeIntervalMs,1200000);
+ const {room,activity}=fixture();person(room,'bad');const good=person(room,'good','E2');use(room,'good','accuse');clock+=10000;activity.pause();const due=good.skills.accuse.nextChargeAt;clock+=300000;
+ activity.saveConfig({chargeIntervalMs:1200000,clueIntervalMs:60000});assert.equal(good.skills.accuse.nextChargeAt,due);assert.equal(activity.state().cluePublication.remainingMs,60000);activity.resume();assert.equal(activity.state().cluePublication.nextAt,clock+60000);assert.equal(good.skills.accuse.nextChargeAt,due+300000);assert.equal(good.skills.accuse.chargeIntervalMs,1200000);
 });
 test('暂停到原定截止仍结算，不能继续且不凭空恢复次数',()=>{
- const {room,activity}=fixture();person(room,'bad');const g=person(room,'good','E2');use(room,'good','probe');activity.pause();clock=at('2026-10-20','17:00');activity.tick();assert.equal(activity.state().active,false);assert.equal(activity.state().history.length,1);assert.equal(activity.resume().ok,false);assert.equal(g.skills.probe.chargesRemaining,1);
+ const {room,activity}=fixture();person(room,'bad');const g=person(room,'good','E2');use(room,'good','accuse');activity.pause();clock=at('2026-10-20','17:00');activity.tick();assert.equal(activity.state().active,false);assert.equal(activity.state().history.length,1);assert.equal(activity.resume().ok,false);assert.equal(g.skills.accuse.chargesRemaining,0);
 });
 test('暂停状态重启后仍保持时钟，继续后累计暂停时长准确',()=>{
- const {room,activity,store}=fixture();person(room,'bad');const g=person(room,'good','E2');use(room,'good','probe');clock+=10000;activity.pause();const prior=store.loadAdmin(),due=g.skills.probe.nextChargeAt;clock+=120000;
- const restored=createRoom({restore:{...prior.liveSnapshot,includeNpcs:true}}),a=createActivity({room:restored,store,initial:prior});a.tick();assert.equal(a.state().paused,true);assert.equal(restored.privateSnapshot(1).me.skills.probe.chargesRemaining,1);a.resume();assert.equal(restored.find(1).skills.probe.nextChargeAt,due+120000);assert.equal(a.state().session.endsAt,at('2026-10-20','17:00'));
+ const {room,activity,store}=fixture();person(room,'bad');const g=person(room,'good','E2');use(room,'good','accuse');clock+=10000;activity.pause();const prior=store.loadAdmin(),due=g.skills.accuse.nextChargeAt;clock+=120000;
+ const restored=createRoom({restore:{...prior.liveSnapshot,includeNpcs:true}}),a=createActivity({room:restored,store,initial:prior});a.tick();assert.equal(a.state().paused,true);assert.equal(restored.privateSnapshot(1).me.skills.accuse.chargesRemaining,0);a.resume();assert.equal(restored.find(1).skills.accuse.nextChargeAt,due+120000);assert.equal(a.state().session.endsAt,at('2026-10-20','17:00'));
 });
 test('结算失败不清未归档场；继续失败回滚平移，修复后仅应用一次',()=>{
  const {room,activity,store}=fixture();person(room).score=31;const rid=room.room.roundId;store.fail=true;assert.equal(activity.finishSession().ok,false);assert.equal(activity.startManual({minutes:5}).ok,false);assert.equal(room.room.roundId,rid);assert.equal(room.find(0).score,31);
- store.fail=false;clock+=1001;activity.tick();assert.equal(activity.state().history.length,1);assert.equal(activity.state().totalRanking[0].score,31);activity.startManual({minutes:5});person(room,'b');const g=person(room,'g','E2');use(room,'g','probe');activity.pause();const due=g.skills.probe.nextChargeAt;clock+=30000;store.fail=true;assert.equal(activity.resume().ok,false);assert.equal(g.skills.probe.nextChargeAt,due);assert.equal(activity.state().paused,true);store.fail=false;clock+=1001;assert.equal(activity.resume().ok,true);assert.equal(g.skills.probe.nextChargeAt,due+31001);
+ store.fail=false;clock+=1001;activity.tick();assert.equal(activity.state().history.length,1);assert.equal(activity.state().totalRanking[0].score,31);activity.startManual({minutes:5});person(room,'b');const g=person(room,'g','E2');use(room,'g','accuse');activity.pause();const due=g.skills.accuse.nextChargeAt;clock+=30000;store.fail=true;assert.equal(activity.resume().ok,false);assert.equal(g.skills.accuse.nextChargeAt,due);assert.equal(activity.state().paused,true);store.fail=false;clock+=1001;assert.equal(activity.resume().ok,true);assert.equal(g.skills.accuse.nextChargeAt,due+31001);
 });
 test('手动开场请求去重、迟到旧场结算不得误伤新场',()=>{
  const {room,activity}=fixture();const old=room.room.roundId;activity.finishSession();const body={action:'start',expectedRoundId:old,commandId:'manual-request-001',minutes:10};assert.equal(activity.control(body).ok,true);const id=room.room.roundId;assert.equal(activity.control(body).alreadyApplied,true);assert.equal(room.room.roundId,id);assert.equal(activity.control({action:'finish',expectedRoundId:old}).ok,false);assert.equal(activity.state().active,true);assert.equal(activity.control({action:'finish',expectedRoundId:id}).ok,true);assert.equal(activity.control(body).alreadyApplied,true);
@@ -91,9 +91,9 @@ test('暂停请求跨越紧邻场次边界，不得暂停新场；暂停到点�
  const response=activity.control({action:'pause',expectedRoundId:old});assert.equal(response.ok,false);assert.equal(activity.state().session.slotId,'b');assert.equal(activity.state().paused,false);assert.equal(activity.state().history.length,1);
 });
 test('新场暂停/多次暂停无重复扣时，继续后恢复精确边界与人数线索不补发',()=>{
- const {room,activity}=fixture();person(room,'bad');const g=person(room,'good','E2');use(room,'good','probe');const due=g.skills.probe.nextChargeAt;
- for(const span of [20000,30000]){clock+=1000;activity.pause();const stamp=room.room.pausedAt;activity.pause();assert.equal(room.room.pausedAt,stamp);clock+=span;assert.equal(room.privateSnapshot(g.id).me.skills.probe.chargesRemaining,1);activity.resume();}
- assert.equal(g.skills.probe.nextChargeAt,due+50000);clock=due+50000-1;assert.equal(room.privateSnapshot(g.id).me.skills.probe.chargesRemaining,1);clock++;assert.equal(room.privateSnapshot(g.id).me.skills.probe.chargesRemaining,2);
+ const {room,activity}=fixture();person(room,'bad');const g=person(room,'good','E2');use(room,'good','accuse');const due=g.skills.accuse.nextChargeAt;
+ for(const span of [20000,30000]){clock+=1000;activity.pause();const stamp=room.room.pausedAt;activity.pause();assert.equal(room.room.pausedAt,stamp);clock+=span;assert.equal(room.privateSnapshot(g.id).me.skills.accuse.chargesRemaining,0);activity.resume();}
+ assert.equal(g.skills.accuse.nextChargeAt,due+50000);clock=due+50000-1;assert.equal(room.privateSnapshot(g.id).me.skills.accuse.chargesRemaining,0);clock++;assert.equal(room.privateSnapshot(g.id).me.skills.accuse.chargesRemaining,1);
  assert.ok(!room.find(0).systemClues);
 });
 test('存档禁用不允许手动开场或覆盖现有玩家',()=>{

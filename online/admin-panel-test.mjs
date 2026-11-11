@@ -7,8 +7,8 @@ for(const m of html.matchAll(/id="([^"]+)"/g))ids.set(m[1],element());
 let state={activity:{config:{...TEMPLATES.development,enabled:false},templates:TEMPLATES,currentRoundId:'round-one',active:false,paused:false,session:null,cluePublication:{aliveBad:12,remaining:84,count:3,nextAt:0,lastCount:0},status:'当前休场',storageReady:true,history:[],dailyRanking:[],totalRanking:[]},current:{playerCount:0,aliveCount:0}};
 let seq=0,confirmResult=true,exportStatus=200,poll;const calls=[],messages=[],downloads=[],revoked=[];
 const body=element('body');
-for(const id of ['module-session','module-settings','module-npc','module-scores','module-minigames']){assert.match(html,new RegExp(`<details[^>]+id="${id}"`));ids.get(id).open=true;}
-assert.equal((html.match(/class="manager-result manager-module"/g)||[]).length,5);
+for(const id of ['module-session','module-settings','module-npc','module-scores','module-prizes','module-quiz','module-minigames']){assert.match(html,new RegExp(`<details[^>]+id="${id}"`));ids.get(id).open=true;}
+assert.equal((html.match(/class="manager-result manager-module"/g)||[]).length,7);
 const context={document:{hidden:false,body,getElementById:id=>{assert.ok(ids.has(id),'未知控件 '+id);return ids.get(id);},createElement:element,createTextNode:s=>s,querySelectorAll:()=>all.filter(e=>e.dataset.feature)},Date,console,crypto:{randomUUID:()=>`test-operation-${++seq}`},setInterval:fn=>{poll=fn;return 1;},setTimeout:fn=>{fn();return 1;},URL:{createObjectURL:()=> 'blob:test-excel',revokeObjectURL:url=>revoked.push(url)},
 confirm:text=>{messages.push(text);return confirmResult;},fetch:async(url,options={})=>{const body=options.body?JSON.parse(options.body):null;calls.push({url,body,options});let data;
 if(url.includes('/export-scores?'))return{ok:exportStatus===200,status:exportStatus,headers:{get:key=>key==='Content-Type'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'attachment; filename="S-ID-scores-2026-10-20.xlsx"'},blob:async()=>({size:1234}),json:async()=>({error:'管理会话已过期'})};

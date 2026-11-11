@@ -15,11 +15,12 @@
 .brand-mark span{color:#8c1d13}
 h1{font-size:13.5px;letter-spacing:.8px;font-weight:800;margin:0;background:linear-gradient(90deg,#fff4cf,#ffc966);-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;white-space:nowrap}
 p{margin:0}
-.brand p,.local-badge,.private-hint,#pending-toggle,#pending-players{display:none!important}
+.topbar[hidden],.brand[hidden],.floor-indicator[hidden],.brand p,.local-badge,.private-hint,#pending-toggle[hidden],#pending-players[hidden]{display:none!important}
 /* 顶栏实时战况切角木牌胶囊 */
 .public-stats{pointer-events:auto;display:flex;flex-wrap:nowrap;justify-content:flex-start;gap:5px;align-items:center;color:#ebd3b0;font-size:11px;white-space:nowrap}
 .public-stats>span{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(180deg,#3b2414f0,#24150bf0);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-card);padding:4px 8px;box-shadow:inset 0 1px 0 #ffdf9e2e;filter:drop-shadow(0 4px 10px rgba(12,6,2,.55))}
-.public-stats b{color:#fff5dc;font:800 12.5px ui-monospace,monospace;margin-left:1px}
+.public-stats b,.hud-stat b,.score-chip b{color:#fff5dc;font:800 12.5px ui-monospace,monospace;margin-left:1px}
+.hud-stat,.score-chip{display:inline-flex;align-items:center;gap:4px;background:linear-gradient(180deg,#3b2414f0,#24150bf0);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-card);padding:4px 8px;color:#ebd3b0;font-size:11px;box-shadow:inset 0 1px 0 #ffdf9e2e}
 .dot{display:inline-block;width:7px;height:7px;border-radius:1px;vertical-align:middle;box-shadow:0 0 0 1px #1e1107;transform:rotate(45deg)}
 .green{background:#43d17a}
 .gray{background:#9c8770}
@@ -50,11 +51,11 @@ p{margin:0}
 .intel-hub .intel-bad-btn:hover:not(:disabled){background:linear-gradient(180deg,#e84335,#ad2218)!important;border-color:#ffe082!important}
 .intel-hub .intel-bad-btn span{color:#fff8eb!important;padding-left:0!important;font:800 11.5px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif!important}
 .intel-hub .intel-bad-btn #bad-toggle-label{color:#ffe299!important;font:700 10.5px ui-monospace,monospace!important;padding-left:4px!important}
-.intel-hub .intel-logs-btn{background:linear-gradient(180deg,#8c4c16,#572d0a)!important;border:1.5px solid #f0ad42!important;color:#fff3d6!important;font-weight:800!important;padding:4px 10px!important}
-.intel-hub .intel-logs-btn:hover:not(:disabled){background:linear-gradient(180deg,#a65b1c,#6b380d)!important;border-color:#ffd479!important}
-.intel-hub .intel-logs-btn[aria-expanded=true]{background:linear-gradient(180deg,#b06219,#733c0c)!important;border-color:#ffd970!important;box-shadow:inset 0 0 0 1px #ffe69980!important}
+.toolbar .intel-logs-btn{background:linear-gradient(180deg,#8c4c16,#572d0a)!important;border:1.5px solid #f0ad42!important;color:#fff3d6!important;font-weight:800!important;padding:4px 10px!important}
+.toolbar .intel-logs-btn:hover:not(:disabled){background:linear-gradient(180deg,#a65b1c,#6b380d)!important;border-color:#ffd479!important}
+.toolbar .intel-logs-btn[aria-expanded=true]{background:linear-gradient(180deg,#b06219,#733c0c)!important;border-color:#ffd970!important;box-shadow:inset 0 0 0 1px #ffe69980!important}
 .toolbar button{font-size:11px;padding:4px 8px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;background:linear-gradient(180deg,#52341d,#382212);border:1.5px solid #ad8050;border-radius:0;clip-path:var(--clip-card);color:#f7e6c4;box-shadow:inset 0 1px 0 #ffdf9e33;font-weight:600}
-#rules-toggle{padding:4px 7px;min-width:28px;justify-content:center}
+#rules-toggle{padding:4px 8px;justify-content:center}
 .toolbar button:hover:not(:disabled){background:linear-gradient(180deg,#694326,#4a2d18);border-color:#cfa068;color:#fff8e8}
 .toolbar button span{font:700 10.5px ui-monospace,monospace;color:#ffd479;padding-left:4px}
 /* 展开态：鎏金高亮木牌 */

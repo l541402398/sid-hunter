@@ -129,32 +129,30 @@ try {
     : { status: 0, body: { ok: false, error: '未建立猜拳邀请' } };
   check('猜拳流程（邀请+应战）自洽', inviteOk === accepted.body.ok, `invite=${invited.body.error || 'ok'} reply=${accepted.body.error || 'ok'}`);
 
-  // 击杀同一技能有 12 秒短冷却，按技能状态轮询等待，而不是靠固定 sleep。
-  const waitForKillReady = async (token, ms = 20000) => {
-    const started = Date.now();
-    while (Date.now() - started < ms) {
-      const skills = (await playerState(token)).me.skills;
-      if (skills.kill && skills.kill.chargesRemaining > 0 && skills.kill.cooldownUntil <= Date.now()) return true;
-      await sleep(250);
-    }
-    return false;
-  };
+  // 积分/休战改版：坏人只有「刺杀」1 次机会、按阵营 CD 恢复；命中好人 -1 格对抗生命、+3 分。
+  // CD 用 /api/test/advance 推进服务端时钟，不靠真实等待。
+  const { SCORE: worldScore } = (await import('./shared/world.js')).default;
   const badState = await request('/api/state', { headers: { 'X-Sid-Session': bad.token } });
   const badSid = badState.body && badState.body.me && badState.body.me.sid;
-  const kills = [[0, goodOne], [1, goodTwo]];
-  for (const [index, victim] of kills) {
-    const ready = await waitForKillReady(bad.token);
-    check(`击杀技能冷却完毕（第${index + 1}次）`, ready, 'kill 可用');
-    const sid = (await playerState(victim.token)).me.sid;
-    const kill = await request('/api/skill', { method: 'POST', body: { commandId: cmd('kill-' + index), skill: 'kill', targetId: victim.id, sid }, headers: { 'X-Sid-Session': bad.token } });
-    check(`击杀 ${victim.name} 生效`, kill.status === 200 && kill.body.ok === true, JSON.stringify({ ok: kill.body.ok, error: kill.body.error }));
+  check('首位加入者为坏人且只有刺杀技能', badState.body.me.faction === 'bad' && !!badState.body.me.skills.assassinate && !badState.body.me.skills.kill, JSON.stringify(Object.keys(badState.body.me.skills || {})));
+  // 阵营按 4∶1 随机（首位必为坏人），从测试快照里挑两名真正的好人作为目标。
+  const factions = new Map((await request('/api/test/state')).body.players.map(p => [p.id, p.faction]));
+  const goods = [goodOne, goodTwo, goodThree].filter(p => factions.get(p.id) === 'good');
+  check('至少两名好人可作为刺杀目标', goods.length >= 2, JSON.stringify([...factions]));
+  const hits = goods.slice(0, 2).map((v, i) => [i, v]);
+  for (const [index, victim] of hits) {
+    if (index) await request('/api/test/advance', { method: 'POST', body: { ms: badState.body.me.skills.assassinate.chargeIntervalMs + 1000 } });
+    const hit = await request('/api/skill', { method: 'POST', body: { commandId: cmd('assassinate-' + index), skill: 'assassinate', targetId: victim.id }, headers: { 'X-Sid-Session': bad.token } });
+    check(`刺杀 ${victim.name} 生效`, hit.status === 200 && hit.body.ok === true, JSON.stringify({ ok: hit.body.ok, error: hit.body.error }));
   }
+  const legacyKill = await request('/api/skill', { method: 'POST', body: { commandId: cmd('kill'), skill: 'kill', targetId: goodThree.id }, headers: { 'X-Sid-Session': bad.token } });
+  check('旧「击杀」技能被拒', legacyKill.body.ok === false, legacyKill.body.error);
   check('坏人 S-ID 读取正常', typeof badSid === 'string' && badSid.split('-').length === 3, String(badSid));
-  // 击杀确实生效（两名好人已淘汰，坏人活着）。
   const afterKills = await request('/api/test/state');
-  const killedIds = [goodOne.id, goodTwo.id];
-  check('两名好人已被淘汰', afterKills.body.players.filter(p => killedIds.includes(p.id)).every(p => p.alive === false), JSON.stringify(afterKills.body.players.map(p => [p.name, p.alive])));
-  check('坏人两次击杀累计 20 分', (afterKills.body.players.find(p => p.id === bad.id) || {}).score === 20, String((afterKills.body.players.find(p => p.id === bad.id) || {}).score));
+  const hitIds = hits.map(([, v]) => v.id);
+  check('两名好人各扣 1 格对抗生命、仍在对抗中', afterKills.body.players.filter(p => hitIds.includes(p.id)).every(p => p.alive === true && p.hp === 2), JSON.stringify(afterKills.body.players.map(p => [p.name, p.hp, p.alive])));
+  const badScore = (afterKills.body.players.find(p => p.id === bad.id) || {}).score;
+  check('坏人两次刺杀累计 2×刺杀分', badScore >= 2 * worldScore.assassinateHit, String(badScore));
 
   // 真实房间 4 人触发不了三个结束条件（存活阈值是 100），用测试时间推进把 2 小时倒计时走完，
   // 得到一次真实的 timeUp 结算（走的是 checkFinish → archiveResult 同一条生产路径）。
@@ -181,7 +179,7 @@ try {
   check('上局人数正确', !!last && last.playerCount === 4, `playerCount=${last && last.playerCount}`);
   check('按分数排名且有 4 条', !!last && last.ranked === true && Array.isArray(last.ranking) && last.ranking.length === 4, JSON.stringify(last && last.ranking && last.ranking.map(r => [r.rank, r.name, r.score])));
   const ranking = (last && last.ranking) || [];
-  check('击杀者排第一且分数最高（20 分）', ranking[0] && ranking[0].id === bad.id && ranking[0].score === 20, JSON.stringify(ranking[0]));
+  check('刺杀命中者排第一且分数最高', ranking[0] && ranking[0].id === bad.id && ranking.every(r => r.score <= ranking[0].score), JSON.stringify(ranking[0]));
   check('排名分数严格降序', ranking.every((r, i) => i === 0 || ranking[i - 1].score >= r.score), JSON.stringify(ranking.map(r => r.score)));
   check('排名名次连续', ranking.every((r, i) => r.rank === i + 1), JSON.stringify(ranking.map(r => r.rank)));
   check('排名含阵营字段', ranking.every(r => r.faction === 'bad' || r.faction === 'good'), JSON.stringify(ranking.map(r => r.faction)));
@@ -189,29 +187,30 @@ try {
   check('结束原因在白名单内', !!last && endReasons.includes(last.finishReason), last && last.finishReason);
   check('结算含结束时间戳', !!last && Number.isFinite(last.finishedAt) && last.finishedAt > 0, String(last && last.finishedAt));
 
-  // ---------- 6. 开新局：清空玩家但保留上局排名 ----------
-  const noConfirm = await request('/api/manager/reset', { method: 'POST', cookie: `sid_manager=${cookie}`, body: { confirm: true, csrfToken: 'wrong-token' } });
-  check('CSRF 不匹配 => 403', noConfirm.status === 403, `status=${noConfirm.status}`);
-  const noFlag = await request('/api/manager/reset', { method: 'POST', cookie: `sid_manager=${cookie}`, body: { csrfToken: csrf } });
-  check('缺少二次确认 => 400', noFlag.status === 400, `status=${noFlag.status}`);
-  const unauthReset = await request('/api/manager/reset', { method: 'POST', body: { confirm: true, csrfToken: csrf } });
-  check('未登录重开 => 401', unauthReset.status === 401, `status=${unauthReset.status}`);
+  // ---------- 6. 开新局：dev 已停用旧 /api/manager/reset（409），改为「结算本场 → 手动开新场」 ----------
+  const legacyReset = await request('/api/manager/reset', { method: 'POST', cookie: `sid_manager=${cookie}`, body: { confirm: true, csrfToken: csrf } });
+  check('旧清空接口已停用（409）', legacyReset.status === 409, `status=${legacyReset.status}`);
+  const ctl = (body, opts = {}) => request('/api/manager/control', { method: 'POST', cookie: opts.noCookie ? undefined : `sid_manager=${cookie}`, body, headers: { Origin: BASE } });
+  const roundNow = (await request('/api/manager/state', { cookie: `sid_manager=${cookie}` })).body.activity.currentRoundId;
+  const startBody = { action: 'start', confirm: true, csrfToken: csrf, expectedRoundId: roundNow, minutes: 30, label: '管理自测新场', commandId: cmd('start').replace(/[^a-zA-Z0-9_-]/g, '') };
+  check('CSRF 不匹配 => 403', (await ctl({ ...startBody, csrfToken: 'wrong-token' })).status === 403);
+  check('缺少二次确认 => 400', (await ctl({ ...startBody, confirm: undefined })).status === 400);
+  check('未登录开新场 => 401', (await ctl(startBody, { noCookie: true })).status === 401);
   const stillTheirState = await request('/api/manager/state', { cookie: `sid_manager=${cookie}` });
-  check('被拒的重开没有清空房间', stillTheirState.body.current.playerCount === 4, `playerCount=${stillTheirState.body.current.playerCount}`);
-
-  const reset = await request('/api/manager/reset', { method: 'POST', cookie: `sid_manager=${cookie}`, body: { confirm: true, csrfToken: csrf } });
-  check('授权重开 => 200', reset.status === 200 && reset.body.ok === true && reset.body.reset === true, `status=${reset.status} body=${JSON.stringify(reset.body && reset.body.error)}`);
-  check('重开响应带回上局排名', !!reset.body.lastResult && Array.isArray(reset.body.lastResult.ranking) && reset.body.lastResult.ranking.length === 4, JSON.stringify(reset.body.lastResult && reset.body.lastResult.ranking.map(r => r.name)));
+  check('被拒的开场没有清空房间', stillTheirState.body.current.playerCount === 4, `playerCount=${stillTheirState.body.current.playerCount}`);
+  const reset = await ctl(startBody);
+  check('授权开新场 => 200', reset.status === 200 && reset.body.ok === true, `status=${reset.status} body=${JSON.stringify(reset.body)}`);
   const afterReset = await request('/api/manager/state', { cookie: `sid_manager=${cookie}` });
-  check('重开后管理会话仍有效', afterReset.status === 200 && afterReset.body.ok === true, `status=${afterReset.status}`);
-  check('重开后房间已清空', afterReset.body.current.playerCount === 0 && afterReset.body.current.finished === false, JSON.stringify(afterReset.body.current));
-  check('重开后上局排名仍可读', !!afterReset.body.lastResult && afterReset.body.lastResult.ranking.length === 4, JSON.stringify(afterReset.body.lastResult && afterReset.body.lastResult.ranking.length));
-  check('重开后倒计时被重置', afterReset.body.current.endsAt - afterReset.body.current.startedAt > 0, 'endsAt 基于新的 startedAt');
+  check('开新场后管理会话仍有效', afterReset.status === 200 && afterReset.body.ok === true, `status=${afterReset.status}`);
+  check('开新场后房间已清空', afterReset.body.current.playerCount === 0 && afterReset.body.current.finished === false, JSON.stringify(afterReset.body.current));
+  const prevSession = (afterReset.body.activity.history || []).find(h => h.roundId === roundNow);
+  check('上一场成绩已归档且可读（4 人）', !!prevSession && prevSession.ranking.length === 4, JSON.stringify(prevSession && prevSession.ranking.length));
+  check('开新场后倒计时被重置', afterReset.body.current.endsAt - afterReset.body.current.startedAt > 0, 'endsAt 基于新的 startedAt');
 
   const oldPlayer = await request('/api/state', { headers: { 'X-Sid-Session': bad.token } });
-  check('重开后旧身份凭证失效', oldPlayer.status === 401, `status=${oldPlayer.status}`);
+  check('开新场后旧身份凭证失效', oldPlayer.status === 401, `status=${oldPlayer.status}`);
   const rejoin = await request('/api/join', { method: 'POST', body: { nickname: '新局玩家' } });
-  check('重开后可以正常加入新局', rejoin.status === 200 && rejoin.body.ok === true, JSON.stringify(rejoin.body && rejoin.body.error));
+  check('开新场后可以正常加入', rejoin.status === 200 && rejoin.body.ok === true, JSON.stringify(rejoin.body && rejoin.body.error));
   const joinPageText = (await request('/', { raw: true })).text;
   check('新局不再提示游戏已结束', !/游戏已结束，无法加入/.test(joinPageText) || true, '按 /api/join 判定为准');
 
@@ -225,7 +224,7 @@ try {
   const publicState = await request('/api/state', { headers: { 'X-Sid-Session': rejoin.body.sessionToken } });
   check('公开投影不包含上局排名', publicState.status === 200 && !('lastResult' in publicState.body), JSON.stringify(Object.keys(publicState.body || {})));
   const publicDev = await request('/api/dev/capabilities');
-  check('开发接口在 SID_DEV=0 下仍关闭', publicDev.status === 403, `status=${publicDev.status}`);
+  check('开发接口仍关闭（dev 已统一迁到 /manager → 410）', [403, 410].includes(publicDev.status), `status=${publicDev.status}`);
 
   // ---------- 9. 限流：连续错误授权码后出现 429 ----------
   let sawRateLimit = false;

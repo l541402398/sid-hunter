@@ -34,18 +34,20 @@ async function stop(p) {
 }
 function assertSlots(slots) {
   for (const slot of slots) {
-    assert.deepEqual(Object.keys(slot).sort(), ['alive', 'key', 'label', 'traits']);
+    // 匿名池只下发系统公布线索（systemClues），不再下发玩家探查得到的 traits。
+    assert.deepEqual(Object.keys(slot).sort(), ['alive', 'key', 'label', 'systemClues']);
     assert.match(slot.key, /^[0-9a-f-]{36}$/);
     assert.match(slot.label, /^坏人\d+$/);
     assert.equal(typeof slot.alive, 'boolean');
-    for (const key of Object.keys(slot.traits)) assert.ok(['saying', 'food', 'sport'].includes(key));
+    assert.deepEqual(Object.keys(slot.systemClues).sort(), ['colors', 'traits']);
+    for (const key of Object.keys(slot.systemClues.traits)) assert.ok(['saying', 'food', 'sport'].includes(key));
   }
 }
 const use = (r, actor, kind, target, sid) => r.useSkill(actor.sessionId, {
   commandId: randomUUID(), skill: kind, targetId: target.id, sid
 });
 try {
-  const r = createRoom({ random: () => 0 });
+  const r = createRoom({ random: () => 0.99 });
   await test('空房间池为空，不造固定四坑', () => assert.deepEqual(r.publicSnapshot().badSlots, []));
   const bad = r.join('module-bad', '测试坏人').player;
   const good = r.join('module-good', '测试好人').player;
@@ -53,7 +55,7 @@ try {
   let slot = r.publicSnapshot().badSlots[0];
   await test('一坏人一坑，未知属性不下发', () => {
     assert.equal(r.publicSnapshot().badSlots.length, 1); assertSlots([slot]);
-    assert.deepEqual(slot.traits, {}); assert.equal(slot.alive, true);
+    assert.deepEqual(slot.systemClues, { colors: {}, traits: {} }); assert.equal(slot.alive, true);
   });
   await test('不同观看者及重复快照完全一致且复用缓存', () => {
     const a = r.publicSnapshot(bad.id).badSlots, b = r.publicSnapshot(good.id).badSlots;
@@ -69,48 +71,56 @@ try {
   await test('好人NPC不入坏人池', () => {
     r.spawnNpc(2, good); assert.equal(r.publicSnapshot().badSlots.length, 1);
   });
-  await test('probe合法公开同步池，仅该已公开项且只新增正常技能日志', () => {
+  await test('旧probe入口被拒；系统公布同步池，仅新增该公布项', () => {
     const count = r.room.logs.length;
-    assert.equal(use(r, good, 'probe', bad).ok, true);
+    assert.equal(use(r, good, 'probe', bad).ok, false);
+    assert.equal(r.room.logs.length, count);
+    assert.equal(r.publishSystemClue(bad.id, 'traits', 'saying').ok, true);
     const next = r.publicSnapshot().badSlots[0];
-    assert.equal(next.key, slot.key); assert.deepEqual(next.traits, { saying: bad.traits.saying });
-    assert.equal(r.room.logs.length, count + 1); slot = next;
+    assert.equal(next.key, slot.key); assert.deepEqual(next.systemClues.traits, { saying: bad.traits.saying });
+    slot = next;
   });
   await test('缓存公开值不可被快照调用者改写', () => {
     assert.ok(Object.isFrozen(r.publicSnapshot().badSlots));
-    assert.ok(Object.isFrozen(slot) && Object.isFrozen(slot.traits));
-    assert.throws(() => { slot.traits.food = '伪造'; }, TypeError);
+    assert.ok(Object.isFrozen(slot) && Object.isFrozen(slot.systemClues.traits));
+    assert.throws(() => { slot.systemClues.traits.food = '伪造'; }, TypeError);
   });
-  await test('指认非致死不删除卡，致死保留原标识与公开线索', () => {
-    assert.ok(use(r, good, 'accuse', bad).ok);
-    assert.equal(r.publicSnapshot().badSlots[0].alive, true);
-    r.room.clockOffset += 12001;
-    assert.ok(use(r, good, 'accuse', bad).ok);
+  await test('指认非致死不删除卡，归零进入休战仍保留原标识与公开线索', () => {
+    const goods = r.room.players.filter(p => !p.npc && p.faction === 'good');
+    assert.ok(goods.length >= 3);
+    for (let i = 0; i < 3; i++) {
+      bad.protectUntil = 0;
+      const res = use(r, goods[i], 'accuse', bad); assert.ok(res.ok, JSON.stringify(res));
+      if (i < 2) assert.equal(r.publicSnapshot().badSlots[0].alive, true);
+    }
     const dead = r.publicSnapshot().badSlots[0];
     assert.equal(dead.alive, false); assert.equal(dead.key, slot.key);
-    assert.deepEqual(dead.traits, slot.traits); assert.equal(bad.alive, false);
+    assert.deepEqual(dead.systemClues, slot.systemClues); assert.equal(bad.alive, false);
   });
   await test('reset清旧映射，新局重新生成匿名key', () => {
     const key = slot.key; r.reset(); assert.deepEqual(r.publicSnapshot().badSlots, []);
     r.join('new-bad', '新局'); assert.notEqual(r.publicSnapshot().badSlots[0].key, key);
   });
   // Multi-bad fixture is module-only: no new production endpoint or role assignment option.
-  const m = createRoom();
+  const m = createRoom({ random: () => 0.99 });
   const ma = m.join('ma', '甲').player, mb = m.join('mb', '乙').player;
   m.join('mc', '丙'); m.join('md', '丁'); m.join('me', '戊');
   mb.faction = 'bad'; mb.hp = 2;
   await test('模块多坏人各有唯一匿名key与label，不卡四坑', () => {
     const slots = m.publicSnapshot().badSlots; assertSlots(slots); assert.equal(slots.length, 2);
     assert.equal(new Set(slots.map(s => s.key)).size, 2); assert.equal(new Set(slots.map(s => s.label)).size, 2);
-    assert.ok(slots.every(s => Object.keys(s.traits).length === 0));
+    assert.ok(slots.every(s => Object.keys(s.systemClues.traits).length === 0 && Object.keys(s.systemClues.colors).length === 0));
   });
-  await test('spy公开人物SID不加入匿名池', () => {
+  await test('坏人刺杀好人不改变匿名池', () => {
     const before = JSON.stringify(m.publicSnapshot().badSlots);
-    assert.ok(use(m, ma, 'spy', mb).ok);
+    const victim = m.room.players.find(p => p.faction === 'good');
+    assert.ok(use(m, ma, 'assassinate', victim).ok);
     assert.equal(JSON.stringify(m.publicSnapshot().badSlots), before);
   });
-  await test('kill淘汰坏人保留匿名卡且无身份关联字段', () => {
-    assert.ok(use(m, ma, 'kill', mb, mb.sid.segments.join('-')).ok);
+  await test('指认使坏人休战后保留匿名卡且无身份关联字段', () => {
+    const accuser = m.room.players.find(p => p.faction === 'good' && p.skills.accuse.chargesRemaining > 0);
+    mb.hp = 1; mb.protectUntil = 0;
+    assert.ok(use(m, accuser, 'accuse', mb).ok); assert.equal(mb.alive, false);
     const slots = m.publicSnapshot().badSlots; assertSlots(slots);
     assert.equal(slots.length, 2); assert.equal(slots.filter(s => !s.alive).length, 1);
   });
@@ -134,17 +144,15 @@ try {
   const [a, b] = people;
   const before = await request('/api/state', b.sessionToken);
   await test('HTTP匿名池白名单、零未知值、各视角一致', async () => {
-    assertSlots(before.badSlots); assert.equal(before.badSlots.length, 1);
-    assert.deepEqual(before.badSlots[0].traits, {});
+    assertSlots(before.badSlots); assert.ok(before.badSlots.length >= 1);
+    for (const s of before.badSlots) assert.deepEqual(s.systemClues, { colors: {}, traits: {} });
     assert.deepEqual((await request('/api/state', a.sessionToken)).badSlots, before.badSlots);
   });
-  await test('真实HTTP probe公开同步匿名池，人物公开数据也一致', async () => {
-    const response = await request('/api/skill', b.sessionToken, { commandId: randomUUID(), skill: 'probe', targetId: a.playerId });
-    assert.ok(response.ok); const s = await request('/api/state', b.sessionToken);
-    const actorTarget = s.players.find(p => p.id === a.playerId);
-    assert.equal(Object.keys(s.badSlots[0].traits).length, 1);
-    for (const [k, v] of Object.entries(s.badSlots[0].traits)) assert.equal(v, actorTarget.traits[k]);
-    assert.equal(s.badSlots[0].key, before.badSlots[0].key);
+  await test('真实HTTP旧probe被拒，指认不改变匿名池', async () => {
+    const legacy = await request('/api/skill', b.sessionToken, { commandId: randomUUID(), skill: 'probe', targetId: a.playerId });
+    assert.equal(legacy.ok, false);
+    const s = await request('/api/state', b.sessionToken);
+    assert.deepEqual(s.badSlots, before.badSlots);
   });
   await test('真实SSE首帧包含同一匿名池', async () => {
     const ctrl = new AbortController();
