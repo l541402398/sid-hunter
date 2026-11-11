@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="styles.css" />
     <link rel="stylesheet" href="ornaments.css" />
     <link rel="stylesheet" href="honors.css" />
+    <link rel="stylesheet" href="cover.css" />
     <script src="people.mock.js" defer></script>
     <script src="content.js" defer></script>
     <script src="art.js" defer></script>
@@ -31,7 +32,7 @@
         <button class="gold-button" data-open-review>打开年度纪念册 <span>→</span></button>
       </main>
       <footer class="lobby-footer">
-        <span>晨光溪谷厅 · 年度记忆馆</span><span>OUR YEAR, OUR STORY.</span>
+        <span>晨光溪谷厅 · 年度记忆馆</span>
       </footer>
     </div>
     <dialog
@@ -40,6 +41,7 @@
       aria-labelledby="reader-title"
       aria-describedby="reader-description"
     >
+      <div id="fireflies" class="fireflies" aria-hidden="true"></div>
       <header class="reader-header">
         <div>
           <span class="tiny-star">✦</span>
@@ -52,7 +54,6 @@
       </p>
       <div class="book-stage" id="book-stage" data-mode="cover" data-busy="false">
         <div class="book-aura" aria-hidden="true"></div>
-        <div id="fireflies" class="fireflies" aria-hidden="true"></div>
         <div class="volume" id="volume">
           <div class="backing backing-right" aria-hidden="true">
             <div class="binding"></div>
@@ -80,41 +81,44 @@
           </div>
           <div class="book-gutter" aria-hidden="true"></div>
           <div class="hard-cover" id="hard-cover">
+            <div class="cover-vine-wrap cover-vine-wrap-top" aria-hidden="true">
+              <svg class="cover-vine-return" viewBox="0 0 240 190"></svg>
+              <svg class="cover-vine cover-vine-top" viewBox="0 0 240 190"></svg>
+            </div>
+            <div class="cover-vine-wrap cover-vine-wrap-bottom" aria-hidden="true">
+              <svg class="cover-vine-return" viewBox="0 0 240 190"></svg>
+              <svg class="cover-vine cover-vine-bottom" viewBox="0 0 240 190"></svg>
+            </div>
             <div class="cover-face cover-front" id="cover-front">
-              <span class="cover-monogram" aria-hidden="true">CQRD</span>
-              <div class="cover-spine" aria-hidden="true"><i></i><i></i><i></i></div>
+              <div class="cover-spine" aria-hidden="true">
+                <span class="cover-spine-title">2026 · A YEAR TO REMEMBER</span>
+              </div>
               <div class="cover-border" aria-hidden="true"></div>
-              <i class="metal-corner metal-tl" aria-hidden="true"></i
-              ><i class="metal-corner metal-tr" aria-hidden="true"></i
-              ><i class="metal-corner metal-bl" aria-hidden="true"></i
-              ><i class="metal-corner metal-br" aria-hidden="true"></i>
-              <svg class="cover-vine cover-vine-top" viewBox="0 0 210 150" aria-hidden="true"></svg
-              ><svg
-                class="cover-vine cover-vine-bottom"
-                viewBox="0 0 210 150"
-                aria-hidden="true"
-              ></svg>
+              <span class="cover-fore-edge" aria-hidden="true"></span>
               <p class="cover-overline">我的2026 · 年度珍藏</p>
               <div class="cover-emblem" aria-hidden="true">✦</div>
               <p class="cover-year" aria-label="2026年">2026</p>
               <h3>一册同行的时光</h3>
               <div class="cover-rule" aria-hidden="true"><span></span>✧<span></span></div>
-              <p class="cover-subtitle">回望闪光的伙伴<br />也珍藏，认真走过这一年的你。</p>
-              <div class="cover-mascot">
-                <i class="mascot-ground" aria-hidden="true"></i
-                ><canvas
-                  class="juli-portrait"
-                  width="360"
-                  height="290"
-                  role="img"
-                  aria-label="轻轻摆动的公司吉祥物黄色 JULI"
-                ></canvas
-                ><span>JULI 陪你翻开回忆</span>
+              <div class="cover-stardust" aria-hidden="true"></div>
+              <div class="cover-invitation-row">
+                <button class="gold-button cover-start" id="start-review">开启年度回忆</button>
               </div>
-              <button class="gold-button cover-start" id="start-review">
-                开启年度回忆 <span>→</span>
-              </button>
-              <p class="cover-edition">OUR YEAR · OUR STORY</p>
+              <div class="cover-invitation-art">
+                <img
+                  class="juli-invitation"
+                  src="assets/juli-invitation.png"
+                  width="1329"
+                  height="1183"
+                  alt="JULI 抱着纪念册，伸手邀请你开启年度回忆"
+                  draggable="false"
+                />
+              </div>
+              <div class="cover-library-mark" aria-label="CQRD 年度藏书印">
+                <span class="library-mark-ornament" aria-hidden="true">✧</span>
+                <strong>CQRD</strong>
+                <span class="library-mark-caption">年度藏书 · 2026</span>
+              </div>
               <span class="cover-ribbon" aria-hidden="true">✦</span>
             </div>
             <div

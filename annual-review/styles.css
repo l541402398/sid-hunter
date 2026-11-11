@@ -388,11 +388,7 @@ a {
   letter-spacing: 1px;
   margin: 0 0 14px;
 }
-.page-copy {
-  font-size: 12px;
-  line-height: 2;
-  color: #856241;
-}
+
 .page-corner {
   position: absolute;
   bottom: 0;
@@ -461,16 +457,6 @@ a {
   top: 0;
   bottom: 0;
 }
-.cover-spine i {
-  position: absolute;
-  top: 15%;
-}
-.cover-spine i:nth-child(2) {
-  top: 49%;
-}
-.cover-spine i:nth-child(3) {
-  top: 83%;
-}
 .cover-border {
   position: absolute;
 }
@@ -480,36 +466,7 @@ a {
   inset: 5px;
   border: 1px solid #b9874588;
 }
-.metal-corner {
-  position: absolute;
-  width: 42px;
-  height: 42px;
-  border: 5px double #ecc16b;
-  border-right: 0;
-  border-bottom: 0;
-  z-index: 4;
-  box-shadow: -2px -2px #452710;
-  clip-path: polygon(0 0, 100% 0, 100% 22%, 22% 22%, 22% 100%, 0 100%);
-}
-.metal-tl {
-  left: 9px;
-  top: 9px;
-}
-.metal-tr {
-  right: 8px;
-  top: 9px;
-  transform: rotate(90deg);
-}
-.metal-bl {
-  left: 9px;
-  bottom: 9px;
-  transform: rotate(-90deg);
-}
-.metal-br {
-  right: 8px;
-  bottom: 9px;
-  transform: rotate(180deg);
-}
+
 .cover-vine {
   position: absolute;
   pointer-events: none;
@@ -578,49 +535,7 @@ a {
   height: 1px;
   background: #b28a4c;
 }
-.cover-subtitle {
-  font-size: 11px;
-  line-height: 1.9;
-  letter-spacing: 1px;
-  color: #dbb584;
-  margin: 0;
-}
-.cover-mascot {
-  position: relative;
-  flex: 1;
-  min-height: 70px;
-  max-height: 170px;
-  width: 150px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-.cover-mascot:before {
-  content: '';
-  position: absolute;
-  inset: 5px 0 14px;
-  border: 1px solid #c2954c52;
-  border-radius: 50%;
-}
-.juli-portrait {
-  position: relative;
-  width: 100%;
-  height: calc(100% - 20px);
-  object-fit: contain;
-  filter: drop-shadow(0 5px 3px #39231435);
-}
-.cover-mascot > span {
-  font-size: 8px;
-  letter-spacing: 1.4px;
-  color: #d1ab72;
-}
-.cover-edition {
-  font: 8px Georgia, serif;
-  letter-spacing: 3px;
-  margin: 17px 0 2px;
-  color: #c39a61;
-}
+
 .cover-ribbon {
   position: absolute;
   top: -2px;
@@ -829,17 +744,31 @@ a {
   margin: 0 5px;
 }
 .fireflies {
-  position: absolute;
-  inset: -20px -50px;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
   pointer-events: none;
+  z-index: -1;
 }
 .firefly {
   position: absolute;
-  width: 3px;
-  height: 3px;
-  background: #f0c46b;
-  box-shadow: 0 0 12px #f0c46b;
-  animation: firefly 5s ease-in-out infinite;
+  width: var(--star-size, 2px);
+  height: var(--star-size, 2px);
+  border-radius: 50%;
+  background: #f9e2a4;
+  box-shadow: 0 0 5px #f4d28b8c, 0 0 11px #d0a65c30;
+  opacity: var(--star-brightness, 0.6);
+  animation: firefly var(--star-duration, 6s) ease-in-out infinite;
+  animation-play-state: paused;
+}
+.star-glint {
+  border-radius: 0;
+  background: #ffebbb;
+  clip-path: polygon(50% 0, 61% 37%, 100% 50%, 61% 63%, 50% 100%, 39% 63%, 0 50%, 39% 37%);
+  box-shadow: none;
+}
+.reader[open][data-art-paused='false'] .firefly {
+  animation-play-state: running;
 }
 /* Reading pages: opening letter, four people per spread, personal review, closing note. */
 .dedication-page {
@@ -995,21 +924,7 @@ a {
   bottom: 6px;
   left: calc(50% - 12px);
 }
-.person-heading {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.person-heading h4 {
-  font-size: 14px;
-  margin: 0;
-  letter-spacing: 0.5px;
-  font-weight: 600;
-}
-.person-number {
-  font: 9px Georgia, serif;
-  color: #b7935d;
-}
+
 .employee-id {
   font: 9px/1.5 var(--ui);
   color: #a18b66;
@@ -1031,16 +946,7 @@ a {
   font-size: 10px;
   color: #967246;
 }
-.person-event {
-  font-size: 10px;
-  line-height: 1.75;
-  margin: 0;
-  color: #7e6142;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
+
 .people-caption {
   font-size: 9px;
   color: #ae9064;
@@ -1189,9 +1095,7 @@ a {
 .portrait-mount img {
   height: 118px;
 }
-.person-heading h4 {
-  font-size: 17px;
-}
+
 .employee-id {
   font-size: 10px;
   margin: 6px 0 13px;
@@ -1202,10 +1106,7 @@ a {
 .person-metric span {
   font-size: 11px;
 }
-.person-event {
-  font-size: 12px;
-  line-height: 1.8;
-}
+
 .people-caption {
   margin-top: 0;
   position: absolute;
@@ -1214,12 +1115,12 @@ a {
 @keyframes firefly {
   0%,
   100% {
-    opacity: 0.15;
-    transform: translateY(5px);
+    opacity: calc(var(--star-brightness, 0.6) * 0.35);
+    transform: translateY(2px) scale(0.8);
   }
   50% {
-    opacity: 0.85;
-    transform: translateY(-7px);
+    opacity: var(--star-brightness, 0.6);
+    transform: translateY(-3px) scale(1.15);
   }
 }
 /* Laptop and desktop windows keep one book composition. */
@@ -1249,15 +1150,11 @@ a {
   .portrait-mount img {
     height: 104px;
   }
-  .person-heading h4 {
-    font-size: 16px;
-  }
+
   .employee-id {
     font-size: 10px;
   }
-  .person-event {
-    font-size: 12px;
-  }
+
   .person-metric strong {
     font-size: 41px;
   }
@@ -1271,17 +1168,12 @@ a {
   .cover-front h3 {
     font-size: 31px;
   }
-  .cover-mascot {
-    max-height: 200px;
-    width: 170px;
-  }
+
   .cover-overline {
     margin-top: 17px;
     font-size: 11px;
   }
-  .cover-subtitle {
-    font-size: 12px;
-  }
+
   .cover-start {
     height: 47px;
   }
@@ -1336,16 +1228,7 @@ a {
   .cover-front h3 {
     font-size: 24px;
   }
-  .cover-subtitle {
-    font-size: 10px;
-  }
-  .cover-mascot {
-    max-height: 125px;
-    width: 125px;
-  }
-  .cover-edition {
-    margin-top: 12px;
-  }
+
   .cover-start {
     height: 39px;
     font-size: 12px;
@@ -1407,9 +1290,7 @@ a {
   .portrait-mount img {
     height: 68px;
   }
-  .person-heading h4 {
-    font-size: 12px;
-  }
+
   .employee-id {
     font-size: 8px;
     margin: 3px 0 6px;
@@ -1417,9 +1298,7 @@ a {
   .person-metric strong {
     font-size: 28px;
   }
-  .person-event {
-    font-size: 9px;
-  }
+
   .person-metric {
     margin-bottom: 5px;
   }
@@ -1658,24 +1537,9 @@ a {
 .cover-front > p,
 .cover-front > h3,
 .cover-front > .cover-emblem,
-.cover-front > .cover-rule,
-.cover-front > .cover-mascot {
+.cover-front > .cover-rule {
   position: relative;
   z-index: 1;
-}
-.cover-monogram {
-  position: absolute;
-  left: 43px;
-  right: 20px;
-  top: 39%;
-  z-index: 0;
-  pointer-events: none;
-  font: 700 clamp(80px, 8.4vw, 137px) / 1 Georgia, 'Times New Roman', serif;
-  letter-spacing: -7px;
-  color: #44261065;
-  text-shadow: 0 1px 0 #e7b8764d, 0 -2px 1px #29160d40;
-  transform: rotate(-10deg);
-  user-select: none;
 }
 .cover-border {
   inset: 21px 20px 22px 42px;
@@ -1703,29 +1567,7 @@ a {
   border-right: 1px solid #f5cf8c6b;
   z-index: 3;
 }
-.cover-spine i {
-  height: 13px;
-  background: linear-gradient(#ffda8f 0%, #bd8840 19%, #ecbe6b 39%, #9b6429 65%, #63401e 100%);
-  box-shadow: 0 3px 2px #25160dcc, inset 0 1px #ffecb5;
-  left: 0;
-  right: 0;
-}
-.metal-corner {
-  width: 47px;
-  height: 47px;
-  background: linear-gradient(
-    135deg,
-    #ffe8a1 0%,
-    #b8802f 17%,
-    #f2c86d 34%,
-    #926024 65%,
-    #eac16c 78%,
-    #69421a 100%
-  );
-  border: 5px double #f2cb7a;
-  filter: drop-shadow(2px 3px 1px #28170dc2);
-  box-shadow: inset 1px 1px #ffe9af, inset -2px -2px #73451e;
-}
+
 .cover-ribbon {
   background: linear-gradient(90deg, #60271c, #ae5734 28%, #c67a4b 44%, #9a472c 69%, #542319);
   box-shadow: 3px 4px 4px #29150d55;
@@ -1783,61 +1625,7 @@ a {
 .book-stage[data-mode='cover'] .hard-cover {
   box-shadow: none;
 }
-.cover-mascot:before {
-  background: radial-gradient(ellipse, #e9c5721f, #37251522 68%);
-  border-color: #e2b96654;
-  box-shadow: inset 0 2px 7px #3b221c55, 0 1px 0 #e9c67c44, 0 0 0 5px #c3944314;
-}
-.cover-mascot .juli-portrait {
-  transform-origin: 50% 76%;
-  animation: juli-float 3.7s ease-in-out infinite;
-  animation-play-state: paused;
-  filter: drop-shadow(1px 8px 4px #29170d73);
-}
-.mascot-ground {
-  position: absolute;
-  left: 25%;
-  right: 25%;
-  bottom: 18%;
-  height: 7px;
-  background: #301b1261;
-  border-radius: 50%;
-  filter: blur(3px);
-  animation: juli-shadow 3.7s ease-in-out infinite;
-  animation-play-state: paused;
-}
-.reader[open][data-art-paused='false'] .cover-mascot .juli-portrait,
-.reader[open][data-art-paused='false'] .mascot-ground {
-  animation-play-state: running;
-}
 
-@keyframes juli-float {
-  0%,
-  100% {
-    transform: translateY(2px) rotate(-2deg) scale(1, 0.99);
-  }
-  45% {
-    transform: translateY(-7px) rotate(2deg) scale(1.018, 1.012);
-  }
-  70% {
-    transform: translateY(-3px) rotate(0.5deg) scale(1.008, 1);
-  }
-}
-@keyframes juli-shadow {
-  0%,
-  100% {
-    transform: scaleX(1.04);
-    opacity: 0.7;
-  }
-  45% {
-    transform: scaleX(0.76);
-    opacity: 0.38;
-  }
-  70% {
-    transform: scaleX(0.9);
-    opacity: 0.5;
-  }
-}
 @media (max-height: 800px) {
   .person-card {
     grid-template-columns: 88px 1fr;
@@ -1846,9 +1634,7 @@ a {
   .portrait-mount img {
     height: 98px;
   }
-  .person-heading h4 {
-    font-size: 14px;
-  }
+
   .employee-id {
     font-size: 9px;
     margin: 4px 0 9px;
@@ -1859,10 +1645,7 @@ a {
   .person-metric span {
     font-size: 10px;
   }
-  .person-event {
-    font-size: 11px;
-    line-height: 1.8;
-  }
+
   .letter {
     font-size: 13px;
     line-height: 1.95;
@@ -1888,4 +1671,74 @@ a {
   .reader::backdrop {
     backdrop-filter: none;
   }
+}
+/* A single timeline carries a soft paper arc from the outer edge to the bound spine. */
+@property --page-curl {
+  syntax: '<number>';
+  initial-value: 0;
+  inherits: true;
+}
+.turning-leaf[data-curled='true'] > .leaf-face {
+  visibility: hidden;
+}
+.leaf-strips {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+.leaf-strip {
+  position: absolute;
+  left: 100%;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: left center;
+  transform-style: preserve-3d;
+  transform: rotateY(calc(var(--page-curl) * var(--strip-angle)));
+}
+.leaf-strips > .leaf-strip {
+  left: 0;
+  width: calc(100% / var(--strip-count));
+}
+.leaf-strip-face {
+  position: absolute;
+  left: -1.25px;
+  top: 0;
+  /* Extend both clips around their shared hinge, keeping source pixels in the same coordinates. */
+  width: calc(100% + 2.5px);
+  height: 100%;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0.05px);
+}
+.leaf-strip-face.back {
+  transform: rotateY(180deg) translateZ(0.05px);
+}
+.leaf-strip-face .leaf-surface {
+  inset: 0 auto auto 1.25px;
+  width: var(--leaf-w);
+  height: 100%;
+  visibility: visible;
+}
+.leaf-surface:after {
+  /* One continuous light band follows the bend, without restarting at each crop boundary. */
+  background: linear-gradient(90deg, transparent 24%, #72502b13 45%, #fff9e677 73%, #8a633b33 97%);
+}
+.leaf-surface.leaf-back:after {
+  background: linear-gradient(90deg, #8a633b33 3%, #fff9e677 27%, #72502b13 55%, transparent 76%);
+}
+.volume.page-turn-forward #right-page:after,
+.volume.page-turn-backward #left-page:after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 44% 48%, #62401d1c, transparent 64%),
+    linear-gradient(90deg, #46301a28, #6043220c 12%, transparent 48%);
+}
+.volume.page-turn-backward #left-page:after {
+  background: radial-gradient(ellipse at 56% 48%, #62401d1c, transparent 64%),
+    linear-gradient(270deg, #46301a28, #6043220c 12%, transparent 48%);
 }

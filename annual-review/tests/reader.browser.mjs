@@ -16,6 +16,7 @@ const baseURL =
   process.env.REVIEW_URL ||
   'http://127.0.0.1:8790/annual-review/';
 const exitOnly = process.argv.includes('--exit-only'),
+  coverOnly = process.argv.includes('--cover-only'),
   symmetryOnly = process.argv.includes('--symmetry-only'),
   exitCase = process.argv.find((a) => a.startsWith('--exit-case='))?.slice('--exit-case='.length);
 mkdirSync(out, { recursive: true });
@@ -47,7 +48,8 @@ const pending = new Map(),
   errors = [],
   failedResources = [],
   passed = [],
-  symmetrySamples = [];
+  symmetrySamples = [],
+  curlSamples = [];
 const call = (method, params = {}) =>
   new Promise((resolve, reject) => {
     const seq = ++id;
@@ -174,6 +176,162 @@ async function assertCover() {
   assert.equal(await chapterTitle(), '开篇寄语');
   assert.equal(await evaluate(noBookAnimations), true);
 }
+function quadsDoNotOverlap(a, b, tolerance = 0.6) {
+  const points = quad => Array.from({ length: 4 }, (_, i) => ({ x: quad[i * 2], y: quad[i * 2 + 1] }));
+  const left = points(a), right = points(b);
+  for (const quad of [left, right]) {
+    for (let i = 0; i < quad.length; i++) {
+      const p = quad[i], q = quad[(i + 1) % quad.length],
+        length = Math.hypot(q.x - p.x, q.y - p.y),
+        normal = { x: -(q.y - p.y) / length, y: (q.x - p.x) / length },
+        project = points => points.map(point => point.x * normal.x + point.y * normal.y),
+        aRange = project(left), bRange = project(right);
+      if (
+        Math.max(...aRange) <= Math.min(...bRange) + tolerance ||
+        Math.max(...bRange) <= Math.min(...aRange) + tolerance
+      ) return true;
+    }
+  }
+  return false;
+}
+async function verifyInvitationLayout(label) {
+  const layout = await evaluate(
+    `(async () => {
+      const cover = document.getElementById('cover-front'),
+        row = cover.querySelector('.cover-invitation-row'),
+        art = cover.querySelector('.cover-invitation-art'),
+        brand = cover.querySelector('.cover-library-mark'),
+        image = art?.querySelector('img.juli-invitation'),
+        button = document.getElementById('start-review');
+      if (!image) throw Error('Missing JULI invitation image inside the cover');
+      await image.decode();
+      const rect = element => {
+        const {left, top, right, bottom, width, height} = element.getBoundingClientRect();
+        return {left, top, right, bottom, width, height};
+      };
+      if (!window.__invitationAlphaBounds) {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(image, 0, 0);
+        const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let left = canvas.width, top = canvas.height, right = 0, bottom = 0;
+        for (let y = 0; y < canvas.height; y++) {
+          for (let x = 0; x < canvas.width; x++) {
+            if (pixels[(y * canvas.width + x) * 4 + 3] <= 16) continue;
+            left = Math.min(left, x);
+            top = Math.min(top, y);
+            right = Math.max(right, x + 1);
+            bottom = Math.max(bottom, y + 1);
+          }
+        }
+        window.__invitationAlphaBounds = {left, top, right, bottom};
+      }
+      const mapToOffsetParent = (element, point) => {
+        const style = getComputedStyle(element), [x, y] = style.transformOrigin.split(' ').map(parseFloat);
+        return new DOMMatrix().translate(element.offsetLeft, element.offsetTop).translate(x, y)
+          .multiply(new DOMMatrix(style.transform)).translate(-x, -y).transformPoint(point);
+      };
+      const localButtonCenter = mapToOffsetParent(button, new DOMPoint(button.offsetWidth / 2, button.offsetHeight / 2)),
+        coverButtonCenter = mapToOffsetParent(row, localButtonCenter),
+        coverArtCenter = mapToOffsetParent(art, new DOMPoint(art.offsetWidth / 2, art.offsetHeight / 2)),
+        coverBrandCenter = brand && mapToOffsetParent(brand, new DOMPoint(brand.offsetWidth / 2, brand.offsetHeight / 2)),
+        {left, top, right, bottom} = window.__invitationAlphaBounds;
+      const points = [[left, top], [right, top], [right, bottom], [left, bottom]].map(([x, y]) =>
+        mapToOffsetParent(image, new DOMPoint(x * image.offsetWidth / image.naturalWidth, y * image.offsetHeight / image.naturalHeight))
+      );
+      return {
+        cover: rect(cover), row: rect(row), art: rect(art), button: rect(button),
+        source: new URL(image.src).pathname, decoded: image.naturalWidth > 0 && image.naturalHeight > 0,
+        buttonAlone: row.children.length === 1 && row.firstElementChild === button,
+        buttonText: button.textContent.trim(), edition: /OUR YEAR/i.test(cover.textContent),
+        oldWatermark: !!cover.querySelector('.cover-monogram'),
+        brand: brand && {
+          text: brand.textContent.trim(), width: brand.offsetWidth, height: brand.offsetHeight,
+          x: coverBrandCenter.x, y: coverBrandCenter.y, rect: rect(brand),
+          attachedToCover: brand.offsetParent === cover
+        },
+        localCenter: {
+          correctParents: button.offsetParent === row && row.offsetParent === cover && art.offsetParent === cover,
+          buttonInRow: localButtonCenter.x, row: row.clientWidth / 2,
+          buttonInCover: {x: coverButtonCenter.x, y: coverButtonCenter.y},
+          artInCover: {x: coverArtCenter.x, y: coverArtCenter.y},
+          coverWidth: cover.clientWidth, coverHeight: cover.clientHeight
+        },
+        artSize: {width: art.clientWidth, height: art.clientHeight},
+        ink: {
+          left: Math.min(...points.map(p => p.x)), top: Math.min(...points.map(p => p.y)),
+          right: Math.max(...points.map(p => p.x)), bottom: Math.max(...points.map(p => p.y))
+        },
+        subtitle: !!cover.querySelector('.cover-subtitle'), oldMascot: !!cover.querySelector('.cover-mascot'),
+        viewport: {width: innerWidth, height: innerHeight}
+      };
+    })()`
+  );
+  layout.buttonQuad = await projectedQuad('#start-review');
+  layout.artQuad = await projectedQuad('.cover-invitation-art');
+  if (layout.brand) layout.brandQuad = await projectedQuad('.cover-library-mark');
+  writeFileSync(
+    join(out, 'invitation-layout-' + label.replace(/[^a-z0-9-]/gi, '-') + '.json'),
+    JSON.stringify({ label, ...layout }, null, 2)
+  );
+  assert(layout.decoded, label + ': the invitation PNG did not decode');
+  assert.match(layout.source, /\/assets\/juli-invitation\.png$/);
+  assert.equal(layout.subtitle, false);
+  assert.equal(layout.oldMascot, false);
+  assert.equal(layout.edition, false, label + ': remove the English footer from the cover');
+  assert.equal(layout.buttonText, '开启年度回忆', label + ': the opening button needs a text-only label');
+  assert.equal(layout.buttonAlone, true, label + ': the opening button needs its own centered row');
+  assert.equal(layout.localCenter.correctParents, true, label + ': opening action has an unexpected coordinate parent');
+  assert(Math.abs(layout.localCenter.buttonInRow - layout.localCenter.row) < 0.6,
+    label + ': the opening button is not centered in its row');
+  const { buttonInCover, artInCover, coverWidth, coverHeight } = layout.localCenter;
+  assert(Math.abs(buttonInCover.x - coverWidth / 2) < coverWidth * 0.04,
+    label + ': the opening action is not centered on the cover');
+  assert(buttonInCover.y / coverHeight >= 0.67 && buttonInCover.y / coverHeight <= 0.76,
+    label + ': the opening action should anchor the lower part of the cover');
+  assert(layout.button.width >= 200 && layout.button.height >= 44,
+    label + ': the opening button should be a prominent, usable action');
+  assert(
+    quadsDoNotOverlap(layout.buttonQuad, layout.artQuad),
+    label + ': JULI must not overlap the opening button'
+  );
+  assert(layout.artSize.width / coverWidth >= 0.16 && layout.artSize.width / coverWidth <= 0.26,
+    label + ': JULI should occupy about a fifth of the cover width');
+  assert(artInCover.x > coverWidth * 0.6 && artInCover.x < coverWidth * 0.85 &&
+    artInCover.y > buttonInCover.y && artInCover.y < coverHeight * 0.91,
+    label + ': JULI should guide attention toward the lower opening action');
+  assert(artInCover.x - buttonInCover.x < coverWidth * 0.35 &&
+    artInCover.y - buttonInCover.y < coverHeight * 0.2,
+    label + ': JULI and the opening action should form one nearby group');
+  assert.equal(layout.oldWatermark, false, label + ': the oversized central watermark must be removed');
+  assert(layout.brand && /CQRD/.test(layout.brand.text), label + ': the cover needs its CQRD library mark');
+  assert(layout.brand.attachedToCover && layout.brand.width < coverWidth * 0.25 &&
+    layout.brand.height < coverHeight * 0.2 && layout.brand.x < coverWidth * 0.4 &&
+    layout.brand.y > coverHeight * 0.78,
+    label + ': the brand should be a small lower-left library mark');
+  assert(quadsDoNotOverlap(layout.brandQuad, layout.buttonQuad) &&
+    quadsDoNotOverlap(layout.brandQuad, layout.artQuad),
+    label + ': the library mark must not compete with the opening action or JULI');
+  for (const [name, r] of [['button', layout.button], ['JULI', layout.art]]) {
+    assert(
+      r.left >= layout.cover.left - 0.6 && r.top >= layout.cover.top - 0.6 &&
+      r.right <= layout.cover.right + 0.6 && r.bottom <= layout.cover.bottom + 0.6,
+      label + ': ' + name + ' extends outside the cover'
+    );
+    assert(
+      r.left >= -0.6 && r.top >= -0.6 &&
+      r.right <= layout.viewport.width + 0.6 && r.bottom <= layout.viewport.height + 0.6,
+      label + ': ' + name + ' extends outside the viewport'
+    );
+  }
+  assert(
+    layout.ink.left >= -0.6 && layout.ink.top >= -0.6 &&
+    layout.ink.right <= layout.artSize.width + 0.6 && layout.ink.bottom <= layout.artSize.height + 0.6,
+    label + ': the invitation crop cuts into JULI'
+  );
+}
 async function capture(file) {
   await evaluate('document.activeElement?.blur()');
   await delay(120);
@@ -297,7 +455,7 @@ function assertHonorCards(cards, group) {
   });
 }
 // Check each paper's local layout; projected viewport boxes lose their containment relationship under perspective.
-const noClip = `(()=>{const s=document.getElementById('spread');window.__layoutFailures=[...s.querySelectorAll('.person-card,.honor-title,.honor-winner,.honor-winner h4,.employee-id,.person-metric,.person-metric strong,.person-metric span,.honor-portraits,.letter,.personal-stats,.timeline-item,.page-title,.ending-page')].map(e=>{const page=e.closest('.paper-page');let node=e,x=0,y=0;while(node&&node!==page){x+=node.offsetLeft;y+=node.offsetTop;node=node.offsetParent;}const clipsY=['hidden','clip','scroll','auto'].includes(getComputedStyle(e).overflowY);const textFits=!e.closest('.person-card')||(!e.clientWidth||e.scrollWidth<=e.clientWidth+1)&&(!clipsY||!e.clientHeight||e.scrollHeight<=e.clientHeight+1);return{tag:e.tagName,className:e.className,text:e.textContent.trim().slice(0,40),x,y,width:e.offsetWidth,height:e.offsetHeight,pageWidth:page.clientWidth,pageHeight:page.clientHeight,client:[e.clientWidth,e.clientHeight],scroll:[e.scrollWidth,e.scrollHeight],ok:node===page&&x>=0&&y>=0&&x+e.offsetWidth<=page.clientWidth+.5&&y+e.offsetHeight<=page.clientHeight-15+.5&&textFits};}).filter(e=>!e.ok);return __layoutFailures.length===0;})()`;
+const noClip = `(()=>{const s=document.getElementById('spread');window.__layoutFailures=[...s.querySelectorAll('.page-header-row,.page-header-row h3,.person-card,.honor-title,.honor-winner,.honor-winner h4,.employee-id,.person-metric,.person-metric strong,.person-metric span,.honor-portraits,.letter,.personal-stats,.timeline-item,.page-title,.ending-page')].map(e=>{const page=e.closest('.paper-page');let node=e,x=0,y=0;while(node&&node!==page){x+=node.offsetLeft;y+=node.offsetTop;node=node.offsetParent;}const clipsY=['hidden','clip','scroll','auto'].includes(getComputedStyle(e).overflowY);const textFits=!(e.closest('.person-card')||e.matches('.page-header-row h3'))||(!e.clientWidth||e.scrollWidth<=e.clientWidth+1)&&(!clipsY||!e.clientHeight||e.scrollHeight<=e.clientHeight+1);return{tag:e.tagName,className:e.className,text:e.textContent.trim().slice(0,40),x,y,width:e.offsetWidth,height:e.offsetHeight,pageWidth:page.clientWidth,pageHeight:page.clientHeight,client:[e.clientWidth,e.clientHeight],scroll:[e.scrollWidth,e.scrollHeight],ok:node===page&&x>=0&&y>=0&&x+e.offsetWidth<=page.clientWidth+.5&&y+e.offsetHeight<=page.clientHeight-15+.5&&textFits};}).filter(e=>!e.ok);return __layoutFailures.length===0;})()`;
 async function projectedQuad(selector) {
   const { root } = await call('DOM.getDocument');
   const { nodeId } = await call('DOM.querySelector', { nodeId: root.nodeId, selector });
@@ -323,6 +481,33 @@ function matchingPaper(actual, expected, label) {
     );
   assert.deepEqual(actual.layout, expected.layout, `${label}: paper layout differs`);
 }
+async function readCurl(label, phase) {
+  const sample = await evaluate(
+    `(()=>{
+      const leaf=document.getElementById('turning-leaf'),strips=[...leaf.querySelectorAll('.leaf-strip')],last=strips.at(-1);
+      const animations=leaf.getAnimations().map(animation=>({playState:animation.playState,currentTime:animation.currentTime,startTime:animation.startTime,timing:animation.effect.getTiming(),computedTiming:animation.effect.getComputedTiming(),keyframes:animation.effect.getKeyframes()}));
+      if(!last)return{count:0,curl:0,width:leaf.clientWidth,z:0,angles:[],bendAngles:[],animations};
+      const chain=[];
+      for(let node=last;node&&node!==leaf;node=node.parentElement)if(node.matches('.leaf-strip'))chain.unshift(node);
+      let matrix=new DOMMatrix();
+      for(const strip of chain){
+        const style=getComputedStyle(strip),origin=style.transformOrigin.split(' ').map(parseFloat);
+        matrix=matrix.translate(strip.offsetLeft,strip.offsetTop).translate(origin[0],origin[1]).multiply(new DOMMatrix(style.transform)).translate(-origin[0],-origin[1]);
+      }
+      const transforms=strips.map(strip=>new DOMMatrix(getComputedStyle(strip).transform));
+      return{count:strips.length,width:leaf.clientWidth,curl:Number(getComputedStyle(leaf).getPropertyValue('--page-curl')),z:matrix.transformPoint(new DOMPoint(last.offsetWidth,0,0)).z,angles:transforms.map(transform=>transform.m13),bendAngles:transforms.map(transform=>Math.atan2(-transform.m13,transform.m11)),stripStyles:strips.map(strip=>{const style=getComputedStyle(strip);return{curl:style.getPropertyValue('--page-curl'),angle:style.getPropertyValue('--strip-angle'),transform:style.transform,transformOrigin:style.transformOrigin,width:strip.offsetWidth,left:strip.offsetLeft};}),animations};
+    })()`
+  );
+  curlSamples.push({ label, phase, ...sample });
+  writeFileSync(join(out, 'curl-geometry.json'), JSON.stringify(curlSamples, null, 2));
+  return sample;
+}
+async function seekPageTurn(fraction) {
+  await evaluate(
+    '__turnMotions.forEach(a=>a.currentTime=Number(a.effect.getTiming().duration)*' + fraction + ')'
+  );
+  await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+}
 async function samplePageTurn(action, label, forward = true) {
   const origin = await paperGeometry(forward ? '#right-page' : '#left-page');
   await action();
@@ -333,21 +518,52 @@ async function samplePageTurn(action, label, forward = true) {
     await evaluate('__turnMotions.length>=1 && __turnMotions.every(a=>a.playState==="paused")'),
     true
   );
-  await evaluate('__turnMotions.forEach(a=>a.currentTime=0)');
+  await seekPageTurn(0);
+  const startCurl = await readCurl(label, 'start');
+  assert(startCurl.count >= 16, label + ': the turning page needs a continuous curved surface');
+  assert(Math.abs(startCurl.z) < 0.1, label + ': the page must start flat');
   matchingPaper(
     await paperGeometry(forward ? '#leaf-front' : '#leaf-back'),
     origin,
     `${label} start`
   );
-  await evaluate(
-    '__turnMotions.forEach(a=>a.currentTime=Number(a.effect.getTiming().duration)*.5)'
-  );
+  const hinge = await projectedQuad('#turning-leaf'),
+    curvedFrames = [];
+  for (const fraction of [0.25, 0.5, 0.75]) {
+    await seekPageTurn(fraction);
+    const sample = await readCurl(label, fraction === 0.5 ? 'middle' : String(fraction)),
+      quad = await projectedQuad('#turning-leaf');
+    curvedFrames.push(sample);
+    assert.equal(sample.count, startCurl.count, label + ': the paper surface changed while turning');
+    assert(Math.abs(sample.curl) > 0.1, label + ': no paper curl at ' + fraction);
+    assert(Math.abs(sample.z) > sample.width * 0.01,
+      label + ': the outer edge stays flat at ' + fraction);
+    assert(Math.abs(sample.z) < sample.width * 0.45,
+      label + ': the paper rolls into an exaggerated tube at ' + fraction);
+    assert(sample.bendAngles.filter(angle => Math.abs(angle) > 0.001).length >= 12,
+      label + ': the page bends at a few hard folds instead of a continuous arc');
+    assert(Math.max(...sample.bendAngles.map(Math.abs)) < Math.PI / 24,
+      label + ': an individual paper joint forms a visible crease');
+    for (const index of [0, 1, 6, 7])
+      assert(Math.abs(quad[index] - hinge[index]) < 0.6,
+        label + ': the book hinge drifts during the turn');
+    assert.equal(await evaluate('document.getElementById("next-page").disabled'), true);
+    await capture(`motion-${label}-${Math.round(fraction * 100)}.png`);
+  }
+  const middleCurl = curvedFrames[1];
+  assert(Math.max(...curvedFrames.map(sample => Math.abs(sample.z) / sample.width)) > 0.03,
+    label + ': the paper never forms a visible curve');
+  if (!forward) {
+    const outward = curlSamples.find(sample => sample.label === 'page-turn-forward' && sample.phase === 'middle');
+    assert(outward && outward.z * middleCurl.z < 0, 'Forward and backward turns must curl in opposite directions');
+  }
   assert.equal(await evaluate('document.getElementById("turning-leaf").hidden'), false);
   assert.equal(await evaluate('document.getElementById("next-page").disabled'), true);
   await click('next-page');
-  await capture(`motion-${label}-50.png`);
-  await evaluate('__turnMotions.forEach(a=>a.currentTime=Number(a.effect.getTiming().duration))');
+  await seekPageTurn(1);
   const endpoint = await paperGeometry(forward ? '#leaf-back' : '#leaf-front');
+  const endCurl = await readCurl(label, 'end');
+  assert(Math.abs(endCurl.z) < 0.1, label + ': the page must lie flat before settling');
   await capture(`motion-${label}-100.png`);
   await evaluate('__turnMotions.forEach(a=>a.finish())');
   await idle();
@@ -357,6 +573,12 @@ async function samplePageTurn(action, label, forward = true) {
     `${label} finish`
   );
   assert.equal(await evaluate(noBookAnimations), true);
+  assert.equal(await evaluate('document.querySelectorAll("#turning-leaf .leaf-strip").length'), 0);
+  assert.equal(
+    await evaluate('[...document.querySelectorAll("#leaf-front,#leaf-back")].every(e=>getComputedStyle(e).visibility==="visible")'),
+    true,
+    'The source paper faces must be restored after the curl is removed'
+  );
 }
 const symmetryPairs = [
   ['paper', '#left-page', '#right-page'],
@@ -697,13 +919,16 @@ async function exitDuring(trigger, phase) {
   const caseName = `${trigger}-${phase}`;
   try {
     assert.equal(await mode(), 'cover');
+    await evaluate('window.__heldExitMotions=[]');
+    const startHeldMotion = (buttonId) => evaluate(
+      '(async()=>{document.getElementById(' + JSON.stringify(buttonId) + ').click();window.__heldExitMotions=[...document.getElementById("hard-cover").getAnimations(),...document.getElementById("volume").getAnimations(),...document.getElementById("left-backing").getAnimations(),...document.querySelector(".book-gutter").getAnimations(),...document.getElementById("turning-leaf").getAnimations()];await Promise.all(__heldExitMotions.map(animation=>{animation.pause();return animation.ready;}));__heldExitMotions.forEach(animation=>animation.currentTime=120);})()'
+    );
     let closingPeople = [];
     if (phase === 'opening') {
-      await click('start-review');
-      await delay(120);
+      await startHeldMotion('start-review');
     } else {
       await openBook();
-      if (phase === 'closing') await click('previous-page');
+      if (phase === 'closing') await startHeldMotion('previous-page');
       else {
         await chapter('people');
         await idle();
@@ -714,10 +939,9 @@ async function exitDuring(trigger, phase) {
           const first = await evaluate('AnnualContent.people[4].id'),
             second = await evaluate('AnnualContent.people[5].id');
           closingPeople = [first, second];
-          await click('next-page');
+          await startHeldMotion('next-page');
         }
       }
-      if (phase !== 'ordinary') await delay(120);
     }
     const initialMode = await mode();
     assert.equal(
@@ -734,6 +958,14 @@ async function exitDuring(trigger, phase) {
     );
     if (trigger === 'X') await click('close-review');
     else await key('Escape');
+    if (phase !== 'ordinary') {
+      assert.equal(
+        await evaluate('document.getElementById("review-dialog").open && document.getElementById("book-stage").dataset.busy==="true" && __originalFinished.some(animation=>!animation.finished&&!animation.cancelled) && __heldExitMotions.every(animation=>animation.playState==="paused")'),
+        true,
+        trigger + '/' + phase + ': closing did not wait for the active motion'
+      );
+      await evaluate('__exitActions.push({action:"resume-held-motion",time:performance.now()});__heldExitMotions.forEach(animation=>animation.play())');
+    }
     await wait(
       'document.getElementById("review-dialog").open && document.getElementById("book-stage").dataset.mode==="closing"'
     );
@@ -871,7 +1103,20 @@ try {
   await wait(ready);
   await evaluate('AnnualArt.ready');
   await delay(250);
-  if (symmetryOnly) {
+  if (coverOnly) {
+    for (const [width, height] of [[1440, 900], [1280, 720], [1920, 1080]]) {
+      await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+      await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+      await check(`${width}x${height}: lower opening action, JULI and a small library mark fit on the cover`,
+        () => verifyInvitationLayout(width + 'x' + height + ' cover'));
+      await capture('cover-wrapped-' + width + '.png');
+      await openBook();
+      assert.equal(await evaluate('getComputedStyle(document.querySelector(".cover-invitation-art")).visibility'), 'hidden');
+      await click('previous-page');
+      await idle();
+      await assertCover();
+    }
+  } else if (symmetryOnly) {
     await openBook();
     await check(
       'Four mirrored corner ornaments and both paper textures load on every paper surface',
@@ -905,10 +1150,11 @@ try {
           await check(`${trigger} during ${phase} exits safely`, () => exitDuring(trigger, phase));
   } else {
     await check('Old saved reading positions are ignored on reload', assertCover);
-    await check('The initial view is a closed book with original yellow JULI', async () => {
+    await check('The initial cover pairs the supplied JULI invitation with the opening button', async () => {
       assert.equal(await evaluate('document.getElementById("book-stage").dataset.mode'), 'cover');
       assert.equal(await evaluate('document.getElementById("spread").hidden'), true);
       assert.equal(await evaluate('AnnualContent.people.length'), 20);
+      await verifyInvitationLayout('1440x900 cover');
       await capture('01-cover-1440.png');
     });
     await check(
@@ -943,19 +1189,26 @@ try {
       }
     );
     await check(
-      'CQRD is embossed into the cover; the redundant later action is removed',
+      'CQRD appears as a small library mark and the central watermark is removed',
       async () => {
-        assert.equal(
-          await evaluate('document.querySelector(".cover-monogram").textContent'),
-          'CQRD'
+        assert.match(
+          await evaluate('document.querySelector(".cover-library-mark").textContent'),
+          /CQRD/
         );
+        assert.equal(await evaluate('document.querySelector(".cover-monogram")'), null);
         assert.equal(await evaluate('document.getElementById("later-review")'), null);
         assert.equal(await evaluate('document.getElementById("cover-footer")'), null);
         assert.equal(await evaluate('document.getElementById("close-book")'), null);
         assert.equal(await evaluate('document.querySelector(".demo-label")'), null);
         assert.equal(
-          await evaluate('document.querySelectorAll(".cover-vine linearGradient").length'),
-          6
+          await evaluate('[...document.querySelectorAll(".cover-vine")].every(vine=>vine.querySelector("linearGradient")&&vine.querySelector(".vine-flower"))'),
+          true,
+          'The edge vines need leaves with shaded color and visible flowers'
+        );
+        assert.equal(
+          await evaluate('!!document.querySelector("#review-dialog > .fireflies .star-glint")'),
+          true,
+          'The surrounding dark backdrop needs its own field of starlight'
         );
         assert.equal(
           await evaluate(
@@ -967,12 +1220,12 @@ try {
     );
     await check('JULI moves on the visible cover and pauses when the dialog closes', async () => {
       const before = await evaluate(
-        'getComputedStyle(document.querySelector("#cover-front .juli-portrait")).transform'
+        'getComputedStyle(document.querySelector(".juli-invitation")).transform'
       );
       await delay(400);
       assert.notEqual(
         await evaluate(
-          'getComputedStyle(document.querySelector("#cover-front .juli-portrait")).transform'
+          'getComputedStyle(document.querySelector(".juli-invitation")).transform'
         ),
         before
       );
@@ -980,14 +1233,14 @@ try {
       await wait('!document.getElementById("review-dialog").open');
       assert.equal(
         await evaluate(
-          'getComputedStyle(document.querySelector("#cover-front .juli-portrait")).animationPlayState'
+          'getComputedStyle(document.querySelector(".juli-invitation")).animationPlayState'
         ),
         'paused'
       );
       await evaluate('document.querySelector("[data-open-review]").click()');
       assert.equal(
         await evaluate(
-          'getComputedStyle(document.querySelector("#cover-front .juli-portrait")).animationPlayState'
+          'getComputedStyle(document.querySelector(".juli-invitation")).animationPlayState'
         ),
         'running'
       );
@@ -1031,7 +1284,7 @@ try {
     );
     assert.equal(
       await evaluate(
-        'getComputedStyle(document.querySelector("#cover-front .juli-portrait")).animationPlayState'
+        'getComputedStyle(document.querySelector(".juli-invitation")).animationPlayState'
       ),
       'paused'
     );
@@ -1102,10 +1355,23 @@ try {
       }
     );
     const seen = [],
-      seenWinners = [];
+      seenWinners = [],
+      seenPageTitles = [];
     for (let group = 0; group < 5; group++) {
       const cards = await readHonorCards();
       assertHonorCards(cards, group);
+      const pageTitles = await evaluate(
+        '[...document.querySelectorAll("#spread .page-header-row h3")].map(e=>e.textContent.trim())'
+      );
+      assert.equal(pageTitles.length, 2, 'Each honor page needs its own guide title');
+      assert(pageTitles.every(Boolean), 'An honor page has an empty guide title');
+      seenPageTitles.push(...pageTitles);
+      assert.doesNotMatch(
+        await evaluate('document.getElementById("spread").textContent'),
+        /第\s*\d+\s*(?:\/\s*\d+\s*)?组/,
+        'Group counters must not appear above the honors'
+      );
+      assert.doesNotMatch(await progress(), /人物\s*\d+\s*\/\s*\d+/);
       assert.equal(await evaluate(noClip), true, `1440x900: honor group ${group + 1} is clipped`);
       seen.push(...cards.map((card) => card.id));
       seenWinners.push(...cards.flatMap((card) => card.winners));
@@ -1124,10 +1390,9 @@ try {
         assert.equal(new Set(seen).size, 20);
         assert.equal(seenWinners.length, 22);
         assert.equal(new Set(seenWinners.map((winner) => winner.employeeId)).size, 19);
-        assert.match(
-          await evaluate('document.getElementById("page-progress").textContent'),
-          /人物 5 \/ 5/
-        );
+        assert.equal(new Set(seenPageTitles).size, 10, 'Every honor page needs a distinct title');
+        assert.deepEqual(seenPageTitles, await evaluate('AnnualContent.peoplePageTitles.flat()'));
+        assert.match(await progress(), /^\d{2}—\d{2} \/ \d+ 页$/);
       }
     );
     await check(
@@ -1294,6 +1559,18 @@ try {
         mobile: false
       });
       await delay(200);
+      await chapter('foreword');
+      await idle();
+      await click('previous-page');
+      await idle();
+      await check(
+        width + 'x' + height + ': the invitation and opening button fit together on the cover',
+        () => verifyInvitationLayout(width + 'x' + height + ' cover')
+      );
+      await capture('cover-invitation-' + width + '.png');
+      await openBook();
+      await chapter('people');
+      await idle();
       await check(
         `${width}×${height} keeps all honor titles, winners and six-digit metrics on the paper`,
         async () => {
@@ -1366,12 +1643,12 @@ try {
         await evaluate('AnnualArt.ready');
         await assertCover();
         assert.equal(
-          await evaluate('document.querySelectorAll("#cover-front .juli-portrait").length'),
+          await evaluate('document.querySelectorAll(".juli-invitation").length'),
           1
         );
         assert.equal(
           await evaluate(
-            'getComputedStyle(document.querySelector("#cover-front .juli-portrait")).animationName'
+            'getComputedStyle(document.querySelector(".juli-invitation")).animationName'
           ),
           'none'
         );
@@ -1385,6 +1662,8 @@ try {
       out,
       symmetryOnly
         ? 'verification-symmetry.json'
+        : coverOnly
+        ? 'verification-cover.json'
         : exitOnly
         ? 'verification-exits.json'
         : 'verification.json'

@@ -125,12 +125,13 @@
             )}</div><p class="letter-guide">${escape(f.guide)}</p></div>`;
     } else if (m.type === 'people') {
       const part = m.people.slice(side === 'left' ? 0 : 2, side === 'left' ? 2 : 4);
-      html = `${top(
-        '第一章 · 榜样人物',
-        `第 ${m.group} / ${Math.ceil(data.people.length / 4)} 组`
-      )}<div class="page-header-row"><h3>${
-        side === 'left' ? '看见，身边的光' : '每一份认真，都有回响'
-      }</h3><span>${
+      const title =
+        data.peoplePageTitles?.[(m.group - 1) * 2 + (side === 'left' ? 0 : 1)] ||
+        part[0]?.label ||
+        '更多闪光，仍在继续';
+      html = `${top('第一章 · 榜样人物')}<div class="page-header-row"><h3>${escape(
+        title
+      )}</h3><span>${
         side === 'left' ? '同行者图鉴' : '2026'
       }</span></div><div class="people-list">${part
         .map((p) => card(p))
@@ -226,13 +227,9 @@
     $('corner-previous').setAttribute('aria-label', index === 0 ? '向前翻到封面' : '上一组双页');
     $('corner-previous').title = index === 0 ? '翻到封面 · ←' : '上一组 · ←';
     $('chapter-title').textContent = models[index].chapter;
-    const extra =
-      models[index].type === 'people'
-        ? ` · 人物 ${models[index].group} / ${Math.ceil(data.people.length / 4)}`
-        : '';
     $('page-progress').textContent = `${String(index * 2 + 1).padStart(2, '0')}—${String(
       index * 2 + 2
-    ).padStart(2, '0')} / ${models.length * 2} 页${extra}`;
+    ).padStart(2, '0')} / ${models.length * 2} 页`;
     document.querySelectorAll('[data-chapter]').forEach((b) => {
       b.disabled = busy || exitRequested || firstOf(b.dataset.chapter) < 0;
       b.setAttribute('aria-current', String(models[index].type === b.dataset.chapter));
@@ -245,7 +242,7 @@
     fill($('right-page'), render('right', n));
     applyStacks(mode === 'cover');
     updateControls();
-    $('reader-status').textContent = `${models[n].chapter}，第${n + 1}组，共${models.length}组双页`;
+    $('reader-status').textContent = `${models[n].chapter}，第${n * 2 + 1}至${n * 2 + 2}页，共${models.length * 2}页`;
   }
   function clearCoverAnimations() {
     for (const motion of coverAnimations) motion.cancel();
@@ -324,6 +321,55 @@
     if (n === index || n < 0 || n >= models.length) return;
     return trackMotion(turnSpreadTo(n));
   }
+  function clearLeafCurl() {
+    const leaf = $('turning-leaf');
+    leaf.querySelector('.leaf-strips')?.remove();
+    delete leaf.dataset.curled;
+    $('volume').classList.remove('page-turn-forward', 'page-turn-backward');
+  }
+  function prepareLeafCurl() {
+    clearLeafCurl();
+    const leaf = $('turning-leaf'),
+      strips = document.createElement('div'),
+      sources = [$('leaf-front'), $('leaf-back')],
+      count = 32,
+      flat = 8;
+    const curve = (step) => 56 * Math.pow(Math.max(0, (step - flat) / (count - flat)), 2.4);
+    strips.className = 'leaf-strips';
+    strips.style.setProperty('--strip-count', String(count));
+    // Each hinge starts at the previous strip's edge, keeping the paper continuous.
+    let parent = strips;
+    for (let i = 0; i < count; i++) {
+      const strip = document.createElement('div');
+      strip.className = 'leaf-strip';
+      if (i === 0) strip.style.width = `${100 / count}%`;
+      strip.style.setProperty('--strip-angle', `${curve(i + 1) - curve(i)}deg`);
+      // The bound quarter stays in one piece; the remainder forms a smooth, progressively looser arc.
+      const span = i === 0 ? flat : 1;
+      for (const [face, source] of (i === 0 || i >= flat ? sources.entries() : [])) {
+        const viewport = document.createElement('div'),
+          surface = source.cloneNode(true),
+          slice = face === 0 ? i : count - i - span;
+        viewport.className = `leaf-strip-face ${face === 0 ? 'front' : 'back'}`;
+        viewport.style.width = `calc(${span * 100}% + 2.5px)`;
+        surface.removeAttribute('id');
+        surface.querySelectorAll('[id]').forEach((node) => node.removeAttribute('id'));
+        surface.classList.add('leaf-surface');
+        surface.style.transform = `translateX(${-100 * slice / count}%)`;
+        // cloneNode does not copy the canvas bitmap; preserve the rendered JULI on letter pages.
+        const originalCanvases = source.querySelectorAll('canvas');
+        surface.querySelectorAll('canvas').forEach((canvas, index) => {
+          canvas.getContext('2d').drawImage(originalCanvases[index], 0, 0);
+        });
+        viewport.append(surface);
+        strip.append(viewport);
+      }
+      parent.append(strip);
+      parent = strip;
+    }
+    leaf.append(strips);
+    leaf.dataset.curled = 'true';
+  }
   async function turnSpreadTo(n) {
     if (busy || mode !== 'open' || n === index || n < 0 || n >= models.length) return;
     const own = ++token,
@@ -335,41 +381,32 @@
       const leaf = $('turning-leaf');
       fill($('leaf-front'), render('right', forward ? old : n));
       fill($('leaf-back'), render('left', forward ? n : old));
+      prepareLeafCurl();
+      $('volume').classList.add(forward ? 'page-turn-forward' : 'page-turn-backward');
       if (forward) fill($('right-page'), render('right', n));
       else fill($('left-page'), render('left', n));
       leaf.hidden = false;
-      const frames = forward
-        ? [
-            { transform: 'rotateY(-2.5deg)', '--fold-shade': 0, offset: 0 },
-            {
-              transform: 'rotateY(-70deg) skewY(-1deg) scaleX(.98)',
-              '--fold-shade': 0.5,
-              offset: 0.46
-            },
-            {
-              transform: 'rotateY(-120deg) skewY(.8deg) scaleX(.98)',
-              '--fold-shade': 0.35,
-              offset: 0.7
-            },
-            { transform: 'rotateY(-177.5deg)', '--fold-shade': 0, offset: 1 }
-          ]
-        : [
-            { transform: 'rotateY(-177.5deg)', '--fold-shade': 0, offset: 0 },
-            {
-              transform: 'rotateY(-115deg) skewY(1deg) scaleX(.98)',
-              '--fold-shade': 0.5,
-              offset: 0.46
-            },
-            {
-              transform: 'rotateY(-60deg) skewY(-.8deg) scaleX(.98)',
-              '--fold-shade': 0.35,
-              offset: 0.7
-            },
-            { transform: 'rotateY(-2.5deg)', '--fold-shade': 0, offset: 1 }
-          ];
+      // A page is picked up at the outer edge before the binding moves. The edge then
+      // follows the hand through a broad arc and relaxes onto the destination stack.
+      const poses = [
+        [0, -2.5, 0, 0],
+        [0.12, -7, 0.42, 0.12],
+        [0.28, -39, 0.94, 0.28],
+        [0.5, -96, 1, 0.42],
+        [0.72, -149, 0.68, 0.3],
+        [0.9, -176, 0.18, 0.08],
+        [1, -177.5, 0, 0]
+      ];
+      const frames = poses.map(([offset, angle, curl, shade]) => ({
+        offset,
+        easing: 'cubic-bezier(.35,0,.65,1)',
+        transform: `rotateY(${forward ? angle : -180 - angle}deg)`,
+        '--page-curl': forward ? curl : -curl,
+        '--fold-shade': shade
+      }));
       animation = leaf.animate(frames, {
-        duration: 880,
-        easing: 'cubic-bezier(.32,.08,.25,1)',
+        duration: 1080,
+        easing: 'linear',
         fill: 'both'
       });
       try {
@@ -381,6 +418,7 @@
     $('turning-leaf').hidden = true;
     animation?.cancel();
     animation = null;
+    clearLeafCurl();
     setBusy(false);
     if (!exitRequested && document.activeElement?.disabled)
       $('previous-page').focus({ preventScroll: true });
@@ -391,6 +429,7 @@
     animation?.cancel();
     animation = null;
     $('turning-leaf').hidden = true;
+    clearLeafCurl();
     if (mode === 'opening' || mode === 'closing') {
       finishCover(mode === 'opening');
       return;
@@ -406,6 +445,7 @@
     animation = null;
     clearCoverAnimations();
     $('turning-leaf').hidden = true;
+    clearLeafCurl();
     setMode('cover');
     commit(0);
     $('spread').hidden = true;

@@ -65,6 +65,17 @@ test('annual review SVG decorations use the SVG MIME type', options, async () =>
   assert.match(response.body.toString('utf8'), /<svg\b/);
 });
 
+test('annual review publishes the supplied JULI invitation PNG', options, async () => {
+  const response = await request('/annual-review/assets/juli-invitation.png');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers['Content-Type'], 'image/png');
+  assert.deepEqual(response.body.subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  assert.deepEqual(
+    response.body,
+    await readFile(path.join(repo, 'annual-review/assets/juli-invitation.png'))
+  );
+});
+
 test('percent-encoded spaces resolve an existing sports asset', options, async () => {
   const asset = 'assets/vendor/sports-kenney-sportsPack/PNG/Elements/element (1).png';
   const response = await request('/' + asset.replace(/ /g, '%20'));

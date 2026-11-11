@@ -211,7 +211,7 @@
   mascot.src = 'assets/juli-yellow-sheet.png';
   function paintMascots(root) {
     if (!mascot.complete || !mascot.naturalWidth) return;
-    root.querySelectorAll('.juli-portrait,.dedication-juli,.ending-juli').forEach((canvas) => {
+    root.querySelectorAll('.dedication-juli,.ending-juli').forEach((canvas) => {
       const g = canvas.getContext('2d');
       g.clearRect(0, 0, canvas.width, canvas.height);
       // Render the front view directly from the supplied three-view source, preserving its alpha and identity.
@@ -286,58 +286,79 @@
         height: '230%'
       });
       add(shadow, 'feDropShadow', {
-        dx: '2',
-        dy: '4',
-        stdDeviation: '1.6',
+        dx: '1',
+        dy: '2',
+        stdDeviation: '1',
         'flood-color': '#1b1c0b',
-        'flood-opacity': '.65'
+        'flood-opacity': '.42'
       });
       const body = add(svg, 'g', { filter: 'url(#' + prefix + '-shadow)' });
-      const path = 'M7 143 C-2 100 41 94 30 61 C23 28 65 15 92 29 C120 43 137 14 193 20';
+      // The visible vine undulates around the corner; its two ends continue behind the leather.
+      const path = 'M12 130 C38 151 65 126 43 103 C19 80 19 59 38 48 C57 37 71 67 89 47 C106 27 89 16 116 17 C144 18 137 44 162 35 C181 28 179 6 196 11';
       add(body, 'path', {
         d: path,
         fill: 'none',
         stroke: '#233c1f',
-        'stroke-width': 8,
+        'stroke-width': 5.2,
         'stroke-linecap': 'round'
       });
       add(body, 'path', {
         d: path,
         fill: 'none',
         stroke: stem,
-        'stroke-width': 5.5,
+        'stroke-width': 3.4,
         'stroke-linecap': 'round'
       });
       add(body, 'path', {
-        d: 'M6 140 C0 104 39 94 28 62 C22 29 64 14 92 27 C119 41 138 12 191 18',
+        d: path,
         fill: 'none',
         stroke: '#b9c774',
-        'stroke-width': 1.2,
+        'stroke-width': 0.8,
         'stroke-linecap': 'round',
         opacity: '.8'
       });
+      const branches = [
+        'M29 138 C58 151 79 140 77 117 C75 99 53 94 60 74 C65 60 82 67 83 77',
+        'M37 95 C20 103 7 88 11 74 C14 63 29 63 29 72 C29 79 21 78 20 74',
+        'M49 48 C40 23 53 7 72 14 C83 18 78 31 71 29 C65 27 67 20 72 22',
+        'M103 25 C111 49 131 63 144 54 C154 46 149 37 143 40 C137 43 143 48 146 45',
+        'M151 37 C160 54 181 54 188 39 C193 28 184 25 182 31'
+      ];
+      for (const d of branches) {
+        add(body, 'path', { d, fill: 'none', stroke: '#3b5d2a', 'stroke-width': 2.4, 'stroke-linecap': 'round' });
+        add(body, 'path', { d, fill: 'none', stroke: '#afbb6b', 'stroke-width': 0.7, 'stroke-linecap': 'round' });
+      }
+      const returns = svg.parentElement.querySelector('.cover-vine-return');
+      for (const d of [
+        'M47 163 C13 178 -9 159 1 140 C4 133 8 130 12 130',
+        'M196 11 C197 -8 218 -13 227 -3 C237 8 225 22 208 22'
+      ]) {
+        add(returns, 'path', { d, fill: 'none', stroke: '#253d23', 'stroke-width': 5.1, 'stroke-linecap': 'round' });
+        add(returns, 'path', { d, fill: 'none', stroke: '#638043', 'stroke-width': 3.2, 'stroke-linecap': 'round' });
+      }
       for (const [x, y, r, size] of [
-        [13, 120, -45, 1.05],
-        [29, 98, 65, 0.95],
-        [28, 71, -50, 1.12],
-        [40, 44, 25, 1],
-        [67, 24, -30, 1.05],
-        [93, 31, 100, 0.96],
-        [122, 30, -20, 1.1],
-        [155, 20, 45, 0.85],
-        [181, 19, -30, 0.9]
+        [17, 136, -73, 0.9], [35, 141, 118, 1.06],
+        [52, 129, 45, 0.84], [45, 109, -31, 1.1],
+        [29, 89, -64, 1.04], [25, 72, 74, 0.91],
+        [37, 49, -45, 1.04], [48, 42, 49, 0.82],
+        [70, 57, 117, 1.03], [85, 48, -22, 0.97],
+        [99, 27, -42, 0.91], [116, 18, 39, 0.95],
+        [133, 31, 130, 1.08], [154, 39, 63, 0.88],
+        [170, 28, -18, 0.96], [187, 14, 48, 0.85],
+        [75, 119, 133, 0.75], [66, 96, 39, 0.8],
+        [124, 54, 132, 0.73], [182, 49, 51, 0.71]
       ]) {
         const leaf = add(body, 'g', {
           transform: `translate(${x} ${y}) rotate(${r}) scale(${size})`
         });
         add(leaf, 'path', {
-          d: 'M0 1 L-6 -7 L-5 -15 L-1 -22 L5 -28 L12 -21 L14 -13 L10 -5 L3 1 Z',
+          d: 'M0 1 C-12 -9 -5 -23 5 -29 C17 -21 19 -6 3 1 Z',
           fill: '#2d4923',
           stroke: '#213b1e',
           'stroke-width': 1.4
         });
-        add(leaf, 'path', { d: 'M0 -1 L-4 -8 L-4 -14 L0 -21 L5 -26 L4 -13 L2 -5 Z', fill: lit });
-        add(leaf, 'path', { d: 'M2 -3 L5 -26 L11 -20 L12 -13 L9 -6 Z', fill: shade });
+        add(leaf, 'path', { d: 'M0 -1 C-8 -9 -3 -21 5 -27 L4 -13 L2 -5 Z', fill: lit });
+        add(leaf, 'path', { d: 'M2 -3 L5 -27 C15 -19 15 -8 2 -3 Z', fill: shade });
         add(leaf, 'path', {
           d: 'M1 0 L4 -14 L5 -25',
           fill: 'none',
@@ -360,28 +381,42 @@
           opacity: '.65'
         });
       }
-      // Two curls wrap over the gilt edge rather than lying on a single plane.
-      add(body, 'path', {
-        d: 'M26 88 C46 79 50 92 39 98 C33 100 31 95 35 92 M111 31 C115 13 132 12 129 22 C127 29 120 25 124 21',
-        fill: 'none',
-        stroke: '#355124',
-        'stroke-width': 4.5,
-        'stroke-linecap': 'round'
-      });
-      add(body, 'path', {
-        d: 'M26 86 C46 77 50 90 39 96 M111 29 C115 11 132 10 129 20',
-        fill: 'none',
-        stroke: '#b6c66d',
-        'stroke-width': 1.3,
-        'stroke-linecap': 'round'
-      });
+      // Small ivory blossoms sit among the leaves, with warm centres matching the gilt.
+      for (const [x, y, size, rotation] of [[39, 52, 0.89, 12], [133, 34, 0.64, -8], [39, 128, 0.61, 27], [75, 81, 0.51, -17]]) {
+        const blossom = add(body, 'g', {
+          class: 'vine-flower',
+          transform: `translate(${x} ${y}) rotate(${rotation}) scale(${size})`
+        });
+        for (let petal = 0; petal < 5; petal++) {
+          add(blossom, 'path', {
+            d: 'M0 2 C-8 -1 -9 -9 -4 -13 C1 -17 8 -12 6 -6 C5 -1 3 2 0 2 Z',
+            transform: `rotate(${petal * 72})`,
+            fill: petal % 2 ? '#f8eacf' : '#f0dab7',
+            stroke: '#bd945b',
+            'stroke-width': 0.65
+          });
+          add(blossom, 'path', {
+            d: 'M0 -3 Q-2 -7 0 -11',
+            transform: `rotate(${petal * 72})`,
+            fill: 'none', stroke: '#fff9e6', 'stroke-width': 0.7, opacity: 0.7
+          });
+        }
+        add(blossom, 'circle', { r: 4, fill: '#b98031', stroke: '#f4cf80', 'stroke-width': 1 });
+        add(blossom, 'circle', { cx: -1, cy: -1, r: 1.3, fill: '#f9e6a5' });
+      }
     });
   }
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 64; i++) {
     const el = document.createElement('i');
-    el.className = 'firefly';
-    el.style.left = noise(i, 5) * 100 + '%';
-    el.style.top = noise(i, 9) * 100 + '%';
+    el.className = 'firefly' + (i % 9 === 0 ? ' star-glint' : '');
+    // Cover stars occupy the dark margins; the opened book naturally masks their centre.
+    const x = i < 24 ? 3 + noise(i, 5) * 27 : i < 48 ? 70 + noise(i, 5) * 27 : noise(i, 5) * 100;
+    const y = i >= 48 ? (i % 2 ? 3 + noise(i, 9) * 10 : 87 + noise(i, 9) * 10) : 5 + noise(i, 9) * 90;
+    el.style.left = x + '%';
+    el.style.top = y + '%';
+    el.style.setProperty('--star-size', (i % 9 === 0 ? 5 : 1.2 + noise(i, 3) * 1.4) + 'px');
+    el.style.setProperty('--star-duration', (4.8 + noise(i, 8) * 4.5) + 's');
+    el.style.setProperty('--star-brightness', (0.28 + noise(i, 11) * 0.55).toFixed(2));
     el.style.animationDelay = -noise(i, 13) * 6 + 's';
     document.getElementById('fireflies').append(el);
   }
