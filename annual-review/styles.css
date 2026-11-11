@@ -8,11 +8,6 @@
   inherits: true;
   initial-value: 16px;
 }
-@property --fold-shade {
-  syntax: '<number>';
-  inherits: true;
-  initial-value: 0;
-}
 .reader {
   outline: 0;
 }
@@ -631,7 +626,7 @@ a {
   inset: 0;
   pointer-events: none;
   background: linear-gradient(90deg, transparent, #80552b2b 93%, #fff4d869);
-  opacity: var(--fold-shade, 0);
+  opacity: 0;
 }
 .chapter-bookmarks {
   position: absolute;
@@ -1672,11 +1667,12 @@ a {
     backdrop-filter: none;
   }
 }
-/* A single timeline carries a soft paper arc from the outer edge to the bound spine. */
-@property --page-curl {
-  syntax: '<number>';
-  initial-value: 0;
-  inherits: true;
+/* Each angle stays on its joint; page content never inherits per-frame animation values.
+   Keep CSS transforms here to preserve flat-endpoint clipping through the 3D hinge chain. */
+@property --joint-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 .turning-leaf[data-curled='true'] > .leaf-face {
   visibility: hidden;
@@ -1695,7 +1691,7 @@ a {
   height: 100%;
   transform-origin: left center;
   transform-style: preserve-3d;
-  transform: rotateY(calc(var(--page-curl) * var(--strip-angle)));
+  transform: rotateY(var(--joint-angle));
 }
 .leaf-strips > .leaf-strip {
   left: 0;

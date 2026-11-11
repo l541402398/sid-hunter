@@ -163,8 +163,12 @@ async function key(name) {
 const openReader = () => evaluate('document.querySelector("[data-open-review]").click()');
 const mode = () => evaluate('document.getElementById("book-stage").dataset.mode');
 const chapterTitle = () => evaluate('document.getElementById("chapter-title").textContent');
-const noBookAnimations =
-  '[document.getElementById("hard-cover"),document.getElementById("volume"),document.getElementById("left-backing"),document.querySelector(".book-gutter"),document.getElementById("turning-leaf"),document.getElementById("review-dialog")].every(e=>e.getAnimations().length===0)';
+// The leaf owns joint and face-pseudo animations; other book elements keep their own effects only.
+const pageTurnMotions =
+  '[...new Set([...document.getElementById("turning-leaf").getAnimations({subtree:true}),...document.getElementById("volume").getAnimations()])]';
+const bookMotions =
+  `[...new Set([...${pageTurnMotions},...[document.getElementById("hard-cover"),document.getElementById("left-backing"),document.querySelector(".book-gutter"),document.getElementById("review-dialog")].flatMap(e=>e.getAnimations())])]`;
+const noBookAnimations = `${bookMotions}.length===0`;
 async function openBook() {
   await click('start-review');
   await idle();
@@ -485,7 +489,7 @@ async function readCurl(label, phase) {
   const sample = await evaluate(
     `(()=>{
       const leaf=document.getElementById('turning-leaf'),strips=[...leaf.querySelectorAll('.leaf-strip')],last=strips.at(-1);
-      const animations=leaf.getAnimations().map(animation=>({playState:animation.playState,currentTime:animation.currentTime,startTime:animation.startTime,timing:animation.effect.getTiming(),computedTiming:animation.effect.getComputedTiming(),keyframes:animation.effect.getKeyframes()}));
+      const animations=[...new Set(leaf.getAnimations({subtree:true}))].map(animation=>({target:animation.effect.target.id||animation.effect.target.className,pseudoElement:animation.effect.pseudoElement,playState:animation.playState,currentTime:animation.currentTime,startTime:animation.startTime,timing:animation.effect.getTiming(),computedTiming:animation.effect.getComputedTiming(),keyframes:animation.effect.getKeyframes()}));
       if(!last)return{count:0,curl:0,width:leaf.clientWidth,z:0,angles:[],bendAngles:[],animations};
       const chain=[];
       for(let node=last;node&&node!==leaf;node=node.parentElement)if(node.matches('.leaf-strip'))chain.unshift(node);
@@ -494,8 +498,10 @@ async function readCurl(label, phase) {
         const style=getComputedStyle(strip),origin=style.transformOrigin.split(' ').map(parseFloat);
         matrix=matrix.translate(strip.offsetLeft,strip.offsetTop).translate(origin[0],origin[1]).multiply(new DOMMatrix(style.transform)).translate(-origin[0],-origin[1]);
       }
-      const transforms=strips.map(strip=>new DOMMatrix(getComputedStyle(strip).transform));
-      return{count:strips.length,width:leaf.clientWidth,curl:Number(getComputedStyle(leaf).getPropertyValue('--page-curl')),z:matrix.transformPoint(new DOMPoint(last.offsetWidth,0,0)).z,angles:transforms.map(transform=>transform.m13),bendAngles:transforms.map(transform=>Math.atan2(-transform.m13,transform.m11)),stripStyles:strips.map(strip=>{const style=getComputedStyle(strip);return{curl:style.getPropertyValue('--page-curl'),angle:style.getPropertyValue('--strip-angle'),transform:style.transform,transformOrigin:style.transformOrigin,width:strip.offsetWidth,left:strip.offsetLeft};}),animations};
+      const styles=strips.map(strip=>getComputedStyle(strip)),transforms=styles.map(style=>new DOMMatrix(style.transform)),bendAngles=transforms.map(transform=>Math.atan2(-transform.m13,transform.m11));
+      const curlRatios=bendAngles.map((angle,i)=>{const base=parseFloat(styles[i].getPropertyValue('--strip-angle'));return Math.abs(base)>.01?angle*180/Math.PI/base:null;}).filter(value=>value!==null&&Number.isFinite(value)).sort((a,b)=>a-b);
+      const curl=curlRatios.length?curlRatios[Math.floor(curlRatios.length/2)]:0;
+      return{count:strips.length,width:leaf.clientWidth,curl,curlRatios,z:matrix.transformPoint(new DOMPoint(last.offsetWidth,0,0)).z,angles:transforms.map(transform=>transform.m13),bendAngles,stripStyles:strips.map((strip,i)=>{const style=styles[i];return{angle:style.getPropertyValue('--strip-angle'),transform:style.transform,transformOrigin:style.transformOrigin,width:strip.offsetWidth,left:strip.offsetLeft};}),animations};
     })()`
   );
   curlSamples.push({ label, phase, ...sample });
@@ -512,12 +518,24 @@ async function samplePageTurn(action, label, forward = true) {
   const origin = await paperGeometry(forward ? '#right-page' : '#left-page');
   await action();
   await evaluate(
-    'window.__turnMotions=[...document.getElementById("turning-leaf").getAnimations(),...document.getElementById("volume").getAnimations()];Promise.all(__turnMotions.map(a=>{a.pause();return a.ready;}))'
+    `window.__turnMotions=${pageTurnMotions};window.__turnClocks=__turnMotions.map(a=>({startTime:a.startTime,duration:a.effect.getTiming().duration,onDocumentTimeline:a.timeline===document.timeline}));Promise.all(__turnMotions.map(a=>{a.pause();return a.ready;}))`
   );
   assert.equal(
     await evaluate('__turnMotions.length>=1 && __turnMotions.every(a=>a.playState==="paused")'),
     true
   );
+  const clocks = await evaluate('__turnClocks');
+  assert(clocks.every(clock => Number.isFinite(clock.startTime) && clock.onDocumentTimeline),
+    label + ': every paper joint and shade must use the document timeline');
+  assert(Math.max(...clocks.map(clock => clock.startTime)) - Math.min(...clocks.map(clock => clock.startTime)) < .01,
+    label + ': paper joints and shades started on different frames');
+  assert.equal(new Set(clocks.map(clock => clock.duration)).size, 1,
+    label + ': paper joints and shades have different durations');
+  if (forward)
+    await evaluate('window.__outwardCurl=document.querySelector("#turning-leaf .leaf-strips")');
+  else
+    assert.equal(await evaluate('document.querySelector("#turning-leaf .leaf-strips")===window.__outwardCurl'),
+      true, 'Turning back must reuse the prepared paper surface');
   await seekPageTurn(0);
   const startCurl = await readCurl(label, 'start');
   assert(startCurl.count >= 16, label + ': the turning page needs a continuous curved surface');
@@ -536,6 +554,8 @@ async function samplePageTurn(action, label, forward = true) {
     curvedFrames.push(sample);
     assert.equal(sample.count, startCurl.count, label + ': the paper surface changed while turning');
     assert(Math.abs(sample.curl) > 0.1, label + ': no paper curl at ' + fraction);
+    assert(Math.max(...sample.curlRatios) - Math.min(...sample.curlRatios) < .01,
+      label + ': paper joints no longer follow the same bend curve at ' + fraction);
     assert(Math.abs(sample.z) > sample.width * 0.01,
       label + ': the outer edge stays flat at ' + fraction);
     assert(Math.abs(sample.z) < sample.width * 0.45,
@@ -579,6 +599,46 @@ async function samplePageTurn(action, label, forward = true) {
     true,
     'The source paper faces must be restored after the curl is removed'
   );
+}
+async function interruptPageTurn(reason) {
+  const before = await progress(),
+    expected = before.replace(/^(\d+)—(\d+)/, (_, left, right) =>
+      `${String(Number(left) + 2).padStart(2, '0')}—${String(Number(right) + 2).padStart(2, '0')}`
+    );
+  await evaluate(
+    `(async()=>{document.getElementById('next-page').click();window.__interruptedTurnMotions=${pageTurnMotions};await Promise.all(__interruptedTurnMotions.map(a=>{a.pause();return a.ready;}));__interruptedTurnMotions.forEach(a=>a.currentTime=250);})()`
+  );
+  assert.equal(await evaluate('document.getElementById("book-stage").dataset.busy'), 'true');
+  assert(await evaluate('__interruptedTurnMotions.length>1'), 'The interruption must include the paper joints and shades');
+  try {
+    if (reason === 'reduced-motion') {
+      await call('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }]
+      });
+    } else {
+      // Exercise the visibility handler deterministically without freezing the CDP renderer itself.
+      await evaluate(
+        `(()=>{const original=Object.getOwnPropertyDescriptor(document,'hidden');try{Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange'));}finally{if(original)Object.defineProperty(document,'hidden',original);else delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));}})()`
+      );
+    }
+    await idle();
+    assert.equal(await progress(), expected, `${reason}: the intended spread was lost`);
+    assert.equal(await mode(), 'open');
+    assert.equal(await evaluate('document.getElementById("turning-leaf").hidden'), true);
+    assert.equal(await evaluate(noBookAnimations), true);
+    assert.equal(await evaluate('__interruptedTurnMotions.every(a=>a.playState==="idle")'), true,
+      `${reason}: an animation kept its timeline after the turning surface was detached`);
+    assert.equal(await evaluate('document.querySelectorAll("#turning-leaf .leaf-strip").length'), 0);
+    await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+    assert.equal(await progress(), expected, `${reason}: a stale completion changed the spread`);
+  } finally {
+    if (reason === 'reduced-motion') {
+      await call('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }]
+      });
+      await wait('!matchMedia("(prefers-reduced-motion: reduce)").matches');
+    }
+  }
 }
 const symmetryPairs = [
   ['paper', '#left-page', '#right-page'],
@@ -921,7 +981,7 @@ async function exitDuring(trigger, phase) {
     assert.equal(await mode(), 'cover');
     await evaluate('window.__heldExitMotions=[]');
     const startHeldMotion = (buttonId) => evaluate(
-      '(async()=>{document.getElementById(' + JSON.stringify(buttonId) + ').click();window.__heldExitMotions=[...document.getElementById("hard-cover").getAnimations(),...document.getElementById("volume").getAnimations(),...document.getElementById("left-backing").getAnimations(),...document.querySelector(".book-gutter").getAnimations(),...document.getElementById("turning-leaf").getAnimations()];await Promise.all(__heldExitMotions.map(animation=>{animation.pause();return animation.ready;}));__heldExitMotions.forEach(animation=>animation.currentTime=120);})()'
+      `(async()=>{document.getElementById(${JSON.stringify(buttonId)}).click();window.__heldExitMotions=${bookMotions};await Promise.all(__heldExitMotions.map(animation=>{animation.pause();return animation.ready;}));__heldExitMotions.forEach(animation=>animation.currentTime=120);})()`
     );
     let closingPeople = [];
     if (phase === 'opening') {
@@ -949,7 +1009,7 @@ async function exitDuring(trigger, phase) {
       phase === 'opening' ? 'opening' : phase === 'closing' ? 'closing' : 'open'
     );
     await evaluate(
-      `(()=>{const dialog=document.getElementById('review-dialog'),stage=document.getElementById('book-stage');window.__exitSamples=[];window.__originalFinished=[];window.__exitEvents=[];window.__exitActions=[];for(const type of ['cancel','close'])dialog.addEventListener(type,event=>{if(window.__sampleExit)__exitEvents.push({type,time:performance.now(),mode:stage.dataset.mode,open:dialog.open,exiting:dialog.dataset.exiting,cancelable:event.cancelable,defaultPrevented:event.defaultPrevented});});for(const e of [document.getElementById('hard-cover'),document.getElementById('volume'),document.getElementById('left-backing'),document.querySelector('.book-gutter'),document.getElementById('turning-leaf')])for(const a of e.getAnimations()){const record={target:e.id||e.className,startedAt:performance.now(),currentTime:a.currentTime,duration:a.effect.getTiming().duration,finished:false,cancelled:false};__originalFinished.push(record);a.finished.then(()=>{record.finished=true;record.finishedAt=performance.now();},()=>{record.cancelled=true;record.cancelledAt=performance.now();});}window.__sampleExit=true;const frame=()=>{__exitSamples.push({time:performance.now(),mode:stage.dataset.mode,busy:stage.dataset.busy,open:dialog.open,exiting:dialog.dataset.exiting,opacity:Number(getComputedStyle(dialog).opacity),hidden:document.hidden,chapter:document.getElementById('chapter-title').textContent,originalDone:__originalFinished.every(a=>a.finished&&!a.cancelled)});if(__sampleExit)requestAnimationFrame(frame);};frame();})()`
+      `(()=>{const dialog=document.getElementById('review-dialog'),stage=document.getElementById('book-stage');window.__exitSamples=[];window.__originalFinished=[];window.__exitEvents=[];window.__exitActions=[];for(const type of ['cancel','close'])dialog.addEventListener(type,event=>{if(window.__sampleExit)__exitEvents.push({type,time:performance.now(),mode:stage.dataset.mode,open:dialog.open,exiting:dialog.dataset.exiting,cancelable:event.cancelable,defaultPrevented:event.defaultPrevented});});for(const a of ${bookMotions}){const e=a.effect.target,record={target:e.id||e.className,pseudoElement:a.effect.pseudoElement,startedAt:performance.now(),currentTime:a.currentTime,duration:a.effect.getTiming().duration,finished:false,cancelled:false};__originalFinished.push(record);a.finished.then(()=>{record.finished=true;record.finishedAt=performance.now();},()=>{record.cancelled=true;record.cancelledAt=performance.now();});}window.__sampleExit=true;const frame=()=>{__exitSamples.push({time:performance.now(),mode:stage.dataset.mode,busy:stage.dataset.busy,open:dialog.open,exiting:dialog.dataset.exiting,opacity:Number(getComputedStyle(dialog).opacity),hidden:document.hidden,chapter:document.getElementById('chapter-title').textContent,originalDone:__originalFinished.every(a=>a.finished&&!a.cancelled)});if(__sampleExit)requestAnimationFrame(frame);};frame();})()`
     );
     await observeFade();
     if (phase !== 'ordinary') assert((await evaluate('__originalFinished.length')) > 0);
@@ -1459,7 +1519,7 @@ try {
         const point = await mousePoint('#right-page .honor-title');
         await mouseClickAt(point);
         await evaluate(
-          'window.__mouseTurnMotions=document.getElementById("turning-leaf").getAnimations();Promise.all(__mouseTurnMotions.map(a=>{a.pause();return a.ready;}))'
+          `window.__mouseTurnMotions=${pageTurnMotions};Promise.all(__mouseTurnMotions.map(a=>{a.pause();return a.ready;}))`
         );
         assert.equal(await evaluate('document.getElementById("book-stage").dataset.busy'), 'true');
         assert.equal(await evaluate('__mouseTurnMotions.length>0'), true);
@@ -1626,6 +1686,14 @@ try {
       await openBook();
       assert.equal(await chapterTitle(), '开篇寄语');
     });
+    await check(
+      'Enabling reduced motion during a turn settles the destination and cancels every paper animation',
+      () => interruptPageTurn('reduced-motion')
+    );
+    await check(
+      'The visibility handler settles a paused turn and leaves no animation running in detached surfaces',
+      () => interruptPageTurn('visibility')
+    );
     await call('Emulation.setEmulatedMedia', {
       features: [{ name: 'prefers-reduced-motion', value: 'reduce' }]
     });

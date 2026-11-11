@@ -31,13 +31,17 @@
     busy = false,
     token = 0,
     intendedIndex = 0,
-    animation = null,
+    leafAnimations = [],
     coverAnimations = [],
     opener = null;
   let activeMotion = null,
     exitTask = null,
     exitAnimation = null,
     exitRequested = false;
+  const curlCache = new Map();
+  let activeCurl = null,
+    warmTask = null,
+    artReady = false;
   // Reading sessions always start from the cover; discard progress left by earlier versions.
   try {
     localStorage.removeItem('my2026.annual-book.v2');
@@ -200,6 +204,8 @@
     stage.dataset.busy = String(value);
     $('spread').setAttribute('aria-busy', String(value));
     updateControls();
+    if (value) stopCurlWarmup();
+    else scheduleCurlWarmup();
   }
   function syncCoverMotion() {
     dialog.dataset.artPaused = String(document.hidden || mode !== 'cover' || !dialog.open);
@@ -323,15 +329,22 @@
   }
   function clearLeafCurl() {
     const leaf = $('turning-leaf');
-    leaf.querySelector('.leaf-strips')?.remove();
+    for (const motion of leafAnimations) motion.cancel();
+    leafAnimations = [];
+    activeCurl?.root.remove();
+    activeCurl = null;
     delete leaf.dataset.curled;
     $('volume').classList.remove('page-turn-forward', 'page-turn-backward');
   }
-  function prepareLeafCurl() {
-    clearLeafCurl();
-    const leaf = $('turning-leaf'),
-      strips = document.createElement('div'),
-      sources = [$('leaf-front'), $('leaf-back')],
+  function* buildLeafCurl(entry) {
+    const strips = entry.root,
+      sources = ['leaf-front', 'leaf-back'].map((id, face) => {
+        const source = $(id).cloneNode(false);
+        source.removeAttribute('id');
+        fill(source, entry.html[face]);
+        return source;
+      }),
+      canvases = sources.map((source) => [...source.querySelectorAll('canvas')]),
       count = 32,
       flat = 8;
     const curve = (step) => 56 * Math.pow(Math.max(0, (step - flat) / (count - flat)), 2.4);
@@ -343,7 +356,9 @@
       const strip = document.createElement('div');
       strip.className = 'leaf-strip';
       if (i === 0) strip.style.width = `${100 / count}%`;
-      strip.style.setProperty('--strip-angle', `${curve(i + 1) - curve(i)}deg`);
+      const angle = curve(i + 1) - curve(i);
+      strip.style.setProperty('--strip-angle', `${angle}deg`);
+      if (angle) entry.joints.push({ strip, angle });
       // The bound quarter stays in one piece; the remainder forms a smooth, progressively looser arc.
       const span = i === 0 ? flat : 1;
       for (const [face, source] of (i === 0 || i >= flat ? sources.entries() : [])) {
@@ -357,18 +372,86 @@
         surface.classList.add('leaf-surface');
         surface.style.transform = `translateX(${-100 * slice / count}%)`;
         // cloneNode does not copy the canvas bitmap; preserve the rendered JULI on letter pages.
-        const originalCanvases = source.querySelectorAll('canvas');
         surface.querySelectorAll('canvas').forEach((canvas, index) => {
-          canvas.getContext('2d').drawImage(originalCanvases[index], 0, 0);
+          canvas.getContext('2d').drawImage(canvases[face][index], 0, 0);
         });
+        entry.surfaces.push(surface);
         viewport.append(surface);
         strip.append(viewport);
       }
       parent.append(strip);
       parent = strip;
+      yield;
     }
-    leaf.append(strips);
+    entry.ready = true;
+  }
+  function cachedLeafCurl(from, to) {
+    const low = Math.min(from, to),
+      high = Math.max(from, to),
+      key = `${low}:${high}`,
+      html = [render('right', low), render('left', high)];
+    let entry = curlCache.get(key);
+    if (!entry || entry.html.some((value, face) => value !== html[face])) {
+      entry = { root: document.createElement('div'), html, joints: [], surfaces: [], ready: false };
+      entry.builder = buildLeafCurl(entry);
+    }
+    curlCache.delete(key);
+    curlCache.set(key, entry);
+    // Keep at most the two neighbouring turns and one just-used or jumped-to turn, all detached at rest.
+    while (curlCache.size > 3) curlCache.delete(curlCache.keys().next().value);
+    return entry;
+  }
+  function stopCurlWarmup() {
+    if (warmTask === null) return;
+    if (window.cancelIdleCallback) cancelIdleCallback(warmTask);
+    else clearTimeout(warmTask);
+    warmTask = null;
+  }
+  function scheduleCurlWarmup() {
+    stopCurlWarmup();
+    if (
+      !artReady || busy || exitRequested || mode !== 'open' || !dialog.open ||
+      document.hidden || reducedMotion.matches
+    ) return;
+    const enqueue = (work) =>
+      window.requestIdleCallback
+        ? requestIdleCallback(work)
+        : setTimeout(() => work({ timeRemaining: () => 5 }), 32);
+    const work = (deadline) => {
+      warmTask = null;
+      if (
+        busy || exitRequested || mode !== 'open' || !dialog.open ||
+        document.hidden || reducedMotion.matches
+      ) return;
+      const start = performance.now();
+      for (const next of [index + 1, index - 1]) {
+        if (next < 0 || next >= models.length) continue;
+        if (deadline.timeRemaining() <= 3 || performance.now() - start >= 8) {
+          warmTask = enqueue(work);
+          return;
+        }
+        const entry = cachedLeafCurl(index, next);
+        while (!entry.ready && deadline.timeRemaining() > 3 && performance.now() - start < 8)
+          entry.builder.next();
+        if (!entry.ready) {
+          warmTask = enqueue(work);
+          return;
+        }
+      }
+    };
+    warmTask = enqueue(work);
+  }
+  function prepareLeafCurl(from, to) {
+    clearLeafCurl();
+    const leaf = $('turning-leaf'),
+      entry = cachedLeafCurl(from, to);
+    while (!entry.ready) entry.builder.next();
+    // An early click can precede image loading; refresh those bitmaps before reusing the surface.
+    if (!artReady) window.AnnualArt.paintMascots(entry.root);
+    activeCurl = entry;
+    leaf.append(entry.root);
     leaf.dataset.curled = 'true';
+    return entry;
   }
   async function turnSpreadTo(n) {
     if (busy || mode !== 'open' || n === index || n < 0 || n >= models.length) return;
@@ -381,7 +464,7 @@
       const leaf = $('turning-leaf');
       fill($('leaf-front'), render('right', forward ? old : n));
       fill($('leaf-back'), render('left', forward ? n : old));
-      prepareLeafCurl();
+      const curl = prepareLeafCurl(old, n);
       $('volume').classList.add(forward ? 'page-turn-forward' : 'page-turn-backward');
       if (forward) fill($('right-page'), render('right', n));
       else fill($('left-page'), render('left', n));
@@ -397,27 +480,42 @@
         [0.9, -176, 0.18, 0.08],
         [1, -177.5, 0, 0]
       ];
-      const frames = poses.map(([offset, angle, curl, shade]) => ({
+      const frames = poses.map(([offset, angle]) => ({
         offset,
         easing: 'cubic-bezier(.35,0,.65,1)',
-        transform: `rotateY(${forward ? angle : -180 - angle}deg)`,
-        '--page-curl': forward ? curl : -curl,
-        '--fold-shade': shade
+        transform: `rotateY(${forward ? angle : -180 - angle}deg)`
       }));
-      animation = leaf.animate(frames, {
+      const timing = {
         duration: 1080,
         easing: 'linear',
         fill: 'both'
-      });
+      };
+      leafAnimations = [leaf.animate(frames, timing)];
+      for (const { strip, angle } of curl.joints)
+        leafAnimations.push(
+          strip.animate(poses.map(([offset, , bend]) => ({
+            offset,
+            easing: 'cubic-bezier(.35,0,.65,1)',
+            '--joint-angle': `${(forward ? bend : -bend) * angle}deg`
+          })), timing)
+        );
+      const shades = poses.map(([offset, , , opacity]) => ({
+        offset,
+        easing: 'cubic-bezier(.35,0,.65,1)',
+        opacity
+      }));
+      for (const surface of curl.surfaces)
+        leafAnimations.push(surface.animate(shades, { ...timing, pseudoElement: '::after' }));
+      // Every joint and light band uses the original poses and one shared document clock.
+      const start = document.timeline.currentTime;
+      for (const motion of leafAnimations) motion.startTime = start;
       try {
-        await animation.finished;
+        await Promise.all(leafAnimations.map((motion) => motion.finished));
       } catch {}
       if (own !== token) return;
     }
     commit(n);
     $('turning-leaf').hidden = true;
-    animation?.cancel();
-    animation = null;
     clearLeafCurl();
     setBusy(false);
     if (!exitRequested && document.activeElement?.disabled)
@@ -426,8 +524,6 @@
   function settleMotion() {
     if (!busy) return;
     ++token;
-    animation?.cancel();
-    animation = null;
     $('turning-leaf').hidden = true;
     clearLeafCurl();
     if (mode === 'opening' || mode === 'closing') {
@@ -441,11 +537,11 @@
   }
   function resetReader() {
     ++token;
-    animation?.cancel();
-    animation = null;
+    stopCurlWarmup();
     clearCoverAnimations();
     $('turning-leaf').hidden = true;
     clearLeafCurl();
+    curlCache.clear();
     setMode('cover');
     commit(0);
     $('spread').hidden = true;
@@ -461,6 +557,7 @@
   function dismiss() {
     if (exitTask || !dialog.open) return exitTask;
     exitRequested = true;
+    stopCurlWarmup();
     updateControls();
     const task = (async () => {
       try {
@@ -640,6 +737,7 @@
       settleMotion();
       exitAnimation?.finish();
     }
+    scheduleCurlWarmup();
   });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -647,6 +745,13 @@
       exitAnimation?.finish();
     }
     syncCoverMotion();
+    scheduleCurlWarmup();
+  });
+  window.AnnualArt.ready.then(() => {
+    artReady = true;
+    // Detached surfaces prepared before JULI loaded must be rebuilt with the loaded bitmap.
+    curlCache.clear();
+    scheduleCurlWarmup();
   });
   if (embedded)
     window.addEventListener('message', (event) => {

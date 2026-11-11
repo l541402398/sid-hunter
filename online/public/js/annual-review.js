@@ -68,8 +68,10 @@
         if (requestClose) post('annual-review:close');
         else frame.focus();
       }
-    } else if (type === 'annual-review:fading' && overlay.open) overlay.dataset.exiting = 'true';
-    else if (type === 'annual-review:closed') finish();
+    } else if (type === 'annual-review:fading' && overlay.open) {
+      overlay.dataset.exiting = 'true';
+      window.dispatchEvent(new Event('annual-review:fading'));
+    } else if (type === 'annual-review:closed') finish();
   });
   toggle.addEventListener('click', open);
   document.getElementById('annual-review-fallback-close').addEventListener('click', finish);

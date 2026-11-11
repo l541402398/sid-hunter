@@ -129,6 +129,8 @@
   const { shade, SKIN } = SID.paint;
   const { escapeText, commandId } = SID.text;
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
+  // The host opens its startup review before this script registers lifecycle listeners.
+  let annualReviewDrawingPaused = !!$('annual-review-overlay')?.open;
   ctx.imageSmoothingEnabled = false;
   // 背景：固定 512×512 分块，按相机矩形枚举相交块；每块惰性烘焙一次后复用，与视口宽度解耦。
   const glowSprite = (() => {
@@ -898,7 +900,20 @@
     // blur 与 hidden 连续发生时零意图签名去重；不重发任何换层 POST。
     sendIntent(false); clearPrivate(true); closeExploration(); closeWheel(); closeBadPool();
   }
-  window.addEventListener('annual-review:open',()=>{if(me)clearAllInput();else keys.clear();});
+  window.addEventListener('annual-review:open', () => {
+    annualReviewDrawingPaused = true;
+    if (me) clearAllInput(); else keys.clear();
+  });
+  window.addEventListener('annual-review:fading', () => {
+    // Repaint behind the translucent exit fade while the host still blocks input.
+    annualReviewDrawingPaused = false;
+    draw();
+  });
+  window.addEventListener('annual-review:close', () => {
+    annualReviewDrawingPaused = false;
+    keys.clear();
+    lastNow = performance.now();
+  });
   function select(id) {
     closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
@@ -3661,6 +3676,8 @@
     ctx.fillText('K 离开房间', x, y + 26);
   }
   function draw() {
+    // Also guard asynchronous scene-ready and floor-change draws beneath the book.
+    if (annualReviewDrawingPaused) return;
     if (floorState === 'PREPARING' || floorState === 'SUBMITTING' || floorState === 'UNCONFIRMED') return;
     const camX = Math.round(cameraX), camY = Math.round(cameraY);
     drawCamX = camX; drawCamY = camY;
@@ -3956,12 +3973,14 @@
     frameDt = Math.max(0, Math.min(0.2, (now - lastNow) / 1000));
     step(frameDt);
     lastNow = now;
-    draw();
-    const selfR = selfPlayer() ? renderMap.get(selfId()) : null;
-    if (selfR) {
-      if (isNaN(lastHudSelfX) || Math.hypot(selfR.x - lastHudSelfX, selfR.y - lastHudSelfY) >= 2) {
-        lastHudSelfX = selfR.x; lastHudSelfY = selfR.y;
-        updateExplorationHUD();
+    if (!annualReviewDrawingPaused) {
+      draw();
+      const selfR = selfPlayer() ? renderMap.get(selfId()) : null;
+      if (selfR) {
+        if (isNaN(lastHudSelfX) || Math.hypot(selfR.x - lastHudSelfX, selfR.y - lastHudSelfY) >= 2) {
+          lastHudSelfX = selfR.x; lastHudSelfY = selfR.y;
+          updateExplorationHUD();
+        }
       }
     }
   }

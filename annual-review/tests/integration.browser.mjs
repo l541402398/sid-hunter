@@ -49,7 +49,8 @@ const pending = new Map(),
   inputRequests = [],
   actionRequests = [],
   passed = [],
-  exitTraces = [];
+  exitTraces = [],
+  renderingChecks = [];
 const call = (method, params = {}) =>
   new Promise((resolve, reject) => {
     const seq = ++id;
@@ -168,6 +169,29 @@ async function check(name, fn) {
   passed.push(name);
   console.log('PASS ' + name);
 }
+async function canvasActivity(label, duration = 300, during = null) {
+  const sample = () => evaluate(
+    `({ ...window.__integrationCanvas, snapshots:window.__integrationStream.messages, stateUpdates:window.__integrationStateUpdates || 0, headcount:Number.parseInt(document.getElementById('player-count').textContent,10) || 0 })`
+  );
+  const before = await sample();
+  if (during) await during(before);
+  await delay(duration);
+  const after = await sample();
+  const result = { label, duration, before, after };
+  renderingChecks.push(result);
+  return result;
+}
+async function assertCanvasPaused(label, during = null) {
+  const { before, after } = await canvasActivity(label, 300, during);
+  assert.equal(after.fillRect, before.fillRect, label + ': game Canvas fill continued');
+  assert.equal(after.drawImage, before.drawImage, label + ': game Canvas images continued');
+  return { before, after };
+}
+async function assertCanvasResumed(label) {
+  const { before, after } = await canvasActivity(label);
+  assert(after.fillRect > before.fillRect, label + ': game Canvas fill did not resume');
+  assert(after.drawImage > before.drawImage, label + ': game Canvas images did not resume');
+}
 async function cover() {
   assert.equal(await child('document.getElementById("review-dialog").open'), true);
   assert.equal(await child('document.getElementById("book-stage").dataset.mode'), 'cover');
@@ -204,7 +228,7 @@ async function assertPreserved() {
 }
 async function traceExit(trigger, label) {
   await evaluate(
-    `(()=>{const frame=document.getElementById('annual-review-frame'),doc=frame.contentDocument,dialog=doc.getElementById('review-dialog'),stage=doc.getElementById('book-stage'),host=document.getElementById('annual-review-overlay');window.__integrationExitTrace=[];window.__integrationTracing=true;const sample=kind=>{window.__integrationExitTrace.push({kind,time:performance.now(),hostOpen:host.open,childOpen:dialog.open,mode:stage.dataset.mode,busy:stage.dataset.busy,exiting:dialog.dataset.exiting||'',opacity:Number(frame.contentWindow.getComputedStyle(dialog).opacity)});};const observer=new MutationObserver(()=>sample('mutation'));observer.observe(stage,{attributes:true,attributeFilter:['data-mode','data-busy']});observer.observe(dialog,{attributes:true,attributeFilter:['data-exiting','open']});window.__integrationExitObserver=observer;dialog.addEventListener('close',()=>sample('child-close'),{once:true});host.addEventListener('close',()=>sample('host-close'),{once:true});function tick(){sample('raf');if(window.__integrationTracing)requestAnimationFrame(tick);}tick();})()`
+    `(()=>{const frame=document.getElementById('annual-review-frame'),doc=frame.contentDocument,dialog=doc.getElementById('review-dialog'),stage=doc.getElementById('book-stage'),host=document.getElementById('annual-review-overlay');window.__integrationExitTrace=[];window.__integrationTracing=true;const sample=kind=>{window.__integrationExitTrace.push({kind,time:performance.now(),hostOpen:host.open,hostExiting:host.dataset.exiting||'',childOpen:dialog.open,mode:stage.dataset.mode,busy:stage.dataset.busy,exiting:dialog.dataset.exiting||'',opacity:Number(frame.contentWindow.getComputedStyle(dialog).opacity),...window.__integrationCanvas});};const observer=new MutationObserver(()=>sample('mutation'));observer.observe(stage,{attributes:true,attributeFilter:['data-mode','data-busy']});observer.observe(dialog,{attributes:true,attributeFilter:['data-exiting','open']});window.__integrationExitObserver=observer;dialog.addEventListener('close',()=>sample('child-close'),{once:true});host.addEventListener('close',()=>sample('host-close'),{once:true});window.addEventListener('annual-review:fading',()=>sample('host-fading'),{once:true});function tick(){sample('raf');if(window.__integrationTracing)requestAnimationFrame(tick);}tick();})()`
   );
   if (trigger === 'Escape') await key('Escape');
   else await realChildClick('#close-review');
@@ -226,6 +250,17 @@ async function traceExit(trigger, label) {
     fading.filter((sample) => sample.childOpen).every((sample) => sample.hostOpen),
     label + ': host lost modality during child fade'
   );
+  const first = samples[0];
+  assert(
+    samples.filter((sample) => sample.hostOpen && sample.hostExiting !== 'true')
+      .every((sample) => sample.fillRect === first.fillRect && sample.drawImage === first.drawImage),
+    label + ': background drawing resumed before the exit fade'
+  );
+  const repaint = samples.find((sample) => sample.kind === 'host-fading');
+  assert(repaint?.hostOpen && repaint.childOpen,
+    label + ': the exit fade did not retain game input protection');
+  assert(repaint.fillRect > first.fillRect && repaint.drawImage > first.drawImage,
+    label + ': game Canvas was not repainted before the translucent exit fade');
   assert.equal(await child('document.getElementById("review-dialog").open'), false);
   assert.equal(await child('document.getElementById("book-stage").dataset.mode'), 'cover');
   assert.equal(await child('document.getElementById("book-stage").dataset.busy'), 'false');
@@ -376,7 +411,20 @@ try {
   await call('Runtime.enable');
   await call('Network.enable');
   await call('Page.addScriptToEvaluateOnNewDocument', {
-    source: `if(window===window.top){window.__integrationMessages=[];window.addEventListener('message',event=>{const frame=document.getElementById('annual-review-frame');window.__integrationMessages.push({time:performance.now(),origin:event.origin,fromFrame:!!frame&&event.source===frame.contentWindow,data:event.data});});}`
+    source: `if(window===window.top){
+      window.__integrationMessages=[];
+      window.addEventListener('message',event=>{const frame=document.getElementById('annual-review-frame');window.__integrationMessages.push({time:performance.now(),origin:event.origin,fromFrame:!!frame&&event.source===frame.contentWindow,data:event.data});});
+      window.__integrationCanvas={fillRect:0,drawImage:0};
+      for(const name of ['fillRect','drawImage']){
+        const original=CanvasRenderingContext2D.prototype[name];
+        CanvasRenderingContext2D.prototype[name]=function(...args){if(this.canvas.id==='office')window.__integrationCanvas[name]++;return Reflect.apply(original,this,args);};
+      }
+      window.__integrationStream={messages:0};
+      const NativeEventSource=window.EventSource;
+      window.EventSource=class extends NativeEventSource{
+        constructor(...args){super(...args);this.addEventListener('message',event=>{try{if(JSON.parse(event.data).type==='snapshot')window.__integrationStream.messages++;}catch{}});}
+      };
+    }`
   });
   await call('Emulation.setDeviceMetricsOverride', {
     width: 1440,
@@ -440,6 +488,11 @@ try {
     await capture('integration-01-cover-1440.png');
   });
 
+  await check('The startup review suppresses game Canvas drawing before lifecycle listeners attach', async () => {
+    await assertCanvasPaused('Automatic startup review');
+    assert.deepEqual(await evaluate('window.__integrationCanvas'), { fillRect: 0, drawImage: 0 });
+  });
+
   await check('Forged close messages from the host window do not dismiss the review', async () => {
     await evaluate(`window.postMessage({type:'annual-review:closed'},location.origin)`);
     await delay(200);
@@ -489,6 +542,7 @@ try {
       await geometry('1440 open');
       await capture('integration-03-open-1440.png');
       await traceExit('Escape', '1440 initial Escape');
+      await assertCanvasResumed('Initial review close');
       assert.equal(await evaluate('document.activeElement.id'), 'annual-review-toggle');
       await capture('integration-02-home-1440.png');
     }
@@ -501,6 +555,7 @@ try {
         'document.getElementById("nickname").value="预览检查";document.getElementById("join-form").requestSubmit()'
       );
       await wait('document.getElementById("join-page").hidden');
+      await evaluate(`window.__integrationStateUpdates=0;window.__integrationStateObserver=new MutationObserver(records=>{window.__integrationStateUpdates+=records.length;});window.__integrationStateObserver.observe(document.getElementById('player-count'),{childList:true,characterData:true,subtree:true});`);
       await attackWithRestoredFocus('First automatic review close');
       const player = await evaluate(
         'fetch("/api/state").then(r=>r.json()).then(s=>{const p=s.players.find(p=>p.id===s.me.id);return{id:p.id,x:p.x,y:p.y};})'
@@ -515,6 +570,27 @@ try {
       const baseline = inputRequests.length;
       await reopen();
       await openBook();
+      const activity = await assertCanvasPaused('Joined player reading', async (before) => {
+        // Node fetch has no browser cookie jar. A separate guest makes an actual
+        // snapshot change instead of relying on redundant DOM writes each tick.
+        const response = await fetch(new URL('/api/join', baseURL), {
+          method: 'POST',
+          credentials: 'omit',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nickname: '状态' + Date.now().toString(36).slice(-4) })
+        });
+        const helper = await response.json();
+        assert.equal(response.status, 200, 'The independent state-update guest could not join');
+        assert.equal(helper.ok, true);
+        assert.notEqual(helper.playerId, player.id, 'The auxiliary join reused the reader identity');
+        await wait(`Number.parseInt(document.getElementById('player-count').textContent,10)===${before.headcount + 1}`);
+      });
+      assert(activity.after.snapshots > activity.before.snapshots,
+        'SSE snapshots stopped while the game Canvas was paused');
+      assert(activity.after.stateUpdates > activity.before.stateUpdates,
+        'The game stopped applying snapshot state while the Canvas was paused');
+      assert.equal(activity.after.headcount, activity.before.headcount + 1,
+        'The independent guest did not update the game headcount while reading');
       await delay(200);
       const stopped = await evaluate(
         'fetch("/api/state").then(r=>r.json()).then(s=>{const p=s.players.find(p=>p.id===s.me.id);return{id:p.id,x:p.x,y:p.y};})'
@@ -539,6 +615,7 @@ try {
       assert.equal(actionRequests.length, actionBaseline,
         'J submitted an attack/action while the joined player was reading');
       await traceExit('Escape', 'joined player Escape');
+      await assertCanvasResumed('Joined player review close');
       await call('Input.dispatchKeyEvent', {
         type: 'keyUp',
         key: 'w',
@@ -638,7 +715,8 @@ try {
         inputRequests,
         actionRequests,
         messages: await evaluate('window.__integrationMessages'),
-        exitTraces
+        exitTraces,
+        renderingChecks
       },
       null,
       2
@@ -663,6 +741,7 @@ try {
           inputRequests,
           actionRequests,
           exitTraces,
+          renderingChecks,
           state
         },
         null,
