@@ -60,14 +60,14 @@
   <main class="stage" id="stage">
     <div id="game-availability" class="availability-banner" role="status" hidden></div>
     <div class="game-hud">
-      <div class="topbar">
-        <div class="brand"><span class="brand-mark">S<span>·</span>ID</span><div><h1>S-ID：年终生存战</h1><p>YEAR-END SURVIVAL / 局域网联机试玩</p></div></div>
-        <div class="public-stats"><span><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span></div>
+      <div class="topbar" hidden>
+        <div class="brand" hidden><span class="brand-mark">S<span>·</span>ID</span><div><h1>S-ID：年终生存战</h1><p>YEAR-END SURVIVAL / 局域网联机试玩</p></div></div>
+        <div class="public-stats"><span><i class="dot blue"></i>剩余 <b id="time-left">--:--</b></span><span class="local-badge" id="player-count">0 位玩家 · 服务端权威</span><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button></div>
       </div>
       <div class="toolbar" aria-label="公共功能">
-        <div class="toolbar-left"><button id="roster-toggle" aria-expanded="false" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P" hidden>待加入玩家 <span id="pending-count">—</span></button><button id="rules-toggle" class="icon-only-btn" aria-label="图解游戏规则" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="图解游戏规则（快捷键 H）"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button><button id="ranking-toggle" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><span id="floor-indicator" class="floor-indicator" aria-live="polite">1F</span></div>
-        <div class="intel-hub" id="intel-hub" role="group" aria-label="核心线索与公共日志联动区"><span class="clue-chip intel-item" id="clue-next" title="下一次系统公布坏人线索的时间（到点自动同步至坏人线索与公共日志）"><i class="dot amber"></i>下次线索 <b id="clue-next-left">待开启</b><em id="clue-next-at"></em></span><span class="intel-link" aria-hidden="true">▸</span><button id="bad-toggle" class="intel-btn intel-bad-btn" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog" title="查看系统已公布的匿名坏人线索池 (快捷键 C)"><span>🕵️ 坏人线索</span><span id="bad-toggle-label">展开＋</span></button><span class="intel-link" aria-hidden="true">▸</span><button id="logs-toggle" class="intel-btn intel-logs-btn" type="button" aria-label="打开或关闭公共日志" aria-controls="logs" aria-expanded="true" title="查看包含系统线索的公共日志 (快捷键 G)">📜 公共日志</button></div>
-        <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><button id="sso-logout" type="button" hidden>退出登录</button><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="clue-bag" class="score-chip" title="我的今日金币（每日清零）">金币 <b id="chip-count">0</b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)">⛶ 全屏</button></div>
+        <div class="toolbar-left"><button id="rules-toggle" type="button" aria-label="图解游戏规则" aria-haspopup="dialog" aria-controls="rules-view" aria-expanded="false" title="图解游戏规则（快捷键 H）"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5C8 2 3 3 3 3v16s5-1 9 2c4-3 9-2 9-2V3s-5-1-9 2Zm0 0v16M6 8h3M6 12h3M15 8h3M15 12h3" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>游戏规则</button><button id="ranking-toggle" type="button" aria-expanded="false" aria-controls="ranking" title="快捷键 L">🏆 排行榜</button><button id="roster-toggle" type="button" aria-expanded="false" aria-controls="roster" title="快捷键 R">☷ 玩家名单 <span id="roster-count">0</span></button><button id="pending-toggle" type="button" aria-expanded="false" aria-controls="pending-players" title="快捷键 P" hidden>待加入玩家 <span id="pending-count">—</span></button><span id="floor-indicator" class="floor-indicator" aria-live="polite" hidden>1F</span><span class="hud-stat"><i class="dot green"></i>存活 <b id="alive-count">0</b></span><span class="hud-stat"><i class="dot gray"></i>淘汰 <b id="out-count">0</b></span></div>
+        <div class="intel-hub" id="intel-hub" role="group" aria-label="核心线索区"><span class="clue-chip intel-item" id="clue-next" title="下一次系统公布坏人线索的剩余时间"><i class="dot amber"></i>线索公布剩余 <b id="clue-next-left">待开启</b><em id="clue-next-at" hidden></em></span><span class="intel-link" aria-hidden="true">▸</span><button id="bad-toggle" class="intel-btn intel-bad-btn" type="button" aria-expanded="false" aria-controls="bad-pool-dialog" aria-haspopup="dialog" title="查看系统已公布的匿名坏人线索池 (快捷键 C)"><span>🕵️ 坏人线索</span><span id="bad-toggle-label">展开＋</span></button></div>
+        <div class="toolbar-right"><button id="logs-toggle" class="intel-btn intel-logs-btn" type="button" aria-label="打开或关闭公告栏" aria-controls="logs" aria-expanded="true" title="打开或关闭公告栏 (快捷键 G)">📢 公告栏</button><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="clue-bag" class="score-chip" title="我的今日金币（每日清零）">金币 <b id="chip-count">0</b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)">⛶ 全屏</button></div>
       </div>
     </div>
     <div class="map-view" id="map-view">
@@ -112,9 +112,12 @@
       </div>
       <aside id="roster" class="panel roster" hidden>
         <div class="panel-heading"><div><small>PUBLIC DIRECTORY</small><h2>玩家名单</h2></div><button id="roster-close" class="icon-button" aria-label="收起玩家名单">×</button></div>
-        <label class="search-label"><span>姓名 / 颜色 / 已公开隐藏属性</span><input id="search" placeholder="搜索姓名、银白、先喝口水、口头禅…" autocomplete="off" spellcheck="false"></label>
-        <p class="panel-note">仅搜索已公开信息 · 未公开隐藏属性（***）不会被搜到</p>
-        <div id="roster-items" class="roster-items"></div>
+        <label class="search-label"><span>姓名 / 工号 / 颜色 / 已公开隐藏属性</span><input id="search" placeholder="搜索姓名、工号、银白、先喝口水…" autocomplete="off" spellcheck="false"></label>
+        <p class="panel-note">包含已登录玩家与未登录名单 · 未公开隐藏属性（***）不会被搜到</p>
+        <div class="roster-scroll">
+          <div id="roster-items" class="roster-items"></div>
+          <div id="roster-unjoined" class="roster-unjoined"></div>
+        </div>
       </aside>
       <aside id="pending-players" class="panel roster pending-players" hidden aria-labelledby="pending-title">
         <div class="panel-heading"><div><small>WAITING TO JOIN</small><h2 id="pending-title">待加入玩家</h2></div><button id="pending-close" type="button" class="icon-button" aria-label="收起待加入玩家">×</button></div>
@@ -146,10 +149,10 @@
     </div>
   </main>
   <aside id="logs" class="logs log-sidebar" aria-labelledby="logs-title">
-    <div class="panel-heading"><div><small>INTEL &amp; OFFICE FEED</small><h2 id="logs-title">公共日志</h2></div><div class="log-head-actions"><span class="log-total"><b id="log-count">0</b> 条</span><button id="logs-close" type="button" class="icon-button" aria-label="收起公共日志">×</button></div></div>
-    <p class="panel-note">最新在最底部 · 与顶部【下次线索 / 坏人线索】联动同步</p>
-    <ol id="log-items" tabindex="0" aria-label="公共日志记录"></ol>
-    <button id="logs-scroll-bottom" class="logs-scroll-bottom" type="button" hidden aria-label="一键回到公共日志最底部">↓ 回到最新底部</button>
+    <div class="panel-heading"><div><small>INTEL &amp; BULLETIN</small><h2 id="logs-title">公告栏</h2></div><div class="log-head-actions"><span class="log-total"><b id="log-count">0</b> 条</span><button id="logs-close" type="button" class="icon-button" aria-label="收起公告栏">×</button></div></div>
+    <p class="panel-note">最新在最底部 · 与顶部【线索公布剩余 / 坏人线索】联动同步</p>
+    <ol id="log-items" tabindex="0" aria-label="公告栏记录"></ol>
+    <button id="logs-scroll-bottom" class="logs-scroll-bottom" type="button" hidden aria-label="一键回到公告栏最底部">↓ 回到最新底部</button>
   </aside>
   </div>
   <dialog id="invite-dialog" class="center-dialog invite-dialog" aria-labelledby="invite-title">

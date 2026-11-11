@@ -189,7 +189,7 @@
   let ssoRequired = false, ssoLoginUrl = '', ssoLogoutUrl = '', loginRedirecting = false;
   let badSlots = [], badPoolAvailable = false, lastBadPoolSig = '';
   let npcBusy = false;
-  let pendingFlight = false, pendingNextCheck = 0, pendingSignature = '', pendingInviteUrl = '';
+  let pendingFlight = false, pendingNextCheck = 0, pendingSignature = '', pendingInviteUrl = '', pendingData = null;
   let pendingRequestId = 0;
   const expandedPendingGroups = new Set(); // 本页独立保存各组折叠态，名单更新不重置。
   const confirmedDigests = new Set(); // 只有服务端 ACK 成功后才登记
@@ -338,7 +338,16 @@
     sessionToken = null;
     if (stream) { try { stream.close(); } catch { } stream = null; }
     const logout = ssoLogoutUrl || String(ssoLoginUrl || '').split('?')[0].replace(/\/login\/?$/, '/logout');
-    if (!logout) { showRelogin('已退出本局'); return; }
+    if (!logout) {
+      resetToJoin();
+      if (ssoRequired) showRelogin('已退出本局');
+      else {
+        $('join-page').hidden = false;
+        $('nickname').hidden = false;
+        $('join-submit').hidden = false;
+      }
+      return;
+    }
     loginRedirecting = true;
     location.href = logout;
   }
@@ -431,8 +440,9 @@
     if (TMJ_DEBUG && s.config && typeof s.config.tmj === 'boolean') TMJ_DEBUG.apply(s.config.tmj);
     serverTime = s.serverTime || Date.now();
     if (s.roundId && s.roundId !== roundId) {
-      pendingRequestId++; pendingNextCheck = 0; pendingSignature = ''; pendingInviteUrl = '';
+      pendingRequestId++; pendingNextCheck = 0; pendingSignature = ''; pendingInviteUrl = ''; pendingData = null; lastRosterSig = '';
       $('pending-count').textContent = '—'; $('pending-items').replaceChildren();
+      if ($('roster-unjoined')) $('roster-unjoined').replaceChildren();
       $('pending-summary').textContent = '正在读取本场待加入名单…'; closeInviteDialog();
       roundId = s.roundId;
     }
@@ -520,6 +530,9 @@
       if (!activePlayerIds.has(id)) renderMap.delete(id);
     }
     if (selectedId !== null && !players.some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
+    if ((!$('roster').hidden || !$('pending-players').hidden) && me && !pendingFlight && Date.now() >= pendingNextCheck) {
+      refreshPendingPlayers();
+    }
     renderPublic();
     syncTarget();
     if (mineOpen) renderMine();
@@ -592,16 +605,124 @@
     return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong><small>${sidHTML(p.sid)}</small>${matchHint(hits)}</span>${tag}</button>`;
   }
   function bindRows(container) { container.querySelectorAll('[data-player]').forEach(b => b.onclick = () => select(Number(b.dataset.player))); }
+  function renderRosterUnjoined(query) {
+    const host = $('roster-unjoined');
+    if (!host || typeof host.replaceChildren !== 'function') return;
+    if (!query) {
+      for (const old of (host.querySelectorAll ? host.querySelectorAll('details.unjoined-group') : [])) {
+        if (old.open) expandedPendingGroups.add(old.dataset.group);
+        else expandedPendingGroups.delete(old.dataset.group);
+      }
+    }
+    const fragment = document.createDocumentFragment();
+    const head = document.createElement('div');
+    head.className = 'roster-unjoined-head';
+    const title = document.createElement('span');
+    const countVal = pendingData && pendingData.ok ? String(pendingData.count) : '—';
+    title.innerHTML = `未登录名单（<b>${escapeText(countVal)}</b> 人）`;
+    const refreshBtn = document.createElement('button');
+    refreshBtn.type = 'button';
+    refreshBtn.id = 'roster-unjoined-refresh';
+    refreshBtn.className = 'roster-unjoined-refresh';
+    refreshBtn.textContent = '刷新';
+    refreshBtn.disabled = !!pendingFlight;
+    refreshBtn.onclick = () => refreshPendingPlayers();
+    head.append(title, refreshBtn);
+    fragment.append(head);
+    if (!pendingData) {
+      const note = document.createElement('p');
+      note.className = 'panel-note';
+      note.textContent = '正在读取未登录名单…';
+      fragment.append(note);
+      host.replaceChildren(fragment);
+      return;
+    }
+    if (!pendingData.ok) {
+      const note = document.createElement('p');
+      note.className = 'panel-note';
+      note.textContent = pendingData.error || '未登录名单暂不可用';
+      fragment.append(note);
+      host.replaceChildren(fragment);
+      return;
+    }
+    if (!pendingData.count) {
+      const note = document.createElement('p');
+      note.className = 'panel-note';
+      note.textContent = '同事表中的所有同事都已登录加入本场游戏';
+      fragment.append(note);
+      host.replaceChildren(fragment);
+      return;
+    }
+    let matchedCount = 0;
+    for (const group of (pendingData.groups || [])) {
+      const members = query
+        ? (group.members || []).filter(person =>
+            String(person.name || '').toLowerCase().includes(query) ||
+            String(person.empNo || '').toLowerCase().includes(query) ||
+            String(group.name || '').toLowerCase().includes(query))
+        : (group.members || []);
+      if (!members.length) continue;
+      matchedCount += members.length;
+      const section = document.createElement('details');
+      section.className = 'unjoined-group';
+      section.dataset.group = group.name;
+      section.open = query ? true : expandedPendingGroups.has(group.name);
+      section.ontoggle = () => {
+        if (!section.isConnected || query) return;
+        if (section.open) expandedPendingGroups.add(group.name);
+        else expandedPendingGroups.delete(group.name);
+      };
+      const summary = document.createElement('summary');
+      const strong = document.createElement('strong');
+      strong.textContent = group.name;
+      const badge = document.createElement('span');
+      badge.className = 'unjoined-group-count';
+      badge.textContent = `${members.length} 人`;
+      summary.append(strong, badge);
+      section.append(summary);
+      for (const person of members) {
+        const item = document.createElement('div');
+        item.className = 'unjoined-member';
+        const info = document.createElement('div');
+        info.className = 'unjoined-person';
+        const nameEl = document.createElement('strong');
+        nameEl.textContent = person.name;
+        const empEl = document.createElement('small');
+        empEl.textContent = `工号 ${person.empNo}`;
+        info.append(nameEl, empEl);
+        const tag = document.createElement('span');
+        tag.className = 'offline-tag';
+        tag.textContent = '未登录';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'unjoined-invite';
+        btn.textContent = '邀请';
+        btn.setAttribute('aria-label', `邀请${person.name}加入游戏`);
+        btn.onclick = () => inviteColleague(btn);
+        item.append(info, tag, btn);
+        section.append(item);
+      }
+      fragment.append(section);
+    }
+    if (!matchedCount) {
+      const empty = document.createElement('p');
+      empty.className = 'panel-note';
+      empty.textContent = '没有匹配的未登录同事';
+      fragment.append(empty);
+    }
+    host.replaceChildren(fragment);
+  }
   function renderRoster() {
     if ($('roster').hidden) return;
     const query = $('search').value.trim().toLowerCase();
     // 20Hz position snapshots must not replace a button between pointerdown/pointerup.
-    const sig = JSON.stringify([query, selectedId, players.map(({ x, y, ...p }) => p)]);
+    const sig = JSON.stringify([query, selectedId, players.map(({ x, y, ...p }) => p), pendingData, pendingFlight]);
     if (sig === lastRosterSig) return;
     lastRosterSig = sig;
     const result = players.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
-    $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的公开信息</p>';
+    $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的已登录玩家</p>';
     bindRows($('roster-items'));
+    renderRosterUnjoined(query);
   }
   function logHighlightClass(entry) {
     if (entry.type === 'systemClue') return 'log-system-clue';
@@ -895,8 +1016,9 @@
     host.hidden = false;
     // Build eyes once; snapshot refreshes update only value slots, never focusable controls.
     if (!host.childElementCount) {
-      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-score-card" class="mine-score-card"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${['sid', ...Object.keys(traitNames)].map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">${id === 'sid' ? '***-***-***' : '***'}</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-score-card" class="mine-score-card"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${['sid', ...Object.keys(traitNames)].map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">${id === 'sid' ? '***-***-***' : '***'}</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
+      if ($('mine-logout')) $('mine-logout').onclick = () => $('sso-logout')?.click();
       host.querySelectorAll('[data-field]').forEach(button => button.onclick = () => {
         const id = button.dataset.field;
         if (revealedFieldIds.has(id)) revealedFieldIds.delete(id); else revealedFieldIds.add(id);
@@ -927,6 +1049,12 @@
     else {
       const html = `<div class="mine-resources">${availableSkills().map(id => `<p>${escapeText(skillStatus(id, me.skills[id]))}</p>`).join('')}</div>`;
       if (details.innerHTML !== html) details.innerHTML = html;
+    }
+    const ssoEl = $('sso-user'), mineSsoEl = $('mine-sso-user');
+    if (mineSsoEl) {
+      const txt = ssoEl && !ssoEl.hidden ? (ssoEl.textContent || '') : '';
+      mineSsoEl.hidden = !txt;
+      if (mineSsoEl.textContent !== txt) mineSsoEl.textContent = txt;
     }
   }
   // 管理员独立登录 /manager；玩家页面不再探测本机开发权限。
@@ -1604,12 +1732,9 @@
     if (left <= 0) { label.textContent = '即将公布'; }
     else {
       const total = Math.ceil(left / 1000), mm = Math.floor(total / 60), ss = total % 60;
-      label.textContent = mm > 0 ? `${mm}:${String(ss).padStart(2, '0')}` : `${ss} 秒`;
+      label.textContent = `${String(mm).padStart(2, '0')}分${String(ss).padStart(2, '0')}秒`;
     }
-    if (at) {
-      // 绝对钟点按北京时间显示（与服务端日志同一时区），避免本机时区不同时对不上。
-      at.textContent = new Date(nextClueAt).toLocaleTimeString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
-    }
+    if (at) at.textContent = '';
     // 系统线索条目变化 = 刚刚公布过一轮；给胶囊一次高亮，让玩家知道倒计时被重置了。
     const batchSig = String(logs.filter(l => l.type === 'systemClue').length) + '|' + (logs.find(l => l.type === 'systemClue')?.time || '');
     if (lastClueBatchSig && batchSig !== lastClueBatchSig) {
@@ -3937,7 +4062,10 @@
     const visible = $(panel).hidden;
     $(panel).hidden = !visible;
     $(button).setAttribute('aria-expanded', String(visible));
-    if (panel === 'roster') renderRoster();
+    if (panel === 'roster' && visible) {
+      renderRoster();
+      refreshPendingPlayers();
+    }
   }
   function closePendingPlayers() {
     $('pending-players').hidden = true; $('pending-toggle').setAttribute('aria-expanded', 'false');
@@ -3992,18 +4120,30 @@
     if (pendingFlight || !me) return;
     pendingFlight = true; const requestId = ++pendingRequestId, requestedRound = roundId, requestedSession = sessionToken;
     $('pending-refresh').disabled = true;
-    pendingNextCheck = Date.now() + ($('pending-players').hidden ? 30000 : 5000);
+    if ($('roster-unjoined-refresh')) $('roster-unjoined-refresh').disabled = true;
+    pendingNextCheck = Date.now() + (($('pending-players').hidden && $('roster').hidden) ? 30000 : 5000);
     try {
       const data = await api('/api/pending-players');
       if (requestId !== pendingRequestId || requestedRound !== roundId || requestedSession !== sessionToken) return;
       if (!data.ok) throw new Error(data.status === 404 ? '新名单接口尚未启用，请联系管理员更新并重启服务' : data.error || '同事表读取失败，请稍后刷新');
       if (data.roundId !== roundId) { pendingNextCheck = 0; return; }
-      pendingInviteUrl = gameInviteUrl(data); renderPendingPlayers(data);
+      pendingInviteUrl = gameInviteUrl(data);
+      pendingData = data;
+      lastRosterSig = '';
+      renderPendingPlayers(data);
+      renderRoster();
     } catch (error) {
       if (requestedRound !== roundId || requestedSession !== sessionToken) return;
       pendingSignature = ''; pendingInviteUrl = ''; $('pending-count').textContent = '—';
+      pendingData = { ok: false, error: error.message || '同事表读取失败，请稍后刷新', count: 0, total: 0, groups: [] };
+      lastRosterSig = '';
       $('pending-summary').textContent = error.message || '同事表读取失败，请稍后刷新'; $('pending-items').replaceChildren();
-    } finally { pendingFlight = false; $('pending-refresh').disabled = false; }
+      renderRoster();
+    } finally {
+      pendingFlight = false;
+      $('pending-refresh').disabled = false;
+      if ($('roster-unjoined-refresh')) $('roster-unjoined-refresh').disabled = false;
+    }
   }
   async function inviteColleague(button) {
     // 先展示可手动复制的文本；仅在剪贴板实际写入成功之后显示「已复制」。
@@ -4154,6 +4294,7 @@
   });
   // CAS 退出：先撤销本进程会话，再回落到 CAS 注销地址。
   $('sso-logout').onclick = async () => {
+    clearPrivate(true);
     await api('/api/auth/logout', {}).catch(() => {});
     redirectLogout();
   };
