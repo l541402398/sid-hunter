@@ -6,7 +6,7 @@ const { create } = createRequire(import.meta.url)('./public/js/flowers.js');
 function fixture() {
   let context = { me: { id: 1, score: 30, flowers: { received: 0, sentPoints: 0, sentTo: [] } }, roundId: 'r1', generation: 1, finished: false, closed: '' };
   const button = {}, effects = [], messages = [], requests = [];
-  function node() { return { style: {}, children: [], setAttribute() {}, append(...children) { this.children.push(...children); }, remove() { const i = effects.indexOf(this); if (i >= 0) effects.splice(i, 1); } }; }
+  function node() { return { style: { setProperty(name,value) { this[name]=value; } }, children: [], setAttribute() {}, append(...children) { this.children.push(...children); }, remove() { const i = effects.indexOf(this); if (i >= 0) effects.splice(i, 1); } }; }
   const doc = { body: { append: n => effects.push(n) }, createElement: node, getElementById: () => button };
   const ui = create({ context: () => context, api: (path, body) => new Promise((resolve, reject) => requests.push({ path, body, resolve, reject })),
     changed() {}, toast: message => messages.push(message), document: doc });

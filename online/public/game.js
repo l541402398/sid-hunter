@@ -698,7 +698,7 @@
     const tag = !p.alive ? '<span class="out-label">休战</span>'
       : p.id === selfId() ? '<span class="self-label">自己</span>'
         : p.online === false ? '<span class="offline-tag">离线</span>' : '';
-    return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong>${p.flowerRecipient || p.annualRoleModel ? `<span class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</span>` : ''}${healthHTML(p, true)}${matchHint(hits)}</span>${tag}</button>`;
+    return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong>${SID.flowers?.rosterHTML(p) || ''}${healthHTML(p, true)}${matchHint(hits)}</span>${tag}</button>`;
   }
   function bindRows(container) { container.querySelectorAll('[data-player]').forEach(b => b.onclick = () => select(Number(b.dataset.player))); }
   function renderRosterUnjoined(query) {
@@ -814,7 +814,7 @@
     // 20Hz position snapshots must not replace a button between pointerdown/pointerup.
     // 签名只取名单行真正会显示/搜索的字段：300 人时不能把每帧都变的战斗/坐标字段拿来序列化比较。
     const all = everyone();
-    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowerRecipient, p.annualRoleModel]), pendingData, pendingFlight]);
+    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowersReceived, p.annualRoleModel]), pendingData, pendingFlight]);
     if (sig === lastRosterSig) return;
     lastRosterSig = sig;
     const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);

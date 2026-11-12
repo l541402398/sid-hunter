@@ -1,7 +1,4 @@
 /* Honor entries share the existing paper, two-entry page and folio layout. */
-.honor-name-line { display: flex; align-items: center; gap: 7px; }
-.annual-model-medal { position: relative; display: inline-grid; place-items: center; flex: 0 0 21px; height: 21px; border: 1px solid #9a712d; border-radius: 50%; background: linear-gradient(135deg,#fae8a5,#d2a650); color: #896025; font: 15px/1 Georgia,serif; box-shadow: inset 0 0 0 2px #f6dc8b; }
-.annual-model-medal::after { content: ''; position: absolute; z-index: -1; top: 14px; left: 3px; width: 13px; height: 12px; background: #a87449; clip-path: polygon(0 0,100% 0,100% 100%,50% 70%,0 100%); }
 .people-list .person-card {
   grid-template-columns: 132px minmax(0, 1fr);
   align-items: center;

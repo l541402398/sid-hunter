@@ -100,6 +100,9 @@ try {
   await waitPage(`!document.getElementById('annual-review-overlay').open&&document.getElementById('join-page').hidden`);
   await check('名单与档案区分收花人、年度榜样和普通玩家，身份可叠加', async () => {
     await selectPlayer(target);
+    assert.equal(await evaluate(`document.querySelectorAll('#roster-items .recipient-badge').length`), 0);
+    assert.equal(await evaluate(`document.querySelectorAll('#roster-items .roster-flower-count').length`), 0);
+    for (const p of all.slice(2,4)) assert.equal(await evaluate(`document.querySelectorAll('#roster-items [data-player="${p.id}"] .model-badge').length`), 1);
     assert.equal(await evaluate(`document.querySelectorAll('#target .recipient-badge').length`), 1);
     assert.equal(await evaluate(`document.querySelectorAll('#target .model-badge').length`), 0);
     await capture('01-recipient-desktop.png');
@@ -114,6 +117,7 @@ try {
     await selectPlayer(target);
     await evaluate(`document.getElementById('send-flower').focus()`); await key('Enter', 'Enter', 13);
     await waitPage(`document.querySelectorAll('.flower-particle').length===28`);
+    const started = await evaluate(`performance.now()`);
     assert.equal(await evaluate(`getComputedStyle(document.querySelector('.flower-celebration')).pointerEvents`), 'none');
     assert.equal(sender.score, 2); assert.equal(target.flowerState.received, 1);
     await delay(380);
@@ -121,7 +125,13 @@ try {
     await waitPage(`document.getElementById('send-flower').disabled&&document.getElementById('send-flower').textContent.includes('已送花')`);
     await evaluate(`document.getElementById('send-flower').click();document.getElementById('send-flower').click()`);
     assert.equal(sender.score, 2); assert.equal(target.flowerState.received, 1);
+    await waitPage(`document.querySelector('#roster-items [data-player="${target.id}"] .roster-flower-count b')?.textContent==='1'`);
+    await delay(2700);
+    const held = await evaluate(`(()=>{const e=document.querySelector('.flower-dedication');return e?{duration:getComputedStyle(e).animationDuration,opacity:Number(getComputedStyle(e).opacity),text:e.textContent}:null;})()`);
+    assert(held && held.opacity > .95); assert.equal(held.duration, '4.5s'); assert(held.text.includes(target.name));
+    await capture('02b-dedication-held.png');
     await waitPage(`!document.querySelector('.flower-celebration')`);
+    assert(await evaluate(`performance.now()`)-started >= 4200);
   });
   await check('发送者满 10 分仍可送花，计花继续且提示本次不加分', async () => {
     for (const recipient of all.filter(p => p !== target && recipients.some(q => q.empNo === p.empNo))) {
@@ -170,6 +180,9 @@ try {
     const notice = await evaluate(`document.getElementById('copy-toast').textContent`);
     assert.match(notice, /参与积分 \+1/); assert(!/匿名提醒验收|致敬同事/.test(notice));
     await selectPlayer(target); assert.equal(await evaluate(`!!document.getElementById('send-flower')`), false);
+    await waitPage(`document.querySelector('#roster-items [data-player="${target.id}"] .roster-flower-count b')?.textContent==='20'`);
+    assert.equal(await evaluate(`document.querySelectorAll('#roster-items .recipient-badge').length`), 0);
+    await capture('05b-roster-flower-count.png');
     await selectPlayer(all[2]); await click('#send-flower');
     await waitPage(`document.getElementById('send-flower').textContent.includes('已送花')`);
     assert.equal(target.score, 6);
@@ -192,16 +205,16 @@ try {
     assert(ROOM.flowers.view().recipients.some(p => p.empNo === 'fnew'));
     await capture('06-manager-roster.png');
   });
-  await check('年度回顾榜样卡片展示独立勋章，未增加献花入口', async () => {
+  await check('年度纪念册保留原榜样卡片，不展示勋章或献花入口', async () => {
     await call('Page.navigate', { url: base + '/annual-review/' });
     await waitPage(`document.readyState==='complete'&&!!document.querySelector('[data-chapter="people"]')`);
     await evaluate(`document.getElementById('start-review').click()`);
     await waitPage(`document.getElementById('book-stage').dataset.mode==='open'&&document.getElementById('book-stage').dataset.busy==='false'`);
     await click('[data-chapter="people"]');
-    await waitPage(`document.querySelectorAll('#spread .annual-model-medal').length>0`);
-    assert.equal(await evaluate(`document.querySelectorAll('#spread .annual-model-medal').length`), await evaluate(`document.querySelectorAll('#spread .honor-winner').length`));
+    await waitPage(`document.querySelectorAll('#spread .honor-winner').length>0&&document.getElementById('book-stage').dataset.busy==='false'`);
+    assert.equal(await evaluate(`document.querySelectorAll('#spread .annual-model-medal,.model-badge').length`), 0);
     assert.equal(await evaluate(`document.querySelectorAll('#spread #send-flower').length`), 0);
-    await capture('07-annual-role-model-medals.png');
+    await capture('07-annual-honors-unchanged.png');
   });
   assert.deepEqual(errors, []); assert.deepEqual(resourceErrors, []);
 } catch (error) {

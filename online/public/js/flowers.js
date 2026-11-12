@@ -4,9 +4,17 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.SID = root.SID || {}; root.SID.flowers = api; }
 })(typeof window !== 'undefined' ? window : globalThis, function() {
+  const DEDICATION_MS = 4500;
   function badgesHTML(p) {
     return (p?.annualRoleModel ? '<span class="honor-badge model-badge" title="年度回顾榜样人物">🏅 年度榜样</span>' : '') +
       (p?.flowerRecipient ? '<span class="honor-badge recipient-badge" title="收花人名单成员">🌷 收花人</span>' : '');
+  }
+  function rosterHTML(p) {
+    const model = p?.annualRoleModel
+      ? '<span class="honor-badge model-badge" title="年度榜样人物" aria-label="年度榜样人物">🏅 年度榜样</span>' : '';
+    const count = Number.isSafeInteger(p?.flowersReceived) && p.flowersReceived > 0 ? p.flowersReceived : 0;
+    const flowers = count ? `<span class="roster-flower-count" title="本场收到鲜花 ${count} 朵" aria-label="本场收到鲜花 ${count} 朵"><span aria-hidden="true">🌷</span><b>${count}</b></span>` : '';
+    return model || flowers ? `<span class="honor-badges">${model}${flowers}</span>` : '';
   }
   // 固定数量的 SVG + CSS transform 动画；仅献花成功时创建，结束后整层销毁。
   const tulip = '<svg viewBox="0 0 40 56" aria-hidden="true"><path d="M20 54V25" fill="none" stroke="#758e52" stroke-width="3"/><path d="M19 48C3 46 4 36 4 36c11 0 16 5 16 12m1-6c14-1 15-11 15-11-10 1-15 5-15 11" fill="#8ca663"/><path d="M20 29C6 29 4 17 7 7l8 6L20 3l5 10 8-6c3 10 1 22-13 22Z" fill="currentColor"/><path d="M20 29C12 25 12 15 15 13l5 7 5-7c3 5 1 13-5 16Z" fill="#fff4dd" opacity=".4"/></svg>';
@@ -43,6 +51,7 @@
       clearEffect();
       effect = doc.createElement('div'); effect.className = 'flower-celebration';
       effect.setAttribute('aria-hidden', 'true');
+      effect.style.setProperty('--dedication-duration', `${DEDICATION_MS}ms`);
       const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
       for (let i = 0; i < (reduced ? 0 : 28); i++) {
         const flower = doc.createElement('i'); flower.className = 'flower-particle'; flower.innerHTML = tulip;
@@ -54,7 +63,7 @@
       const text = doc.createElement('strong'); text.textContent = `向 ${name} 致敬`;
       const sub = doc.createElement('small'); sub.textContent = '每一份认真，都值得被看见';
       message.append(icon, text, sub); effect.append(message); doc.body.append(effect);
-      effectTimer = setTimeout(clearEffect, reduced ? 1000 : 2100);
+      effectTimer = setTimeout(clearEffect, DEDICATION_MS);
     }
     async function send(p) {
       const c = synchronize();
@@ -77,5 +86,5 @@
     function bind(p) { const button = doc.getElementById('send-flower'); if (button) button.onclick = () => send(p); }
     return { panelHTML, bind, sent, synchronize, signature: () => [scope, flight?.targetId ?? null, [...confirmed]], clearEffect };
   }
-  return { badgesHTML, create };
+  return { badgesHTML, rosterHTML, create };
 });

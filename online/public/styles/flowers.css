@@ -3,6 +3,8 @@
 .honor-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
 .roster-row .honor-badges { gap: 3px; margin: 3px 0; }
 .roster-row .honor-badge { padding: 0 4px; font-size: 10px; }
+.roster-flower-count { display: inline-flex; align-items: center; gap: 3px; color: #81523c; font: 700 11px/1.5 ui-sans-serif,sans-serif; white-space: nowrap; }
+.roster-flower-count b { font-weight: 700; font-variant-numeric: tabular-nums; }
 .flower-panel { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px 14px; margin: 14px 0; padding: 13px 15px; border: 1px solid #a38857; border-radius: 7px; color: #eed7ac; background: linear-gradient(120deg,#3d3024,#29271d); box-shadow: inset 0 1px #d5b87726; }
 .flower-count { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
 .flower-count strong { color: #f2d59e; font-size: 26px; line-height: 1.2; }
@@ -18,13 +20,13 @@
 .flower-celebration * { pointer-events: none; }
 .flower-particle { position: absolute; left: var(--x); bottom: -70px; width: var(--size); color: var(--petal); opacity: 0; animation: flower-flight 1.65s var(--delay) ease-out both; }
 .flower-particle svg { display: block; width: 100%; height: auto; }
-.flower-dedication { position: absolute; left: 50%; top: 32%; display: grid; justify-items: center; gap: 7px; width: min(320px,85vw); padding: 18px; border: 1px solid #c4a372; border-radius: 10px; background: #32261df2; box-shadow: 0 8px 35px #130d0a60,inset 0 0 0 3px #d4bb8520; color: #f4dbb5; animation: flower-message 2.1s ease both; text-align: center; }
+.flower-dedication { position: absolute; left: 50%; top: 32%; display: grid; justify-items: center; gap: 7px; width: min(320px,85vw); padding: 18px; border: 1px solid #c4a372; border-radius: 10px; background: #32261df2; box-shadow: 0 8px 35px #130d0a60,inset 0 0 0 3px #d4bb8520; color: #f4dbb5; animation: flower-message var(--dedication-duration,4500ms) ease both; text-align: center; }
 .flower-dedication strong { font: 700 19px/1.5 Georgia,'Songti SC','SimSun',serif; overflow-wrap: anywhere; }
 .flower-dedication small { color: #cdb68f; font-size: 12px; }
 .flower-bouquet { width: 48px; color: #eda5ac; }
 .flower-bouquet svg { display: block; width: 100%; }
 @keyframes flower-flight { 0% { opacity: 0; transform: translate(0,0) rotate(0deg); } 15% { opacity: .92; } 75% { opacity: .85; } 100% { opacity: 0; transform: translate(var(--drift),-110vh) rotate(var(--turn)); } }
-@keyframes flower-message { 0% { opacity: 0; transform: translate(-50%,12px) scale(.97); } 14%,75% { opacity: 1; transform: translate(-50%,0) scale(1); } 100% { opacity: 0; transform: translate(-50%,-10px); } }
+@keyframes flower-message { 0% { opacity: 0; transform: translate(-50%,12px) scale(.97); } 6%,90% { opacity: 1; transform: translate(-50%,0) scale(1); } 100% { opacity: 0; transform: translate(-50%,-10px); } }
 @media (max-width: 850px) { .target:has(.flower-panel) { left: 50%; top: 50%; right: auto; width: min(372px,calc(100% - 20px)); max-height: calc(100% - 104px); } }
 @media (max-width: 420px) { .flower-panel { gap: 7px; padding: 11px; } .send-flower { padding: 8px 10px; } }
 @media (prefers-reduced-motion: reduce) { .flower-particle { display: none; animation: none; } .flower-dedication { animation: none; transform: translateX(-50%); } }

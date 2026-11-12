@@ -91,9 +91,9 @@
       .join('')}</div><div class="person-content"><div class="honor-winners">${item.winners
       .map(
         (winner) =>
-          `<div class="honor-winner"><div class="honor-name-line"><h4>${escape(
+          `<div class="honor-winner"><h4>${escape(
             winner.name
-          )}</h4><span class="annual-model-medal" role="img" aria-label="年度榜样勋章" title="年度榜样">★</span></div><p class="employee-id">工号 ${escape(winner.employeeId)}</p></div>`
+          )}</h4><p class="employee-id">工号 ${escape(winner.employeeId)}</p></div>`
       )
       .join('')}</div><p class="honor-title">${escape(
       item.label
