@@ -53,17 +53,37 @@
 .ranking-tabs button{flex:1;padding:6px 10px;font-size:11px;border:1.5px solid #8c6239;background:linear-gradient(180deg,#e8d2ab,#d4b685);color:var(--ink-2);border-radius:0;clip-path:var(--clip-banner);cursor:pointer;font-weight:700;box-shadow:inset 0 1px 0 #fff6e080}
 .ranking-tabs button.active{border-color:#d49642;background:linear-gradient(180deg,#4f311a,#362010);color:#ffe8b3;box-shadow:inset 0 1px 0 #ffdf9e38}
 
-/* 大转盘覆盖层：异形藤蔓雕花木盘 */
-.wheel-overlay{position:absolute;inset:0;z-index:44;display:flex;align-items:center;justify-content:center;background:rgba(16,9,4,.62);backdrop-filter:blur(4px)}
-.wheel-card{width:min(456px,calc(100% - 24px));max-height:calc(100% - 24px);overflow:auto;background:var(--surface);background-clip:padding-box;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 stretch;border-radius:0;padding:8px 10px;color:var(--ink);box-shadow:none;filter:var(--sh-3)}
-.wheel-card .panel-heading{margin-bottom:10px}
-#wheel-canvas{display:block;width:min(360px,72vw);height:auto;margin:2px auto 10px;image-rendering:auto;border-radius:0;clip-path:var(--clip-plaque);background:#362112;border:2px solid #8c6239}
-#wheel-cost{color:var(--brand-dk);margin:6px 0 10px;font-weight:700}
-#wheel-spin{width:100%;min-height:42px;font-size:14px;font-weight:800;background:linear-gradient(180deg,#ffc25c,var(--sun));border-color:#783900;color:#2e1600;border-radius:0;clip-path:var(--clip-banner);box-shadow:inset 0 1px 0 #fff3cf99}
-#wheel-spin:hover:not(:disabled){background:linear-gradient(180deg,#ffd078,#e8850c)}
-#wheel-result{margin-top:8px}
+/* 幸运大转盘：保留翠藤木框与羊皮标签，主体使用高清平滑黄铜与红宝石。 */
+.wheel-overlay{position:absolute;inset:0;z-index:44;display:flex;align-items:center;justify-content:center;padding:10px;background:rgba(16,9,4,.62);backdrop-filter:blur(4px)}
+.wheel-card{width:min(484px,100%);max-height:100%;overflow:auto;overscroll-behavior:contain;background:#faeccd;background-clip:padding-box;border:26px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 32px / 0 stretch;border-radius:0;padding:7px 10px 4px;color:var(--ink);box-shadow:none;filter:var(--sh-3);scrollbar-color:#a07b47 #f2e2bf}
+.wheel-card .panel-heading{display:grid;grid-template-columns:36px minmax(0,1fr) 36px;align-items:center;gap:6px;margin:0 0 3px;padding:8px 12px}
+.wheel-heading-copy{min-width:0;text-align:center}
+.wheel-card .panel-heading h2{font-size:20px;letter-spacing:1px;line-height:1.3}
+.wheel-card .panel-heading small{font-size:8px;letter-spacing:1.4px}
+.wheel-card #wheel-close,.wheel-card #wheel-back,#exploration #exploration-close{flex:none;width:32px;height:32px;border:2px solid #ae8b50;background:#4a321d;color:#f1d9a2;box-shadow:inset 1px 1px #8b6840,inset -1px -1px #2d1e11;border-radius:0;clip-path:var(--clip-octagon);font-size:20px}
+.wheel-card #wheel-close,.wheel-card #wheel-back{width:36px;height:36px;justify-self:center}
+.wheel-card #wheel-close:hover:not(:disabled),.wheel-card #wheel-back:hover:not(:disabled),#exploration #exploration-close:hover:not(:disabled){background:#65462a;border-color:#d2b274;color:#fff0c9;box-shadow:inset 1px 1px #a68350,inset -1px -1px #352314}
+.wheel-card #wheel-close:focus-visible,.wheel-card #wheel-back:focus-visible,#exploration #exploration-close:focus-visible{outline:2px solid #f3d58b;outline-offset:2px}
+.wheel-stage{position:relative;width:min(360px,100%);margin:0 auto;flex:none}
+#wheel-canvas{display:block;width:100%;height:auto;aspect-ratio:1;margin:0;image-rendering:auto;border:0;border-radius:0;clip-path:none;background:transparent;touch-action:auto}
+#wheel-spin{position:absolute;z-index:1;left:50%;top:51.5%;display:block;width:32%;height:auto;min-width:44px;min-height:44px;aspect-ratio:1;padding:0;border:0;border-radius:50%;clip-path:none;background:transparent;color:transparent;font-size:0;box-shadow:none;transform:translate(-50%,-50%);touch-action:manipulation;transition:none;cursor:pointer}
+#wheel-spin::before{content:'';position:absolute;inset:-3px;pointer-events:none;border:1px solid #edcb8599;border-radius:50%;clip-path:none;opacity:.4;box-shadow:0 0 14px 3px #dfb56538,0 0 25px 4px #a92e3024;animation:wheel-go-breathe 2.8s ease-in-out infinite alternate;transition:border-color .22s ease,box-shadow .22s ease,opacity .22s ease}
+#wheel-spin:hover:not(:disabled),#wheel-spin:focus-visible{background:transparent;box-shadow:none;outline:none}
+#wheel-spin:hover:not(:disabled)::before,#wheel-spin:focus-visible::before{border-color:#fff0b8;opacity:1;box-shadow:0 0 0 1px #edcf9173,0 0 19px 4px #dfb56559,0 0 29px 5px #b7353430;animation:none}
+#wheel-spin:active:not(:disabled){background:transparent;transform:translate(-50%,-50%)}
+#wheel-spin:disabled{opacity:1;cursor:default;background:transparent;box-shadow:none;transform:translate(-50%,-50%)}
+#wheel-spin:disabled::before{animation:none;opacity:0}
+.wheel-caption{position:relative;margin:2px 5px 0;padding:9px 1px 0;border-top:2px solid #ac8951;text-align:left;background:transparent;box-shadow:inset 0 2px #fff6df;color:#50331b}
+.wheel-free-label{flex:none;padding:3px 8px;border:1px solid #b2965d;clip-path:var(--clip-card);background:#fff1ce;color:#6e4a1e;font-size:10px;font-weight:700;line-height:16px;box-shadow:inset 0 1px #fffaf0;white-space:nowrap}
+.wheel-caption-meta{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center}
+#wheel-cost{display:flex;align-items:center;min-height:32px;height:32px;margin:0;padding:3px 8px;border-left:3px solid #ab8546;background:#fff2d2;font-size:10px;line-height:15px;font-weight:700;color:#674321;white-space:normal}
+.wheel-result-slot{display:flex;align-items:center;justify-content:center;height:37px;min-height:37px}
+#wheel-result{width:100%;max-height:34px;overflow:auto;margin:0;padding:3px 0;border:0;border-radius:0;background:transparent;color:#795324;font-size:11px;line-height:16px;font-weight:800;text-align:center;box-shadow:none}
 #wheel-result:empty{display:none}
-#wheel-rules{margin-top:6px}
+@keyframes wheel-go-breathe{from{opacity:.18}to{opacity:.75}}
+@media(max-width:440px){.wheel-overlay{padding:6px}.wheel-card{padding:7px 4px 3px}.wheel-card .panel-heading{padding:7px 9px}.wheel-card .panel-heading h2{font-size:18px}.wheel-card .panel-heading small{font-size:7px;letter-spacing:.8px}.wheel-caption{margin:0;padding-left:2px;padding-right:2px}.wheel-caption-meta{gap:8px}#wheel-cost{font-size:9px;padding-left:5px;padding-right:4px}.wheel-free-label{font-size:9px;padding-left:6px;padding-right:6px}}
+@media(max-height:670px){.wheel-stage{width:min(288px,100%)}.wheel-card .panel-heading{padding-top:6px;padding-bottom:6px}.wheel-caption{padding-top:6px}.wheel-result-slot{height:34px;min-height:34px}}
+@media(prefers-reduced-motion:reduce){#wheel-spin::before{animation:none;transition:none;opacity:.55}}
 
 /* 电梯选层覆盖层：异形藤蔓黄铜机械楼层盘 */
 .elevator-picker{position:absolute;inset:0;z-index:46;display:flex;align-items:center;justify-content:center;background:rgba(16,9,4,.62);backdrop-filter:blur(4px)}

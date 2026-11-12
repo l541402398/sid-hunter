@@ -119,13 +119,13 @@
   };
   // 转盘：免费随机积分，每日上限 3 次（全楼层 NPC 共享），不消耗积分。
   const WHEEL = {
-    slotCount: 10,
+    slotCount: 8,
     maxDailySpins: 3,
-    // 槽位分值池（建议）；kind 改为 points
-    chipAmounts: [1, 2, 3, 4, 5, 6, 8]
+    // 2 / 4 / 6 / 8 积分各占两格，按此顺序重复一轮。
+    chipAmounts: [2, 4, 6, 8]
   };
   const WHEEL_CHIP_COLOR = '#F59E0B';
-  // 转盘 10 槽全部为随机积分项。
+  // 八格积分奖励，同一分值各占两格。
   function buildWheelPool(faction, wheel = WHEEL) {
     const pool = [];
     for (let i = 0; i < wheel.slotCount; i++) {

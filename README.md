@@ -128,7 +128,7 @@ node online/score-export-test.mjs
 | J 互动命中在线真人 | 随机 +1，同一目标每日 ≤2，渠道每日 ≤10；NPC/离线不产分 | 可得 |
 | 猜拳等小游戏 | 胜者 +2，共享每日上限 10；不再押注 | 可得 |
 | NPC 福利 | 当日探索满 5/10/15/20/25 个容器依次解锁，免费领取，每类每日 1 次 | 可得 |
-| NPC 大转盘 | 每日 3 次、全部免费、全楼层共享，10 格随机积分 | 可得 |
+| NPC 大转盘 | 每日 3 次、全部免费、全楼层共享，8 格积分奖励（2／4／6／8 各两格） | 可得 |
 | 对抗中每满 30 分钟 | +1 | 停止 |
 | 正确指认 / 正确刺杀 | +10 / +3（无额外击杀奖励） | 停止 |
 
@@ -193,7 +193,8 @@ node online/exploration-test.mjs           # 旧金币探索夹具（整改前�
 node online/points-explore-test.mjs        # 整改：探索/答题/NPC 解锁福利/J 额度/休战可玩：7 项
 node online/truce-offline-test.mjs         # 整改：休战公开投影、碰撞、J、技能冻结、重连（取代 ghost-offline-test）
 node online/skill-charges-test.mjs         # 指认/刺杀单技能、按阵营 CD 与 UI 文案：20 项
-node online/progression-test.mjs           # 转盘/特殊券/计分/三种结束：15 项
+node online/progression-test.mjs           # 八格转盘/积分/结束条件：14 项
+node --test online/wheel-ui-state-test.mjs # 转盘请求、动画、私有状态与返回隔离：7 项
 node online/self-test.mjs                  # 11 项
 node online/rules-skill-test.mjs           # 14 项
 node online/rules-qa.mjs                   # 30 项

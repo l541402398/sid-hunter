@@ -4,7 +4,7 @@
 (function () {
   const SID = window.SID = window.SID || {};
   const WORLD = window.WORLD;
-  const WHEEL = WORLD.WHEEL || { slotCount: 10, maxDailySpins: 3, chipAmounts: [1, 2, 3, 4, 5, 6, 8] };
+  const WHEEL = WORLD.WHEEL || { slotCount: 8, maxDailySpins: 3, chipAmounts: [2, 4, 6, 8] };
   const WHEEL_CHIP_COLOR = WORLD.WHEEL_CHIP_COLOR || '#F59E0B';
   // 预览用的服务端同构池；落点始终以服务端返回的 slots 为准。
   function buildWheelPool(faction) {

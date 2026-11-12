@@ -125,7 +125,7 @@
   const RULES = WORLD.RULES || { endRemainingPlayers: 100, timeLimitMs: 7200000 };
   // ---------- 已拆分到 js/core/* 与 js/render/* 的自包含工具（别名回本地，调用点零改动）----------
   const { CHUNK, CHUNK_CACHE_LIMIT, pruneChunks, chunkFor, ensureChunks, get: chunkGet, clear: chunkClear } = SID.chunks;
-  const { WHEEL, WHEEL_CHIP_COLOR, buildWheelPool } = SID.wheel;
+  const { WHEEL, buildWheelPool } = SID.wheel;
   const { shade, SKIN } = SID.paint;
   const { escapeText, commandId } = SID.text;
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
@@ -215,7 +215,7 @@
   let snapshotGen = 0; // 每次快照自增；防止旧 HTTP 响应覆盖已更新的快照投影
   // 新增：大转盘覆盖层 / 排行榜 / 结算（均只读私有投影与公开投影，不新增身份线索）。
   let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
-  let wheelSpinFlight = null, wheelResult = '';
+  let wheelSpinFlight = null, wheelResult = '', wheelViewGeneration = 0;
   let playerCache = new Map(), skinCache = new Map(), rosterCache = [];
   // directory：全员公开档案（无坐标，变化时才由推流下发）；players：同层同空间的实时坐标。
   // everyone()：名单、搜索、目标档案、排行用的合并视图——同层玩家用实时数据覆盖名录条目。
@@ -1365,6 +1365,7 @@
     // 保存已有下拉框的选择值，避免刷新丢失用户刚选的目标
     const prevVals = {};
     host.querySelectorAll('select[data-select]').forEach(sel => { prevVals[sel.dataset.select] = sel.value; });
+    const scroller = $('exploration').querySelector('.exploration-body'), scrollTop = scroller?.scrollTop || 0;
     host.replaceChildren();
     for (const def of npcExchangeConfigList()) {
       const usedCount = Number(usedMap[def.key]) || 0;
@@ -1478,6 +1479,7 @@
       row.append(meta, acts);
       host.append(row);
     }
+    if (scroller) scroller.scrollTop = scrollTop;
   }
   // E 就近互动：同时比较附近玩家、家具/NPC 与楼梯入口，取距离最近者；已选中的近玩家在距离相当时优先。
   // 玩家必须同层（floorId 一致）才参与就近判定。
@@ -1612,9 +1614,12 @@
   }
   function openWheel(entityId, name) {
     if (!me || !entityId) return;
+    const npcScrollTop = $('exploration').querySelector('.exploration-body')?.scrollTop || 0;
+    const npcSelections = Array.from($('exploration').querySelectorAll('select[data-select]'), select => [select.dataset.select, select.value]);
     closeExploration(); closeGames(); closeRanking();
     selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster();
-    wheelTarget = { entityId, name: name || '大转盘' };
+    wheelViewGeneration++;
+    wheelTarget = { entityId, name: name || '大转盘', npcScrollTop, npcSelections };
     wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
     wheelSlots = buildWheelPool(me.faction);
     wheelOpen = true;
@@ -1622,16 +1627,31 @@
     const result = $('wheel-result'); result.textContent = ''; result.hidden = true;
     drawWheel(wheelSlots, wheelAngle);
     updateWheelControls();
-    $('wheel-close').focus({ preventScroll: true });
+    ($('wheel-spin').disabled ? $('wheel-close') : $('wheel-spin')).focus({ preventScroll: true });
   }
   function closeWheel() {
     if (!wheelOpen) return;
+    wheelViewGeneration++;
     wheelOpen = false; wheelTarget = null; wheelSlots = null; wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
     if (wheelAnim) { cancelAnimationFrame(wheelAnim); wheelAnim = 0; }
     const overlay = $('wheel-overlay'); if (overlay) overlay.hidden = true;
     const result = $('wheel-result'); if (result) { result.textContent = ''; result.hidden = true; }
     const canvasEl = $('wheel-canvas');
     if (canvasEl) { const g = canvasEl.getContext('2d'); g.clearRect(0, 0, canvasEl.width, canvasEl.height); }
+  }
+  function returnToNpc() {
+    if (!wheelOpen || !wheelTarget) return;
+    const previous = wheelTarget;
+    closeWheel();
+    if (!me || !explorationEntity('npc', previous.entityId)) return;
+    openExploration('npc', previous.entityId);
+    const scroller = $('exploration').querySelector('.exploration-body');
+    if (scroller) scroller.scrollTop = previous.npcScrollTop;
+    for (const [key, value] of previous.npcSelections) {
+      const select = Array.from($('exploration').querySelectorAll('select[data-select]')).find(item => item.dataset.select === key);
+      if (select && Array.from(select.options).some(option => option.value === value)) select.value = value;
+    }
+    $('exploration-wheel')?.focus({ preventScroll: true });
   }
   function showWheelResult() {
     const result = $('wheel-result'); if (!result) return;
@@ -1643,61 +1663,24 @@
     const spins = wheelSpinsFor(wheelTarget.entityId);
     const limitReached = spins >= maxSpins;
     const busy = !!wheelSpinFlight || wheelAnimating;
-    $('wheel-title').textContent = '幸运大转盘';
+    setText($('wheel-title'), '幸运大转盘');
     let costText = limitReached
       ? `本场转盘次数已用完（${spins}/${maxSpins}）`
-      : `本场第 ${spins + 1}/${maxSpins} 次 · 随机积分奖励`;
+      : `本场第 ${spins + 1}/${maxSpins} 次`;
     if (finished) costText += ' · 游戏已结束';
     else if (selfDisabled()) costText += ' · 眩晕/僵直中';
-    $('wheel-cost').textContent = costText;
+    setText($('wheel-cost'), costText);
     const button = $('wheel-spin');
-    button.disabled = busy || finished || selfDisabled() || limitReached;
-    button.textContent = busy ? '转动中…' : limitReached ? `本场已用完 ${maxSpins} 次` : '转动转盘';
-    $('wheel-rules').textContent = `共 ${WHEEL.slotCount} 格积分奖励 · 每场 ${maxSpins} 次 · 各楼层共享次数`;
+    setProp(button, 'disabled', busy || finished || selfDisabled() || limitReached);
+    const label = busy ? '转动中，请稍候' : limitReached ? `本场已用完 ${maxSpins} 次` : finished
+      ? '游戏已结束' : selfDisabled() ? '眩晕或僵直中，暂时无法抽奖' : '点击中央 GO 抽奖';
+    if (button.getAttribute('aria-label') !== label) button.setAttribute('aria-label', label);
+    setProp(button, 'title', label);
+    const spinState = busy ? 'spinning' : button.disabled ? 'unavailable' : 'ready';
+    if (button.dataset.state !== spinState) button.dataset.state = spinState;
   }
   function drawWheel(slots, angle) {
-    const canvasEl = $('wheel-canvas'); if (!canvasEl) return;
-    const g = canvasEl.getContext('2d');
-    const w = canvasEl.width, h = canvasEl.height, cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 10;
-    g.clearRect(0, 0, w, h);
-    // 外圈：延续像素 / 发光风格的双描边。
-    g.save();
-    g.strokeStyle = WHEEL_CHIP_COLOR; g.globalAlpha = .9; g.lineWidth = 3;
-    g.beginPath(); g.arc(cx, cy, R + 4, 0, Math.PI * 2); g.stroke();
-    g.globalAlpha = .25; g.lineWidth = 8;
-    g.beginPath(); g.arc(cx, cy, R + 9, 0, Math.PI * 2); g.stroke();
-    g.restore();
-    if (!slots || !slots.length) return;
-    const n = slots.length, slice = Math.PI * 2 / n;
-    for (let i = 0; i < n; i++) {
-      const mid = -Math.PI / 2 + i * slice + angle, a0 = mid - slice / 2, a1 = mid + slice / 2, slot = slots[i];
-      g.beginPath(); g.moveTo(cx, cy); g.arc(cx, cy, R, a0, a1); g.closePath();
-      g.fillStyle = slot.color || '#334155'; g.fill();
-      g.strokeStyle = '#0F172A'; g.lineWidth = 2; g.stroke();
-      // 文字沿扇区中线排布；左半圈翻转，保证正向可读。
-      g.save();
-      g.translate(cx + Math.cos(mid) * R * 0.62, cy + Math.sin(mid) * R * 0.62);
-      g.rotate(Math.cos(mid) < 0 ? mid + Math.PI : mid);
-      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#0F172A';
-      if (slot.kind === 'special') {
-        g.font = '700 19px -apple-system,"PingFang SC",sans-serif';
-        g.fillText(slot.glyph || '★', 0, -9);
-        g.font = '700 11px -apple-system,"PingFang SC",sans-serif';
-        g.fillText(String(slot.label || '').replace('券', '').slice(0, 2), 0, 9);
-      } else {
-        g.font = '700 22px ui-monospace,monospace';
-        g.fillText(String(slot.amount), 0, 0);
-      }
-      g.restore();
-    }
-    // 中心轴。
-    g.beginPath(); g.arc(cx, cy, 34, 0, Math.PI * 2); g.fillStyle = '#0F172A'; g.fill();
-    g.strokeStyle = WHEEL_CHIP_COLOR; g.lineWidth = 3; g.stroke();
-    g.fillStyle = '#E2E8F0'; g.font = '700 14px -apple-system,"PingFang SC",sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('转盘', cx, cy);
-    // 顶部指针：固定不随转盘旋转。
-    g.beginPath(); g.moveTo(cx, cy - R + 16); g.lineTo(cx - 12, cy - R - 12); g.lineTo(cx + 12, cy - R - 12); g.closePath();
-    g.fillStyle = WHEEL_CHIP_COLOR; g.fill(); g.strokeStyle = '#0F172A'; g.lineWidth = 2; g.stroke();
+    SID.wheelArt.draw($('wheel-canvas'), slots, angle);
   }
   // 旋转动画：4 圈 + 目标角，约 1.2s，缓出；结束时 slotIndex 落在顶部指针处。
   function animateWheel(slots, slotIndex, done) {
@@ -1722,9 +1705,9 @@
     if (!wheelOpen || !wheelTarget || wheelSpinFlight || !me) return;
     const entityId = wheelTarget.entityId, button = $('wheel-spin');
     if (!button || button.disabled) return;
-    const request = { session: sessionGeneration, token: sessionToken };
-    const sameSession = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
-    const samePanel = () => sameSession() && wheelOpen && wheelTarget && wheelTarget.entityId === entityId;
+    const request = { session: sessionGeneration, token: sessionToken, view: wheelViewGeneration, round: roundId };
+    const sameSession = () => request.session === sessionGeneration && request.token === sessionToken && request.round === roundId && !!me;
+    const samePanel = () => sameSession() && request.view === wheelViewGeneration && wheelOpen && wheelTarget && wheelTarget.entityId === entityId;
     wheelSpinFlight = request; wheelResult = ''; showWheelResult(); keys.clear(); lastIntent = '';
     updateWheelControls();
     try {
@@ -1732,6 +1715,7 @@
       const stopped = await stopIntent();
       if (!samePanel()) return;
       if (stopped.status !== 200 || stopped.ok !== true) throw new Error('停止意图未确认');
+      const projectionBeforePlay = me;
       const result = await api('/api/play', { commandId: commandId(), kind: 'wheel', entityId, ...floorFields() });
       if (!samePanel()) return;
       if (![200, 400].includes(result.status) || typeof result.ok !== 'boolean') throw new Error('结算结果未确认');
@@ -1745,10 +1729,14 @@
       animateWheel(slots, slotIndex, () => {
         wheelAnimating = false;
         if (!samePanel()) return;
-        if (result.exploration) me = { ...me, exploration: result.exploration };
-        if (result.games) me = { ...me, games: result.games };
-        if (typeof result.score === 'number') me = { ...me, score: result.score };
-        if (result.faction) me = { ...me, faction: result.faction };
+        // Keep newer private projections (including other rewards) received during the animation.
+        // The HTTP projection is a fallback only when no newer state has replaced it.
+        if (me === projectionBeforePlay) {
+          if (result.exploration) me = { ...me, exploration: result.exploration };
+          if (result.games) me = { ...me, games: result.games };
+          if (typeof result.score === 'number') me = { ...me, score: result.score };
+          if (result.faction) me = { ...me, faction: result.faction };
+        }
         wheelResult = result.resultText || '已结算';
         updateScoreDisplay(); showWheelResult(); updateWheelControls();
       });
@@ -2286,6 +2274,7 @@
   $('ranking-toggle').onclick = () => { if ($('ranking').hidden) openRanking(); else closeRanking(); };
   $('ranking-close').onclick = closeRanking;
   $('wheel-close').onclick = closeWheel;
+  $('wheel-back').onclick = returnToNpc;
   $('wheel-spin').onclick = () => spinWheel();
   $('finish-close').onclick = hideFinish;
 

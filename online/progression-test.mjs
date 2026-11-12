@@ -24,7 +24,8 @@ async function test(name, fn) {
 }
 function fixture(count = 3, options = {}) {
   // random 固定：首位为坏人，其余为好人（确定性阵营夹具）。
-  const r = createRoom({ random: () => 0.99, allowForceMode: true, ...options });
+  let factionDraws = 0;
+  const r = createRoom({ random: () => factionDraws++ === 0 ? 0 : 0.99, allowForceMode: true, ...options });
   for (let i = 0; i < count; i++) r.join(`session-${i}`, `玩家${i}`);
   return r;
 }
@@ -32,6 +33,12 @@ function fixture(count = 3, options = {}) {
 const guard = (r, p) => ({ roundId: r.room.roundId, expectedFloorRevision: p.floorRevision });
 const search = (r, p, c, extra = {}) => { p.x = c.x; p.y = c.y; return r.interact(p.sessionId, { commandId: nonce(), kind: 'search', entityId: c.id, ...guard(r, p), ...extra }); };
 const wheel = (r, p, entity = npc) => { p.x = entity.x; p.y = entity.y; return r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: entity.id, ...guard(r, p) }); };
+const wheelAmounts = [2, 4, 6, 8, 2, 4, 6, 8];
+function assertWheelPool(pool) {
+  assert.equal(pool.length, 8);
+  assert.deepEqual(Array.from(pool, item => item.amount), wheelAmounts);
+  for (const amount of [2, 4, 6, 8]) assert.equal(pool.filter(item => item.amount === amount).length, 2);
+}
 
 await test('WORLD 新常量与函数：浏览器脚本与 CommonJS 双载、无 import/export', async () => {
   // 合并适配：world 已拆成 shared/world/* + 聚合器；加载契约检查统一读拼接源码（顺序同 index.html）。
@@ -47,7 +54,8 @@ await test('WORLD 新常量与函数：浏览器脚本与 CommonJS 双载、无 
     assert.equal(JSON.stringify(w.SCORE), JSON.stringify(SCORE));
     assert.equal(JSON.stringify(w.EXPLORE), JSON.stringify(WORLD.EXPLORE));
     assert.equal(JSON.stringify(w.COMBAT), JSON.stringify(WORLD.COMBAT));
-    assert.equal(w.buildWheelPool('good').length, 10);
+    assert.equal(w.WHEEL.slotCount, 8);
+    for (const faction of ['good', 'bad']) assertWheelPool(w.buildWheelPool(faction));
     assert.ok(!('wheelRewards' in w.PLAY_CONFIG));
   }
 });
@@ -55,10 +63,10 @@ await test('转盘：积分改版后免费（无花费函数），每日上限 3
   assert.equal(WORLD.wheelSpinCost, undefined);
   assert.equal(WHEEL.maxDailySpins, 3);
 });
-await test('buildWheelPool：两阵营十槽全为随机积分，不再有线索券/洗心革面/重生券', () => {
+await test('buildWheelPool：两阵营八槽，2/4/6/8积分各两格', () => {
   const good = WORLD.buildWheelPool('good'), bad = WORLD.buildWheelPool('bad');
   for (const pool of [good, bad]) {
-    assert.equal(pool.length, WHEEL.slotCount);
+    assertWheelPool(pool);
     for (const item of pool) {
       assert.equal(item.kind, 'points'); assert.ok(Number.isInteger(item.amount) && item.amount >= 1);
       assert.equal(typeof item.label, 'string'); assert.match(item.label, /积分/);
@@ -68,6 +76,36 @@ await test('buildWheelPool：两阵营十槽全为随机积分，不再有线索
   }
   assert.ok(new Set(good.map(i => i.amount)).size > 1, '积分数量应随槽位变化');
   assert.deepEqual(WORLD.buildWheelPool('good'), good); // 顺序确定，可复现
+});
+await test('客户端转盘预览：共享规则与备用配置均为八格，奖励分布一致', async () => {
+  const source = await readFile(new URL('./public/js/core/wheel.js', import.meta.url), 'utf8');
+  for (const world of [WORLD, { WHEEL }, {}]) {
+    const sandbox = { window: { WORLD: world } };
+    runInNewContext(source, sandbox);
+    assert.equal(sandbox.window.SID.wheel.WHEEL.slotCount, 8);
+    for (const faction of ['good', 'bad']) assertWheelPool(sandbox.window.SID.wheel.buildWheelPool(faction));
+  }
+});
+await test('转盘：两阵营每个中奖索引均返回对应八格奖项并准确入账', () => {
+  for (const faction of ['good', 'bad']) {
+    for (let slotIndex = 0; slotIndex < wheelAmounts.length; slotIndex++) {
+      let draws = 0;
+      const r = fixture(1, { randomInt: max => { draws++; assert.equal(max, 8); return slotIndex; } });
+      const p = r.find(0); p.faction = faction;
+      const beforeScore = p.score;
+      const result = wheel(r, p);
+      assert.equal(result.ok, true, `${faction} slot ${slotIndex}`);
+      assert.equal(draws, 1);
+      assertWheelPool(result.wheel.slots);
+      assert.equal(result.wheel.slotIndex, slotIndex);
+      assert.deepEqual(result.wheel.item, result.wheel.slots[slotIndex]);
+      assert.equal(result.wheel.item.amount, wheelAmounts[slotIndex]);
+      assert.equal(result.prize, wheelAmounts[slotIndex]);
+      assert.equal(result.score, beforeScore + wheelAmounts[slotIndex]);
+      assert.equal(p.score, result.score);
+      assert.equal(p.scoreBreakdown.participate, wheelAmounts[slotIndex]);
+    }
+  }
 });
 await test('转盘：每日3次免费、全楼层共享、积分入账、第4次拒绝且状态不变', () => {
   let draws = 0;
