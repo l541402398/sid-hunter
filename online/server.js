@@ -11,6 +11,7 @@ const { makeRouter } = require('./server/app.js');
 const { createStore } = require('./server/store.js');
 const { createProfiles } = require('./server/profiles.js');
 const { createActivity } = require('./server/activity.js');
+const roleModelEmpNos = [...new Set(require('../annual-review/people.mock.js').flatMap(item => item.winners.map(p => p.employeeId)))];
 
 const STORE = createStore();
 if (STORE.enabled) {
@@ -31,7 +32,9 @@ const restoredSnapshot = admin?.liveSnapshot
   : STORE.loadSnapshot();
 // 实物奖品池：全活动共享，独立表落盘；每次中奖/改库存同步写库，写失败即回滚（不先宣布中奖）。
 const PRIZES = createPrizePool({ initial: STORE.loadPrizes(), persist: state => STORE.enabled ? STORE.savePrizes(state) : false });
-const ROOM = createRoom({ prizes: PRIZES, ...(restoredSnapshot ? { restore:restoredSnapshot, features:restoredSnapshot.features } : {}) });
+const ROOM = createRoom({ prizes: PRIZES, flowerRecipients: STORE.loadFlowerRecipients(),
+  roleModelEmpNos, persistFlowerRecipients: list => STORE.saveFlowerRecipients(list),
+  ...(restoredSnapshot ? { restore:restoredSnapshot, features:restoredSnapshot.features } : {}) });
 require('./server/auth.js').bindRoom(ROOM);
 // 重启恢复的玩家可能来自旧代码：用员工库补一次组织信息，目标档案无需等重连即可显示。
 for (const player of ROOM.room.players) {

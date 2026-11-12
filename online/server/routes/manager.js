@@ -15,6 +15,19 @@ async function handle(ctx) {
   if (pathname.startsWith('/api/manager/')) {
     const action = pathname.slice('/api/manager/'.length);
     const token = managerSessionOf(req);
+    if (action === 'flower-recipients') {
+      const gate = MANAGER.sessionFor(req, token);
+      if (gate.status !== 200) return managerReply(res, gate);
+      if (req.method === 'GET') return send(res, 200, { ok: true, ...ROOM.flowers.view() });
+      if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
+      if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });
+      const body = await readBody(req, 1 << 18);
+      const mutation = MANAGER.mutationGate(req, token, body);
+      if (mutation.status !== 200) return managerReply(res, mutation);
+      if (body.confirm !== true) return send(res, 400, { ok: false, error: '保存收花人名单需要确认' });
+      const result = ROOM.flowers.configure(body.recipients);
+      return send(res, result.ok ? 200 : (/保存失败/.test(result.error || '') ? 503 : 400), result);
+    }
     if (action === 'login') {
       if (req.method !== 'POST') return send(res, 405, { ok: false, error: '管理操作仅允许POST' });
       if (!isJsonRequest(req)) return send(res, 415, { ok: false, error: '管理操作仅允许JSON' });

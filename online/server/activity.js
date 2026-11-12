@@ -270,7 +270,8 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   }
   function guard(){tick();return room.room.accessClosed||'';}
   block(session?.pausedAt?'本场已暂停':'正在检查场次安排');
-  for(const name of ['join','useSkill','performAction','interact','play','attack','floorChange','enterZone','exitZone','searchStart','searchTake','startMinigame','actMinigame','quitMinigame']){
+  if (room.flowers) room.flowers.setPersistence(persist);
+  for(const name of ['join','useSkill','performAction','interact','play','attack','floorChange','enterZone','exitZone','searchStart','searchTake','startMinigame','actMinigame','quitMinigame','sendFlower']){
     const original=room[name];if(typeof original==='function')room[name]=(...args)=>{
       const reason=guard();if(reason)return{ok:false,error:reason,closed:true};
       const result=original(...args);

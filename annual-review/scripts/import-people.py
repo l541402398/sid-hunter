@@ -105,7 +105,11 @@ def export(workbook, output):
     output.write_text(
         "// Generated from mock/榜样数据.xlsx, worksheet 榜样数据.\n"
         "// Regenerate with: python annual-review/scripts/import-people.py\n"
-        "window.AnnualPeopleMock = Object.freeze("
+        "(function(root, factory) {\n"
+        "  const people = Object.freeze(factory());\n"
+        "  if (typeof module !== 'undefined' && module.exports) module.exports = people;\n"
+        "  else root.AnnualPeopleMock = people;\n"
+        "})(typeof window !== 'undefined' ? window : globalThis, () => "
         + json.dumps(items, ensure_ascii=False, indent=2)
         + ");\n",
         encoding="utf-8",

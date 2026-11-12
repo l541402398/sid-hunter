@@ -2,7 +2,7 @@
 // 统一管理：所有修改均经管理员会话、同源与CSRF校验；不保存授权码，不自动重试写操作。
 (() => {
   const $=id=>document.getElementById(id);
-  let authed=false,csrf='',busy=false,loading=false,initialized=false,templates={},history=[],featuresLoaded=false,quizLoaded=false,quizList=[];
+  let authed=false,csrf='',busy=false,loading=false,initialized=false,templates={},history=[],featuresLoaded=false,quizLoaded=false,quizList=[],flowerRecipientsLoaded=false;
   let templateSource='development'; // 仅记录表单值来源，不是运行模式。
   let clueStats=null,currentActivity=null,draftSlots=[],exportBusy=false;
   const uid=()=>globalThis.crypto?.randomUUID?.()||'op_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);
@@ -27,7 +27,7 @@
     if(!r.ok||data.ok===false)throw Error(data.error||'操作失败');
     return data;
   }
-  function showLogin(){authed=false;csrf='';initialized=false;featuresLoaded=false;quizLoaded=false;$('manager-app').hidden=true;$('manager-login-card').hidden=false;$('manager-code').value='';}
+  function showLogin(){authed=false;csrf='';initialized=false;featuresLoaded=false;quizLoaded=false;flowerRecipientsLoaded=false;$('manager-app').hidden=true;$('manager-login-card').hidden=false;$('manager-code').value='';}
   function showApp(){$('manager-app').hidden=false;$('manager-login-card').hidden=true;authed=true;}
   function fill(config){templateSource=config.template;draftSlots=(config.slots||[{id:'daily',label:'每日场',startTime:config.startTime,endTime:config.endTime}]).map(s=>({...s}));renderSlots();
     $('config-minutes').value=Math.floor(config.chargeIntervalMs/60000);$('config-seconds').value=config.chargeIntervalMs/1000%60;
@@ -115,10 +115,29 @@
     renderSession();table('daily-ranking',a.dailyRanking||[],true);table('total-ranking',a.totalRanking||[],true);
     if(!featuresLoaded){const f=await api('features');$('manager-features-list').replaceChildren();for(const item of f.features||[]){const label=document.createElement('label');label.className='admin-switch';const box=document.createElement('input');box.type='checkbox';box.dataset.feature=item.key;box.checked=!!item.enabled;label.append(box,document.createTextNode(item.label));$('manager-features-list').append(label);}featuresLoaded=true;}
     if(!quizLoaded){await loadQuiz();quizLoaded=true;}
+    if(!flowerRecipientsLoaded){await loadFlowerRecipients();flowerRecipientsLoaded=true;}
     await loadPrizes();
     $('manager-tick').textContent='最近刷新 '+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
   }catch(e){$('manager-storage').textContent=e.message;}finally{loading=false;}}
   async function mutate(path,body,messageId){if(busy)return;busy=true;const host=$(messageId);host.textContent='正在保存…';try{const data=await api(path,body);host.textContent='操作成功';await load();return data;}catch(e){host.textContent=e.message+'；未自动重试，请先核对当前状态。';}finally{busy=false;}}
+  async function loadFlowerRecipients() {
+    const data = await api('flower-recipients');
+    $('flower-recipients').value = data.recipients.map(p => p.empNo + (p.name ? ',' + p.name : '')).join('\n');
+    $('flower-recipients-summary').textContent = `已保存 ${data.recipients.length} 位收花人，按工号匹配；名单不会随新场次清空。`;
+  }
+  $('flower-recipients-save').onclick = async () => {
+    if (busy || !authed) return;
+    try {
+      const recipients = $('flower-recipients').value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+        const fields = line.split(/[,，\t]/).map(v => v.trim());
+        if (fields.length > 2) throw Error('每行只填写工号和姓名，用逗号或制表符分隔');
+        return { empNo: fields[0], name: fields[1] || '' };
+      });
+      if (!confirm('确认保存收花人名单？立即生效；不会清空本场已有鲜花或积分。')) return;
+      const result = await mutate('flower-recipients', { recipients, confirm: true }, 'flower-recipients-message');
+      if (result) $('flower-recipients-summary').textContent = `已保存 ${result.recipients.length} 位收花人，名单已生效。`;
+    } catch (error) { $('flower-recipients-message').textContent = error.message; }
+  };
   async function save(config){
     if(!confirm('确认保存设置？不会暂停或结算当前场。今天已开过场则时段/自动开局修改从明天生效；若今天尚未开场且处于启用时段，可能立即开局。技能周期下轮生效，线索间隔修改重新计时。'))return;
     const result=await mutate('config',{config,confirm:true},'config-message');if(result){fill(result.config);$('config-message').textContent=result.message||'设置已保存，当前场未结束。';}

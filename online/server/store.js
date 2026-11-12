@@ -30,6 +30,7 @@ function createStore(options = {}) {
       saveSnapshot() { return false; }, loadSnapshot() { return null; }, clearSnapshot() { return false; },
       saveFeatures() { return false; }, loadFeatures() { return null; },
       savePrizes() { return false; }, loadPrizes() { return null; },
+      saveFlowerRecipients() { return false; }, loadFlowerRecipients() { return []; },
       saveEmployees() { return 0; }, getEmployee() { return null; }, employeeCount() { return 0; }, listEmployees() { return null; },
       loadAdmin() { return null; }, saveAdmin() { return false; },
       loadQuizQuestions() { return null; }, saveQuizQuestions() { return false; },
@@ -104,6 +105,11 @@ function createStore(options = {}) {
       CREATE TABLE IF NOT EXISTS prize_pool (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         state_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS flower_recipients (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        recipients_json TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS quiz_questions (
@@ -230,6 +236,20 @@ function createStore(options = {}) {
     if (!state.enabled) return null;
     try { const row = selectPrizes.get(); return row ? JSON.parse(row.state_json || '{}') : null; }
     catch { return null; }
+  }
+  function loadFlowerRecipients() {
+    if (!state.enabled) return [];
+    const row = db.prepare('SELECT recipients_json FROM flower_recipients WHERE id = 1').get();
+    return row ? JSON.parse(row.recipients_json) : [];
+  }
+  function saveFlowerRecipients(recipients) {
+    if (!state.enabled) return false;
+    try {
+      db.prepare(`INSERT INTO flower_recipients(id,recipients_json,updated_at) VALUES(1,?,?)
+        ON CONFLICT(id) DO UPDATE SET recipients_json=excluded.recipients_json,updated_at=excluded.updated_at`)
+        .run(JSON.stringify(recipients), Date.now());
+      return true;
+    } catch (error) { state.error = String(error.message || error); return false; }
   }
   function clearSnapshot() {
     if (!state.enabled) return false;
@@ -478,6 +498,7 @@ function createStore(options = {}) {
   return { ...state, enabled: state.enabled, file, error: state.error,
     saveRound, savePlayers, loadLastRound, saveSnapshot, loadSnapshot, clearSnapshot, saveFeatures, loadFeatures, savePrizes, loadPrizes,
     saveEmployees, getEmployee, employeeCount, listEmployees,
+    loadFlowerRecipients, saveFlowerRecipients,
     loadAdmin, saveAdmin, loadQuizQuestions, saveQuizQuestions, archiveDay, loadDays, archiveSession, loadSessions,
     close, reason: state.error || 'ok' };
 }

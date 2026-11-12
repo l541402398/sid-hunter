@@ -1,6 +1,10 @@
 // Generated from mock/榜样数据.xlsx, worksheet 榜样数据.
 // Regenerate with: python annual-review/scripts/import-people.py
-window.AnnualPeopleMock = Object.freeze([
+(function(root, factory) {
+  const people = Object.freeze(factory());
+  if (typeof module !== 'undefined' && module.exports) module.exports = people;
+  else root.AnnualPeopleMock = people;
+})(typeof window !== 'undefined' ? window : globalThis, () => [
   {
     "id": "honor-1",
     "sourceRow": 2,

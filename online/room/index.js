@@ -17,6 +17,7 @@ const { createDigest } = require('./digest.js');
 const { createEvents } = require('./events.js');
 const charges = require('./charges.js');
 const { createPrizePool } = require('./prizes.js');
+const { createFlowers } = require('./flowers.js');
 const {
   SKILL_CONFIG, SEG_CHARS, NAME_POOL, TRAIT_POOL,
   pick, randChar, randomSid, randomColors, randomTraits, normalizeGender, hairIndexAllowed, pickHairColor
@@ -342,6 +343,8 @@ function createRoom(options = {}) {
   const minigames = createMinigames({
     room, now, find, gainAchievement,
   });
+  const flowers = createFlowers({ room, find, playerBySession, ensureScoreState,
+    initial: options.flowerRecipients || [], roleModels: options.roleModelEmpNos || [], persistRoster: options.persistFlowerRecipients });
   function skillIdFor(faction) { return faction === 'bad' ? 'assassinate' : 'accuse'; }
   function chargeIntervalFor(faction) {
     return faction === 'bad' ? room.badChargeIntervalMs : room.goodChargeIntervalMs;
@@ -711,6 +714,7 @@ function createRoom(options = {}) {
     return {
       id: p.id,
       name: p.name,
+      ...flowers.publicInfo(p),
       ...combatHealth(p),
       alive: p.alive,
       truce: !p.alive,
@@ -782,6 +786,7 @@ function createRoom(options = {}) {
       protected: !!(p.protectUntil && t < p.protectUntil),
       score: p.score,
       scoreBreakdown: { ...p.scoreBreakdown },
+      flowers: flowers.privateInfo(p),
       firstSearchDone: !!p.firstSearchDone,
       firstMinigameDone: !!p.firstMinigameDone,
       joinedAt: p.joinedAt,
@@ -963,6 +968,7 @@ function createRoom(options = {}) {
     return {
       id: p.id,
       name: p.name,
+      ...flowers.publicInfo(p),
       ...combatHealth(p),
       alive: p.alive,
       truce: !p.alive,
@@ -2459,7 +2465,7 @@ function createRoom(options = {}) {
     playerBySession, playerByEmpNo, find, lastResultSummary, rules, config: SKILL_CONFIG,
     floorFurniture, floorBlockers, safeLanding,
     // 实物奖品池（管理端配置 / 查看中奖记录）。
-    prizes
+    prizes, flowers, sendFlower: flowers.send
   };
 }
 module.exports = { createRoom, migrateLegacyEconomy, SKILL_CONFIG, WORLD, QUIZ };

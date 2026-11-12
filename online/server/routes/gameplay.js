@@ -5,6 +5,20 @@ const { actingSession, currentPlayer } = require('../auth.js');
 
 async function handle(ctx) {
   const { req, res, url, pathname, ROOM, MANAGER, resetTokens, WORLD, openStream } = ctx;
+  if (pathname === '/api/flowers') {
+    if (req.method !== 'POST') return send(res, 405, { ok: false, error: '献花仅允许POST' });
+    if (!currentPlayer(req, url)) return send(res, 401, { ok: false, error: '请先加入游戏' });
+    if ((req.headers['content-type'] || '').split(';')[0].trim() !== 'application/json') return send(res, 415, { ok: false, error: '献花仅允许JSON' });
+    let originOK = true;
+    if (req.headers.origin) {
+      try { const origin = new URL(req.headers.origin); originOK = origin.host === req.headers.host && ['http:', 'https:'].includes(origin.protocol); }
+      catch { originOK = false; }
+    }
+    if (req.headers['sec-fetch-site'] === 'cross-site' || !originOK) return send(res, 403, { ok: false, error: '不能跨站献花' });
+    const body = await readBody(req);
+    const result = ROOM.sendFlower(actingSession(req, url), body);
+    return send(res, result.ok ? 200 : 400, result);
+  }
   if (pathname === '/api/action' && req.method === 'POST') {
     const body = await readBody(req);
     const player = currentPlayer(req, url);

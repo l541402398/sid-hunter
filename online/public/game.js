@@ -295,6 +295,11 @@
     }
     return { ...data, status: res.status };
   }
+  const flowerUI = SID.flowers?.create({
+    context: () => ({ me, roundId, generation: sessionGeneration, finished, closed: gameClosed }),
+    api, toast: showToast,
+    changed: () => { lastTargetSig = ''; if (selected()) renderTarget(); if (mineOpen) renderMine(); }
+  });
   // Insecure LAN contexts have no crypto.randomUUID, so the command id is random string based.
   // 换层保护字段：所有可能驱动移动/互动的上行请求都带上 roundId 与 expectedFloorRevision，
   // 让服务端丢弃换层前按住的迟到指令（不静默放行）。技能 /api/skill 不受楼层限制，不带这些字段。
@@ -469,6 +474,8 @@
   // ---------- 快照消费 ----------
   function applySnapshot(s) {
     if (!s || s.type !== 'snapshot') return;
+    const priorFlowerCount = !awaitingFirst && s.roundId === roundId && s.me?.id === me?.id
+      ? Number(me?.flowers?.received) || 0 : null;
     snapshotGen++;
     if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) {
       notifiedCombatEvents.clear();
@@ -544,6 +551,10 @@
       // The first snapshot after (re)connecting carries everything queued while offline.
       if (awaitingFirst) { for (const e of (s.me.pending || [])) offlineEvents.add(e.eventId); awaitingFirst = false; }
       me = s.me;
+      if (priorFlowerCount !== null && me.flowers?.received > priorFlowerCount) {
+        const points = Math.floor(me.flowers.received / 5) - Math.floor(priorFlowerCount / 5);
+        showToast(`本场已收到 ${me.flowers.received} 朵鲜花${points > 0 ? `，参与积分 +${points}` : ''}`);
+      }
       // 已确认过的摘要不再重复提示（失败/重连时保持同一摘要可用）。
       if (me.interactionSummary && confirmedDigests.has(`${me.interactionSummary.epoch}:${me.interactionSummary.id}`)) {
         me = { ...me, interactionSummary: null };
@@ -554,6 +565,7 @@
         ? { spy: me.skills.probe, kill: me.skills.action }
         : { probe: me.skills.probe, accuse: me.skills.action } };
     }
+    flowerUI?.synchronize();
     // 推流的 me 只在变化时下发：楼层/空间对账必须每帧都用当前 me 跑一遍，不能只在收到新 me 那一帧跑，
     // 否则换层确认恰好落在过渡状态切换之前时，后续帧再也不会收敛。
     if (me && me.id !== undefined) {
@@ -686,7 +698,7 @@
     const tag = !p.alive ? '<span class="out-label">休战</span>'
       : p.id === selfId() ? '<span class="self-label">自己</span>'
         : p.online === false ? '<span class="offline-tag">离线</span>' : '';
-    return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong>${healthHTML(p, true)}${matchHint(hits)}</span>${tag}</button>`;
+    return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong>${p.flowerRecipient || p.annualRoleModel ? `<span class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</span>` : ''}${healthHTML(p, true)}${matchHint(hits)}</span>${tag}</button>`;
   }
   function bindRows(container) { container.querySelectorAll('[data-player]').forEach(b => b.onclick = () => select(Number(b.dataset.player))); }
   function renderRosterUnjoined(query) {
@@ -802,7 +814,7 @@
     // 20Hz position snapshots must not replace a button between pointerdown/pointerup.
     // 签名只取名单行真正会显示/搜索的字段：300 人时不能把每帧都变的战斗/坐标字段拿来序列化比较。
     const all = everyone();
-    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup]), pendingData, pendingFlight]);
+    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowerRecipient, p.annualRoleModel]), pendingData, pendingFlight]);
     if (sig === lastRosterSig) return;
     lastRosterSig = sig;
     const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
@@ -893,7 +905,7 @@
   function selected() { return selectedId === null ? null : everyone().find(p => p.id === selectedId) || null; }
   function syncTarget() {
     const p = selected();
-    const sig = p ? JSON.stringify([(({ x, y, ...profile }) => profile)(p), isInviteable(p), me?.games?.rpsPending?.id || null, me?.games?.rpsResult?.id || null]) : '';
+    const sig = p ? JSON.stringify([(({ x, y, ...profile }) => profile)(p), isInviteable(p), me?.games?.rpsPending?.id || null, me?.games?.rpsResult?.id || null, me?.flowers, flowerUI?.signature(), finished, gameClosed]) : '';
     if (sig === lastTargetSig) { if (holding()) updateSkillStatus(); return; }
     lastTargetSig = sig;
     renderTarget();
@@ -951,7 +963,8 @@
     $('target').hidden = false;
     const orgLine = targetOrgLine(p);
     const status = orgLine || (p.alive ? '对抗中 · 公开档案' : '休战中 · 积分保留');
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div><div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
+    flowerUI?.bind(p);
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     $('private-gate').onclick = () => {
       if (privateOpen) clearPrivate();
@@ -1099,7 +1112,7 @@
     host.hidden = false;
     // Build eyes once; snapshot refreshes update only value slots, never focusable controls.
     if (!host.childElementCount) {
-      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">***</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-flowers" class="mine-flowers"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">***</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
       if ($('mine-logout')) $('mine-logout').onclick = () => $('sso-logout')?.click();
       host.querySelectorAll('[data-field]').forEach(button => button.onclick = () => {
@@ -1115,8 +1128,11 @@
     if ($('mine-health').innerHTML !== health) $('mine-health').innerHTML = health;
     const bd = me.scoreBreakdown || { participate: 0, survival: 0, combat: me.score || 0 };
     const hist = Number(me.historicalScore) || 0;
-    const scoreHTML = `<div class="mine-score-item total"><span>今日总分</span><strong>${typeof me.score === 'number' ? me.score : 0}</strong></div><div class="mine-score-item hist"><span>昨日累计</span><strong>${hist}</strong></div><div class="mine-score-item"><span>参与分</span><strong>${bd.participate || 0}<em>/10</em></strong></div><div class="mine-score-item"><span>存活分</span><strong>${bd.survival || 0}</strong></div><div class="mine-score-item"><span>对抗分</span><strong>${bd.combat || 0}</strong></div>`;
+    const scoreHTML = `<div class="mine-score-item total"><span>今日总分</span><strong>${typeof me.score === 'number' ? me.score : 0}</strong></div><div class="mine-score-item hist"><span>昨日累计</span><strong>${hist}</strong></div><div class="mine-score-item"><span>参与分</span><strong>${bd.participate || 0}</strong></div><div class="mine-score-item"><span>存活分</span><strong>${bd.survival || 0}</strong></div><div class="mine-score-item"><span>对抗分</span><strong>${bd.combat || 0}</strong></div>`;
     if ($('mine-score-card') && $('mine-score-card').innerHTML !== scoreHTML) $('mine-score-card').innerHTML = scoreHTML;
+    const flowerHTML = `<div class="honor-badges">${SID.flowers?.badgesHTML(selfP) || ''}</div><p>本场献花积分 <strong>${me.flowers?.sentPoints || 0} / 10</strong> · 同一对象每场限送一次</p>${selfP?.flowerRecipient || me.flowers?.received > 0 ? `<p>本场收到鲜花 <strong>${me.flowers?.received || 0} 朵</strong> · 每 5 朵 +1 分，无上限</p>` : ''}`;
+    const mineFlowers = $('mine-flowers');
+    if (mineFlowers && mineFlowers.innerHTML !== flowerHTML) mineFlowers.innerHTML = flowerHTML;
     const colors = selfP ? selfP.colors : {};
     const colorHTML = Object.entries(colors).map(([k,c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${escapeText(c[0])}</div>`).join('');
     if ($('mine-colors').innerHTML !== colorHTML) $('mine-colors').innerHTML = colorHTML;
@@ -1158,6 +1174,7 @@
     sessionToken = null; devCsrf = null;
     localStorage.removeItem('sid_session_token'); localStorage.removeItem('sid_lan');
     players = []; directory = []; directoryById = new Map(); everyoneCache = null; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
+    flowerUI?.synchronize();
     badSlots = []; badPoolAvailable = false; lastBadPoolSig = '';
     $('bad-slots').hidden = true; $('bad-toggle').setAttribute('aria-expanded', 'false');
     $('bad-toggle-label').textContent = '展开＋'; renderBadPool();
