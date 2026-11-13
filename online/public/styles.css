@@ -1,6 +1,7 @@
 /* 样式入口：仅按序 @import 各分区，保持与原单文件完全相同的层叠顺序。
    改某个功能只需动对应的 styles/*.css；新增分区在清单末尾追加一行。 */
 @import url("styles/base.css");
+@import url("styles/digital-font.css");
 @import url("styles/badpool.css");
 @import url("styles/layout.css");
 @import url("styles/panels.css");

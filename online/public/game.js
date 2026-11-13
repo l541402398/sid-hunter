@@ -407,7 +407,6 @@
     const el = $('sso-user');
     el.hidden = false;
     el.textContent = `${user.name || user.emp_no}（${user.emp_no}）`;
-    $('sso-logout').hidden = false;
   }
   async function ensureLogin() {
     const params = new URLSearchParams(location.search);
@@ -1101,7 +1100,7 @@
     if (!host.childElementCount) {
       host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">***</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
-      if ($('mine-logout')) $('mine-logout').onclick = () => $('sso-logout')?.click();
+      if ($('mine-logout')) $('mine-logout').onclick = logout;
       host.querySelectorAll('[data-field]').forEach(button => button.onclick = () => {
         const id = button.dataset.field;
         if (revealedFieldIds.has(id)) revealedFieldIds.delete(id); else revealedFieldIds.add(id);
@@ -1160,8 +1159,10 @@
     players = []; directory = []; directoryById = new Map(); everyoneCache = null; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
     badSlots = []; badPoolAvailable = false; lastBadPoolSig = '';
     $('bad-slots').hidden = true; $('bad-toggle').setAttribute('aria-expanded', 'false');
-    $('bad-toggle-label').textContent = '展开＋'; renderBadPool();
+    $('bad-toggle').setAttribute('aria-label', '展开坏人线索');
+    $('bad-toggle-label').textContent = '展开坏人线索'; renderBadPool();
     renderMap.clear(); offlineEvents.clear(); confirmedDigests.clear(); lastRosterSig = lastTargetSig = lastLogSig = lastOccludersKey = '';
+    document.body.classList.remove('player-walking');
     prevLogCount = 0; unreadLogCount = 0; logsStickToBottom = true; lastHudSelfX = NaN; lastHudSelfY = NaN;
     $('target').replaceChildren(); $('target').hidden = true;
     $('candidates').replaceChildren(); $('candidates').hidden = true;
@@ -1513,7 +1514,6 @@
     // 合并适配：dev 把 exploration 改成 <dialog> 后用 .close() 关闭，不再有 hidden 语义；
     // feature 分支的面板契约（含 exploration/rooms-loot 浏览器用例）仍读 .hidden，这里同步保持。
     $('exploration').hidden = true;
-    $('clue-bag').setAttribute('aria-expanded', 'false');
   }
   function openExploration(kind, id = null) {
     // 物品背包已取消；容器一律走搜箱面板；NPC 打开大转盘与探索解锁福利面板。
@@ -1531,7 +1531,6 @@
     explorationPanel = { kind, entityId: id };
     npcExchangeSig = '';
     const entity = explorationEntity(kind, id), host = $('exploration');
-    $('clue-bag').setAttribute('aria-expanded', 'false');
     const heading = kind === 'container' ? entity.container.name : entity.name;
     // 控件每次打开只建立一次；20Hz 快照只更新稳定的值槽。
     host.innerHTML = `<div class="panel-heading"><div><small>NPC 福利</small><h2>${escapeText(heading)}</h2></div><button id="exploration-close" class="icon-button" aria-label="关闭面板">×</button></div>
@@ -1756,11 +1755,6 @@
       const text = String(selfScore());
       if (node.textContent !== text) node.textContent = text;
     }
-    const chipNode = $('chip-count');
-    if (chipNode) {
-      const chipsText = String(Number(me?.npcExchange?.exploredCount) || 0); // 顶栏「探索」：今日已探索容器数
-      if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
-    }
     updatePrizeChip();
   }
   function formatDuration(ms) {
@@ -1784,8 +1778,9 @@
   function syncNextClue() {
     const chip = $('clue-next'), label = $('clue-next-left'), at = $('clue-next-at');
     if (!chip || !label) return;
-    // 核心情报联动区常驻展示「下次线索 ▸ 坏人线索 ▸ 公共日志」：未开启/已结束时显示对应状态文案，保持三者视觉串联。
+    // 中央倒计时兼作坏人线索入口；未开启/已结束时仍可查看已公布线索。
     setProp(chip, 'hidden', false);
+    label.classList.toggle('is-counting', !!nextClueAt && !finished);
     if (finished) {
       setText(label, '已结束');
       if (at) setText(at, '');
@@ -1799,10 +1794,10 @@
       return;
     }
     const left = nextClueAt - serverNow();
-    if (left <= 0) { setText(label, '即将公布'); }
+    if (left <= 0) { setText(label, '00:00'); }
     else {
       const total = Math.ceil(left / 1000), mm = Math.floor(total / 60), ss = total % 60;
-      setText(label, `${String(mm).padStart(2, '0')}分${String(ss).padStart(2, '0')}秒`);
+      setText(label, `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`);
     }
     if (at) setText(at, '');
     // 系统线索条目变化 = 刚刚公布过一轮；给胶囊一次高亮，让玩家知道倒计时被重置了。
@@ -1948,12 +1943,6 @@
   function updateExplorationHUD() {
     const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
     setText($('cover-status'), self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入');
-    setProp($('clue-bag'), 'disabled', !me);
-    const chipNode = $('chip-count');
-    if (chipNode) {
-      const chipsText = String(Number(me?.npcExchange?.exploredCount) || 0); // 顶栏「探索」：今日已探索容器数
-      if (chipNode.textContent !== chipsText) chipNode.textContent = chipsText;
-    }
     updatePrizeChip();
     const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
     if (sig !== nearbySig) {
@@ -1988,10 +1977,7 @@
     if (kind === 'container') { openLootFor(explorationEntity('container', id)); return; }
     openExploration(kind, id);
   }
-  $('clue-bag').onclick = () => {
-    if (!me) return;
-    showToast(`今日已探索 ${Number(me.npcExchange && me.npcExchange.exploredCount) || 0} 个容器 · 今日积分 ${selfScore()}（探索数量达到 5/10/15/20/25 可在任意楼层 NPC 处领取福利）`);
-  };
+
 
   // ---------- 猜拳小游戏：服务端权威 邀请 → 接受 → 10 秒可修改出拳 → 截止揭示 ----------
   const RPS_LABELS = { rock: '石头', paper: '布', scissors: '剪刀' };
@@ -3950,6 +3936,7 @@
     }
     sceneMoving = moving;
     const self = selfPlayer() ? renderMap.get(selfId()) : null;
+    document.body.classList.toggle('player-walking', !!self?.moving);
     const fl = WORLD.floorById(floorId);
     // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
     // 需求①：房间内用房间自己的相机边界（房间通常小于一屏 → 整间居中，不产生滚动）。
@@ -4225,7 +4212,9 @@
     const btn = $('fullscreen-toggle');
     if (!btn) return;
     const active = !!document.fullscreenElement;
-    btn.textContent = active ? '⛶ 退出全屏 (Esc)' : '⛶ 全屏';
+    const label = active ? '退出全屏（Esc）' : '切换全屏模式';
+    btn.setAttribute('aria-label', label);
+    btn.title = label;
     btn.setAttribute('aria-pressed', String(active));
   }
   async function toggleFullscreen() {
@@ -4301,7 +4290,8 @@
     if ($('bad-pool-dialog').open) $('bad-pool-dialog').close();
     $('bad-slots').hidden = true;
     $('bad-toggle').setAttribute('aria-expanded', 'false');
-    $('bad-toggle-label').textContent = '展开＋';
+    $('bad-toggle').setAttribute('aria-label', '展开坏人线索');
+    $('bad-toggle-label').textContent = '展开坏人线索';
   }
   $('bad-toggle').onclick = () => {
     if ($('bad-pool-dialog').open) { closeBadPool(); return; }
@@ -4309,7 +4299,8 @@
     $('bad-slots').hidden = false; renderBadPool();
     $('bad-pool-dialog').showModal();
     $('bad-toggle').setAttribute('aria-expanded', 'true');
-    $('bad-toggle-label').textContent = '收起−';
+    $('bad-toggle').setAttribute('aria-label', '收起坏人线索');
+    $('bad-toggle-label').textContent = '收起坏人线索';
   };
   $('bad-pool-close').onclick = closeBadPool;
   $('bad-pool-dialog').addEventListener('cancel', e => { e.preventDefault(); closeBadPool(); });
@@ -4323,11 +4314,11 @@
     join($('nickname').value);
   });
   // CAS 退出：先撤销本进程会话，再回落到 CAS 注销地址。
-  $('sso-logout').onclick = async () => {
+  async function logout() {
     clearPrivate(true);
     await api('/api/auth/logout', {}).catch(() => {});
     redirectLogout();
-  };
+  }
   $('my-info').onclick = () => {
     if (mineOpen) { clearPrivate(true); return; }
     clearAllInput(); mineOpen = true; revealedFieldIds.clear();

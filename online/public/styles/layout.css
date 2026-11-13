@@ -32,34 +32,49 @@ p{margin:0}
 .clue-chip b{color:#ffd268}
 .clue-chip em{font-style:normal;font-size:10px;font-weight:600;color:#e0b478;padding-left:5px;margin-left:2px;border-left:1px solid #8c5822}
 .clue-chip em:empty{display:none}
-.clue-chip.clue-flash{animation:clueFlash 1.8s ease-out}
+.clue-chip.clue-flash,.intel-countdown.clue-flash .clue-chip{animation:clueFlash 1.8s ease-out}
 @keyframes clueFlash{
   0%{box-shadow:0 0 0 0 #ffae2c99;background:#8c4f14!important;border-color:#ffd268!important}
   60%{box-shadow:0 0 0 8px #ffae2c00;background:#6e3d0f!important}
   100%{box-shadow:inset 0 1px 0 #ffdf9e2e,0 4px 12px rgba(12,6,2,.55);background:linear-gradient(180deg,#573210f0,#381f08f0)!important}
 }
-@media(prefers-reduced-motion:reduce){.clue-chip.clue-flash{animation:none}}
+@media(prefers-reduced-motion:reduce){.clue-chip.clue-flash,.intel-countdown.clue-flash .clue-chip{animation:none}}
 /* 游戏内顶部快捷雕花木牌工具栏（与顶栏合并为单行置顶） */
-.toolbar{pointer-events:none;display:flex;justify-content:flex-end;align-items:center;margin-bottom:0;gap:6px;flex-wrap:nowrap}
+.toolbar{--toolbar-text-scale:1.25;--intel-text-scale:.8;pointer-events:none;display:flex;justify-content:flex-end;align-items:center;margin-bottom:0;gap:6px;flex-wrap:nowrap}
 .toolbar-left,.toolbar-right{pointer-events:auto;display:flex;align-items:center;gap:5px;flex-wrap:nowrap;white-space:nowrap;background-color:#2e1b0ee8;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='24' viewBox='0 0 56 24'><path d='M0 12 Q14 4 28 12 T56 12' fill='none' stroke='%23d49b4b' stroke-width='1' opacity='.18'/><path d='M10 8 L14 5 L12 10 Z M38 15 L42 12 L40 17 Z' fill='%2343a047' opacity='.24'/></svg>"),linear-gradient(180deg,#362112eb,#22140aeb);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-plaque);padding:3px 6px;box-shadow:inset 0 1px 0 #ffdf9e29;filter:drop-shadow(0 4px 10px rgba(12,6,2,.55))}
-/* 核心情报联动组（下次线索倒计时 ▸ 坏人线索 ▸ 公共日志）：鎏金火漆高亮底座，视觉串联三者 */
-.intel-hub{pointer-events:auto;display:inline-flex;align-items:center;gap:4px;flex-wrap:nowrap;white-space:nowrap;background:linear-gradient(180deg,#4f260ef5,#2e1306f5);border:2px solid #ffbe4d;border-radius:0;clip-path:var(--clip-plaque);padding:3px 8px;box-shadow:inset 0 0 0 1px #ffdf9e59,0 0 14px rgba(255,168,38,.35);filter:drop-shadow(0 4px 12px rgba(20,6,2,.7))}
-.intel-hub .clue-chip{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border:1.5px solid #f0ad42!important;background:linear-gradient(180deg,#6e3c10,#452306)!important;color:#fff0cc!important;border-radius:0;clip-path:var(--clip-card);font-size:11px;font-weight:700;box-shadow:inset 0 1px 0 #ffe8a34d}
-.intel-hub .clue-chip b{color:#ffd86b;font:800 12px ui-monospace,monospace}
-.intel-hub .intel-link{color:#ffca5c;font-size:11px;font-weight:900;padding:0 1px;text-shadow:0 1px 2px #1a0802;user-select:none}
-.intel-hub .intel-bad-btn{background:linear-gradient(180deg,#d63629,#941b12)!important;border:1.5px solid #ffb84d!important;color:#fff8eb!important;font-weight:800!important;padding:4px 10px!important;box-shadow:inset 0 1px 0 #ffad9e80,0 0 8px rgba(214,54,41,.45)!important}
-.intel-hub .intel-bad-btn:hover:not(:disabled){background:linear-gradient(180deg,#e84335,#ad2218)!important;border-color:#ffe082!important}
-.intel-hub .intel-bad-btn span{color:#fff8eb!important;padding-left:0!important;font:800 11.5px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif!important}
-.intel-hub .intel-bad-btn #bad-toggle-label{color:#ffe299!important;font:700 10.5px ui-monospace,monospace!important;padding-left:4px!important}
-.toolbar .intel-logs-btn{background:linear-gradient(180deg,#8c4c16,#572d0a)!important;border:1.5px solid #f0ad42!important;color:#fff3d6!important;font-weight:800!important;padding:4px 10px!important}
-.toolbar .intel-logs-btn:hover:not(:disabled){background:linear-gradient(180deg,#a65b1c,#6b380d)!important;border-color:#ffd479!important}
-.toolbar .intel-logs-btn[aria-expanded=true]{background:linear-gradient(180deg,#b06219,#733c0c)!important;border-color:#ffd970!important;box-shadow:inset 0 0 0 1px #ffe69980!important}
-.toolbar button{font-size:11px;padding:4px 8px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;background:linear-gradient(180deg,#52341d,#382212);border:1.5px solid #ad8050;border-radius:0;clip-path:var(--clip-card);color:#f7e6c4;box-shadow:inset 0 1px 0 #ffdf9e33;font-weight:600}
+.toolbar button{font-size:calc(11px * var(--toolbar-text-scale));padding:4px 8px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;background:linear-gradient(180deg,#52341d,#382212);border:1.5px solid #ad8050;border-radius:0;clip-path:var(--clip-card);color:#f7e6c4;box-shadow:inset 0 1px 0 #ffdf9e33;font-weight:600}
 #rules-toggle{padding:4px 8px;justify-content:center}
 .toolbar button:hover:not(:disabled){background:linear-gradient(180deg,#694326,#4a2d18);border-color:#cfa068;color:#fff8e8}
-.toolbar button span{font:700 10.5px ui-monospace,monospace;color:#ffd479;padding-left:4px}
+.toolbar button span{font:700 calc(10.5px * var(--toolbar-text-scale)) ui-monospace,monospace;color:#ffd479;padding-left:4px}
 /* 展开态：鎏金高亮木牌 */
 .toolbar button[aria-expanded=true],.toolbar button[aria-pressed=true]{border-color:#f0b24a;background:linear-gradient(180deg,#7a4419,#542d0e);color:#fff3cf;box-shadow:inset 0 0 0 1px #ffd27866}
+.toolbar .score-chip,.toolbar .sso-user{font-size:calc(11px * var(--toolbar-text-scale))}
+.toolbar .score-chip b{font-size:calc(12.5px * var(--toolbar-text-scale))}
+#fullscreen-toggle{justify-content:center;min-width:34px;min-height:30px}
+#fullscreen-toggle .fullscreen-exit{display:none}
+#fullscreen-toggle[aria-pressed=true] .fullscreen-enter{display:none}
+#fullscreen-toggle[aria-pressed=true] .fullscreen-exit{display:block}
+/* 中央文字保留当前的 80%，左右工具栏文字放大 25%。 */
+.intel-hub{--intel-scale:1.3;pointer-events:auto;display:flex;align-items:stretch;justify-content:center;gap:7px;white-space:nowrap;background:linear-gradient(180deg,#4f260ef5,#2e1306f5);border:2px solid #ffbe4d;clip-path:var(--clip-plaque);padding:5px 8px;box-shadow:inset 0 0 0 1px #ffdf9e59,0 0 14px rgba(255,168,38,.35);filter:drop-shadow(0 4px 12px rgba(20,6,2,.7))}
+.intel-status{display:flex;flex-direction:column;justify-content:center;gap:5px}
+.intel-hub .hud-stat{font-size:calc(11px * var(--intel-scale) * var(--intel-text-scale));padding:4px 8px;gap:4px;min-height:30px;justify-content:space-between}
+.intel-hub .hud-stat b{font:800 calc(12.5px * var(--intel-scale) * var(--intel-text-scale)) ui-monospace,monospace;min-width:2ch;text-align:right}
+.intel-hub .dot{width:8px;height:8px;margin:0 2px;flex:none}
+.intel-countdown{display:flex;align-self:stretch;min-width:0}
+.toolbar .intel-hub .clue-chip{display:flex;flex-direction:column;justify-content:center;gap:3px;padding:7px 14px 5px;border-color:#f0ad42;background:linear-gradient(180deg,#6e3c10,#452306);color:#fff0cc;font-weight:700;min-width:0;min-height:84px}
+.toolbar .intel-hub .clue-countdown-line{display:flex;align-items:center;justify-content:center;gap:14px;padding:0;font:inherit;color:inherit}
+.toolbar .intel-hub .clue-countdown-title{padding:0;font:800 calc(24px * var(--intel-text-scale))/1.2 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;letter-spacing:1px;color:#fff0cc}
+.intel-hub #clue-next-left{display:inline-block;min-width:calc(116px * var(--intel-text-scale));text-align:center;margin:0;color:#ffd86b;font:700 calc(23px * var(--intel-text-scale))/calc(40px * var(--intel-text-scale)) ui-monospace,monospace;letter-spacing:1px}
+.intel-hub #clue-next-left.is-counting{font:400 calc(40px * var(--intel-text-scale))/1 "SID Digital",ui-monospace,monospace;letter-spacing:2px;font-variant-numeric:tabular-nums;text-shadow:0 0 8px #ffbc3b66}
+.toolbar .intel-hub .clue-expand-label{padding:0;color:#eac994;font:600 calc(11px * var(--intel-text-scale))/1.3 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;letter-spacing:1px}
+.clue-expand-arrow{flex:none;color:#ffd86b;transition:transform var(--ease)}
+#bad-toggle[aria-expanded=true] .clue-expand-arrow{transform:rotate(180deg)}
+.toolbar .intel-hub .clue-chip:hover:not(:disabled),.toolbar .intel-hub .clue-chip[aria-expanded=true]{background:linear-gradient(180deg,#91501a,#5d310b)!important;border-color:#ffe082!important}
+.toolbar .intel-hub .intel-logs-btn{display:flex;flex-direction:column;justify-content:center;gap:6px;padding:8px 12px;background:linear-gradient(180deg,#8c4c16,#572d0a);border-color:#f0ad42;color:#fff3d6;font-weight:800}
+.toolbar .intel-hub .intel-logs-label{padding:0;font:800 calc(14.3px * var(--intel-text-scale))/1.3 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:inherit}
+.intel-logs-icon{flex:none;color:#ffd786}
+.toolbar .intel-hub .intel-logs-btn:hover:not(:disabled){background:linear-gradient(180deg,#a65b1c,#6b380d);border-color:#ffd479}
+.toolbar .intel-hub .intel-logs-btn[aria-expanded=true]{background:linear-gradient(180deg,#b06219,#733c0c);border-color:#ffd970;box-shadow:inset 0 0 0 1px #ffe69980}
 .private-hint{font-size:10px;color:#c7a67e;margin:0 2px}
 .sso-user{font-size:11px;color:#ebd3b0;padding:0 4px}
 .my-button{user-select:none}
