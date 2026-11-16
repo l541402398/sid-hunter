@@ -51,7 +51,22 @@
     PLAY_CONFIG, rpsOutcome, lineClear, spriteDirection, drawCharacterBody, ATTACK_ANIMATION_MS,
     RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE,
     // 七层楼层数据与查询接口（服务端权威、两端同源）。
-    FLOOR_BASE_HEIGHT, FLOOR_SCALE, FLOOR_W, FLOOR_H, X_SPAN, Y_SPAN, LIFT_CONFIG, FLOORS, CONTAINER_NAMES, floorById, floorBlockers,
+    FLOOR_BASE_HEIGHT, FLOOR_SCALE,
+    get FLOOR_W() {
+      if (TMJ && TMJ.isEnabled()) {
+        const m = TMJ.get(1);
+        if (m) return (m.width || 90) * (m.tileWidth || 16) * FLOOR_SCALE;
+      }
+      return FLOOR_W;
+    },
+    get FLOOR_H() {
+      if (TMJ && TMJ.isEnabled()) {
+        const m = TMJ.get(1);
+        if (m) return (m.height || 25) * (m.tileHeight || 16) * FLOOR_SCALE;
+      }
+      return FLOOR_H;
+    },
+    X_SPAN, Y_SPAN, LIFT_CONFIG, FLOORS, CONTAINER_NAMES, floorById, floorBlockers,
     floorOptions, inHall, advanceGlassDoors, cameraBounds,
     floorFurniture, floorWalls, floorPortals, floorSpawns, floorArrivals, safeSideLanding, floorNpcs, floorContainers,
     FLOOR_COUNT: FLOOR_SPECS.length,

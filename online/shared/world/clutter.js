@@ -109,58 +109,10 @@
     STATS[fid] = made;
   }
 
-  // ---------- 独立房间：仅在四角对称点缀 2× 比例绿植/边几，绝不随机撒在房间中央 ----------
+  // ---------- 独立房间：已由 rooms.js 完整手工布置北墙/中区/迎宾角落，不再二次自动塞入杂件 ----------
   const ROOMS = D.ROOMS || {};
   for (const room of Object.values(ROOMS)) {
-    const pool = (THEME_CLUTTER[room.floorId] || []).filter(o => (o.prop || o.type) && o.w <= 68 && o.h <= 68);
-    if (!pool.length) continue;
-
-    const occupied = room.furniture.map(f => ({ x: f.x, y: f.y, w: f.w, h: f.h }))
-      .concat(room.walls.map(w => w.footprint).filter(Boolean));
-    const placed = [];
-    const entries = [room.entry, room.exit].filter(Boolean);
-
-    // 固定四个室内角落锚点（北左、北右、南左、南右）
-    const cornerAnchors = [
-      [58, 108, 0],
-      [room.width - 58, 108, 0],
-      [58, room.height - 48, 1 % pool.length],
-      [room.width - 58, room.height - 48, 1 % pool.length]
-    ];
-
-    let made = 0;
-    for (const [bx, by, idx] of cornerAnchors) {
-      const spec = pool[idx];
-      const w = spec.w, h = spec.h;
-      const left = Math.round(bx - w / 2), top = by - h;
-      if (left < 24 || left + w > room.width - 24 || top < 24 || by > room.height - 28) continue;
-      if (entries.some(e => Math.hypot(e.x - bx, e.y - by) < 96)) continue;
-
-      const visual = { x: left, y: top, w, h };
-      if (occupied.some(q => rectHit(visual, q, 24))) continue;
-      if ((room.containers || []).some(c => rectHit(visual, c, 64))) continue;
-      if (placed.some(q => rectHit(visual, q, 24))) continue;
-
-      const foot = { x: left + 8, y: by - 16, w: Math.max(16, w - 16), h: 16 };
-      const f = {
-        id: `${room.id}:clutter:${made}`,
-        roomId: room.id,
-        floorId: room.floorId,
-        x: left, y: top, w, h,
-        type: spec.type || 'decor',
-        label: spec.label || '角落陈设',
-        prop: spec.prop || undefined,
-        propScale: spec.scale || 2,
-        footprint: foot,
-        depth: by,
-        clutter: true
-      };
-      f.blocks = [{ x: foot.x, y: foot.y, w: foot.w, h: foot.h }];
-      room.furniture.push(f);
-      placed.push(visual);
-      made++;
-    }
-    STATS[`room:${room.id}`] = made;
+    STATS[`room:${room.id}`] = 0;
   }
   return { CLUTTER_STATS: STATS };
 });
