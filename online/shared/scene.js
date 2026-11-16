@@ -617,7 +617,7 @@
     if(f.architecturalPlaceholder)return true;
     if(!stats.ready)return false;
     const id=f.floorId||1, by=baseY(f), w=f.w, h=f.h;
-    if(root.SID_LOBBY&&root.SID_LOBBY.has(id)&&root.SID_LOBBY.furniture(g,f)){stats.furniture++;return true;}
+    if(root.SID_LOBBY&&root.SID_LOBBY.has(id)&&root.SID_LOBBY.furniture(g,f)){stats.furniture++;if(id!==1)stats.themed=(stats.themed||0)+1;return true;}
     if(id!==1)stats.themed=(stats.themed||0)+1;
 
     // 0) 建筑核心筒与东侧楼梯间：56px 高 3/4 视角星露谷原木石砌建筑体（替代原先突兀的薄柜子）
@@ -1301,25 +1301,25 @@
 
   // ============ 七层温润柔和的星露谷风墙面主题（降亮护眼，无高光刺眼白边） ============
   const THEMES = {
-    1: { name: '晨光迎宾厅', style: 'glass', module: 'glass',
+    1: { name: '研发中心大堂', style: 'glass', module: 'glass',
       wall: { base: '#b58858', trim: '#87562c', line: '#613c1d', skirt: '#96683c', foot: '#573519', seam: '#9e7346', frame: '#8f5d32',
         glass: ['#8cbcd4', '#9ec9ba', '#b8cfb0'], sky: '#7eb2cc', board: { frame: '#87562c', face: '#e6d5b8', inner: '#d9c4a0', text: '#573519' } } },
-    2: { name: '晴空绿茵场', style: 'stadium', module: 'stadium',
+    2: { name: '研发运动健康馆', style: 'stadium', module: 'stadium',
       wall: { base: '#b3986e', trim: '#4b7d3c', line: '#335928', skirt: '#82603c', foot: '#4f3820', seam: '#9e845c', frame: '#63944e',
         glass: ['#8ec4db', '#9fd1c2', '#b8d9b4'], sky: '#7ab8d4', board: { frame: '#4b7d3c', face: '#e2d8be', inner: '#d2c9aa', text: '#2e4f22' } } },
-    3: { name: '暖木藏书阁', style: 'wood', module: 'wood',
+    3: { name: '研发图书阅览中心', style: 'wood', module: 'wood',
       wall: { base: '#a87848', trim: '#784923', line: '#4f2f15', skirt: '#6e421f', foot: '#422610', seam: '#91653b', frame: '#bf8e52',
         glass: ['#d9be8c', '#c9ab76', '#e3caa0'], sky: '#c49854', board: { frame: '#784923', face: '#e3d2b4', inner: '#d4c09e', text: '#4f2f15' } } },
-    4: { name: '阳光花房层', style: 'canopy', module: 'canopy',
+    4: { name: '空中花园茶水间', style: 'canopy', module: 'canopy',
       wall: { base: '#6b994b', trim: '#496e30', line: '#324f1e', skirt: '#6e4e2e', foot: '#453019', seam: '#5b853e', frame: '#8f673c',
         glass: ['#a8d496', '#94c482', '#bce0aa'], sky: '#88bf6e', board: { frame: '#597838', face: '#dce6c3', inner: '#cbd9b0', text: '#2e4d1c' } } },
-    5: { name: '暖灯古籍廊', style: 'castle', module: 'dungeon',
+    5: { name: '研发历史科技展厅', style: 'castle', module: 'dungeon',
       wall: { base: '#b08b5e', trim: '#855b30', line: '#593c1e', skirt: '#75502a', foot: '#473017', seam: '#99774e', frame: '#9e6f3e',
         glass: ['#d9ba86', '#c7a46e', '#e3c798'], sky: '#bf8e48', board: { frame: '#855b30', face: '#e3d2b4', inner: '#d4c09e', text: '#593c1e' } } },
-    6: { name: '晴海甜品舱', style: 'ship', module: 'ship',
+    6: { name: '观景咖啡烘焙沙龙', style: 'ship', module: 'ship',
       wall: { base: '#ad7e4c', trim: '#784e28', line: '#4d3118', skirt: '#694322', foot: '#3f2712', seam: '#966b3e', frame: '#c49654',
         glass: ['#82c2d6', '#6eb2c9', '#9ed2e0'], sky: '#4da2bd', board: { frame: '#784e28', face: '#e3d3b6', inner: '#d4c2a2', text: '#4d3118' } } },
-    7: { name: '云端露台层', style: 'mirror', module: 'mirror',
+    7: { name: '云端天台花园露台', style: 'mirror', module: 'mirror',
       wall: { base: '#b88b68', trim: '#8f523e', line: '#633628', skirt: '#966846', foot: '#593b26', seam: '#a37856', frame: '#a8644c',
         glass: ['#c99b78', '#b88764', '#d6ab8a'], sky: '#c99668', board: { frame: '#8f523e', face: '#e6d4be', inner: '#d6c2aa', text: '#633628' } } }
   };
@@ -1595,99 +1595,159 @@
     return true;
   }
 
-  // ---------- 独立小房间的温润内景（中明度护眼木纹与织物地毯） ----------
+  // ---------- 独立小房间的温润现代研发室内材质（杜绝室内铺草坪与刺眼高光横纹） ----------
   const ROOM_MATERIAL = {
-    1: { kind: 'wood',  base: '#9c6e44', line: '#754e2c', hi: '#ad7d50', fiber: 'rgba(68,40,18,0.18)' },
-    2: { kind: 'grass', base: '#4c7d40', line: '#3b6331', hi: '#588c4b', fiber: 'rgba(30,54,22,0.16)' },
-    3: { kind: 'wood',  base: '#855835', line: '#613e22', hi: '#96653e', fiber: 'rgba(58,34,16,0.20)' },
-    4: { kind: 'grass', base: '#46753b', line: '#365e2d', hi: '#528546', fiber: 'rgba(28,50,20,0.16)' },
-    5: { kind: 'stone', base: '#916b46', line: '#6e4e30', hi: '#9e7750', fiber: 'rgba(58,36,18,0.18)' },
-    6: { kind: 'wood',  base: '#8c5e37', line: '#664223', hi: '#9c6b42', fiber: 'rgba(62,36,16,0.18)' },
-    7: { kind: 'tile',  base: '#946e4e', line: '#735236', hi: '#a37b58', fiber: 'rgba(68,42,22,0.16)' }
+    1: { kind: 'wood',  base: '#b37e4c', line: '#6b4326', hi: '#c7935e', lo: '#9e6b3d', fiber: '#82532e' },
+    2: { kind: 'wood',  base: '#bf8b56', line: '#754b2b', hi: '#d19f6a', lo: '#a87644', fiber: '#8c5e34' },
+    3: { kind: 'wood',  base: '#91603b', line: '#4f2f1c', hi: '#a8744c', lo: '#7d5030', fiber: '#663f24' },
+    4: { kind: 'tile',  base: '#b87d58', line: '#70462e', hi: '#cc926c', lo: '#9e6644', fiber: '#825035' },
+    5: { kind: 'stone', base: '#967250', line: '#543b26', hi: '#ad8762', lo: '#805e3e', fiber: '#66492e' },
+    6: { kind: 'wood',  base: '#9e6940', line: '#57351e', hi: '#b57e53', lo: '#875632', fiber: '#6e4325' },
+    7: { kind: 'tile',  base: '#b08660', line: '#66482f', hi: '#c49a74', lo: '#966f4c', fiber: '#7a583b' }
   };
 
   function roomFloor(g, room) {
     const w = room.width, h = room.height;
     const m = ROOM_MATERIAL[room.floorId] || ROOM_MATERIAL[1];
+    const sn = v => Math.round(v * 0.5) * 2;
+    const nw = (room.walls || []).find(q => q.y <= 2 && q.w >= q.h);
+    const nwH = nw ? nw.h : 76;
     g.save();
+    g.imageSmoothingEnabled = false;
     g.beginPath(); g.rect(0, 0, w, h); g.clip();
     g.fillStyle = m.base; g.fillRect(0, 0, w, h);
     switch (m.kind) {
       case 'wood':
-        for (let y = 0; y < h; y += 16) {
-          g.fillStyle = m.line; g.fillRect(0, y, w, 1);
-          const stag = ((y / 16) % 2) ? 48 : 0;
-          for (let x = -stag; x < w; x += 96) {
-            g.fillStyle = m.line; g.fillRect(x, y, 1, 16);
-            const k = Math.abs((Math.floor(x / 96) * 91 + (y / 16) * 37) % 89);
-            if (k % 4 === 0) { g.fillStyle = m.hi; g.fillRect(x + 2, y + 2, 92, 3); }
-            if (k % 5 === 0) { g.fillStyle = m.fiber; g.fillRect(x + 16 + (k % 40), y + 7, 18, 1); }
+        for (let row = 0, y = 0; y < h; y += 28, row++) {
+          g.fillStyle = m.line; g.fillRect(0, y + 26, w, 2);
+          const stag = (row % 2) ? 64 : 0;
+          for (let x = -stag; x < w; x += 128) {
+            const k = Math.abs((Math.floor(x / 128) * 91 + row * 37) % 89);
+            g.fillStyle = k % 4 === 0 ? m.lo : (k % 7 === 0 ? m.hi : m.base);
+            g.fillRect(x + 2, y, 126, 26);
+            g.fillStyle = m.line; g.fillRect(x, y, 2, 26);
+            if (k % 5 === 0) { g.fillStyle = m.hi; g.fillRect(x + 8, y + 2, 28, 2); }
+            if (k % 3 === 0) {
+              const gx = sn(x + 24 + (k % 56));
+              g.fillStyle = m.fiber; g.fillRect(gx, y + 10, 20, 2); g.fillRect(gx + 16, y + 12, 14, 2);
+            }
           }
         }
         break;
       case 'tile':
-        for (let y = 0; y < h; y += 32) for (let x = 0; x < w; x += 32) {
-          const k = (Math.floor(x / 32) + Math.floor(y / 32)) % 2;
-          g.fillStyle = k ? m.hi : m.base;
-          g.fillRect(x, y, 32, 32);
-        }
-        g.fillStyle = m.line;
-        for (let y = 0; y < h; y += 32) g.fillRect(0, y, w, 1);
-        for (let x = 0; x < w; x += 32) g.fillRect(x, 0, 1, h);
-        break;
-      case 'grass':
-        g.fillStyle = m.base; g.fillRect(0, 0, w, h);
-        for (let y = 0; y < h; y += 32) {
-          if ((y / 32) % 2) { g.fillStyle = 'rgba(32,58,24,0.12)'; g.fillRect(0, y, w, 32); }
-          g.fillStyle = 'rgba(28,52,20,0.16)'; g.fillRect(0, y, w, 1);
+        g.fillStyle = m.line; g.fillRect(0, 0, w, h);
+        for (let y = 0; y < h; y += 48) for (let x = 0; x < w; x += 48) {
+          const tx = Math.floor(x / 48), ty = Math.floor(y / 48);
+          const alt = (tx + ty) % 2, hk = Math.abs(tx * 73 + ty * 37) % 11;
+          g.fillStyle = alt ? m.hi : m.base;
+          g.fillRect(x + 2, y + 2, 46, 46);
+          if (hk < 3) {
+            g.fillStyle = '#e6ccb0'; g.fillRect(x + 4, y + 4, 16, 2); g.fillRect(x + 4, y + 4, 2, 10);
+          } else if (hk === 9) {
+            g.fillStyle = m.lo; g.fillRect(x + 18, y + 36, 14, 2);
+          }
         }
         break;
       default:
         drawFlagstones(g, 0, 0, w, h);
         break;
     }
-    // 中央温馨编织地毯（会议室 / 休息室 / 典藏室 / 办公室）
-    if (room.kind === 'meeting' || room.kind === 'lounge' || room.kind === 'vault' || room.kind === 'office') {
-      const mx = Math.round(w * 0.16), my = Math.round(h * 0.18);
-      const rw = w - mx * 2, rh = Math.round(h * 0.58);
-      g.fillStyle = 'rgba(42,24,10,0.24)'; g.fillRect(mx - 4, my - 4, rw + 8, rh + 8);
-      g.fillStyle = room.kind === 'vault' ? '#85382e' : (room.kind === 'lounge' ? '#3b665c' : '#8f4736');
-      g.fillRect(mx, my, rw, rh);
-      g.strokeStyle = 'rgba(235,198,142,0.48)'; g.lineWidth = 2;
-      g.strokeRect(mx + 5, my + 5, rw - 10, rh - 10);
+    // 比例协调的中央功能区编织地毯（留足四周木地板呼吸边）
+    if (room.kind !== 'locker') {
+      const mx = sn(w * 0.22), my = sn(Math.max(nwH + 54, h * 0.34));
+      const rw = sn(w * 0.56), rh = sn(Math.min(h - my - 88, h * 0.40));
+      if (rw >= 120 && rh >= 80) {
+        const rugPal = room.kind === 'vault' ? ['#7e342e', '#d6aa6c', '#54211e']
+          : room.kind === 'lounge' ? ['#3b665e', '#d9b274', '#264440']
+          : room.kind === 'lab' ? ['#3d6278', '#9ec9db', '#274050']
+          : room.kind === 'archive' ? ['#5c4a6e', '#d6b076', '#3b2e4a']
+          : ['#8a4638', '#e2ba7e', '#572922'];
+        g.fillStyle = 'rgba(26,18,24,0.20)'; g.fillRect(mx + 4, my + rh, rw - 4, 4);
+        g.fillStyle = '#261922'; g.fillRect(mx, my, rw, rh);
+        g.fillStyle = rugPal[2]; g.fillRect(mx + 2, my + 2, rw - 4, rh - 4);
+        g.fillStyle = rugPal[1]; g.fillRect(mx + 8, my + 8, rw - 16, rh - 16);
+        g.fillStyle = rugPal[0]; g.fillRect(mx + 10, my + 10, rw - 20, rh - 20);
+        g.fillStyle = rugPal[1];
+        g.fillRect(mx + 16, my + 16, rw - 32, 2); g.fillRect(mx + 16, my + rh - 18, rw - 32, 2);
+        g.fillRect(mx + 16, my + 16, 2, rh - 32); g.fillRect(mx + rw - 18, my + 16, 2, rh - 32);
+        for (let fy = my + 6; fy < my + rh - 6; fy += 8) {
+          g.fillStyle = '#f0e6d6';
+          g.fillRect(mx - 6, fy, 6, 2);
+          g.fillRect(mx + rw, fy, 6, 2);
+        }
+      }
     }
-    const sh = g.createLinearGradient(0, 0, 0, 24);
-    sh.addColorStop(0, 'rgba(48,28,12,0.26)'); sh.addColorStop(1, 'rgba(48,28,12,0)');
-    g.fillStyle = sh; g.fillRect(0, 0, w, 24);
+    // 北墙墙根阶梯柔影（紧贴 3/4 北墙底边投射）
+    for (let i = 0; i < 3; i++) {
+      g.fillStyle = `rgba(34,20,32,${(0.20 - i * 0.06).toFixed(2)})`;
+      g.fillRect(24, nwH + i * 4, w - 48, 4);
+    }
+    // 南侧出口迎宾地垫
+    if (room.exit) {
+      const ex = sn(room.exit.x), ey = sn(h - 22);
+      g.fillStyle = '#241720'; g.fillRect(ex - 26, ey, 52, 16);
+      g.fillStyle = '#9e4c3b'; g.fillRect(ex - 24, ey + 2, 48, 12);
+      g.fillStyle = '#f0be84';
+      for (let kx = ex - 16; kx < ex + 16; kx += 8) g.fillRect(kx, ey + 6, 4, 4);
+    }
     g.restore();
     return true;
   }
 
   function roomWall(g, w, room) {
-    const t = themeOf(room.floorId), p = t.wall;
     const horiz = w.w >= w.h;
     const isNorth = horiz && w.y <= 2;
-    g.fillStyle = p.base; g.fillRect(w.x, w.y, w.w, w.h);
-    if (horiz) {
-      for (let x = w.x + 32; x < w.x + w.w; x += 64) { g.fillStyle = 'rgba(110,68,32,0.12)'; g.fillRect(x, w.y + 4, 1, w.h - 10); }
-      g.fillStyle = p.trim; g.fillRect(w.x, w.y, w.w, 3);
-      g.fillStyle = p.line; g.fillRect(w.x, w.y + 3, w.w, 1);
-      g.fillStyle = p.skirt; g.fillRect(w.x, w.y + w.h - 7, w.w, 7);
-      g.fillStyle = p.foot; g.fillRect(w.x, w.y + w.h, w.w, 2);
-      if (isNorth) {
-        g.fillStyle = 'rgba(255,246,215,0.28)'; g.fillRect(w.x, w.y + 4, w.w, 8);
-        for (let x = w.x + 56; x < w.x + w.w - 70; x += 128) {
-          g.fillStyle = p.frame; g.fillRect(x, w.y + 6, 52, 17);
-          g.fillStyle = p.board.inner; g.fillRect(x + 2, w.y + 8, 48, 13);
-          g.fillStyle = p.board.text;
-          g.fillRect(x + 6, w.y + 12, 22, 1); g.fillRect(x + 6, w.y + 15, 32, 1);
+    if (isNorth) {
+      // 3/4 视角现代研发室内北墙（76px 高：深胡桃木顶冠 + 暖米吸音护墙板 + 胡桃木墙裙 + 自动避障明窗）
+      const x = w.x, y = w.y, ww = w.w, hh = w.h;
+      g.fillStyle = '#221724'; g.fillRect(x - 2, y - 2, ww + 4, hh + 4);
+      // 顶部胡桃木压檐
+      g.fillStyle = '#5c3820'; g.fillRect(x, y, ww, 10);
+      g.fillStyle = '#8c5834'; g.fillRect(x, y + 2, ww, 2);
+      g.fillStyle = '#e8dfd0'; g.fillRect(x, y + 10, ww, hh - 34);
+      // 64px 模数竖向建筑饰面分缝
+      for (let sx = x + 64; sx < x + ww - 24; sx += 64) {
+        g.fillStyle = '#cfc2ae'; g.fillRect(sx, y + 10, 2, hh - 34);
+        g.fillStyle = '#faf5ec'; g.fillRect(sx + 2, y + 10, 2, hh - 34);
+      }
+      // 下部胡桃木护墙裙
+      const wy = y + hh - 24;
+      g.fillStyle = '#6e4226'; g.fillRect(x, wy, ww, 4);
+      g.fillStyle = '#9e683e'; g.fillRect(x, wy, ww, 2);
+      g.fillStyle = '#85522f'; g.fillRect(x, wy + 4, ww, 16);
+      for (let px = x + 30; px < x + ww - 54; px += 56) {
+        g.fillStyle = '#693e22'; g.fillRect(px, wy + 6, 40, 12);
+        g.fillStyle = '#9c663c'; g.fillRect(px + 2, wy + 8, 36, 2);
+      }
+      g.fillStyle = '#472918'; g.fillRect(x, y + hh - 4, ww, 4);
+      // 仅在无北墙高柜/挂屏遮挡的净空开间绘制采光窗或暖光壁灯
+      const furn = (room && room.furniture) || [];
+      const blockedAt = (cx, halfW) => furn.some(f => f.y < hh + 34 && (f.x < cx + halfW + 14) && (f.x + f.w > cx - halfW - 14));
+      for (let cx = x + 112; cx < x + ww - 112; cx += 148) {
+        if (!blockedAt(cx, 28) && hh >= 64) {
+          const wx0 = cx - 26, wy0 = y + 14, wh0 = hh - 40;
+          g.fillStyle = '#251e22'; g.fillRect(wx0 - 2, wy0 - 2, 56, wh0 + 6);
+          g.fillStyle = '#463b39'; g.fillRect(wx0, wy0, 52, wh0 + 2);
+          g.fillStyle = '#a4daf0'; g.fillRect(wx0 + 2, wy0 + 2, 48, wh0 - 2);
+          g.fillStyle = '#c8ecf8'; g.fillRect(wx0 + 2, wy0 + Math.round(wh0 * 0.5), 48, Math.round(wh0 * 0.5) - 2);
+          g.fillStyle = '#6da66e'; g.fillRect(wx0 + 2, wy0 + wh0 - 8, 48, 8);
+          g.fillStyle = '#463b39'; g.fillRect(cx - 1, wy0 + 2, 2, wh0 - 2); g.fillRect(wx0 + 2, wy0 + 12, 48, 2);
+          g.fillStyle = '#ffffff'; g.fillRect(wx0 + 6, wy0 + 5, 4, 4); g.fillRect(wx0 + 6, wy0 + 16, 2, 8);
+          g.fillStyle = '#f0e8dc'; g.fillRect(wx0 - 4, wy0 + wh0 + 2, 60, 4);
         }
       }
+      return true;
+    }
+    g.fillStyle = '#241720'; g.fillRect(w.x - 2, w.y - 2, w.w + 4, w.h + 4);
+    g.fillStyle = '#6e4528'; g.fillRect(w.x, w.y, w.w, w.h);
+    if (horiz) {
+      g.fillStyle = '#9c683e'; g.fillRect(w.x, w.y, w.w, 4);
+      g.fillStyle = '#4a2b18'; g.fillRect(w.x, w.y + w.h - 6, w.w, 6);
+      for (let x = w.x + 32; x < w.x + w.w - 8; x += 48) { g.fillStyle = '#57341d'; g.fillRect(x, w.y + 4, 2, w.h - 10); }
     } else {
-      for (let y = w.y + 32; y < w.y + w.h; y += 64) { g.fillStyle = 'rgba(110,68,32,0.12)'; g.fillRect(w.x + 4, y, w.w - 10, 1); }
-      g.fillStyle = p.trim; g.fillRect(w.x, w.y, 3, w.h);
-      g.fillStyle = p.skirt; g.fillRect(w.x + w.w - 7, w.y, 7, w.h);
-      g.fillStyle = p.foot; g.fillRect(w.x + w.w, w.y, 2, w.h);
+      g.fillStyle = '#9c683e'; g.fillRect(w.x, w.y, 4, w.h);
+      g.fillStyle = '#4a2b18'; g.fillRect(w.x + w.w - 6, w.y, 6, w.h);
+      for (let y = w.y + 32; y < w.y + w.h - 8; y += 48) { g.fillStyle = '#57341d'; g.fillRect(w.x + 4, y, w.w - 10, 2); }
     }
     return true;
   }
@@ -1705,24 +1765,31 @@
   }
 
   function halls(g,f,doorStates,dt=.016){
+    if(f&&f.lobby&&root.SID_LOBBY&&root.SID_LOBBY.halls)return root.SID_LOBBY.halls(g,f,doorStates,dt);
+    g.save();
+    g.imageSmoothingEnabled=false;
     for(const h of f.halls){
-      // 现代金属石材电梯厅地坪（无入口隔墙，打通主楼面外沿描边，整面敞开式自动感应玻璃门）
+      // 温暖现代研发大楼哑光洞石与深古铜电梯门厅（避开 217,204,163±6，彻底告别突兀冷蓝金属板）
       const bridgeX=h.side==='left'?h.x:h.x-16,bridgeW=h.w+16;
-      g.fillStyle='#2a3646';g.fillRect(h.x-2,h.y-2,h.w+4,h.h+4);
-      g.fillStyle='#d6e2ec';g.fillRect(bridgeX+2,h.y+2,bridgeW-4,h.h-4);
-      for(let y=h.y+4;y<h.y+h.h-4;y+=16)for(let x=bridgeX+4;x<bridgeX+bridgeW-4;x+=16){
-        const alt=((Math.floor((x-h.x)/16)+Math.floor((y-h.y)/16))%2)===0;
-        g.fillStyle=alt?'#e2ecf4':'#cbd8e4';
-        g.fillRect(x,y,15,15);
+      g.fillStyle='#241d22';g.fillRect(h.x-4,h.y-4,h.w+8,h.h+8);
+      g.fillStyle='#5c4d42';g.fillRect(h.x-2,h.y-2,h.w+4,h.h+4);
+      g.fillStyle='#cfc2b0';g.fillRect(bridgeX+2,h.y+2,bridgeW-4,h.h-4);
+      for(let y=h.y+4;y<h.y+h.h-6;y+=24)for(let x=bridgeX+4;x<bridgeX+bridgeW-6;x+=24){
+        const alt=((Math.floor((x-h.x)/24)+Math.floor((y-h.y)/24))%2)===0;
+        const tw=Math.min(22,bridgeX+bridgeW-4-x),th=Math.min(22,h.y+h.h-4-y);
+        if(tw<=2||th<=2)continue;
+        g.fillStyle=alt?'#efe8dc':'#e4dbd0';
+        g.fillRect(x,y,tw,th);
+        g.fillStyle='#faf6f0';g.fillRect(x,y,Math.min(12,tw),2);
       }
-      // 入口迎宾导流地垫与醒目「电梯厅」地面标识
       const edgeX=h.side==='left'?h.x+h.w:h.x;
       const matX=h.side==='left'?edgeX-24:edgeX+2;
-      g.fillStyle='#334155';g.fillRect(matX,h.y+6,22,h.h-12);
-      g.fillStyle='#38bdf8';g.fillRect(matX+2,h.y+8,18,2);g.fillRect(matX+2,h.y+h.h-10,18,2);
+      g.fillStyle='#261b19';g.fillRect(matX-2,h.y+6,26,h.h-12);
+      g.fillStyle='#6e4736';g.fillRect(matX,h.y+8,22,h.h-16);
+      g.fillStyle='#e2b659';g.fillRect(matX+2,h.y+10,18,2);g.fillRect(matX+2,h.y+h.h-12,18,2);
       g.font='bold 9px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif';
-      g.textAlign='center';g.fillStyle='#1e293b';
-      g.fillText(`🛗 ${f.id}F 电梯厅`,h.x+h.w/2,h.y+h.h-10);
+      g.textAlign='center';g.fillStyle='#3b2b22';
+      g.fillText(`${f.id}F 电梯厅`,h.x+h.w/2,h.y+h.h-10);
     }
     for(const d of f.glassDoors){
       const isOpen=!!(doorStates[d.id]&&doorStates[d.id].open);
@@ -1730,37 +1797,34 @@
       const v=old+(target-old)*Math.min(1,dt*14);animations.set(d.id,v);
       const half=Math.round((d.opening||104)/2);
       const leafH=half,slide=Math.round(v*(half-8));
-      // 整面自动感应玻璃门导轨与顶部感应器状态灯
-      g.fillStyle='#334155';
+      g.fillStyle='#3b302c';
       g.fillRect(d.x-6,d.y-half-6,12,6);
       g.fillRect(d.x-6,d.y+half,12,6);
-      g.fillStyle='#475569';
+      g.fillStyle='#5c4d46';
       g.fillRect(d.x-2,d.y-half,4,half*2);
-      // 顶部自动门感应灯（开门绿光，待机青光）
-      g.fillStyle=isOpen?'#4ade80':'#38bdf8';
-      g.fillRect(d.x-3,d.y-3,6,6);
-      // 上下两扇全高自动平移玻璃门扇
+      g.fillStyle=isOpen?'#52c478':'#e8b856';
+      g.fillRect(d.x-4,d.y-4,8,8);
       const topY=d.y-half-slide;
       const botY=d.y+slide;
       g.save();
-      g.globalAlpha=.72;
-      g.fillStyle='#7dd3fc';
+      g.globalAlpha=.68;
+      g.fillStyle='#b8dfe8';
       g.fillRect(d.x-5,topY,10,leafH);
       g.fillRect(d.x-5,botY,10,leafH);
-      g.globalAlpha=.92;
-      g.strokeStyle='#0284c7';
-      g.lineWidth=1.5;
+      g.globalAlpha=.94;
+      g.strokeStyle='#4a3d38';
+      g.lineWidth=2;
       g.strokeRect(d.x-5,topY,10,leafH);
       g.strokeRect(d.x-5,botY,10,leafH);
-      // 玻璃门高光条与防撞腰线
-      g.fillStyle='#e0f2fe';
+      g.fillStyle='#ffffff';
       g.fillRect(d.x-2,topY+4,2,Math.max(4,leafH-8));
       g.fillRect(d.x-2,botY+4,2,Math.max(4,leafH-8));
-      g.fillStyle='#fef08a';
-      g.fillRect(d.x-5,topY+leafH-6,10,3);
-      g.fillRect(d.x-5,botY+3,10,3);
+      g.fillStyle='#e2b659';
+      g.fillRect(d.x-4,topY+leafH-6,8,4);
+      g.fillRect(d.x-4,botY+2,8,4);
       g.restore();
     }
+    g.restore();
   }
 
   function visualWidth(f) {

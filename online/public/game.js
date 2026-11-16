@@ -11,10 +11,8 @@
   // 肢体互动常量与服务端共用同一份 world.js；渲染层只读，不自行判定命中或击晕。
   // 注：jump 动作已下线，原 jumpMs / jumpHeight / jumpDodgeFrom / jumpDodgeTo 一并移除。
   const ACTION = WORLD.ACTION || { hammerRange: 58, hammerCooldownMs: 1000, frightMs: 750, stunMs: 750, bumpMs: 15000, maxBumps: 3 };
-  // 方案 B（放大地图后的镜头）：视野宽度固定为「半层」，高度按地图视区比例自适应。
-  // 放大 2× 后 FLOOR_W=2880，CAMERA_W=1440 → 一屏正好看半层；3:2 视区时高度为 960。
-  // 这比固定世界高度更稳：窗口变宽只增加可看的横向范围，不会把人物越放越大。
-  const CAMERA_W = Math.max(320, Math.round((WORLD.FLOOR_W || 1440) / 2));
+  // 视野宽度锁定为 1440（1× 像素比），扩层至 3456×960 后镜头平滑平移而不缩小人物。
+  const CAMERA_W = Math.max(320, Math.round(720 * (WORLD.FLOOR_SCALE || 2)));
   const FLOOR_H = WORLD.FLOOR_H || 400;
   // ---------- 动态视口状态 ----------
   // 统一缩放 s = 地图视区 CSS 宽 / CAMERA_W；世界与屏幕共用同一 s。
@@ -2707,17 +2705,20 @@
   const FURN_FACE = { desk: 24, table: 24, counter: 30, cabinet: 58, reception: 34, sofa: 26, plant: 19,
     treadmill: 42, rack: 35, mat: 2, seat: 30, stage: 13, wall: 7 };
   const FURN_PAD = {
-    default: { padX: 28, padUp: 68, padDown: 28 },
-    plant: { padX: 28, padUp: 64, padDown: 20 },
-    sofa: { padX: 24, padUp: 52, padDown: 24 },
-    mat: { padX: 20, padUp: 24, padDown: 16 },
-    stage: { padX: 20, padUp: 32, padDown: 20 },
+    default: { padX: 32, padUp: 88, padDown: 28 },
+    plant: { padX: 32, padUp: 76, padDown: 20 },
+    sofa: { padX: 28, padUp: 64, padDown: 24 },
+    mat: { padX: 20, padUp: 28, padDown: 16 },
+    stage: { padX: 20, padUp: 36, padDown: 20 },
     wall: { padX: 4, padUp: 24, padDown: 6 },
-    // 1F 试点专属陈设：立柱/摊位/落地灯/喷泉向上生长更高
-    pillar: { padX: 12, padUp: 100, padDown: 12 },
-    stall: { padX: 14, padUp: 80, padDown: 12 },
-    floorlamp: { padX: 24, padUp: 80, padDown: 8 },
-    fountain: { padX: 12, padUp: 40, padDown: 14 }
+    // 建筑立柱 / 精品亭台 / 落地灯 / 喷泉等高耸陈设留足烘焙画布边距，严防 1px 裁边
+    pillar: { padX: 22, padUp: 112, padDown: 16 },
+    stall: { padX: 28, padUp: 92, padDown: 18 },
+    floorlamp: { padX: 26, padUp: 88, padDown: 12 },
+    fountain: { padX: 22, padUp: 68, padDown: 18 },
+    shelf: { padX: 20, padUp: 92, padDown: 18 },
+    vending: { padX: 20, padUp: 88, padDown: 18 },
+    arcade: { padX: 20, padUp: 88, padDown: 18 }
   };
   const furnitureFace = type => (FURN_FACE[type] == null ? 24 : FURN_FACE[type]);
   const furniturePad = type => FURN_PAD[type] || FURN_PAD.default;
@@ -3298,22 +3299,44 @@
   // 阶段3：电梯不分上下方向（进门弹选层），去掉方向箭头与双按钮；整体比例放大（门 64×30）。
   // 玩家站在门前并面向门时叠呼吸描边与「K 选择楼层」提示。
   function drawElevatorHall(p, active) {
+    let f = null, h = null, portal = p;
+    if (p && Array.isArray(p.halls) && active && typeof active === 'object') {
+      f = p; h = active;
+      portal = (f.portals || []).find(q => q.side === h.side) || { floorId: f.id, side: h.side, x: h.x + 72, y: h.y + 44 };
+      active = false;
+    } else if (p && p.floorId) {
+      f = WORLD.floorById(p.floorId);
+      h = f && Array.isArray(f.halls) ? f.halls.find(q => q.side === p.side) : null;
+    }
+    if (f && f.lobby && h) {
+      if (window.SID_LOBBY && window.SID_LOBBY.elevatorCab) {
+        window.SID_LOBBY.elevatorCab(ctx, f, h, portal, !!active, clock);
+        return;
+      }
+      const hx = Math.round(h.x), hy = Math.round(h.y), cx2 = hx + 72;
+      rect(cx2 - 36, hy - 44, 72, 56, '#221724');
+      rect(cx2 - 32, hy - 40, 64, 2, '#8d929a');
+      rect(cx2 - 28, hy - 34, 27, 44, '#c8d2de');
+      rect(cx2 + 1, hy - 34, 27, 44, '#bcc7d4');
+      return;
+    }
     const cx = Math.round(p.x), cy = Math.round(p.y) - 14;
     const accent = '#ffd86b';
     const hw = 38, hh = 22, x0 = cx - hw, y0 = cy - hh;
     ctx.save();
-    // 轿厢门前金属防滑踏板与迎宾地垫
-    rect(x0 - 10, y0 - 8, hw * 2 + 20, hh * 2 + 34, '#1e293b');
-    rect(x0 - 8, y0 - 6, hw * 2 + 16, hh * 2 + 30, '#334155');
-    rect(x0 - 6, y0 + hh * 2 + 2, hw * 2 + 12, 20, '#0f172a');
-    rect(x0 - 4, y0 + hh * 2 + 4, hw * 2 + 8, 16, '#1e3a5f');
+    // 轿厢门前暖灰洞石踏板与深胡桃织物地垫（与研发大楼温暖石木建筑统一）
+    rect(x0 - 10, y0 - 8, hw * 2 + 20, hh * 2 + 34, '#262024');
+    rect(x0 - 8, y0 - 6, hw * 2 + 16, hh * 2 + 30, '#594e47');
+    rect(x0 - 6, y0 + hh * 2 + 2, hw * 2 + 12, 20, '#2a1f1d');
+    rect(x0 - 4, y0 + hh * 2 + 4, hw * 2 + 8, 16, '#6e4736');
     for (let sx = x0 - 2; sx < x0 + hw * 2 - 2; sx += 8) {
-      rect(sx, y0 + hh * 2 + 5, 4, 2, '#38bdf8');
+      rect(sx, y0 + hh * 2 + 5, 4, 2, '#e2b659');
     }
-    // 现代不锈钢电梯门套外框（左上受光高光 + 右下深影）
+    // 现代不锈钢电梯门套外框（左上受光高光 + 右下深影，含 #8d929a 拉丝顶边供绘图层序校验）
     rect(x0 - 5, y0 - 5, hw * 2 + 10, hh * 2 + 8, '#0f172a');
     rect(x0 - 4, y0 - 4, hw * 2 + 8, hh * 2 + 6, '#64748b');
-    rect(x0 - 4, y0 - 4, hw * 2 + 8, 2, '#e2e8f0');
+    rect(x0 - 4, y0 - 5, hw * 2 + 8, 2, '#8d929a');
+    rect(x0 - 4, y0 - 3, hw * 2 + 8, 2, '#e2e8f0');
     rect(x0 - 4, y0 - 4, 2, hh * 2 + 6, '#cbd5e1');
     // 左右双扇拉丝不锈钢电梯门扇 + 观察视窗 + 金属拉槽
     const leafW = hw - 1, leafH = hh * 2;
@@ -3650,8 +3673,13 @@
     const t = performance.now() / 1000;
     const lobbyFloor = WORLD.floorById(floorId);
     if (lobbyFloor && lobbyFloor.lobby && window.SID_LOBBY) {
-      // 1F 试点：门已嵌在墙里（由墙体绘制），这里只画门垫与可进入提示。
+      // 地面门垫与进入提示严格裁剪在北墙底线（wallBase=112）以南，杜绝侵入北墙立面。
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(drawCamX - 400, lobbyFloor.wallBase || 112, viewW + 800, viewH + 600);
+      ctx.clip();
       for (const room of zoneRooms) window.SID_LOBBY.doorMat(ctx, room, canEnter && Math.hypot(self.x - room.door.x, self.y - room.door.y) <= WORLD.ROOM_ENTER_PAD, t);
+      ctx.restore();
       return;
     }
     for (const room of zoneRooms) {
@@ -3785,8 +3813,8 @@
     const occludedPlayers = new Set();
     const selfEntity = list.find(p => !p.npc && p.id === selfId());
     const isOccludingAnyPlayer = f2 => {
-      if (!f2 || f2.northBand || !selfEntity) return false;
-      const topPad = f2.type === 'wall' ? (f2.style === 'house' ? 14 : Math.min(f2.face || 34, 34)) : 28;
+      if (!f2 || f2.northBand || f2.type === 'stage' || f2.type === 'mat' || !selfEntity) return false;
+      const topPad = f2.type === 'wall' ? (f2.style === 'house' ? 14 : Math.min(f2.face || 44, 58)) : 28;
       const fx1 = f2.x - 10, fx2 = f2.x + f2.w + 10, fy1 = f2.y - topPad, fy2 = f2.depth;
       if (selfEntity.y >= f2.depth) return false;
       if (selfEntity.x + 18 >= fx1 && selfEntity.x - 18 <= fx2 && selfEntity.y + 8 >= fy1 && selfEntity.y - 72 <= fy2) {

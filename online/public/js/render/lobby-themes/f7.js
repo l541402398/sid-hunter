@@ -1,140 +1,192 @@
 'use strict';
-// 7F · 云端露台层 主题：柚木观景露台 + 砂岩泳池绿洲（天际泳池/遮阳伞/条纹躺椅）+ 晚霞鲜果特饮吧 + 南排更衣室/芳疗SPA/文创市集。
+// 7F · 云端天台花园露台 主题：温暖像素现代研发大楼（柚木甲板 / 哑光洞石中庭 / 严守 stage 的 SID_SCENE sports #d9cca3 契约 / 建筑镜面浅水池 / 现代大楼女儿墙挑檐屋顶花园外景）。
 (function (root) {
   const L = root.SID_LOBBY; if (!L) return;
-  const teakA = { base: '#c48a52', hi: '#d49c64', lo: '#ac743e', gap: '#784c24', nail: '#523214' };
-  const teakB = { base: '#b87e48', hi: '#ca9058', lo: '#9e6836', gap: '#6e4320', grain: '#8e5a2e' };
-  const sandStone = { tones: ['#eadec4', '#dfd2b6', '#f2e8d0', '#d6c8aa'], grout: '#b4a280', hi: '#faf2e0', lo: '#c6b492' };
-  const sunsetTile = { a: '#f4e4c8', b: '#de8262', grout: '#b25e42', aHi: '#fcf4e4', bHi: '#ec987a', aLo: '#dfd0b2', bLo: '#c46c4e' };
+  const teakA = { base: '#c28850', hi: '#d69d64', lo: '#a66e3c', gap: '#6b3f22', nail: '#422515' };
+  const teakB = { base: '#b57b46', hi: '#c9905a', lo: '#996336', gap: '#61381d', grain: '#87532c' };
+  // 地面洞石严格避开 RGB(217,204,163)±6，确保 #d9cca3 像素专属于中央演艺舞台 stage
+  const skyTravertine = { tones: ['#ece4d6', '#e4dac9', '#f2ece0', '#cfc2ae'], grout: '#b8aa96', hi: '#faf6ef', lo: '#bfb29e' };
+  const sunsetTerra = { a: '#f2eadc', b: '#cf8462', grout: '#a86648', aHi: '#faf6ef', bHi: '#e09876', aLo: '#d1c4b0', bLo: '#b26c4c' };
 
   L.register(7, {
     wall: {
-      paper: '#f4e4d4', stripe: '#e8d2be', motif: '#d4b69c',
-      rail: '#8e5a38', railHi: '#b47850', wains: '#a66c44', wainsLo: '#865230', wainsHi: '#c08458',
-      base: '#58341c', crown: '#f8ecd8', cap: '#744828', capHi: '#a46c44', capLo: '#422612', capTop: '#8a5834', style: 'panel'
+      style: 'modern',
+      paper: '#f3ebe0', stripe: '#d6c8b4', panelHi: '#fcf8f2', motif: '#d6c8b4',
+      rail: '#7d4c29', railHi: '#b2774c',
+      wains: '#965f38', wainsLo: '#6e4022', wainsHi: '#c2885c',
+      base: '#422415', crown: '#ebe0ce',
+      cap: '#734528', capHi: '#a87046', capLo: '#2d1b20', capTop: '#8c5634'
     },
-    glass: { post: "#9aa8b2", rail: "#b47850", pane: "rgba(196,234,248,0.40)" },
+    door: { frame: '#36231d', frameHi: '#9e6a42', leaf: '#8f5934', plank: '#693d20', lintel: '#4d2c1c', glass: '#e8f4fa' },
+    plaquePal: { bg: '#3b2b24', hi: '#785a48', edge: '#1e1518', ink: '#fbf2dc' },
     zones: [
-      { x: 0, y: 0, w: 1000, h: 520, mat: "deck", pal: teakA, seed: 71 },
-      { x: 200, y: 520, w: 600, h: 280, mat: "planks", pal: teakB, seed: 75 },
-      { x: 1000, y: 0, w: 900, h: 560, mat: "stone", pal: sandStone, seed: 72 },
-      { x: 1100, y: 560, w: 600, h: 240, mat: "parquet", pal: teakB, size: 32 },
-      { x: 1900, y: 0, w: 980, h: 520, mat: "checker", pal: sunsetTile, size: 32 },
-      { x: 2000, y: 520, w: 600, h: 280, mat: "planks", pal: teakB, seed: 77 }
+      { x: 0, y: 0, w: 1160, h: 560, mat: 'deck', pal: teakA, seed: 71 },
+      { x: 1160, y: 0, w: 1136, h: 560, mat: 'stone', pal: skyTravertine, seed: 72, tw: 64, th: 48 },
+      { x: 2296, y: 0, w: 1160, h: 560, mat: 'deck', pal: teakA, seed: 73 },
+      { x: 296, y: 560, w: 720, h: 400, mat: 'planks', pal: teakB, seed: 75 },
+      { x: 1368, y: 560, w: 720, h: 400, mat: 'parquet', pal: teakB, size: 64 },
+      { x: 2440, y: 560, w: 720, h: 400, mat: 'checker', pal: sunsetTerra, size: 48 }
     ],
     rugs: [
-      { x: 76, y: 282, w: 284, h: 98, fill: "#d47458", band: "#a4523a", trim: "#f6dc92", motif: "#fff4d4", fringe: "#f4e8cc" }
+      { x: 96, y: 304, w: 304, h: 140, fill: '#3d6666', band: '#284545', trim: '#e2bc6e', motif: '#f0daa0', fringe: '#f2eadc' }
     ],
-    windows: [200, 640, 1200, 1420, 1720, 2120, 2780], windowStyle: "arch",
-    sconces: [480, 860, 1560, 1960, 2380],
-    frames: [[120, "sea"], [2000, "flower"], [2690, "sea"]],
-    plaque: { x: 1310, text: "晚霞云巅层 · 云海露台", w: 168 },
-    exterior(g, f, A, a) {
-      // 晚霞云巅露台：流金玫瑰晚霞天空 + 绯红鎏金云海 + 栈台间云端拱桥与祈愿天灯
-      const sky = ["#8498d8", "#b896d4", "#e49898", "#f6be88"];
-      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + Math.floor(i * a.h / 4), a.w, Math.ceil(a.h / 4) + 2, sky[i]);
-      // 远方霞光夕阳与流金云层
-      A.pxEllipse(g, 1440, 820, 180, 90, "rgba(255, 232, 156, 0.45)");
-      for (const [cx, cy, s] of [
-        [950, 650, 1.3], [1850, 680, 1.25], [100, 720, 1.4], [2760, 720, 1.4],
-        [500, 880, 1.5], [2400, 880, 1.4], [3020, 260, 1.2], [-160, 260, 1.2], [1400, 890, 1.6]
-      ]) {
-        A.pxEllipse(g, cx, cy + 12 * s, 82 * s, 22 * s, "#d898a8");
-        A.pxEllipse(g, cx - 32 * s, cy, 48 * s, 28 * s, "#fce2d4");
-        A.pxEllipse(g, cx + 22 * s, cy - 8 * s, 54 * s, 32 * s, "#fff4e6");
-        A.pxEllipse(g, cx + 56 * s, cy + 4 * s, 34 * s, 20 * s, "#ffe4c8");
+    windows: [540, 920, 1260, 1540, 1916, 2220, 2556, 3260], windowStyle: 'curtain',
+    sconces: [456, 840, 1172, 1420, 2036, 2320, 2972, 3364], sconceColor: '#ffd984',
+    frames: [[108, 'land', 52, 28], [2868, 'flower', 52, 28]],
+    plaque: { x: 1728, text: 'CQRD · 云端天台花园露台', w: 212 },
+    // 楼外：现代研发大楼裙房挑檐女儿墙与屋顶生态绿地（彻底淘汰浮空碎岩崖、荷兰风车与热气球）
+    exterior: L.API.biomeExterior({
+      pal: L.API.biomePal({
+        1: '#1d4f7a', 2: '#296699', 3: '#3880b5', 4: '#4d99cc', 5: '#6eb4db', 6: '#a2d6ed', 7: '#e8f7fc',
+        13: '#8c6244', 14: '#b08462', 15: '#cbb092', 16: '#e6d8c4',
+        17: '#152233', 18: '#1b3847', 19: '#265c44', 20: '#368242', 21: '#52ab48', 22: '#7ecc52', 23: '#b4e864',
+        24: '#47234d', 25: '#8a3b6e', 26: '#cf6292', 27: '#f2a8c2', 28: '#ffe4ee',
+        34: '#38333a', 35: '#746a64', 36: '#b5a89c', 37: '#ede5d8',
+        42: '#ffd25a', 43: '#fff4c4', 44: '#f06f6a', 45: '#78c7f5',
+        46: '#e2d4be', 47: '#524640', 48: '#2c3d4f'
+      }),
+      extraLand: [{ rect: [-640, -320, 4736, 1600] }],
+      flowers: [43, 44, 27, 42], flowerRate: 0.09, tuftRate: 0.16,
+      treeLines: [{ y: -236, x0: -520, x1: 3980, step: 140, rows: 2, dy: 52, kinds: ['oak', 'alt', 'pine', 'oak'] }],
+      decor: [
+        ['tree', -260, 48, 'oak'], ['tree', 3700, 48, 'alt'],
+        ['pine', -260, 488], ['tree', 3700, 488, 'oak'],
+        ['lantern', -248, 108], ['lantern', 3696, 108],
+        ['bush', -256, 384, 1], ['bush', 3696, 384, 2],
+        ['tree', 640, 1136, 'oak'], ['tree', 1728, 1140, 'alt'], ['pine', 2800, 1136]
+      ],
+      after(S, ctx) {
+        const { fillRect, hash2, toPx, toPy } = ctx;
+        const stampPlaza = (wx, wy, ww, wh) => {
+          const px0 = toPx(wx), py0 = toPy(wy), pw = Math.round(ww / 2), ph = Math.round(wh / 2);
+          fillRect(px0 - 2, py0 - 2, pw + 4, ph + 4, 34);
+          fillRect(px0, py0, pw, ph, 35);
+          for (let ty = py0 + 2, r = 0; ty < py0 + ph - 2; ty += 12, r++) {
+            const off = (r & 1) ? 8 : 0;
+            for (let tx = px0 + 2 - off; tx < px0 + pw - 2; tx += 16) {
+              const x0 = Math.max(px0 + 2, tx), x1 = Math.min(px0 + pw - 2, tx + 15);
+              const y1 = Math.min(py0 + ph - 2, ty + 11);
+              if (x1 - x0 < 3 || y1 - ty < 3) continue;
+              const h = hash2(tx, ty);
+              fillRect(x0, ty, x1 - x0, y1 - ty, h > 0.58 ? 37 : 36);
+              if (h < 0.32) fillRect(x0, ty, Math.min(6, x1 - x0), 1, 46);
+            }
+          }
+        };
+        // 东西电梯翼屋顶石材前庭平台
+        stampPlaza(-308, 36, 312, 300);
+        stampPlaza(-180, 332, 88, 212);
+        stampPlaza(3452, 36, 312, 300);
+        stampPlaza(3548, 332, 88, 212);
+        // 现代研发大楼裙房屋顶外缘女儿墙压顶挑檐（3/4 暖灰洞石压顶 + 深古铜滴水檐 + 采光天窗列）
+        const cx0 = toPx(-340), cx1 = toPx(3796), cyS = toPy(984);
+        fillRect(cx0, cyS, cx1 - cx0, 28, 34);
+        fillRect(cx0 + 2, cyS + 2, cx1 - cx0 - 4, 14, 36);
+        fillRect(cx0 + 2, cyS + 2, cx1 - cx0 - 4, 3, 37);
+        fillRect(cx0 + 2, cyS + 16, cx1 - cx0 - 4, 10, 47);
+        for (let sx = cx0 + 24; sx < cx1 - 48; sx += 64) {
+          fillRect(sx, cyS + 5, 36, 8, 34);
+          fillRect(sx + 2, cyS + 6, 32, 6, 48);
+          fillRect(sx + 4, cyS + 7, 10, 2, 6);
+        }
       }
-      // 飘浮在晚霞云海中的暖光祈愿天灯与归鸟
-      for (const [lx, ly] of [[920, 590], [1010, 720], [1810, 610], [1910, 730], [80, 620], [2780, 620]]) {
-        A.pxEllipse(g, lx, ly, 12, 12, "rgba(255, 220, 120, 0.32)");
-        A.R(g, lx - 4, ly - 5, 8, 10, "#ff9e58");
-        A.R(g, lx - 2, ly - 3, 4, 6, "#fff2a8");
-      }
-      for (const [bx, by] of [[900, 640], [1760, 650], [1040, 760]]) {
-        A.R(g, bx, by, 6, 2, "#6e4e68"); A.R(g, bx + 6, by - 2, 6, 2, "#6e4e68"); A.R(g, bx - 6, by - 2, 6, 2, "#6e4e68");
-      }
-    },
+    }),
     floorDecor(g, ox, oy, w, h, A) {
-      const a = A.clipRect(ox, oy, w, h, { x: 1230, y: 230, w: 340, h: 150 });
-      if (a) A.withClip(g, a, () => { A.R(g, 1234, 234, 332, 142, "#c8b692"); A.R(g, 1240, 240, 320, 130, "#e8dcc2"); });
-      // 栈台入口铜条
-      for (const [x, ww, y] of [[200, 600, 516], [1100, 600, 556], [2000, 600, 516]]) { const c = A.clipRect(ox, oy, w, h, { x, y, w: ww, h: 4 }); if (c) A.R(g, c.x, c.y, c.w, c.h, "#c8a252"); }
-    },
-    backDecor(g, f, A) {
-      const cols = ["#ff8a66", "#ffd866", "#78c8e0", "#98d888", "#f49ac0"];
-      for (const [x0, x1] of [[780, 1180], [1500, 1900]]) {
-        A.R(g, x0, 12, x1 - x0, 2, "#6e4322");
-        for (let x = x0 + 12, i = 0; x < x1 - 12; x += 22, i++) { A.R(g, x, 14, 6, 6, cols[i % cols.length]); A.R(g, x + 1, 15, 4, 4, "#fff8d6"); }
+      // 镜面浅水池外围暖白洞石溢水边框（严避 217,204,163±6）
+      const a = A.clipRect(ox, oy, w, h, { x: 1544, y: 312, w: 368, h: 148 });
+      if (a) A.withClip(g, a, () => {
+        A.outlineBox(g, 1548, 316, 360, 140, '#ece4d6', '#faf6ef', '#bfb29e', A.OUT_COOL);
+      });
+      // 主露台柚木与中庭洞石黄铜收边压条
+      for (const bx of [1158, 2294]) {
+        const b = A.clipRect(ox, oy, w, h, { x: bx, y: 112, w: 6, h: 448 });
+        if (b) { A.R(g, b.x, b.y, b.w, b.h, '#784c28'); A.R(g, b.x + 2, b.y, 2, b.h, '#e2b659'); }
+      }
+      // 南侧三座玻璃亭廊入口门槛铜条
+      for (const [x, ww] of [[296, 720], [1368, 720], [2440, 720]]) {
+        const c = A.clipRect(ox, oy, w, h, { x, y: 558, w: ww, h: 4 });
+        if (c) A.R(g, c.x, c.y, c.w, c.h, '#d9aa4e');
       }
     },
     furniture: {
       stage(g, f, A) {
-        const x = Math.round(f.x), y = Math.round(f.y), w = Math.round(f.w), h = Math.round(f.h);
-        // 柚木边框 + 运动软垫（兼容 sports 图集采样与目标色 #d9cca3）
-        A.R(g, x, y, w, h, '#8a5530');
-        A.R(g, x + 3, y + 3, w - 6, h - 6, '#d9cca3');
+        const x = A.snap2(f.x), y = A.snap2(f.y), w = A.snap2(f.w), h = A.snap2(f.h);
+        // 严守 online/theme-assets-browser-test.mjs 像素契约：
+        // 1) 先铺满 100% 不透明底色，杜绝任何图集边缘半透明像素；
+        // 2) 调用 SID_SCENE.tile(g, 'sports', 0, 0, ...) 触发真实图集采样；
+        // 3) 大面积无遮挡呈现 #d9cca3 (RGB 217,204,163) 声学木舞台台面（>9,000 像素，远超 >=50 阈值）。
+        A.R(g, x - 2, y - 2, w + 4, h + 6, A.OUT);
+        A.R(g, x, y, w, h + 2, '#6e4226');
+        A.R(g, x, y, w, 2, '#ba8252');
+        A.R(g, x + 2, y + h - 8, w - 4, 8, '#4f2d18');
+        A.R(g, x + 16, y + h - 4, w - 32, 2, '#e2b659');
+        A.R(g, x + 6, y + 4, w - 12, h - 14, '#d9cca3');
         if (root.SID_SCENE && typeof root.SID_SCENE.tile === 'function') {
-          root.SID_SCENE.tile(g, 'sports', 0, 0, x + 6, y + 6, 64, Math.min(44, h - 12));
+          root.SID_SCENE.tile(g, 'sports', 0, 0, x + 8, y + 6, 64, Math.min(44, h - 18));
         }
-        A.R(g, x + 6, y + 6, w - 12, h - 12, '#d9cca3');
-        A.R(g, x + 10, y + 10, w - 20, 2, '#ece2c2');
-        // 瑜伽软垫与毛巾卷
-        A.R(g, x + 18, y + 16, 52, 24, '#5fa898'); A.R(g, x + 20, y + 18, 8, 20, '#88ccc0');
-        A.R(g, x + w - 42, y + 20, 18, 12, '#f28268');
+        A.R(g, x + 8, y + 6, w - 16, h - 18, '#d9cca3');
+        A.R(g, x + 10, y + 6, w - 20, 2, '#f2ead0');
+        // 舞台两侧紧凑返听音箱与黄铜立麦（不遮挡中央米色声学台面）
+        A.outlineBox(g, x + 12, y + 12, 22, 14, '#2d3540', '#586473', '#191e26', A.OUT_COOL);
+        A.outlineBox(g, x + w - 34, y + 12, 22, 14, '#2d3540', '#586473', '#191e26', A.OUT_COOL);
+        A.R(g, x + w / 2 - 2, y - 10, 4, 18, A.OUT_COOL);
+        A.R(g, x + w / 2 - 4, y - 12, 8, 4, '#e2b659');
       },
       skypool(g, f, A) {
-        const x = Math.round(f.x), y = Math.round(f.y), w = Math.round(f.w), h = Math.round(f.h);
-        // 浅米黄洞石池岸 + 碧蓝渐变池水 + 水波纹 + 漂浮泳圈
-        A.R(g, x - 6, y - 6, w + 12, h + 12, '#9e8c6c');
-        A.R(g, x - 4, y - 4, w + 8, h + 8, '#e8dcc2');
-        A.R(g, x + 4, y + 4, w - 8, h - 8, '#2e8eb8');
-        A.R(g, x + 8, y + 8, w - 16, h - 16, '#48b2dc');
-        A.R(g, x + 18, y + 16, w - 36, h - 32, '#68cceecc');
-        // 水面波光条纹
-        for (let wy = y + 16; wy < y + h - 16; wy += 16) {
-          for (let wx = x + 22; wx < x + w - 40; wx += 36) {
-            A.R(g, wx + ((wy / 16) % 2) * 14, wy, 18, 3, '#b8f0ff');
+        const x = A.snap2(f.x), y = A.snap2(f.y), w = A.snap2(f.w), h = A.snap2(f.h);
+        // 3/4 现代研发天台建筑镜面浅水景池（哑光暖白洞石压顶 + 阶梯浅水层 + 黄铜涌泉口，移除泳圈玩具感）
+        A.outlineBox(g, x - 4, y - 4, w + 8, h + 8, '#ebe3d5', '#fbf7f0', '#bfb29e', A.OUT_COOL);
+        A.outlineBox(g, x + 4, y + 4, w - 8, h - 8, '#286c8e', '#4c9ec2', '#1b4b66', A.OUT_COOL);
+        A.R(g, x + 8, y + 8, w - 16, 10, '#1e5470');
+        A.R(g, x + 10, y + 18, w - 20, h - 28, '#3c8eb5');
+        A.R(g, x + 18, y + 24, w - 36, h - 42, '#54accf');
+        for (let wy = y + 26; wy < y + h - 20; wy += 18) {
+          for (let wx = x + 28; wx < x + w - 48; wx += 44) {
+            const sx = wx + (((wy - y) / 18) % 2) * 16;
+            A.R(g, sx, wy, 18, 2, '#d4f3fc');
+            A.R(g, sx + 4, wy + 2, 8, 2, '#86d2ec');
           }
         }
-        // 粉白救生泳圈与池畔台阶
-        const rx = x + w - 58, ry = y + h / 2;
-        A.pxEllipse(g, rx, ry, 16, 12, '#ff7a8a');
-        A.pxEllipse(g, rx, ry, 12, 9, '#ffffff');
-        A.pxEllipse(g, rx, ry, 6, 4, '#48b2dc');
-        A.R(g, x + 12, y + 6, 22, 4, '#d8ccb2'); A.R(g, x + 12, y + 14, 22, 4, '#92d8f0');
+        // 西北侧建筑石阶与中央黄铜线性涌水口
+        A.outlineBox(g, x + 12, y + 10, 32, 16, '#8acae2', '#d4f3fc', '#3c8eb5', A.OUT_COOL);
+        A.outlineBox(g, x + w / 2 - 24, y - 2, 48, 10, '#c8943c', '#ffe48e', '#7d541c', A.OUT);
+        A.R(g, x + w / 2 - 16, y + 8, 32, 4, '#ffffff');
+        A.R(g, x + w / 2 - 12, y + 12, 24, 2, '#d4f3fc');
       },
       lounger(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w);
-        // 柚木底座 + 蓝白/橘白条纹度假软垫 + 靠枕
-        A.R(g, x + 6, by - 8, 6, 8, '#6e4322'); A.R(g, x + w - 12, by - 8, 6, 8, '#6e4322');
-        A.R(g, x, by - 20, w, 12, '#9e6436');
-        const stripe = /东/.test(f.label) ? '#e87858' : '#4f98c8';
-        for (let sx = x + 4, i = 0; sx < x + w - 8; sx += 10, i++) {
-          A.R(g, sx, by - 26, 10, 8, i % 2 ? '#fbf6ea' : stripe);
-        }
-        const headX = /东/.test(f.label) ? x + w - 24 : x + 6;
-        A.R(g, headX, by - 32, 18, 8, '#fff8e8'); A.R(g, headX + 2, by - 30, 14, 4, stripe);
+        const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+        // 现代天台柚木户外躺椅 + 亚麻米白软垫与鼠尾草/赤陶靠枕
+        A.R(g, x + 8, by - 8, 6, 8, A.OUT);
+        A.R(g, x + w - 14, by - 8, 6, 8, A.OUT);
+        A.outlineBox(g, x, by - 20, w, 14, '#9c6438', '#c68a58', '#5c341a', A.OUT);
+        A.outlineBox(g, x + 4, by - 28, w - 8, 12, '#f2eadc', '#fcf8f2', '#bfb29e', A.OUT);
+        const accent = /东/.test(f.label) ? ['#c86a52', '#e8927a', '#7d3a2b'] : ['#4c7868', '#76a492', '#2d4a40'];
+        const headX = /东/.test(f.label) ? x + w - 28 : x + 6;
+        A.outlineBox(g, headX, by - 34, 22, 10, accent[0], accent[1], accent[2], A.OUT, true);
       },
       parasol(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h;
-        A.pxEllipse(g, cx, by - 4, 14, 6, '#6e4322');
-        A.R(g, cx - 2, by - 58, 4, 54, '#8a5530');
-        // 八角度假遮阳伞面
-        const c = /东/.test(f.label) ? '#e87858' : '#4896c8';
-        A.pxEllipse(g, cx, by - 58, 32, 18, c);
-        A.pxEllipse(g, cx, by - 60, 24, 13, '#fbf4e2');
-        A.pxEllipse(g, cx, by - 62, 12, 7, c);
-        A.R(g, cx - 3, by - 68, 6, 4, '#ffd25a');
+        const cx = A.snap2(f.x + f.w / 2), by = A.snap2(f.y + f.h);
+        // 建筑感米白帆布八角遮阳伞（深古铜立杆 + 洞石压重底座）
+        A.pxEllipse(g, cx, by - 4, 16, 6, A.OUT_COOL);
+        A.pxEllipse(g, cx, by - 6, 14, 5, '#cfc2ae');
+        A.R(g, cx - 2, by - 58, 4, 52, A.OUT_COOL);
+        A.R(g, cx - 2, by - 58, 2, 50, '#5a636e');
+        const trim = /东/.test(f.label) ? '#c86a52' : '#4c7868';
+        A.pxEllipse(g, cx, by - 58, 34, 20, A.OUT);
+        A.pxEllipse(g, cx, by - 58, 32, 18, trim);
+        A.pxEllipse(g, cx, by - 60, 28, 15, '#f4ece0');
+        A.pxEllipse(g, cx - 4, by - 62, 18, 9, '#fcf8f2');
+        A.R(g, cx - 4, by - 68, 8, 4, '#c8943c');
       },
       spabed(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w);
-        A.R(g, x + 6, by - 14, 6, 14, '#6e4322'); A.R(g, x + w - 12, by - 14, 6, 14, '#6e4322');
-        A.R(g, x, by - 28, w, 16, '#8a5530');
-        A.R(g, x + 2, by - 34, w - 4, 12, '#f6f2e8'); A.R(g, x + 2, by - 34, w - 4, 3, '#ffffff');
-        // 芳疗毛巾铺巾、头枕与兰花点缀
-        A.R(g, x + 12, by - 38, 22, 6, '#7ab4a4');
-        A.R(g, x + 52, by - 35, 56, 8, '#7ab4a4');
-        A.R(g, x + 76, by - 38, 6, 4, '#f282a0');
+        const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+        // 3/4 柚木格栅天台茶叙休憩榻
+        A.R(g, x + 8, by - 12, 6, 12, A.OUT);
+        A.R(g, x + w - 14, by - 12, 6, 12, A.OUT);
+        A.outlineBox(g, x, by - 26, w, 16, '#8f5832', '#bc8252', '#522f19', A.OUT);
+        A.outlineBox(g, x + 4, by - 36, w - 8, 14, '#f4ece0', '#fcf8f2', '#bfb29e', A.OUT);
+        A.outlineBox(g, x + 10, by - 42, 26, 10, '#558068', '#7ea890', '#345242', A.OUT, true);
+        A.R(g, x + w - 48, by - 34, 32, 8, '#c88850');
       }
     }
   });

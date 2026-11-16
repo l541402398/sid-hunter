@@ -24,173 +24,164 @@
   // 楼层上的门点写在「1× 基准世界像素」里，建造时随楼层同比例放大（与 FLOOR_SPECS 一致）。
   const FLOOR_SCALE = D.FLOOR_SCALE || 1;
   const SC = (v) => Math.round(v * ROOM_SCALE);
-  const ROOM_SIZES = {
-    office: { w: SC(620), h: SC(420) },
-    meeting: { w: SC(760), h: SC(470) },
-    archive: { w: SC(700), h: SC(450) },
-    lab: { w: SC(660), h: SC(440) },
-    lounge: { w: SC(600), h: SC(400) },
-    vault: { w: SC(560), h: SC(380) },
-    locker: { w: SC(520), h: SC(360) },
-    studio: { w: SC(640), h: SC(430) }
+  const BASE_ROOM_SIZES = {
+    office: { w: 620, h: 420 },
+    meeting: { w: 760, h: 470 },
+    archive: { w: 700, h: 450 },
+    lab: { w: 660, h: 440 },
+    lounge: { w: 600, h: 400 },
+    vault: { w: 560, h: 380 },
+    locker: { w: 520, h: 360 },
+    studio: { w: 640, h: 430 }
   };
-  const WALL_T = 26;         // 房间墙厚
+  const ROOM_SIZES = {
+    office: { w: SC(832), h: SC(560) },
+    meeting: { w: SC(1008), h: SC(624) },
+    archive: { w: SC(928), h: SC(592) },
+    lab: { w: SC(880), h: SC(576) },
+    lounge: { w: SC(800), h: SC(528) },
+    vault: { w: SC(752), h: SC(512) },
+    locker: { w: SC(704), h: SC(480) },
+    studio: { w: SC(864), h: SC(576) }
+  };
+  const WALL_T = 24;         // 房间侧墙/南墙厚
+  const NORTH_WALL_T = 76;   // 房间 3/4 视角北墙高度（容纳挂屏/白板/采光窗，杜绝伸出黑边）
   const DOOR_HALF = 46;      // 房间南墙门洞半宽
   const ENTER_PAD = 56;      // 楼层上「门口可按 E」的半径
 
-  // ---------- 房间模板（按室内建筑功能分区摆放：北壁收纳展示、中央功能组团、东西边柜、南侧迎宾步道） ----------
+  // ---------- 房间模板（按室内建筑三段式分区：北墙挂件 0..76、北沿柜列 y>=84、中央主功能组团、南角迎宾区） ----------
   // kind 决定默认尺寸与配色；furniture 行格式同 floors.js：[type,label,x1,y1,x2,y2,flag?]
   // flag 'container:<name>' → 生成稳定 ID `f{floor}:room:{slug}:container:{name}`。
   function office(extra = []) {
     return [
-      // 北墙：白板、显示屏与整排资料书架
-      ['tv', '阳光挂屏', 130, 32, 330, 58],
-      ['whiteboard', '木框日程板', 380, 32, 640, 58],
-      ['shelf', '北墙图书架', 680, 95, 930, 195, 'container:shelfA'],
-      // 西壁：原木文件柜
-      ['cabinet', '原木文件柜', 48, 160, 124, 320, 'container:cabA'],
-      // 中区偏北：主管书桌与侧边伴读木椅（留出书桌正前方与南侧大片迎宾通道）
-      ['desk', '向阳原木书桌', 240, 210, 520, 340, 'container:deskA'],
-      ['chair', '伴读木椅', 548, 250, 622, 325],
-      // 东壁偏南：茶歇边几与向阳绿植（彻底让开北墙图书架正前方）
-      ['cooler', '山泉茶饮机', 865, 500, 935, 600],
-      ['plant', '向阳琴叶榕', 860, 650, 945, 745],
+      ['tv', '园区数据挂屏', 275, 30, 445, 75],
+      ['whiteboard', '研发日程看板', 475, 30, 665, 75],
+      ['cabinet', '原木档案矮柜', 60, 150, 250, 225, 'container:cabA'],
+      ['shelf', '北墙专业书架', 685, 150, 935, 225, 'container:shelfA'],
+      ['desk', '研发主管书桌', 240, 430, 530, 525, 'container:deskA'],
+      ['armchair', '访客接待单椅', 575, 435, 655, 520],
+      ['cooler', '山泉直饮水机', 865, 435, 935, 525],
       ...extra
     ];
   }
   function meeting(extra = []) {
     return [
-      // 北墙：展示板与幕布
-      ['whiteboard', '共创讨论板', 180, 30, 480, 58],
-      ['tv', '分享投影幕', 530, 28, 790, 58],
-      // 中央地毯区：原木共创长桌（自带南北实木座椅）与主讲木椅
-      ['table', '原木共创长桌', 230, 260, 710, 395, 'container:tableA'],
-      ['chair', '主讲木椅', 745, 295, 815, 360],
-      // 西壁茶水吧台与东壁花木
-      ['counter', '手作茶歇边柜', 42, 220, 155, 360, 'container:counterA'],
-      ['plant', '阳光花箱', 855, 250, 945, 360],
+      ['whiteboard', '共创研讨白板', 190, 30, 470, 75],
+      ['tv', '投屏演示大屏', 525, 30, 790, 75],
+      ['counter', '会议茶歇边柜', 60, 150, 265, 225, 'container:counterA'],
+      ['plant', '北角散尾葵', 875, 155, 945, 230],
+      ['table', '胡桃木会议长桌', 250, 435, 710, 535, 'container:tableA'],
+      ['chair', '主讲木椅', 745, 450, 815, 525],
       ...extra
     ];
   }
   function archive(extra = []) {
     return [
-      // 北墙对称典藏书架与中央索引柜
-      ['shelf', '典藏木书架一', 55, 90, 310, 190, 'container:shelfA'],
-      ['cabinet', '分类索引木柜', 370, 90, 630, 180, 'container:cabA'],
-      ['shelf', '典藏木书架三', 690, 90, 945, 190, 'container:shelfC'],
-      // 西壁第二排书架（留出宽敞过道）与东壁收纳木箱
-      ['shelf', '典藏木书架二', 55, 380, 310, 480, 'container:shelfB'],
-      ['crate', '手稿收纳木箱', 740, 260, 860, 355, 'container:crateA'],
-      // 中央阅览整理台
-      ['table', '阳光阅览整理台', 385, 315, 625, 425, 'container:tableA'],
-      ['plant', '书斋万年青', 865, 395, 945, 475],
+      ['shelf', '典藏木书架一', 60, 150, 300, 225, 'container:shelfA'],
+      ['cabinet', '分类索引木柜', 375, 150, 625, 225, 'container:cabA'],
+      ['shelf', '典藏木书架三', 700, 150, 940, 225, 'container:shelfC'],
+      ['shelf', '典藏木书架二', 60, 440, 290, 520, 'container:shelfB'],
+      ['table', '阳光阅览整理台', 375, 445, 635, 535, 'container:tableA'],
+      ['crate', '手稿收纳木箱', 725, 455, 845, 530, 'container:crateA'],
+      ['plant', '书斋万年青', 875, 455, 945, 535],
       ...extra
     ];
   }
   function lab(extra = []) {
     return [
-      // 北墙：研究看板、北壁零件柜与原木仪器柜
-      ['whiteboard', '工坊配方看板', 150, 30, 500, 58],
-      ['cabinet', '工坊材料木柜', 48, 85, 128, 285, 'container:cabA'],
-      ['server', '恒温培育木柜', 760, 85, 910, 310, 'container:serverA'],
-      // 中央对称双工作台（正前方不摆凳子遮挡交互）
-      ['desk', '手作实验台一', 165, 210, 415, 325, 'container:deskA'],
-      ['desk', '手作实验台二', 455, 210, 705, 325, 'container:deskB'],
-      ['chair', '工坊木凳', 55, 365, 125, 430],
-      ['plant', '工坊迷迭香', 855, 355, 940, 445]
+      ['whiteboard', '研发实验看板', 350, 30, 650, 75],
+      ['cabinet', '实验耗材木柜', 60, 150, 250, 225, 'container:cabA'],
+      ['server', '恒温自控仪器柜', 720, 150, 920, 225, 'container:serverA'],
+      ['desk', '研发实验台一', 180, 435, 440, 525, 'container:deskA'],
+      ['desk', '研发实验台二', 500, 435, 760, 525, 'container:deskB'],
+      ['plant', '实验室迷迭香', 855, 450, 935, 530],
+      ...extra
     ];
   }
   function lounge(extra = []) {
     return [
-      // 北墙：风景挂屏与北侧阳光茶吧
-      ['tv', '田园风景画屏', 180, 30, 440, 58],
-      ['counter', '阳光咖啡吧台', 560, 80, 910, 185, 'container:counterA'],
-      // 中央偏左：温馨布艺沙发与原木茶几（拉开间距，避免沙发紧贴茶几容器）
-      ['sofa', '暖阳布艺沙发', 140, 160, 430, 270],
-      ['table', '原木茶几', 210, 330, 370, 415, 'container:tableA'],
-      // 东壁绘本架与西壁花钵
-      ['shelf', '绘本杂志木架', 680, 250, 880, 380, 'container:shelfA'],
-      ['plant', '茶室向日葵', 55, 340, 135, 435]
+      ['tv', '园区风景画屏', 150, 30, 430, 75],
+      ['counter', '现磨咖啡吧台', 540, 155, 910, 235, 'container:counterA'],
+      ['sofa', '暖阳布艺沙发', 225, 375, 525, 465],
+      ['table', '烘焙茶叙圆桌', 285, 530, 455, 615, 'container:tableA'],
+      ['shelf', '期刊绘本木架', 715, 445, 925, 535, 'container:shelfA'],
+      ...extra
     ];
   }
   function vault(extra = []) {
     return [
-      // 北墙居中：镶金典藏柜；西壁：木质凭证柜
-      ['safe', '镶金典藏保险柜', 350, 68, 650, 235, 'container:safeA'],
-      ['cabinet', '胡桃木凭证柜', 50, 85, 145, 295, 'container:cabA'],
-      // 中央清点木桌与东壁礼盒箱
-      ['table', '典藏品鉴长桌', 280, 295, 560, 405, 'container:tableA'],
-      ['crate', '封存礼盒木箱', 720, 275, 870, 395, 'container:crateA'],
-      ['plant', '迎宾金桔树', 55, 335, 135, 430]
+      ['cabinet', '胡桃木凭证柜', 65, 155, 285, 235, 'container:cabA'],
+      ['safe', '研发典藏保险柜', 400, 155, 620, 235, 'container:safeA'],
+      ['table', '典藏品鉴长桌', 250, 445, 570, 535, 'container:tableA'],
+      ['crate', '封存礼盒木箱', 700, 455, 845, 535, 'container:crateA'],
+      ['plant', '迎宾金桔树', 875, 455, 945, 535],
+      ...extra
     ];
   }
   function locker(extra = []) {
     return [
-      // 北壁整齐成排的原木储物柜与东侧洗漱台
-      ['locker', '原木更衣柜一', 60, 78, 215, 290, 'container:lockA'],
-      ['locker', '原木更衣柜二', 235, 78, 390, 290, 'container:lockB'],
-      ['counter', '暖光洗漱台', 660, 82, 920, 195],
-      // 中央换鞋木长凳与角落花木
-      ['bench', '原木换鞋长凳', 380, 320, 640, 395],
-      ['plant', '更衣室绿植', 860, 330, 945, 430]
+      ['locker', '员工原木衣柜一', 65, 160, 265, 245, 'container:lockA'],
+      ['locker', '员工原木衣柜二', 300, 160, 500, 245, 'container:lockB'],
+      ['counter', '暖光洗漱台', 650, 160, 920, 245],
+      ['bench', '原木换鞋长凳', 340, 470, 660, 550],
+      ['plant', '休息室绿植', 860, 470, 940, 555],
+      ...extra
     ];
   }
   function studio(extra = []) {
     return [
-      // 北墙：画屏与东侧样片书架、西壁画材柜
-      ['tv', '色彩校准画屏', 150, 35, 420, 68],
-      ['shelf', '手绘作品陈列架', 680, 75, 920, 200, 'container:shelfA'],
-      ['cabinet', '画材收纳木柜', 48, 88, 125, 295, 'container:cabA'],
-      // 中央双创作木台
-      ['desk', '手绘创作台一', 160, 215, 410, 330, 'container:deskA'],
-      ['desk', '色彩设计台二', 445, 215, 695, 330, 'container:deskB'],
-      ['plant', '画室琴叶榕', 855, 340, 945, 435]
+      ['tv', '色彩校准画屏', 340, 30, 620, 75],
+      ['cabinet', '画材收纳木柜', 60, 150, 260, 225, 'container:cabA'],
+      ['shelf', '手绘作品陈列架', 690, 150, 930, 225, 'container:shelfA'],
+      ['desk', '手绘创作台一', 175, 435, 435, 525, 'container:deskA'],
+      ['desk', '色彩设计台二', 495, 435, 755, 525, 'container:deskB'],
+      ['plant', '画室琴叶榕', 855, 450, 935, 530],
+      ...extra
     ];
   }
-  // 房间主题命名：同一套温馨家具骨架，按星露谷风温暖房间身份赋予美好的称谓。
+  // 房间主题命名：统一温暖现代研发大楼语境，保留全部 slug 与稳定容器键。
   const ROOM_LABELS = {
-    manager:     { desk: '晨光迎宾总台', cabinet: '社区档案木柜', shelf: '小镇年鉴架', whiteboard: '晨间日程板', tv: '晴雨播报屏', bench: '迎宾木长凳' },
-    'canteen-p': { table: '阳光烘焙圆桌', counter: '鲜果甜点吧台', shelf: '果酱陈列架', sofa: '暖阳布艺沙发', tv: '今日菜单屏', bench: '茶歇木凳' },
-    meeting220:  { table: '友谊赛沙盘桌', chair: '球员木椅', whiteboard: '友谊赛战术板', tv: '精彩集锦屏', counter: '鲜榨果汁补给台', bench: '球员休息凳' },
-    'rd-lead':   { desk: '教练原木书桌', cabinet: '纪念奖章木柜', shelf: '运动图鉴架', whiteboard: '晴空阵型板', tv: '赛况回放屏', bench: '场边木长凳' },
-    review301:   { table: '书院议事长桌', chair: '雕花木椅', whiteboard: '书院纹章板', tv: '星图挂毯', counter: '暖茶边柜', bench: '伴读长凳' },
-    lab3:        { desk: '草本调香台', server: '恒温花露柜', cabinet: '精油木柜', chair: '工坊木凳', whiteboard: '调香配方板', bench: '休息木凳' },
-    archive4:    { shelf: '干花与草本架', table: '原木园艺台', crate: '良种木箱', cabinet: '农具收纳柜', bench: '门边木长凳' },
-    ticket4:     { safe: '珍稀种子柜', table: '林间观测台', cabinet: '园丁日志柜', crate: '果蔬补给箱', bench: '守林木长凳' },
-    dispatch5:   { desk: '典藏品鉴台', cabinet: '胡桃木宝库柜', shelf: '古籍善本架', whiteboard: '星象手绘卷', tv: '古董鉴赏屏', bench: '阅览长凳' },
-    meeting5:    { table: '星象共读长桌', chair: '司书木椅', whiteboard: '二十四节气图', tv: '暖金壁灯屏', counter: '热可可茶台', bench: '学堂木长凳' },
-    finance6:    { safe: '船长甜品金库', table: '航海美食图桌', cabinet: '香草曲奇柜', crate: '热带果干箱', bench: '观海木长凳' },
-    meeting6:    { table: '下午茶长桌', chair: '甲板藤椅', whiteboard: '航海甜品单', tv: '晴海气象屏', counter: '冰淇淋料理台', bench: '甲板长凳' },
-    board7:      { table: '云端庆典长桌', chair: '暖白沙发椅', whiteboard: '小镇风景油画', tv: '阳光天窗屏', counter: '气泡饮吧台', bench: '观景窗长凳' },
-    locker7:     { locker: '露台泳衣木柜', bench: '暖阳木长凳', counter: '鲜果冰沙台' },
-    // ===== 每层 6 间独立小房间：全部采用明媚、治愈的星露谷风称谓 =====
-    server1:     { desk: '气象记录木台', server: '温室自控木柜', cabinet: '图纸木柜', chair: '记录员木椅', whiteboard: '小镇气象板', shelf: '仪器手册架' },
-    armory1:     { safe: '庆典礼花保险柜', table: '游园道具整理台', cabinet: '彩带礼盒柜', crate: '庆典灯笼箱' },
-    medbay1:     { desk: '草本理疗木桌', cabinet: '花草茶药柜', shelf: '健康手札架', whiteboard: '四季养生图', tv: '舒缓音乐屏' },
-    cryo1:       { locker: '午休原木衣柜', bench: '阳光午休凳', counter: '香薰洗漱台' },
+    manager:     { desk: '行政接待书桌', cabinet: '访客档案木柜', shelf: '园区年鉴书架', whiteboard: '接待日程看板', tv: '园区导览挂屏', bench: '迎宾木长凳' },
+    'canteen-p': { table: '阳光烘焙圆桌', counter: '鲜果烘焙吧台', shelf: '手作果酱陈列架', sofa: '暖阳布艺沙发', tv: '今日烘焙菜单屏', bench: '茶歇木凳' },
+    meeting220:  { table: '友谊赛沙盘长桌', chair: '球员木椅', whiteboard: '友谊赛战术板', tv: '精彩集锦屏', counter: '能量饮补给台', bench: '球员休息凳' },
+    'rd-lead':   { desk: '场馆主管书桌', cabinet: '纪念奖章木柜', shelf: '运动图鉴架', whiteboard: '场馆排期板', tv: '赛况回放屏', bench: '场边木长凳' },
+    review301:   { table: '图书研讨长桌', chair: '胡桃木椅', whiteboard: '学术议程板', tv: '馆藏检索屏', counter: '暖茶边柜', bench: '伴读长凳' },
+    lab3:        { desk: '古籍修复工作台', server: '恒湿典藏柜', cabinet: '装帧材料木柜', chair: '工坊木凳', whiteboard: '修复工序板', bench: '休息木凳' },
+    archive4:    { shelf: '植物标本木架', table: '园艺整理长桌', crate: '良种收纳木箱', cabinet: '园艺工具柜', bench: '门边木长凳' },
+    ticket4:     { safe: '珍稀种子保险柜', table: '温室观测长桌', cabinet: '植物日志柜', crate: '营养基质箱', bench: '花房木长凳' },
+    dispatch5:   { desk: '策展人办公桌', cabinet: '胡桃木展品柜', shelf: '研发史料架', whiteboard: '展陈排期板', tv: '数字展陈屏', bench: '观展长凳' },
+    meeting5:    { table: '学术沙龙长桌', chair: '讲堂木椅', whiteboard: '专题分享板', tv: '高清投影屏', counter: '热可可茶台', bench: '讲堂木长凳' },
+    finance6:    { safe: '精品豆典藏柜', table: '咖啡杯测长桌', cabinet: '烘焙配方柜', crate: '庄园生豆木箱', bench: '休息木长凳' },
+    meeting6:    { table: '下午茶研讨长桌', chair: '胡桃餐椅', whiteboard: '特调风味板', tv: '咖啡文化屏', counter: '手冲料理台', bench: '咖啡厅长凳' },
+    board7:      { table: '露台沙龙长桌', chair: '暖白扶手椅', whiteboard: '音乐会节目单', tv: '晴空天幕屏', counter: '气泡饮吧台', bench: '观景窗长凳' },
+    locker7:     { locker: '露台储物木柜', bench: '暖阳木长凳', counter: '清爽洗漱台' },
+    server1:     { desk: '环境监控工作台', server: '楼宇自控机柜', cabinet: '工程图纸木柜', whiteboard: '能耗监测看板' },
+    armory1:     { safe: '礼宾纪念保险柜', table: '庆典物料整理台', cabinet: '礼盒收纳木柜', crate: '活动物资木箱' },
+    medbay1:     { desk: '健康问诊木桌', cabinet: '常备医药木柜', shelf: '健康手册书架', whiteboard: '四季健康贴士', tv: '舒缓导引屏' },
+    cryo1:       { locker: '员工午休衣柜', bench: '暖阳午休长凳', counter: '温水洗漱台' },
     physio2:     { desk: '阳光理疗木台', server: '热敷毛巾柜', cabinet: '草本精油柜', chair: '放松木椅', whiteboard: '伸展运动图', shelf: '瑜伽垫木架' },
     equip2:      { shelf: '羽毛球拍木架', table: '运动器材登记台', crate: '野餐飞盘箱', cabinet: '网球收纳柜' },
     tactics2:    { table: '绿茵沙盘长桌', chair: '俱乐部木椅', whiteboard: '趣味赛程板', tv: '晴空球场屏', counter: '柠檬水吧台' },
     referee2:    { desk: '赛会记录木桌', cabinet: '荣誉绶带柜', shelf: '友爱规则书架', tv: '慢放回看屏' },
-    armory3:     { safe: '皇家绘本珍藏柜', table: '金箔装帧台', cabinet: '羽毛笔木柜', crate: '火漆印章箱' },
-    library3:    { shelf: '童话古籍木架', table: '手抄绘本台', crate: '画卷收纳箱', cabinet: '诗集木柜' },
-    dungeon3:    { locker: '剧团戏服木柜', bench: '换装木长凳', counter: '道具化妆台' },
-    chapel3:     { sofa: '晨光聆听长椅', table: '鲜花琴谱台', counter: '八音盒陈列台', shelf: '乐谱木架', tv: '彩绘花窗' },
-    camp4:       { sofa: '林间野餐软垫', table: '松木野餐桌', counter: '果木炊事台', shelf: '野炊餐具架' },
-    herb4:       { desk: '鲜花干燥木台', server: '纯露蒸馏木柜', cabinet: '薄荷甘菊柜', chair: '花匠木凳', whiteboard: '花草图谱板' },
-    tree4:       { shelf: '树屋图书木架', table: '松果手作台', crate: '橡果储藏箱' },
-    watch4:      { desk: '林冠观鸟木台', tv: '森林望远镜窗', shelf: '鸟类图鉴架', cabinet: '自然笔记柜' },
-    torture5:    { locker: '茶具典藏木柜', bench: '品茗木长凳', counter: '紫砂煮茶台' },
-    crypt5:      { safe: '琥珀标本珍藏柜', table: '宝石鉴赏木台', cabinet: '矿石陈列柜', crate: '晶石礼盒箱' },
-    alchemy5:    { desk: '星光手账工作台', server: '暖灯烘干木柜', cabinet: '彩墨琉璃柜', chair: '学徒木凳', whiteboard: '星座手绘板' },
-    cell5:       { shelf: '旧时光信件架', table: '明信片书写台', crate: '纪念邮票箱' },
-    galley6:     { sofa: '船员茶歇软榻', table: '海景备餐木台', counter: '华夫饼烘烤台', shelf: '香料果酱架' },
-    magazine6:   { shelf: '缤纷糖罐木架', crate: '马卡龙礼盒箱', table: '翻糖造型台', cabinet: '巧克力恒温柜' },
-    crew6:       { locker: '水手阳光衣柜', bench: '甲板木长凳', counter: '海风洗漱台' },
-    crow6:       { desk: '晴海观景木台', tv: '海豚观测镜', shelf: '航海彩旗架', cabinet: '晴空海图柜' },
-    clinic7:     { desk: '芳疗SPA木台', server: '香氛毛巾暖柜', cabinet: '花瓣精油柜', chair: '云端躺椅', whiteboard: '芳香冥想图' },
-    market7:     { shelf: '手作文创木架', table: '农夫市集展台', crate: '蜂蜜果酱礼箱', cabinet: '工艺品木柜' },
-    bar7room:    { sofa: '露台阳光卡座', table: '鲜果特饮圆桌', counter: '云端果汁吧台', shelf: '琉璃杯木架', tv: '晚霞风景屏' },
+    armory3:     { safe: '善本恒温保险柜', table: '古籍校勘长桌', cabinet: '文献索引木柜', crate: '善本函套木箱' },
+    library3:    { shelf: '研发文献木架', table: '期刊阅览整理台', crate: '学术手稿木箱', cabinet: '分类编目木柜' },
+    dungeon3:    { locker: '馆员储物木柜', bench: '原木小憩长凳', counter: '暖光整理洗手台' },
+    chapel3:     { sofa: '静音伴读软榻', table: '深研阅读圆桌', counter: '自助暖茶吧台', shelf: '外文期刊木架', tv: '馆藏导览画屏' },
+    camp4:       { sofa: '温室暖阳沙发', table: '花房茶叙圆桌', counter: '草本茶饮吧台', shelf: '茶器花艺木架', tv: '温室微气候屏' },
+    herb4:       { desk: '花草茶研工作台', server: '恒温烘焙醒发柜', cabinet: '花草茶叶木柜', chair: '茶艺师木凳', whiteboard: '茶饮烘焙配方板' },
+    tree4:       { shelf: '育苗器皿木架', table: '园艺分株工作台', crate: '营养基质收纳箱', cabinet: '良种分类木柜' },
+    watch4:      { desk: '植物图谱工作台', tv: '温室光照监测屏', shelf: '植物志陈列架', cabinet: '物候记录木柜' },
+    torture5:    { locker: '展务人员储物柜', bench: '胡桃木小憩长凳', counter: '暖光茶歇洗手台' },
+    crypt5:      { safe: '里程碑专利金柜', table: '原型机品鉴台', cabinet: '晶圆样品陈列柜', crate: '典藏铭牌木箱' },
+    alchemy5:    { desk: '天文光学展陈台', server: '恒温光学仪器柜', cabinet: '星图拓片木柜', chair: '研究员木凳', whiteboard: '天文历法导览板' },
+    cell5:       { shelf: '研发编年史木架', table: '文献数字化长桌', crate: '早期手稿典藏箱', cabinet: '历史影像档案柜' },
+    galley6:     { sofa: '烘焙沙龙软榻', table: '欧包醒发料理台', counter: '现烤可颂操作台', shelf: '天然酵母陈列架', tv: '出炉时刻表画屏' },
+    magazine6:   { shelf: '原料风味陈列架', crate: '庄园可可豆木箱', table: '西点造型研发台', cabinet: '恒温黄油储藏柜' },
+    crew6:       { locker: '咖啡师储物木柜', bench: '休息室木长凳', counter: '暖光净手洗漱台' },
+    crow6:       { desk: '精品手冲萃茶台', tv: '产区风味导览屏', shelf: '手冲器具陈列架', cabinet: '单品熟豆木柜' },
+    clinic7:     { desk: '草本舒缓调配台', server: '恒温热敷毛巾柜', cabinet: '植物精油木柜', chair: '云端休憩单椅', whiteboard: '呼吸冥想导引板' },
+    market7:     { shelf: '研发文创陈列架', table: '纪念徽章展陈台', crate: '园区礼盒收纳箱', cabinet: '手作周边木柜' },
+    bar7room:    { sofa: '露台阳光卡座', table: '鲜果特饮圆桌', counter: '云端果汁吧台', shelf: '特调杯具木架', tv: '晚霞风景屏' },
     roof7:       { desk: '天台花艺工作台', cabinet: '多肉盆栽木架', shelf: '园艺花洒架', whiteboard: '空中花园导览', tv: '晴空日照屏' }
   };  const TEMPLATES = { office, meeting, archive, lab, lounge, vault, locker, studio };
 
@@ -198,12 +189,12 @@
   // door = 楼层上的门点（**1× 基准世界像素**，随 FLOOR_SCALE 同比放大），实际建造时会就近吸附到可站立位置。
   // 每层 6 间，共 42 间；id 稳定，改动不影响既有容器/经济键。
   const ROOM_SPECS = [
-    { slug: 'manager',   floorId: 1, kind: 'office',  name: '晨光迎宾室', door: [240, 220] },
+    { slug: 'manager',   floorId: 1, kind: 'office',  name: '行政接待室', door: [240, 220] },
     { slug: 'canteen-p', floorId: 1, kind: 'lounge',  name: '阳光烘焙坊', door: [940, 260] },
-    { slug: 'server1',   floorId: 1, kind: 'lab',     name: '小镇气象站', door: [580, 95] },
-    { slug: 'armory1',   floorId: 1, kind: 'vault',   name: '庆典礼花屋', door: [240, 360] },
-    { slug: 'medbay1',   floorId: 1, kind: 'office',  name: '草本茶疗室', door: [1260, 95] },
-    { slug: 'cryo1',     floorId: 1, kind: 'locker',  name: '暖阳午休室', door: [1150, 368] },
+    { slug: 'server1',   floorId: 1, kind: 'lab',     name: '环境总控室', door: [580, 95] },
+    { slug: 'armory1',   floorId: 1, kind: 'vault',   name: '礼宾纪念室', door: [240, 360] },
+    { slug: 'medbay1',   floorId: 1, kind: 'office',  name: '健康医务室', door: [1260, 95] },
+    { slug: 'cryo1',     floorId: 1, kind: 'locker',  name: '员工午休室', door: [1150, 368] },
 
     { slug: 'meeting220', floorId: 2, kind: 'meeting', name: '阳光球员更衣室', door: [210, 100] },
     { slug: 'rd-lead',   floorId: 2, kind: 'office',  name: '绿茵教练室', door: [260, 240] },
@@ -212,40 +203,40 @@
     { slug: 'tactics2',  floorId: 2, kind: 'meeting', name: '友谊赛沙盘室', door: [1080, 100] },
     { slug: 'referee2',  floorId: 2, kind: 'office',  name: '赛会记录室', door: [1140, 360] },
 
-    { slug: 'review301', floorId: 3, kind: 'meeting', name: '暖木议事厅', door: [220, 102] },
-    { slug: 'lab3',      floorId: 3, kind: 'lab',     name: '草本调香坊', door: [260, 285] },
-    { slug: 'armory3',   floorId: 3, kind: 'vault',   name: '绘本珍藏馆', door: [740, 102] },
-    { slug: 'library3',  floorId: 3, kind: 'archive', name: '童话藏书阁', door: [420, 360] },
-    { slug: 'dungeon3',  floorId: 3, kind: 'locker',  name: '剧团衣帽间', door: [1150, 102] },
-    { slug: 'chapel3',   floorId: 3, kind: 'lounge',  name: '八音盒音乐室', door: [1150, 310] },
+    { slug: 'review301', floorId: 3, kind: 'meeting', name: '学术研讨室', door: [220, 102] },
+    { slug: 'lab3',      floorId: 3, kind: 'lab',     name: '古籍修复室', door: [260, 285] },
+    { slug: 'armory3',   floorId: 3, kind: 'vault',   name: '善本珍藏室', door: [740, 102] },
+    { slug: 'library3',  floorId: 3, kind: 'archive', name: '文献阅览室', door: [420, 360] },
+    { slug: 'dungeon3',  floorId: 3, kind: 'locker',  name: '馆员休息室', door: [1150, 102] },
+    { slug: 'chapel3',   floorId: 3, kind: 'lounge',  name: '静音自习室', door: [1150, 310] },
 
-    { slug: 'archive4',  floorId: 4, kind: 'archive', name: '林间木屋',   door: [220, 102] },
-    { slug: 'ticket4',   floorId: 4, kind: 'vault',   name: '守林人花房', door: [570, 220] },
-    { slug: 'camp4',     floorId: 4, kind: 'lounge',  name: '阳光野餐营地', door: [780, 102] },
-    { slug: 'herb4',     floorId: 4, kind: 'lab',     name: '干花香草棚', door: [320, 355] },
-    { slug: 'tree4',     floorId: 4, kind: 'archive', name: '松果树屋',   door: [1025, 220] },
-    { slug: 'watch4',    floorId: 4, kind: 'studio',  name: '林冠观鸟塔', door: [1150, 310] },
+    { slug: 'archive4',  floorId: 4, kind: 'archive', name: '植物标本室', door: [220, 102] },
+    { slug: 'ticket4',   floorId: 4, kind: 'vault',   name: '恒温育苗室', door: [570, 220] },
+    { slug: 'camp4',     floorId: 4, kind: 'lounge',  name: '阳光茶歇室', door: [780, 102] },
+    { slug: 'herb4',     floorId: 4, kind: 'lab',     name: '茶艺烘焙坊', door: [320, 355] },
+    { slug: 'tree4',     floorId: 4, kind: 'archive', name: '园艺育苗室', door: [1025, 220] },
+    { slug: 'watch4',    floorId: 4, kind: 'studio',  name: '温室观测室', door: [1150, 310] },
 
-    { slug: 'dispatch5', floorId: 5, kind: 'office',  name: '星象典藏宝库', door: [260, 195] },
-    { slug: 'meeting5',  floorId: 5, kind: 'meeting', name: '星象共读厅', door: [410, 340] },
-    { slug: 'torture5',  floorId: 5, kind: 'locker',  name: '暖灯茶艺室', door: [540, 102] },
-    { slug: 'crypt5',    floorId: 5, kind: 'vault',   name: '琥珀标本室', door: [960, 340] },
-    { slug: 'alchemy5',  floorId: 5, kind: 'lab',     name: '星光手账坊', door: [960, 102] },
-    { slug: 'cell5',     floorId: 5, kind: 'archive', name: '时光书信室', door: [1160, 310] },
+    { slug: 'dispatch5', floorId: 5, kind: 'office',  name: '策展办公室', door: [260, 195] },
+    { slug: 'meeting5',  floorId: 5, kind: 'meeting', name: '科技报告厅', door: [410, 340] },
+    { slug: 'torture5',  floorId: 5, kind: 'locker',  name: '展务休息室', door: [540, 102] },
+    { slug: 'crypt5',    floorId: 5, kind: 'vault',   name: '创新成果库', door: [960, 340] },
+    { slug: 'alchemy5',  floorId: 5, kind: 'lab',     name: '天文展陈室', door: [960, 102] },
+    { slug: 'cell5',     floorId: 5, kind: 'archive', name: '研发史料室', door: [1160, 310] },
 
-    { slug: 'finance6',  floorId: 6, kind: 'vault',   name: '船长甜品室', door: [240, 210] },
-    { slug: 'meeting6',  floorId: 6, kind: 'meeting', name: '海景下午茶舱', door: [490, 210] },
-    { slug: 'galley6',   floorId: 6, kind: 'lounge',  name: '华夫烘焙厨房', door: [680, 102] },
-    { slug: 'magazine6', floorId: 6, kind: 'archive', name: '糖果礼盒屋', door: [490, 355] },
-    { slug: 'crew6',     floorId: 6, kind: 'locker',  name: '水手阳光舱', door: [1080, 102] },
-    { slug: 'crow6',     floorId: 6, kind: 'studio',  name: '晴海瞭望室', door: [1140, 310] },
+    { slug: 'finance6',  floorId: 6, kind: 'vault',   name: '精品豆仓室', door: [240, 210] },
+    { slug: 'meeting6',  floorId: 6, kind: 'meeting', name: '观景包厢',   door: [490, 210] },
+    { slug: 'galley6',   floorId: 6, kind: 'lounge',  name: '烘焙工坊',   door: [680, 102] },
+    { slug: 'magazine6', floorId: 6, kind: 'archive', name: '西点研发室', door: [490, 355] },
+    { slug: 'crew6',     floorId: 6, kind: 'locker',  name: '烘焙更衣室', door: [1080, 102] },
+    { slug: 'crow6',     floorId: 6, kind: 'studio',  name: '精品手冲室', door: [1140, 310] },
 
-    { slug: 'board7',    floorId: 7, kind: 'meeting', name: '云端阳光客厅', door: [220, 210] },
+    { slug: 'board7',    floorId: 7, kind: 'meeting', name: '天台沙龙厅', door: [220, 210] },
     { slug: 'locker7',   floorId: 7, kind: 'locker',  name: '露台更衣室', door: [480, 150] },
-    { slug: 'clinic7',   floorId: 7, kind: 'lab',     name: '芳疗SPA馆',  door: [995, 150] },
-    { slug: 'market7',   floorId: 7, kind: 'archive', name: '农夫文创市集', door: [1080, 280] },
-    { slug: 'bar7room',  floorId: 7, kind: 'lounge',  name: '云端鲜果吧', door: [220, 340] },
-    { slug: 'roof7',     floorId: 7, kind: 'office',  name: '天台阳光花园', door: [1040, 360] }
+    { slug: 'clinic7',   floorId: 7, kind: 'lab',     name: '冥想舒缓室', door: [995, 150] },
+    { slug: 'market7',   floorId: 7, kind: 'archive', name: '文创纪念坊', door: [1080, 280] },
+    { slug: 'bar7room',  floorId: 7, kind: 'lounge',  name: '晚霞特饮吧', door: [220, 340] },
+    { slug: 'roof7',     floorId: 7, kind: 'office',  name: '露台花艺室', door: [1040, 360] }
   ];
 
   const ROOMS = {};
@@ -351,28 +342,40 @@
       const gap = { x: Math.round(w / 2), half: DOOR_HALF };
       room.entry = { x: gap.x, y: h - 74 };
       room.exit = { x: gap.x, y: h - 52 };
-      const addWall = (name, x, y, ww, hh) => {
+      const addWall = (name, x, y, ww, hh, customDepth) => {
         const rect = { x, y, w: ww, h: hh };
         room.walls.push({ id: `${id}:wall:${name}`, roomId: id, x, y, w: ww, h: hh,
-          type: 'wall', footprint: { ...rect }, depth: y + hh, blocks: [rect] });
+          type: 'wall', footprint: { ...rect }, depth: customDepth != null ? customDepth : (y + hh), blocks: [rect] });
       };
-      addWall('north', 0, 0, w, WALL_T);
+      addWall('north', 0, 0, w, NORTH_WALL_T, 1);
       addWall('west', 0, 0, WALL_T, h);
       addWall('east', w - WALL_T, 0, WALL_T, h);
       addWall('south-l', 0, h - WALL_T, gap.x - gap.half, WALL_T);
       addWall('south-r', gap.x + gap.half, h - WALL_T, w - (gap.x + gap.half), WALL_T);
 
       const template = TEMPLATES[spec.kind] || TEMPLATES.office;
-      // 门内两侧迎宾陈设（对称守门花钵与换鞋木凳，不挡正门进出流线）
+      const baseSize = BASE_ROOM_SIZES[spec.kind] || BASE_ROOM_SIZES.office;
+      // 门内西南/东南两侧迎宾陈设（与各模板中北家具严格错层，零视觉重叠）
       const doorProps = [
-        ['plant', '迎宾花钵', 85, 760, 165, 880],
-        ['bench', '门廊木长凳', 780, 775, 935, 855]
+        ['floorlamp', '暖光落地灯', 60, 625, 112, 700],
+        ['plant', '迎宾花钵', 68, 790, 142, 880],
+        ['bench', '门廊迎宾长凳', 770, 800, 935, 880]
       ];
       template().concat(doorProps).forEach((row, i) => {
         const [type, label, x1, y1, x2, y2, flag] = row;
-        const r = nRect([x1, y1, x2, y2], w, h);
+        const rb = nRect([x1, y1, x2, y2], baseSize.w, baseSize.h);
+        const cx = Math.round(((x1 + x2) / 2000) * w);
+        const cy = Math.round(((y1 + y2) / 2000) * h);
+        const isWallMount = (type === 'tv' || type === 'whiteboard') && y1 <= 85;
+        const fw = Math.max(20, Math.round((rb.w * 1.08) / 2) * 2);
+        const fh = isWallMount ? 36 : Math.max(16, Math.round((rb.h * 1.08) / 2) * 2);
+        const rx = Math.max(WALL_T + 8, Math.min(w - WALL_T - 8 - fw, Math.round((cx - fw / 2) / 2) * 2));
+        const ry = isWallMount
+          ? 24
+          : Math.max(NORTH_WALL_T + 8, Math.min(h - WALL_T - 12 - fh, Math.round((cy - fh / 2) / 2) * 2));
+        const r = { x: rx, y: ry, w: fw, h: fh };
         const minD = ROOM_SELF_D[type] || 28;
-        const footHeight = Math.max(r.h, minD);
+        const footHeight = isWallMount ? 16 : Math.max(r.h, minD);
         let fid, container = null;
         if (flag && flag.indexOf('container:') === 0) {
           const name = flag.slice('container:'.length);
@@ -384,20 +387,22 @@
         const themed = (ROOM_LABELS[spec.slug] || {})[type];
         const finalLabel = themed || label;
         const f = { id: fid, roomId: id, floorId: spec.floorId, x: r.x, y: r.y, w: r.w, h: r.h,
-          type, label: finalLabel, footprint: { x: r.x, y: r.y + r.h - footHeight, w: r.w, h: footHeight }, depth: r.y + r.h };
+          type, label: finalLabel, wallMount: isWallMount || undefined,
+          footprint: { x: r.x, y: r.y + r.h - footHeight, w: r.w, h: footHeight },
+          depth: isWallMount ? (NORTH_WALL_T + 2) : (r.y + r.h) };
         f.blocks = roomBlocksFor(f);
         if (container) { f.container = container; room.containers.push(f); }
         room.furniture.push(f);
       });
       const entry = room.entry;
       room.furniture = room.furniture.filter(q => {
-        if (q.container) return true;
+        if (q.container || q.wallMount) return true;
         const b = q.footprint;
         const dx = Math.max(b.x - entry.x, 0, entry.x - (b.x + b.w));
         const dy = Math.max(b.y - entry.y, 0, entry.y - (b.y + b.h));
         return Math.hypot(dx, dy) >= 56;
       });
-      room.geometry = { w, h, wallT: WALL_T, door: gap, entry: room.entry, exit: room.exit };
+      room.geometry = { w, h, wallT: WALL_T, northWallT: NORTH_WALL_T, door: gap, entry: room.entry, exit: room.exit };
       ROOMS[id] = room;
       ROOM_GEO[id] = room.geometry;
       ROOM_LIST.push({ id, floorId: spec.floorId, slug: spec.slug, kind: spec.kind, name: spec.name,
@@ -406,6 +411,7 @@
   })();
 
   function roomBlocksFor(f) {
+    if (f.wallMount) return [];
     const { type, x, y, w, h } = f;
     const blk = (bx, by, bw, bh) => ({ x: Math.round(bx * 1000) / 1000, y: Math.round(by * 1000) / 1000,
       w: Math.max(1, Math.round(bw * 1000) / 1000), h: Math.max(1, Math.round(bh * 1000) / 1000) });
