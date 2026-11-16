@@ -1,142 +1,173 @@
 'use strict';
-// 3F · 暖木藏书阁 主题：胡桃木长条地板 + 中庭鱼骨拼花与波斯圆毯 + 古籍恒温石室 / 插画工坊 / 留声沙龙。
+// 3F · 研发图书与阅览中心 主题：温暖像素现代研发大楼（北美黑胡桃木书库 + 哑光洞石检索中庭 + 采光玻璃阅览馆 + 静谧红枫庭院，无电梯翼暗渠）。
 (function (root) {
   const L = root.SID_LOBBY; if (!L) return;
-  const walnutA = { base: '#9e683c', hi: '#b27a4c', lo: '#885630', gap: '#5c361a', grain: '#7c4c28' };
-  const walnutB = { base: '#ab7446', hi: '#be8656', lo: '#946036', gap: '#643c1e', grain: '#86542e' };
-  const stoneV = { tones: ['#d6cbb8', '#cbc0ac', '#dfd5c2', '#c2b6a0'], grout: '#968a74', hi: '#ece4d4', lo: '#aea28c' };
-  const salonCarpet = { base: '#782e32', hi: '#8e3a3e', lo: '#5e2024', pattern: '#d4ac62' };
+  const walnut = { base: '#9e633c', hi: '#b4784e', lo: '#844e2c', gap: '#54301a', grain: '#754425' };
+  const warmOak = { base: '#b87e49', hi: '#cc935c', lo: '#9e6838', gap: '#6b4222', grain: '#8f5b31' };
+  const slateP = { tones: ['#98a2ae', '#8b95a2', '#a4aeb9', '#7f8996'], grout: '#58616e', hi: '#c2ccd6', lo: '#687280' };
+  // 严格避开 7F sports 检测色 RGB(217,204,163)±6
+  const stoneP = { tones: ['#ece4d6', '#e4dac9', '#f2ece0', '#cfc2ae'], grout: '#b8aa96', hi: '#faf6ef', lo: '#bfb29e' };
+
+  const custom = {
+    grandglobe(g, f, A) {
+      const cx = A.snap2(f.x + f.w / 2), by = A.snap2(f.y + f.h);
+      // 胡桃木八角底座与黄铜承托柱
+      A.pxEllipse(g, cx, by - 12, 52, 16, A.OUT);
+      A.pxEllipse(g, cx, by - 14, 48, 14, '#754626');
+      A.pxEllipse(g, cx - 2, by - 16, 40, 10, '#ba8748');
+      A.R(g, cx - 10, by - 46, 20, 32, A.OUT);
+      A.R(g, cx - 8, by - 44, 16, 28, '#b5833a');
+      A.R(g, cx - 6, by - 44, 6, 28, '#e6ba66');
+      // 黄铜子午环与天球仪球体（左上受光，HSV 色移海洋与陆块）
+      A.pxEllipse(g, cx, by - 68, 36, 36, A.OUT_COOL);
+      A.pxEllipse(g, cx, by - 68, 34, 34, '#d9ab52');
+      A.pxEllipse(g, cx, by - 68, 30, 30, '#2e6b94');
+      A.pxEllipse(g, cx - 4, by - 72, 22, 20, '#4489b2');
+      A.pxEllipse(g, cx - 8, by - 76, 12, 10, '#6cb359');
+      A.pxEllipse(g, cx + 8, by - 62, 10, 8, '#589c4c');
+      A.R(g, cx - 12, by - 82, 6, 4, '#98d67c');
+      A.R(g, cx - 16, by - 84, 4, 4, '#e6f6fc');
+      // 黄铜赤道刻度横环
+      A.outlineBox(g, cx - 38, by - 72, 76, 6, '#d9ab52', '#f7da88', '#8f6524', A.OUT);
+    },
+    catalogkiosk(g, f, A) {
+      const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+      // 现代图书馆双联胡桃木立式数字检索终端
+      A.outlineBox(g, x, by - 32, w, 32, '#7d4b2a', '#ad7248', '#4a2a16');
+      for (let px = x + 8; px < x + w - 8; px += 12) A.R(g, px, by - 26, 2, 18, '#543019');
+      A.outlineBox(g, x - 2, by - 38, w + 4, 8, '#ebe3d5', '#fbf7f0', '#b8aa96', A.OUT);
+      for (const sx of [x + 14, x + w - 50]) {
+        A.outlineBox(g, sx, by - 58, 36, 22, '#2d3540', '#586473', '#191e26', A.OUT_COOL);
+        A.R(g, sx + 4, by - 54, 28, 14, '#243c4c');
+        A.R(g, sx + 6, by - 52, 12, 4, '#ffd166');
+        A.R(g, sx + 6, by - 46, 22, 2, '#86cbe6');
+        A.R(g, sx + 6, by - 42, 16, 2, '#88cc7a');
+        A.R(g, sx + 14, by - 36, 8, 4, '#54606e');
+      }
+      // 中间参考索引卡片盒
+      const mx = A.snap2(x + w / 2) - 10;
+      A.outlineBox(g, mx, by - 46, 20, 10, '#ba824c', '#daa26c', '#734424');
+      A.R(g, mx + 4, by - 48, 12, 2, '#fcf8f0');
+    },
+    bookcart(g, f, A) {
+      const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+      // 万向静音脚轮 + 胡桃木双层倾斜运书车
+      for (const lx of [x + 6, x + w - 12]) {
+        A.R(g, lx, by - 6, 6, 6, A.OUT_COOL);
+        A.R(g, lx + 2, by - 4, 2, 2, '#7e8a96');
+      }
+      A.outlineBox(g, x, by - 42, w, 38, '#8a5530', '#ba814f', '#522f19');
+      A.R(g, x - 4, by - 40, 4, 10, A.OUT);
+      A.R(g, x - 2, by - 38, 2, 6, '#c89e56');
+      const spines = ['#c45848', '#487699', '#d9a448', '#568c58', '#ede5d8', '#6e568c'];
+      for (const [sy, seed] of [[by - 26, 0], [by - 10, 3]]) {
+        A.R(g, x + 4, sy, w - 8, 4, '#5c351c');
+        let bx = x + 6, i = 0;
+        while (bx < x + w - 10) {
+          const bw = 4 + (i % 2) * 2;
+          A.R(g, bx, sy - 10, bw, 10, spines[(i + seed) % spines.length]);
+          A.R(g, bx, sy - 10, bw, 2, '#f5eee0');
+          bx += bw + 2; i++;
+        }
+      }
+    },
+    easel(g, f, A) {
+      const cx = A.snap2(f.x + f.w / 2), by = A.snap2(f.y + f.h);
+      A.R(g, cx - 16, by - 26, 6, 26, A.OUT);
+      A.R(g, cx + 10, by - 26, 6, 26, A.OUT);
+      A.R(g, cx - 14, by - 24, 2, 24, '#8a5530');
+      A.R(g, cx + 12, by - 24, 2, 24, '#6e4124');
+      A.outlineBox(g, cx - 22, by - 62, 44, 36, '#fbf4e4', '#ffffff', '#c7baa6');
+      A.R(g, cx - 16, by - 56, 32, 16, '#8ac6e6');
+      A.R(g, cx - 16, by - 40, 32, 10, '#68ad56');
+      A.R(g, cx - 8, by - 50, 8, 6, '#ffd166');
+      A.R(g, cx + 4, by - 46, 8, 8, '#cf5c46');
+      A.outlineBox(g, cx - 24, by - 28, 48, 6, '#8a5530', '#ba814f', '#522f19');
+    },
+    gramophone(g, f, A) {
+      const cx = A.snap2(f.x + f.w / 2), by = A.snap2(f.y + f.h);
+      A.outlineBox(g, cx - 20, by - 24, 40, 24, '#844e2c', '#b4784e', '#4d2a16');
+      A.pxEllipse(g, cx, by - 24, 14, 4, '#242228');
+      A.R(g, cx - 2, by - 24, 4, 2, '#e2b659');
+      A.R(g, cx + 8, by - 46, 6, 22, A.OUT);
+      A.R(g, cx + 10, by - 44, 2, 20, '#d9ab52');
+      A.pxEllipse(g, cx - 2, by - 48, 18, 12, A.OUT);
+      A.pxEllipse(g, cx - 2, by - 48, 16, 10, '#e8bc5e');
+      A.pxEllipse(g, cx - 4, by - 50, 10, 6, '#f7da88');
+      A.pxEllipse(g, cx - 6, by - 48, 6, 4, '#5c381e');
+    }
+  };
 
   L.register(3, {
     wall: {
-      paper: '#e6cfa4', stripe: '#d8be8e', motif: '#bfa06c',
-      rail: '#6e3e1e', railHi: '#965a32', wains: '#844e28', wainsLo: '#683a1c', wainsHi: '#a06438',
-      base: '#462610', crown: '#cbb07e', cap: '#5a3418', capHi: '#8a5630', capLo: '#321a0a', capTop: '#6e4220', style: 'paper'
+      style: 'modern',
+      paper: '#efe6d6', stripe: '#cec0aa', panelHi: '#faf5ec', motif: '#cec0aa',
+      rail: '#6e3f22', railHi: '#a36840',
+      wains: '#824d2b', wainsLo: '#5c331b', wainsHi: '#ad7248',
+      base: '#3b2014', crown: '#e4d8c3',
+      cap: '#633a21', capHi: '#99623d', capLo: '#26181e', capTop: '#7d4b2c'
     },
+    door: { frame: '#331f1a', frameHi: '#9c6640', leaf: '#854f2d', plank: '#5e351c', lintel: '#472718', glass: '#e8f4fa' },
+    plaquePal: { bg: '#382620', hi: '#755646', edge: '#1c1316', ink: '#fbf2dc' },
     zones: [
-      { x: 0, y: 0, w: 1080, h: 800, mat: "planks", pal: walnutA, seed: 31 },
-      { x: 1080, y: 0, w: 720, h: 470, mat: "parquet", pal: walnutB, size: 32 },
-      { x: 1800, y: 0, w: 1080, h: 800, mat: "planks", pal: walnutA, seed: 33 },
-      { x: 2016, y: 316, w: 668, h: 324, mat: "parquet", pal: walnutB, size: 32 },
-      { x: 360, y: 616, w: 720, h: 184, mat: "stone", pal: stoneV, seed: 35 },
-      { x: 1800, y: 656, w: 1080, h: 144, mat: "stone", pal: stoneV, seed: 36 }
+      // 100% 覆盖 3F U 型多边形外轮廓
+      { x: 0, y: 0, w: 1280, h: 668, mat: 'planks', pal: walnut, seed: 31 },
+      { x: 384, y: 668, w: 896, h: 292, mat: 'parquet', pal: warmOak },
+      { x: 1280, y: 0, w: 896, h: 576, mat: 'stone', pal: stoneP, seed: 32, tw: 64, th: 48 },
+      { x: 2176, y: 0, w: 1280, h: 684, mat: 'planks', pal: warmOak, seed: 33 },
+      { x: 2368, y: 304, w: 864, h: 380, mat: 'stone', pal: slateP, seed: 34, tw: 64, th: 48 },
+      { x: 2176, y: 684, w: 624, h: 276, mat: 'parquet', pal: walnut },
+      { x: 2800, y: 684, w: 656, h: 276, mat: 'planks', pal: warmOak, seed: 35 }
     ],
     rugs: [
-      { x: 2140, y: 336, w: 420, h: 270, round: true, fill: "#7c2d30", band: "#561c1e", trim: "#deb868", motif: "#eed28e" },
-      { x: 360, y: 276, w: 640, h: 40, fill: "#355c4e", band: "#244036", trim: "#d8b264", motif: "#ead090" },
-      { x: 400, y: 396, w: 560, h: 40, fill: "#355c4e", band: "#244036", trim: "#d8b264", motif: "#ead090" },
-      { x: 1250, y: 350, w: 380, h: 100, fill: "#38526e", band: "#26394e", trim: "#dfb86c", motif: "#f0d494", fringe: "#efe2c2" }
+      { x: 2600, y: 376, w: 400, h: 240, round: true, fill: '#7c3232', band: '#521e22', trim: '#e0b868', motif: '#f2d896' },
+      { x: 1496, y: 332, w: 464, h: 168, fill: '#3b6166', band: '#264046', trim: '#deb86c', motif: '#f0d696', fringe: '#f2ead8' },
+      { x: 716, y: 848, w: 296, h: 88, fill: '#5d7046', band: '#404f30', trim: '#e2c278', motif: '#f0da9e', fringe: '#f2ead8' }
     ],
-    windows: [520, 1000, 1200, 1700, 1960, 2360, 2780], windowStyle: "arch",
-    sconces: [640, 1080, 1800, 2200],
-    frames: [[140, "map"], [1580, "flower"], [2700, "land"]],
-    plaque: { x: 1840, text: "云海藏书阁 · 浮岛开卷", w: 168 },
-    exterior(g, f, A, a) {
-      // 云海浮岛藏书阁：书院悬浮于晴空云海之上，中庭为悬浮灵树书院岛与云中浮石桥
-      const sky = ["#82b4dc", "#98c4e6", "#b2d6f0", "#cce6f8"];
-      for (let i = 0; i < 4; i++) A.R(g, a.x, a.y + Math.floor(i * a.h / 4), a.w, Math.ceil(a.h / 4) + 2, sky[i]);
-      // 翻涌的层叠云海（带暖金天光与淡紫背光阴影）
-      for (const [cx, cy, s] of [
-        [-220, 180, 1.3], [-140, 520, 1.4], [180, 700, 1.5], [1440, 820, 1.8],
-        [1180, 580, 1.2], [1700, 580, 1.2], [2980, 220, 1.3], [3040, 580, 1.5], [1440, -90, 1.6]
-      ]) {
-        A.pxEllipse(g, cx, cy + 14 * s, 96 * s, 26 * s, "#b8cee8");
-        A.pxEllipse(g, cx - 38 * s, cy, 56 * s, 32 * s, "#f4f8ff");
-        A.pxEllipse(g, cx + 26 * s, cy - 8 * s, 64 * s, 36 * s, "#ffffff");
-        A.pxEllipse(g, cx - 8 * s, cy - 14 * s, 44 * s, 24 * s, "#fff9eb");
-      }
-      // 中庭南侧的「云中灵树浮岛」（悬浮岩层底座 + 翡翠草坪 + 十字浮石桥）
-      const cx = 1440, cy = 640;
-      A.pxEllipse(g, cx, cy + 28, 280, 118, "#6a5c50");
-      A.pxEllipse(g, cx, cy + 14, 276, 112, "#8e7e6c");
-      A.pxEllipse(g, cx, cy, 270, 106, "#cfc3a6");
-      A.pxEllipse(g, cx, cy, 252, 96, "#62a452");
-      // 连接东西两翼与中央连廊的悬浮白石阶桥
-      for (let ty = 472; ty < 760; ty += 26) {
-        A.R(g, cx - 32, ty + 4, 64, 18, "#8e7e6c");
-        A.R(g, cx - 32, ty, 64, 16, "#e8dec6");
-        A.R(g, cx - 28, ty + 2, 56, 3, "#fbf6ea");
-      }
-      for (let tx = 1084; tx < 1796; tx += 36) {
-        A.R(g, tx, cy - 14, 28, 30, "#8e7e6c");
-        A.R(g, tx, cy - 18, 28, 26, "#e8dec6");
-      }
-      // 浮岛古樱灵树与云端石灯笼
-      for (const [tx, ty, s, pink] of [[1310, 590, 1.25, true], [1570, 680, 1.1, false], [180, 680, 1.0, true], [-110, 80, 0.9, false], [2990, 80, 0.9, true]]) {
-        A.pxEllipse(g, tx, ty + 22, 36 * s, 12 * s, "rgba(30,50,30,0.28)");
-        A.R(g, tx - 5, ty - 10, 10, 32, "#6e4322");
-        A.pxEllipse(g, tx, ty - 32, 38 * s, 28 * s, pink ? "#e48cb2" : "#488c42");
-        A.pxEllipse(g, tx - 8, ty - 40, 24 * s, 18 * s, pink ? "#f8b8d4" : "#64ac56");
-      }
-      for (const lx of [1368, 1512]) {
-        A.R(g, lx - 6, cy - 48, 12, 6, "#a8a090");
-        A.R(g, lx - 4, cy - 42, 8, 20, "#d8d0be");
-        A.R(g, lx - 3, cy - 38, 6, 6, "#ffe078");
-      }
-    },
+    windows: [168, 444, 1228, 1396, 1960, 2128, 2828, 3280], windowStyle: 'curtain',
+    sconces: [248, 1154, 1312, 1878, 2044, 3168],
+    frames: [[64, 'map', 48, 28], [3360, 'flower', 48, 28]],
+    plaque: { x: 1728, text: 'CQRD · 研发图书与阅览中心', w: 212 },
+    // 写实研发园区红枫书院外景（彻底移除东西电梯厅下方暗渠 waterCarve！仅保留南侧远景静水溪带）
+    exterior: L.API.biomeExterior({
+      pal: L.API.biomePal({
+        1: '#1c3b4d', 2: '#244d63', 3: '#2e637c', 4: '#3c7d96', 5: '#549eb0', 6: '#92d2c6', 7: '#e4f6ee',
+        19: '#306e42', 20: '#428c48', 21: '#5cab50', 22: '#8ad060', 23: '#bce86e',
+        24: '#4a181e', 25: '#8c2824', 26: '#c9482e', 27: '#ec7c3a', 28: '#ffb862',
+        46: '#e08a2e', 47: '#f4b04a', 48: '#7a3a2a'
+      }),
+      extraLand: [{ rect: [-640, -320, 4736, 1600] }],
+      waterCarve: [
+        [[-640, 1036, 28], [480, 1042, 30], [1728, 1034, 32], [2980, 1042, 30], [4096, 1036, 28]]
+      ],
+      extraPaths: [
+        { style: 'stone', pts: [[-560, 984, 24], [600, 988, 24], [1280, 968, 24], [2176, 968, 24], [2900, 988, 24], [4020, 984, 24]] }
+      ],
+      flowers: [26, 27, 43], flowerRate: 0.10, tuftRate: 0.18,
+      treeLines: [
+        { y: -264, x0: -600, x1: 4060, step: 96, rows: 2, dy: 44, kinds: ['maple', 'oak', 'maple', 'pine'] },
+        { y: 1136, x0: -600, x1: 4060, step: 98, rows: 2, dy: 46, kinds: ['maple', 'oak', 'pine', 'maple'] }
+      ],
+      decor: [
+        ['tree', -360, 140, 'maple'], ['pine', -420, 500], ['tree', -340, 820, 'oak'],
+        ['tree', 3820, 140, 'maple'], ['pine', 3880, 500], ['tree', 3800, 820, 'maple'],
+        ['lotus', 680, 1038, 1], ['lotus', 1728, 1036, 1], ['lotus', 2760, 1038, 0]
+      ]
+    }),
     floorDecor(g, ox, oy, w, h, A) {
-      for (const [x, y, ww] of [[360, 612, 720], [1800, 652, 1080]]) { const b = A.clipRect(ox, oy, w, h, { x, y, w: ww, h: 6 }); if (b) { A.R(g, b.x, b.y, b.w, b.h, "#c49e68"); A.R(g, b.x, b.y, b.w, 2, "#e6c892"); } }
-    },
-    faceDecor(g, wl, top, bottom, A) {
-      const x0 = wl.x, x1 = wl.x + wl.w, has = (a, b) => x0 <= a && x1 >= b;
-      if (wl.y < 320 && wl.w > wl.h) {
-        if (has(2250, 2450)) { A.R(g, 2250, top + 4, 200, 24, "#4e3018"); A.R(g, 2254, top + 6, 192, 20, "#f2e6cc"); A.text(g, "东翼阅览大厅 · 请保持安静", 2350, top + 16, "#5a3418", 9); }
-        if (has(2040, 2080)) A.sconce(g, 2060, top + 2);
-        if (has(2620, 2660)) A.sconce(g, 2640, top + 2);
-        return;
+      // 中庭洞石与东西胡桃木书库之间的黄铜镶嵌收边条
+      for (const bx of [1278, 2174]) {
+        const b = A.clipRect(ox, oy, w, h, { x: bx, y: 112, w: 6, h: 464 });
+        if (b) { A.R(g, b.x, b.y, b.w, b.h, '#8c683e'); A.R(g, b.x + 2, b.y, 2, b.h, '#e2b659'); }
       }
-      if (has(2030, 2080)) A.frame(g, 2030, top + 4, 44, 24, "map");
-      if (has(2240, 2280)) A.sconce(g, 2260, top + 2);
-      if (has(2440, 2480)) A.sconce(g, 2460, top + 2);
-      if (has(2630, 2680)) A.frame(g, 2630, top + 4, 44, 24, "flower");
+      // 东翼静音阅览大厅门廊黄铜压边
+      const a = A.clipRect(ox, oy, w, h, { x: 2368, y: 304, w: 864, h: 380 });
+      if (a) A.withClip(g, a, () => {
+        A.R(g, 2368, 320, 864, 4, '#c49e58');
+        A.R(g, 2368, 680, 864, 4, '#c49e58');
+      });
     },
-    furniture: {
-      grandglobe(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h, rx = Math.round(f.w / 2), ry = Math.round(f.h / 2) - 2, cy = by - ry - 2;
-        // 八角胡桃木底座 + 黄铜包边
-        A.pxEllipse(g, cx, cy + 4, rx, ry, '#4e2c14');
-        A.pxEllipse(g, cx, cy, rx, ry, '#7c4824');
-        A.pxEllipse(g, cx, cy, rx - 6, ry - 3, '#c89e4c');
-        A.pxEllipse(g, cx, cy, rx - 10, ry - 5, '#965c32');
-        // 台面摊开的古籍与绿罩台灯
-        A.R(g, cx - rx + 18, cy - 6, 22, 12, '#f6ecd2'); A.R(g, cx - rx + 28, cy - 6, 2, 12, '#8a5530');
-        A.R(g, cx + rx - 38, cy - 8, 18, 10, '#c9534a'); A.R(g, cx + rx - 36, cy - 12, 14, 6, '#3f7fa8');
-        // 中央立柱与黄铜子午环 + 地球仪球体
-        A.R(g, cx - 8, cy - 22, 16, 22, '#5e3519'); A.R(g, cx - 12, cy - 4, 24, 6, '#d4a84e');
-        const gy = cy - 42;
-        A.pxEllipse(g, cx, gy, 24, 24, '#d4a84e');
-        A.pxEllipse(g, cx, gy, 20, 20, '#7c4824');
-        A.pxEllipse(g, cx, gy, 18, 18, '#4f8fb8');
-        // 大陆板块与高光
-        A.R(g, cx - 10, gy - 8, 10, 8, '#7ab062'); A.R(g, cx + 2, gy - 2, 10, 8, '#7ab062'); A.R(g, cx - 6, gy + 4, 8, 6, '#8cc070');
-        A.R(g, cx - 18, gy - 1, 36, 2, '#e2b85c');
-        A.R(g, cx - 8, gy - 12, 4, 4, '#ffffff');
-      },
-      easel(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h, top = by - 64;
-        // 木画架三脚支撑
-        A.R(g, cx - 16, top + 24, 4, 40, '#7a4a26'); A.R(g, cx + 12, top + 24, 4, 40, '#7a4a26'); A.R(g, cx - 2, top + 20, 4, 42, '#5e3519');
-        // 画板与水彩画布
-        A.R(g, cx - 20, top + 4, 40, 32, '#8a5530'); A.R(g, cx - 17, top + 7, 34, 26, '#fbf4e2');
-        A.R(g, cx - 17, top + 7, 34, 12, '#9ed2e6'); A.R(g, cx - 17, top + 19, 34, 14, '#7ab866');
-        A.R(g, cx - 8, top + 11, 8, 8, '#f06f6a'); A.R(g, cx + 4, top + 10, 6, 6, '#ffd25a');
-        A.R(g, cx - 22, top + 34, 44, 4, '#6e4322');
-        // 调色盘点缀
-        A.R(g, cx + 8, top + 32, 10, 3, '#e0b04a');
-      },
-      gramophone(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h;
-        // 红木底座柜
-        A.R(g, cx - 20, by - 32, 40, 32, '#5e2c18'); A.R(g, cx - 18, by - 30, 36, 26, '#7c3c22');
-        A.R(g, cx - 22, by - 36, 44, 4, '#9a5232');
-        // 黑胶唱片转盘
-        A.pxEllipse(g, cx, by - 38, 14, 5, '#222428'); A.pxEllipse(g, cx, by - 38, 4, 2, '#d9534a');
-        // 黄铜大喇叭
-        A.R(g, cx + 6, by - 50, 4, 14, '#c89a42');
-        A.pxEllipse(g, cx - 2, by - 58, 16, 12, '#d4a64a');
-        A.pxEllipse(g, cx - 3, by - 58, 12, 9, '#f0c868');
-        A.pxEllipse(g, cx - 4, by - 58, 6, 5, '#8a6220');
-      }
-    }
+    furniture: custom,
+    custom
   });
 })(typeof window !== 'undefined' ? window : globalThis);

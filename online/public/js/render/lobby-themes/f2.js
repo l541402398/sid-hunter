@@ -1,154 +1,240 @@
 'use strict';
-// 2F · 晴空绿茵场 主题：西东枫木球馆地板 + 中央室内绿茵球场（白线/中圈/禁区）+ 南排更衣室与能量吧。
+// 2F · 研发运动健康馆 主题：温暖像素现代研发大楼（蜂蜜枫木运动地板 + 室内减震绿茵球场 + 胡桃木玻璃套间 + 写实园区运动绿地）。
 (function (root) {
   const L = root.SID_LOBBY; if (!L) return;
-  const mapleA = { base: '#d8aa72', hi: '#e0b47e', lo: '#cfa068', gap: '#b88854', grain: '#c69660' };
-  const mapleB = { base: '#cf9e66', hi: '#d8a872', lo: '#c4925c', gap: '#ae7e4c', grain: '#bc8c56' };
-  const turfP = { base: '#5aa64c', blade: '#529a45', lo: '#4a8e3e', hi: '#6cb45c' };
-  const tileA = { tones: ['#e8dec4', '#dfd2b4', '#efe6cf', '#d6c7a6'], grout: '#b2a07c', hi: '#f7f0de', lo: '#c4b38e' };
+  const mapleA = { base: '#c68d53', hi: '#d8a167', lo: '#ad7640', gap: '#784c28', grain: '#9e6838' };
+  const mapleB = { base: '#bd844b', hi: '#cf985f', lo: '#a46e39', gap: '#704624', grain: '#945f33' };
+  const mapleCourt = { base: '#cf965a', hi: '#e0aa6e', lo: '#b87f46', gap: '#87572e', grain: '#ab743e' };
+  const turfA = { base: '#4f9e48', hi: '#72c45e', lo: '#3e8439', blade: '#337030' };
+  const turfB = { base: '#469140', hi: '#68b854', lo: '#377832', blade: '#2d632a' };
+  // 严格避开 7F sports 检测色 RGB(217,204,163)±6
+  const stoneP = { tones: ['#ece4d6', '#e4dac9', '#f2ece0', '#cfc2ae'], grout: '#b8aa96', hi: '#faf6ef', lo: '#bfb29e' };
 
-  L.register(2, {
-    wall: {
-      paper: '#e8eff4', stripe: '#d4e2ec', motif: '#b8cde0',
-      rail: '#8a5832', railHi: '#b47848', wains: '#b87e4a', wainsLo: '#966234', wainsHi: '#cf9660',
-      base: '#5c361a', crown: '#c8d8e4', cap: '#6e4524', capHi: '#9e6c40', capLo: '#3e2412', capTop: '#84542e', style: 'panel'
-    },
-    fence: { post: "#f6f2ea", postLo: "#c9c0ac", rail: "#ece4d2", railLo: "#b8ac92" },
-    zones: [
-      { x: 0, y: 0, w: 720, h: 800, mat: "parquet", pal: mapleA, size: 32 },
-      { x: 720, y: 0, w: 1480, h: 300, mat: "parquet", pal: mapleB, size: 32 },
-      { x: 720, y: 300, w: 1480, h: 398, mat: "grass", pal: turfP, seed: 22 },
-      { x: 720, y: 698, w: 1480, h: 102, mat: "tiles", pal: tileA, size: 32 },
-      { x: 2200, y: 0, w: 680, h: 800, mat: "parquet", pal: mapleB, size: 32 }
-    ],
-    rugs: [
-      { x: 330, y: 300, w: 280, h: 96, fill: "#2e6b4e", band: "#204e38", trim: "#f0c862", motif: "#fae08c", fringe: "#f4ead0" },
-      { x: 2228, y: 278, w: 320, h: 96, fill: "#356288", band: "#244664", trim: "#f0c862", motif: "#d6e8f5", fringe: "#f4ead0" }
-    ],
-    windows: [150, 760, 1180, 1660, 2140, 2380, 2730], windowStyle: "square",
-    sconces: [700, 1300, 1560, 2060],
-    frames: [[340, "land"], [2620, "flower"]],
-    plaque: { x: 1460, text: "河洲绿茵场 · 碧波竞技", w: 168 },
-    exterior(g, f, A, a) {
-      // 碧波河洲绿茵岛：静谧宽阔的蔚蓝大河环绕绿茵球场岛，彻底消除高对比小色块造成的左侧视觉眩晕
-      A.R(g, a.x, a.y, a.w, a.h, "#4a9ec4");
-      // 柔和舒缓的宽幅河水色带与微波（低对比度大尺度，滚动时极其舒适）
-      for (let y = a.y + 18; y < a.y + a.h; y += 44) {
-        A.R(g, a.x, y, a.w, 16, "#54a8ce");
-        const off = ((Math.floor(y / 44) % 2) * 56);
-        for (let x = a.x + off; x < a.x + a.w; x += 112) {
-          A.R(g, x, y + 6, 36, 3, "#70bee0");
-          A.R(g, x + 10, y + 4, 16, 2, "#96d6f0");
+  const custom = {
+    trophycase(g, f, A) {
+      const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w), H = 74, top = by - H;
+      A.outlineBox(g, x, top, w, H, '#5c3822', '#9c6640', '#382015');
+      A.outlineBox(g, x - 2, top - 4, w + 4, 8, '#8a5530', '#ba814f', '#522f19');
+      A.outlineBox(g, x + 4, top + 6, w - 8, H - 16, '#cde6f0', '#effafe', '#8ab4c4', A.OUT_COOL);
+      for (let s = 0; s < 2; s++) {
+        const sy = top + 28 + s * 24;
+        A.R(g, x + 6, sy, w - 12, 4, '#6e4326');
+        A.R(g, x + 6, sy, w - 12, 2, '#9e6842');
+        const cols = Math.max(2, Math.floor((w - 18) / 28));
+        for (let i = 0; i < cols; i++) {
+          const tx = A.snap2(x + 12 + i * ((w - 24) / Math.max(1, cols)));
+          const silver = (i + s) % 3 === 1;
+          A.outlineBox(g, tx + 2, sy - 14, 12, 10, silver ? '#b8c6d4' : '#eab84e', silver ? '#eef4fa' : '#fff0a6', silver ? '#748496' : '#a87422', A.OUT);
+          A.R(g, tx + 6, sy - 4, 4, 4, silver ? '#748496' : '#a87422');
         }
       }
-      // 环绕球馆西、东、北侧的翠绿河洲草岸与浅滩鹅卵石带（平滑过渡左侧凹口）
-      A.R(g, -48, -28, 364, 856, "#d8cab0");
-      A.R(g, -36, -18, 344, 836, "#6cb05a");
-      A.R(g, 2564, -28, 364, 856, "#d8cab0");
-      A.R(g, 2576, -18, 344, 836, "#6cb05a");
-      // 左侧河湾内港与右侧河湾内港（圆润平静的碧蓝水湾 + 亲水木栈台）
-      for (const [wx, wy, ww, wh] of [[-180, 136, 464, 128], [-180, 580, 464, 196], [2596, 136, 464, 128], [2596, 580, 464, 196]]) {
-        A.R(g, wx - 6, wy - 6, ww + 12, wh + 12, "#c89660");
-        A.R(g, wx, wy, ww, wh, "#4fa4ca");
-        A.R(g, wx + 12, wy + 14, ww - 24, wh - 28, "#5cb0d6");
+      A.R(g, x + 8, top + 10, 2, H - 24, '#f8fcff');
+    },
+    goalpost(g, f, A) {
+      const x = A.snap2(f.x), y = A.snap2(f.y), w = A.snap2(f.w), h = A.snap2(f.h), left = f.x < 1500;
+      A.R(g, x - 2, y - 2, w + 4, h + 4, A.OUT_COOL);
+      A.R(g, x + 2, y + 2, w - 4, h - 4, '#2e633c');
+      for (let py = y + 6; py < y + h - 4; py += 8) A.R(g, x + 4, py, w - 8, 2, '#cfdde8');
+      for (let px = x + 6; px < x + w - 4; px += 8) A.R(g, px, y + 4, 2, h - 8, '#cfdde8');
+      const barX = left ? x + w - 8 : x;
+      A.outlineBox(g, x, y, w, 6, '#e4ecf2', '#f8fcff', '#9aaab8', A.OUT_COOL);
+      A.outlineBox(g, x, y + h - 6, w, 6, '#e4ecf2', '#f8fcff', '#9aaab8', A.OUT_COOL);
+      A.outlineBox(g, barX, y, 8, h, '#eef4f8', '#f8fcff', '#9aaab8', A.OUT_COOL);
+    },
+    hoopstand(g, f, A) {
+      const x = A.snap2(f.x), y = A.snap2(f.y), w = A.snap2(f.w), h = A.snap2(f.h);
+      const cy = A.snap2(y + h / 2), by = y + h;
+      // 配重软包底座（右侧立柱向西挑臂）
+      A.outlineBox(g, x + w - 26, cy - 16, 24, 34, '#36424f', '#5c6d80', '#202832', A.OUT_COOL);
+      A.R(g, x + w - 22, cy - 10, 8, 22, '#c88d55');
+      // 立柱与斜撑挑臂
+      A.outlineBox(g, x + w - 16, y + 6, 8, cy - y, '#4a5664', '#7a8a9c', '#29313a', A.OUT_COOL);
+      A.outlineBox(g, x + 16, y + 10, w - 28, 6, '#4a5664', '#7a8a9c', '#29313a', A.OUT_COOL);
+      // 钢化玻璃篮板（深古铜外框 + 冰蓝玻璃 + 橙红瞄准框）
+      A.outlineBox(g, x + 8, y, 12, 54, '#cbe4f0', '#f4fbfe', '#82adc0', A.OUT_COOL);
+      A.R(g, x + 10, y + 18, 6, 16, '#d95b43');
+      A.R(g, x + 12, y + 20, 2, 12, '#cbe4f0');
+      // 篮筐与像素球网
+      A.outlineBox(g, x, y + 22, 12, 12, '#e06344', '#f79468', '#9c3824', A.OUT);
+      A.R(g, x + 2, y + 34, 8, 8, '#dce6f0');
+      A.R(g, x + 4, y + 36, 4, 6, '#9eb0c2');
+      // 底座旁备用篮球
+      A.pxEllipse(g, x + w - 18, by - 8, 8, 8, A.OUT);
+      A.pxEllipse(g, x + w - 18, by - 8, 6, 6, '#df7a38');
+      A.R(g, x + w - 20, by - 12, 4, 2, '#f5a862');
+    },
+    pingpong(g, f, A) {
+      const x = A.snap2(f.x), y = A.snap2(f.y), w = A.snap2(f.w), h = A.snap2(f.h), by = y + h;
+      const mx = A.snap2(x + w / 2);
+      // 折叠金属桌腿与红轮横梁
+      for (const lx of [x + 14, mx - 12, mx + 6, x + w - 20]) {
+        A.R(g, lx, by - 16, 6, 16, A.OUT_COOL);
+        A.R(g, lx + 2, by - 14, 2, 12, '#54606e');
       }
-      // 东西两侧电梯厅外延的河岸木栈桥码头
-      for (const [px, py, pw, ph] of [[-160, 40, 160, 96], [2880, 40, 160, 96], [80, 120, 140, 28], [80, 560, 140, 28], [2660, 120, 140, 28], [2660, 560, 140, 28]]) {
-        A.R(g, px, py, pw, ph, "#b8824c");
-        for (let tx = px; tx < px + pw; tx += 20) {
-          A.R(g, tx + 1, py + 2, 18, ph - 4, "#cc965e");
-          A.R(g, tx + 1, py + 2, 18, 2, "#e0ae76");
+      A.R(g, mx - 10, by - 8, 20, 4, '#36404c');
+      // 3/4 赛事级深海蓝台面 + 暖白边线 + 中线
+      const ty = by - 42, th = 28;
+      A.outlineBox(g, x, ty, w, th, '#2b587a', '#4d82a8', '#1b3b54', A.OUT_COOL);
+      A.R(g, x + 4, ty + 4, w - 8, 2, '#f2f6fa');
+      A.R(g, x + 4, ty + th - 6, w - 8, 2, '#dce6f0');
+      A.R(g, x + 4, ty + 4, 2, th - 8, '#f2f6fa');
+      A.R(g, x + w - 6, ty + 4, 2, th - 8, '#dce6f0');
+      A.R(g, x + 8, ty + A.snap2(th / 2), w - 16, 2, '#9ec2dc');
+      // 中央球网（立柱 + 白顶网带）
+      A.R(g, mx - 2, ty - 6, 4, th + 8, A.OUT_COOL);
+      A.R(g, mx - 2, ty - 6, 4, 4, '#f4f8fc');
+      A.R(g, mx, ty - 2, 2, th, '#8ea6ba');
+      // 球拍一对与三星橙球
+      A.outlineBox(g, x + 18, ty + 8, 12, 10, '#cf4e42', '#ee7868', '#8c2d26', A.OUT);
+      A.R(g, x + 14, ty + 12, 4, 4, '#c48a52');
+      A.outlineBox(g, x + w - 32, ty + 12, 12, 10, '#2c3642', '#526070', '#181e26', A.OUT_COOL);
+      A.R(g, x + w - 20, ty + 16, 4, 4, '#c48a52');
+      A.R(g, mx + 16, ty + 10, 4, 4, '#ffa63e');
+    },
+    dumbbellrack(g, f, A) {
+      const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+      // 3/4 双层深钢哑铃壶铃架
+      A.outlineBox(g, x + 2, by - 42, 8, 42, '#46505c', '#748292', '#282f38', A.OUT_COOL);
+      A.outlineBox(g, x + w - 10, by - 42, 8, 42, '#46505c', '#748292', '#282f38', A.OUT_COOL);
+      for (const [ry, weights] of [[by - 34, ['#3a4450', '#487699', '#c95c48']], [by - 18, ['#3a4450', '#568c58', '#d99e32']]]) {
+        A.outlineBox(g, x + 6, ry, w - 12, 6, '#2d3540', '#525e6c', '#1a2028', A.OUT_COOL);
+        let dx = x + 14, i = 0;
+        while (dx < x + w - 24) {
+          const col = weights[i % weights.length];
+          A.R(g, dx, ry - 6, 4, 8, A.OUT_COOL);
+          A.R(g, dx + 2, ry - 4, 2, 4, col);
+          A.R(g, dx + 4, ry - 4, 6, 2, '#9aa8b8');
+          A.R(g, dx + 10, ry - 6, 4, 8, A.OUT_COOL);
+          A.R(g, dx + 10, ry - 4, 2, 4, col);
+          dx += 20; i++;
         }
       }
-      // 河湾上的白帆小艇与睡莲叶（宁静悠闲的水上视觉焦点）
-      for (const [bx, by] of [[140, 198], [180, 668], [-90, 420], [2710, 198], [2690, 668], [2970, 420]]) {
-        A.pxEllipse(g, bx, by + 6, 24, 8, "rgba(25,70,95,0.28)");
-        A.pxEllipse(g, bx, by + 2, 22, 7, "#8e5832");
-        A.pxEllipse(g, bx, by, 18, 5, "#c89058");
-        A.R(g, bx - 1, by - 22, 2, 22, "#6e4322");
-        A.R(g, bx + 1, by - 20, 12, 14, "#ffffff");
-        A.R(g, bx + 1, by - 10, 12, 3, "#f0c862");
-      }
-      for (const [lx, ly] of [[60, 220], [230, 176], [90, 630], [240, 710], [2640, 220], [2790, 640]]) {
-        A.pxEllipse(g, lx, ly, 14, 7, "#529c4a");
-        A.R(g, lx - 2, ly - 3, 5, 4, "#f6a4c4");
-      }
     },
-    floorDecor(g, ox, oy, w, h, A) {
-      const pitch = { x: 760, y: 330, w: 1400, h: 336 };
-      const a = A.clipRect(ox, oy, w, h, { x: 728, y: 308, w: 1464, h: 382 });
-      if (a) A.withClip(g, a, () => {
-        for (let sx = pitch.x; sx < pitch.x + pitch.w; sx += 80) if (((sx - pitch.x) / 80) % 2 === 1) A.R(g, sx, 308, 40, 382, "rgba(255,255,255,0.07)");
-        const W = "#f4f8ee";
-        A.R(g, pitch.x, pitch.y, pitch.w, 4, W); A.R(g, pitch.x, pitch.y + pitch.h - 4, pitch.w, 4, W);
-        A.R(g, pitch.x, pitch.y, 4, pitch.h, W); A.R(g, pitch.x + pitch.w - 4, pitch.y, 4, pitch.h, W);
-        const mx = pitch.x + pitch.w / 2, my = pitch.y + pitch.h / 2;
-        A.R(g, mx - 2, pitch.y, 4, pitch.h, W);
-        A.pxEllipse(g, mx, my, 62, 46, W); A.pxEllipse(g, mx, my, 58, 42, "#5aa64c"); A.pxEllipse(g, mx, my, 6, 6, W);
-        const boxH = 170, boxW = 120, by = my - boxH / 2;
-        A.R(g, pitch.x, by, boxW, 4, W); A.R(g, pitch.x, by + boxH - 4, boxW, 4, W); A.R(g, pitch.x + boxW - 4, by, 4, boxH, W);
-        A.R(g, pitch.x + pitch.w - boxW, by, boxW, 4, W); A.R(g, pitch.x + pitch.w - boxW, by + boxH - 4, boxW, 4, W); A.R(g, pitch.x + pitch.w - boxW, by, 4, boxH, W);
-        for (const [bx, by2] of [[1320, 460], [1640, 560]]) { A.pxEllipse(g, bx + 2, by2 + 3, 7, 4, "rgba(30,50,20,0.35)"); A.pxEllipse(g, bx, by2, 7, 7, "#f7f9fb"); A.R(g, bx - 2, by2 - 2, 4, 4, "#2a3036"); }
-      });
-      const st = A.clipRect(ox, oy, w, h, { x: 720, y: 268, w: 1480, h: 24 });
-      if (st) { A.R(g, st.x, st.y, st.w, st.h, "#b8865a"); A.R(g, st.x, st.y, st.w, 2, "#d8a678"); A.R(g, st.x, st.y + 22, st.w, 2, "#7c4c28"); }
-    },
-    backDecor(g, f, A) {
-      // 北墙彩色队旗三角锦旗
-      const cols = ['#e05a4c', '#f2c14e', '#4f9cc8', '#5fb368'];
-      for (const [x0, x1] of [[760, 960], [1980, 2180]]) {
-        A.R(g, x0, 18, x1 - x0, 2, '#6e4322');
-        for (let x = x0 + 6, i = 0; x < x1 - 14; x += 18, i++) {
-          const c = cols[i % cols.length];
-          A.R(g, x, 20, 12, 6, c); A.R(g, x + 2, 26, 8, 4, c); A.R(g, x + 4, 30, 4, 4, c);
-        }
-      }
-    },
-    furniture: {
-      trophycase(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w), H = 76, top = by - H;
-        A.R(g, x, top, w, H, '#5e3519'); A.R(g, x + 4, top + 6, w - 8, H - 14, '#27453a');
-        A.R(g, x - 2, top - 4, w + 4, 6, '#9a6236');
-        for (let s = 1; s < 3; s++) A.R(g, x + 4, top + 6 + s * 20, w - 8, 3, '#8a5530');
-        // 金杯与银杯
-        for (let i = 0; i < 3; i++) {
-          const cx = x + 18 + i * Math.floor((w - 36) / 2);
-          A.R(g, cx - 5, top + 18, 10, 6, '#ffd25a'); A.R(g, cx - 2, top + 24, 4, 2, '#d49b35');
-          A.R(g, cx - 6, top + 36, 12, 8, i === 1 ? '#ffd25a' : '#dce4ec'); A.R(g, cx - 3, top + 44, 6, 2, '#8a5530');
-          A.R(g, cx - 5, top + 56, 10, 6, '#e89a54');
-        }
-        A.R(g, x + 6, top + 8, 3, H - 18, 'rgba(255,255,255,0.45)');
-        A.R(g, x, by - 6, w, 6, '#4a2a14');
-      },
-      goalpost(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w), h = Math.round(f.h), top = by - h - 26;
-        const west = x < 1400;
-        // 球网阴影与网格
-        A.R(g, x + 2, top + 6, w - 4, h + 18, 'rgba(235,244,248,0.28)');
-        for (let gx = x + 6; gx < x + w - 4; gx += 8) A.R(g, gx, top + 6, 1, h + 18, 'rgba(220,235,240,0.55)');
-        for (let gy = top + 10; gy < by - 4; gy += 8) A.R(g, x + 4, gy, w - 8, 1, 'rgba(220,235,240,0.55)');
-        // 白色门框立柱与横梁
-        const frontX = west ? x + w - 6 : x;
-        const backX = west ? x : x + w - 4;
-        A.R(g, backX, top + 6, 4, h + 18, '#cfd8e0');
-        A.R(g, x, top, w, 5, '#ffffff'); A.R(g, x, top + 5, w, 2, '#b8c4ce');
-        A.R(g, x, by - 4, w, 4, '#cfd8e0');
-        A.R(g, frontX, top, 6, h + 26, '#ffffff'); A.R(g, frontX + (west ? 4 : 0), top, 2, h + 26, '#b8c4ce');
-        // 红白警示贴纹
-        for (let py = top + 8; py < by - 8; py += 16) A.R(g, frontX + 1, py, 4, 6, '#e05a4c');
-      },
-      ballrack(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w), top = by - 48;
-        A.R(g, x + 2, top, 4, 48, '#4a525a'); A.R(g, x + w - 6, top, 4, 48, '#4a525a');
-        for (const sy of [top + 16, top + 36]) {
-          A.R(g, x + 2, sy, w - 4, 3, '#6c7680');
-          for (let bx = x + 12, i = 0; bx < x + w - 10; bx += 16, i++) {
-            const orange = (i + (sy > top + 20 ? 1 : 0)) % 2 === 0;
-            A.pxEllipse(g, bx, sy - 6, 6, 6, orange ? '#e07838' : '#f4f7fa');
-            A.R(g, bx - 2, sy - 7, 4, 2, orange ? '#8a3e18' : '#2c3238');
-          }
+    ballrack(g, f, A) {
+      const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+      A.outlineBox(g, x, by - 44, 6, 44, '#5a626c', '#929ca6', '#2e343c', A.OUT_COOL);
+      A.outlineBox(g, x + w - 6, by - 44, 6, 44, '#5a626c', '#929ca6', '#2e343c', A.OUT_COOL);
+      for (const [ry, off] of [[by - 34, 0], [by - 16, 1]]) {
+        A.R(g, x + 4, ry, w - 8, 4, '#363c44');
+        for (let bx = x + 14; bx < x + w - 12; bx += 22) {
+          A.pxEllipse(g, bx, ry - 6, 8, 8, A.OUT_COOL);
+          A.pxEllipse(g, bx, ry - 6, 6, 6, off ? '#e2843a' : '#f2efe8');
+          A.R(g, bx - 2, ry - 8, 4, 4, off ? '#a85220' : '#2c3644');
         }
       }
     }
+  };
+
+  L.register(2, {
+    wall: {
+      style: 'modern',
+      paper: '#f1e9db', stripe: '#d1c4af', panelHi: '#fbf7f0', motif: '#d1c4af',
+      rail: '#82522e', railHi: '#b57b4e',
+      wains: '#99643b', wainsLo: '#704424', wainsHi: '#c48a5c',
+      base: '#452818', crown: '#e8decb',
+      cap: '#754829', capHi: '#ad7348', capLo: '#2d1c22', capTop: '#8f5a36'
+    },
+    door: { frame: '#38241d', frameHi: '#a67046', leaf: '#965f38', plank: '#6e4222', lintel: '#4f2e1d', glass: '#e8f4fa' },
+    plaquePal: { bg: '#3b2b24', hi: '#785a48', edge: '#1e1518', ink: '#fbf2dc' },
+    fence: { post: '#c48a52', postLo: '#87562d', rail: '#ebe3d5', railLo: '#9e9282' },
+    zones: [
+      // 100% 覆盖 2F 多边形外轮廓（含全部退台翼与隔墙门洞带）
+      { x: 0, y: 128, w: 352, h: 512, mat: 'planks', pal: mapleA, seed: 21 },
+      { x: 352, y: 0, w: 568, h: 708, mat: 'planks', pal: mapleA, seed: 22 },
+      { x: 920, y: 0, w: 1616, h: 296, mat: 'stone', pal: stoneP, seed: 23, tw: 64, th: 48 },
+      { x: 920, y: 296, w: 1128, h: 360, mat: 'grass', pal: turfA, seed: 24 },
+      { x: 2048, y: 296, w: 488, h: 360, mat: 'planks', pal: mapleCourt, seed: 25 },
+      { x: 920, y: 656, w: 1616, h: 52, mat: 'stone', pal: stoneP, seed: 26, tw: 64, th: 48 },
+      { x: 2536, y: 0, w: 568, h: 708, mat: 'planks', pal: mapleB, seed: 27 },
+      { x: 3104, y: 128, w: 352, h: 512, mat: 'planks', pal: mapleB, seed: 28 },
+      { x: 352, y: 708, w: 2752, h: 16, mat: 'planks', pal: mapleA, seed: 29 },
+      { x: 352, y: 724, w: 784, h: 236, mat: 'parquet', pal: mapleB },
+      { x: 1136, y: 724, w: 1200, h: 236, mat: 'stone', pal: stoneP, seed: 30, tw: 64, th: 48 },
+      { x: 2336, y: 724, w: 768, h: 236, mat: 'planks', pal: mapleA, seed: 31 }
+    ],
+    rugs: [
+      { x: 376, y: 286, w: 272, h: 146, fill: '#3d6b58', band: '#294a3c', trim: '#e0bc72', motif: '#f0d89a', fringe: '#f2ead8' },
+      { x: 2584, y: 262, w: 320, h: 92, fill: '#486884', band: '#2e465c', trim: '#e0bc72', motif: '#f0d89a', fringe: '#f2ead8' }
+    ],
+    windows: [180, 740, 1460, 2056, 2716, 3276], windowStyle: 'curtain',
+    sconces: [660, 1148, 1568, 2308, 2796],
+    frames: [[968, 'land', 48, 28], [2424, 'map', 48, 28]],
+    plaque: { x: 1728, text: 'CQRD · 研发运动健康馆', w: 204 },
+    // 写实研发园区运动绿地外景（全陆地公园草坪 + 石板慢跑径 + 遮阴乔木，零河流泊船/浮标，严避东西电梯翼）
+    exterior: L.API.biomeExterior({
+      pal: L.API.biomePal({
+        24: '#542838', 25: '#8c3d58', 26: '#cf6488', 27: '#f2a6be', 28: '#ffe4ee',
+        46: '#c95c48', 47: '#487699', 48: '#e2be6e'
+      }),
+      extraLand: [{ rect: [-640, -320, 4736, 1600] }],
+      extraPaths: [
+        { style: 'stone', pts: [[-560, 1020, 28], [480, 1024, 28], [1728, 1020, 30], [2980, 1024, 28], [4020, 1020, 28]] },
+        { style: 'stone', pts: [[202, 916, 22], [240, 1020, 24]] },
+        { style: 'stone', pts: [[3254, 916, 22], [3216, 1020, 24]] }
+      ],
+      flowers: [43, 44, 42], flowerRate: 0.08, tuftRate: 0.20,
+      treeLines: [
+        { y: -256, x0: -600, x1: 4060, step: 98, rows: 2, dy: 44, kinds: ['oak', 'pine', 'oak', 'sakura'] },
+        { y: 1136, x0: -600, x1: 4060, step: 102, rows: 2, dy: 46, kinds: ['oak', 'pine', 'oak', 'sakura'] }
+      ],
+      decor: [
+        ['tree', -360, 120, 'oak'], ['pine', -420, 480], ['tree', -340, 760, 'sakura'],
+        ['tree', 3820, 120, 'pine'], ['tree', 3880, 480, 'oak'], ['tree', 3800, 760, 'sakura'],
+        ['bench', 920, 996], ['bench', 2480, 996], ['lamp', 860, 1004], ['lamp', 2580, 1004],
+        ['bush', 640, 992, 1], ['bush', 1420, 992, 2], ['bush', 2040, 992, 1], ['bush', 2820, 992, 2]
+      ]
+    }),
+    floorDecor(g, ox, oy, w, h, A) {
+      // 1) 西侧室内减震绿茵五人球场：交替修剪条纹 + 2× 暖白球场边线、中圈与禁区
+      const turf = A.clipRect(ox, oy, w, h, { x: 936, y: 304, w: 1112, h: 352 });
+      if (turf) A.withClip(g, turf, () => {
+        for (let sx = 936, i = 0; sx < 2048; sx += 96, i++) {
+          if (i % 2) L.API.MATS.grass(g, { x: sx, y: 304, w: Math.min(96, 2048 - sx), h: 352 }, turfB, 40 + i);
+        }
+        const ink = '#f6f2e4', px0 = 980, py0 = 320, pw = 1008, ph = 312;
+        A.R(g, px0, py0, pw, 4, ink); A.R(g, px0, py0 + ph - 4, pw, 4, ink);
+        A.R(g, px0, py0, 4, ph, ink); A.R(g, px0 + pw - 4, py0, 4, ph, ink);
+        const mcx = A.snap2(px0 + pw / 2), mcy = A.snap2(py0 + ph / 2);
+        A.R(g, mcx - 2, py0, 4, ph, ink);
+        for (let a = 0; a < 40; a++) {
+          const r = a / 40 * Math.PI * 2;
+          A.R2(g, mcx + Math.cos(r) * 56 - 2, mcy + Math.sin(r) * 44 - 2, 4, 4, ink);
+        }
+        A.R2(g, mcx - 4, mcy - 4, 8, 8, ink);
+        for (const [bx, s] of [[px0, 1], [px0 + pw, -1]]) {
+          const x1 = s > 0 ? bx : bx - 112;
+          A.R(g, x1, mcy - 76, 112, 4, ink); A.R(g, x1, mcy + 72, 112, 4, ink);
+          A.R(g, s > 0 ? bx + 108 : bx - 112, mcy - 76, 4, 152, ink);
+        }
+      });
+
+      // 2) 东侧枫木篮球半场：赤陶色油漆三秒区 + 暖白边线与罚球弧
+      const court = A.clipRect(ox, oy, w, h, { x: 2048, y: 304, w: 472, h: 352 });
+      if (court) A.withClip(g, court, () => {
+        const ink = '#f6f2e4', cx0 = 2076, cy0 = 320, cw = 396, ch = 312, mcy = A.snap2(cy0 + ch / 2);
+        // 三秒区低饱和赤陶涂装
+        A.R(g, cx0 + cw - 136, mcy - 52, 136, 104, '#b86448');
+        A.R(g, cx0, cy0, cw, 4, ink); A.R(g, cx0, cy0 + ch - 4, cw, 4, ink);
+        A.R(g, cx0, cy0, 4, ch, ink); A.R(g, cx0 + cw - 4, cy0, 4, ch, ink);
+        A.R(g, cx0 + cw - 136, mcy - 52, 136, 4, ink);
+        A.R(g, cx0 + cw - 136, mcy + 48, 136, 4, ink);
+        A.R(g, cx0 + cw - 136, mcy - 52, 4, 104, ink);
+        for (let a = 12; a <= 36; a++) {
+          const r = a / 48 * Math.PI * 2;
+          A.R2(g, cx0 + cw - 136 + Math.cos(r) * 44 - 2, mcy + Math.sin(r) * 44 - 2, 4, 4, ink);
+          const r3 = a / 48 * Math.PI * 2;
+          const x3 = cx0 + cw - 36 + Math.cos(r3) * 184, y3 = mcy + Math.sin(r3) * 132;
+          if (x3 >= cx0 + 4 && y3 >= cy0 + 4 && y3 <= cy0 + ch - 8) A.R2(g, x3, y3, 4, 4, ink);
+        }
+      });
+
+      // 3) 材质分界拉丝黄铜收边压条
+      for (const [bx, by, bh] of [[918, 112, 596], [2046, 304, 352], [2534, 112, 596]]) {
+        const b = A.clipRect(ox, oy, w, h, { x: bx, y: by, w: 6, h: bh });
+        if (b) { A.R(g, b.x, b.y, b.w, b.h, '#8c683e'); A.R(g, b.x + 2, b.y, 2, b.h, '#e2b659'); }
+      }
+    },
+    furniture: custom,
+    custom
   });
 })(typeof window !== 'undefined' ? window : globalThis);

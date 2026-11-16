@@ -1,162 +1,190 @@
 'use strict';
-// 6F · 晴海甜品舱 主题：船舱木甲板 + 航海罗盘镶嵌 + 旋转马卡龙甜品塔 + 舷窗北墙 + 南排烘焙坊/礼盒屋/船长金库/瞭望室。
+// 6F · 观景咖啡与烘焙沙龙 主题：温暖像素现代研发大楼（暖橡木人字拼花 / 哑光洞石中庭 / 赤陶烘焙砖 / 精品咖啡烘焙机与铜框甜品岛台 / 退台花园外景）。
 (function (root) {
   const L = root.SID_LOBBY; if (!L) return;
-  const deckA = { base: '#b8824c', hi: '#c9945e', lo: '#9e6c3a', gap: '#6e4522', nail: '#4a2c14' };
-  const deckB = { base: '#d4ab78', hi: '#e2bc8c', lo: '#bc9260', gap: '#8a6238', nail: '#5c3e1e' };
-  const checkPastel = { a: '#fbf0dc', b: '#e89ca8', grout: '#c27482', aHi: '#ffffff', bHi: '#f4b4be', aLo: '#e6d8be', bLo: '#cf8290' };
-  const tileKitchen = { a: '#f4ecd8', b: '#78b4cc', grout: '#54889e', aHi: '#ffffff', bHi: '#96cce0', aLo: '#dfd4bc', bLo: '#5e96ac' };
+  // 全部地面色值严格避开 7F sports 像素检测区间 RGB(217,204,163)±6
+  const oakCafe = { base: '#be864e', hi: '#d29b62', lo: '#a6713d', gap: '#754827', grain: '#996436' };
+  const oakPlank = { base: '#c48c54', hi: '#d6a068', lo: '#ab7642', gap: '#7a4d2b', grain: '#a16b3b' };
+  const walnutCafe = { base: '#a87042', hi: '#bc8454', lo: '#915d34', gap: '#663d20', grain: '#87542d' };
+  const cafeTravertine = { tones: ['#eee6d8', '#e6ddcc', '#f4efe4', '#d2c5b1'], grout: '#b8aa96', hi: '#faf6ef', lo: '#bfb29e' };
+  const bistroTile = { a: '#f2eadc', b: '#c87c5a', grout: '#a46448', aHi: '#faf6ef', bHi: '#da906e', aLo: '#d1c4b0', bLo: '#ad6646' };
 
   L.register(6, {
     wall: {
-      paper: '#e6f2f8', stripe: '#cfe4f0', motif: '#a8cbe0',
-      rail: '#3a6888', railHi: '#588cb0', wains: '#487a9e', wainsLo: '#325a78', wainsHi: '#6498bc',
-      base: '#223e54', crown: '#f4e6c8', cap: '#385e7a', capHi: '#5e8cae', capLo: '#1e3648', capTop: '#487494', style: 'plank'
+      style: 'modern',
+      paper: '#f4ece0', stripe: '#d8cbb8', panelHi: '#fcf8f2', motif: '#d8cbb8',
+      rail: '#784828', railHi: '#ad7248',
+      wains: '#915b36', wainsLo: '#693e21', wainsHi: '#bc8458',
+      base: '#3f2315', crown: '#ebe0ce',
+      cap: '#704327', capHi: '#a66f46', capLo: '#2c1b20', capTop: '#8a5534'
     },
-    house: { kind: "cabin", roof: "#f4efe4", roofLo: "#d8d0bc", rail: "#a8723f", trim: "#385e7a", wall: { paper: "#f6fbfd", stripe: "#dcebf2", motif: "#b8d4e2", wains: "#487a9e", wainsHi: "#6498bc", base: "#223e54" } },
-    fence: { post: "#a8723f", postLo: "#7a4a26", rail: "#c08a50", railLo: "#7a4a26" },
-    house: { kind: "cabin", roof: "#f4efe4", roofLo: "#d8d0bc", rail: "#a8723f", trim: "#385e7a", wall: { paper: "#f6fbfd", stripe: "#dcebf2", motif: "#b8d4e2", wains: "#487a9e", wainsHi: "#6498bc", base: "#223e54" } },
+    door: { frame: '#36231d', frameHi: '#9e6a42', leaf: '#8f5934', plank: '#693d20', lintel: '#4d2c1c', glass: '#e8f4fa' },
+    plaquePal: { bg: '#3b2b24', hi: '#785a48', edge: '#1e1518', ink: '#fbf2dc' },
     zones: [
-      { x: 0, y: 0, w: 806, h: 800, mat: "deck", pal: deckA, seed: 61 },
-      { x: 806, y: 0, w: 1594, h: 800, mat: "deck", pal: deckB, seed: 62 },
-      { x: 2400, y: 0, w: 480, h: 800, mat: "checker", pal: checkPastel, size: 32 },
-      { x: 806, y: 600, w: 760, h: 200, mat: "checker", pal: tileKitchen, size: 32 }
+      { x: 0, y: 0, w: 816, h: 740, mat: 'parquet', pal: oakCafe, size: 64 },
+      { x: 816, y: 0, w: 1824, h: 584, mat: 'stone', pal: cafeTravertine, seed: 61, tw: 64, th: 48 },
+      { x: 2640, y: 0, w: 816, h: 740, mat: 'planks', pal: oakPlank, seed: 62 },
+      { x: 816, y: 584, w: 1824, h: 16, mat: 'planks', pal: oakPlank, seed: 63 },
+      { x: 816, y: 600, w: 624, h: 360, mat: 'checker', pal: bistroTile, size: 48 },
+      { x: 1440, y: 600, w: 592, h: 360, mat: 'planks', pal: walnutCafe, seed: 65 },
+      { x: 2032, y: 600, w: 608, h: 360, mat: 'parquet', pal: walnutCafe, size: 64 }
     ],
     rugs: [
-      { x: 96, y: 278, w: 266, h: 98, fill: "#2e6488", band: "#1e4662", trim: "#f2d278", motif: "#ffffff", fringe: "#f4ead0" }
+      { x: 96, y: 298, w: 296, h: 144, fill: '#87443c', band: '#612d28', trim: '#e6c27c', motif: '#f2daa0', fringe: '#f4ece0' },
+      { x: 1516, y: 296, w: 424, h: 128, round: true, fill: '#3d6358', band: '#28453d', trim: '#e2bc6e', motif: '#f2deb0' }
     ],
-    windows: [260, 640, 1000, 1500, 1840, 2520, 2760], windowStyle: "porthole",
-    sconces: [800, 1240, 1700, 2060],
-    frames: [[120, "sea"], [1100, "sea"]],
-    plaque: { x: 1650, text: "珊瑚甜品舱 · 晴海巡航", w: 168 },
-    exterior(g, f, A, a) {
-      // 珊瑚晴海甜品号：澄澈宝石蓝海面 + 浅滩缤纷珊瑚礁群 + 船舷白浪 + 糖果浮标与海豚
-      A.R(g, a.x, a.y, a.w, a.h, "#3892c2");
-      // 浅海珊瑚礁碧波色块（柔美松石绿浅滩）
-      for (const [cx, cy, rx, ry] of [[240, 700, 210, 82], [2680, 680, 220, 86], [-140, 260, 140, 96], [3020, 260, 140, 96]]) {
-        A.pxEllipse(g, cx, cy, rx, ry, "#44a8ce");
-        A.pxEllipse(g, cx, cy, rx * 0.72, ry * 0.72, "#56bedc");
-        // 海底缤纷珊瑚丛与珍珠贝
-        for (const [dx, dy, c] of [[-48, -14, "#f47c8e"], [28, 12, "#ffae5c"], [-12, 22, "#b488e8"], [56, -16, "#ffd666"]]) {
-          A.pxEllipse(g, cx + dx, cy + dy, 14, 8, c);
-          A.pxEllipse(g, cx + dx - 3, cy + dy - 2, 8, 5, "#fff4f6");
-        }
+    windows: [576, 872, 1188, 1940, 2280, 2540, 3160], windowStyle: 'curtain',
+    sconces: [360, 1104, 1584, 1872, 2196, 2900, 3280], sconceColor: '#ffd680',
+    frames: [[108, 'flower', 52, 28], [2404, 'land', 52, 28]],
+    plaque: { x: 1728, text: 'CQRD · 观景咖啡与烘焙沙龙', w: 212 },
+    // 楼外：阶梯空中花园与园区绿脉（无海洋、无帆船、无灯塔、无浮标；东西电梯门厅外设整洁花岗岩广场）
+    exterior: L.API.biomeExterior({
+      pal: L.API.biomePal({
+        1: '#1a426e', 2: '#23568c', 3: '#2e72ad', 4: '#3d90c4', 5: '#52acc7', 6: '#86d8cb', 7: '#dff6ea',
+        13: '#8c6244', 14: '#b08462', 15: '#cbb092', 16: '#e6d8c4',
+        17: '#152233', 18: '#1b3847', 19: '#265c44', 20: '#368242', 21: '#52ab48', 22: '#7ecc52', 23: '#b4e864',
+        24: '#47234d', 25: '#8a3b6e', 26: '#cf6292', 27: '#f2a8c2', 28: '#ffe4ee',
+        34: '#38333a', 35: '#786e68', 36: '#b8aca0', 37: '#ede5d8',
+        42: '#ffd25a', 43: '#fff4c4', 44: '#f06f6a', 45: '#78c7f5', 46: '#e2d4be'
+      }),
+      extraLand: [{ rect: [-640, -320, 4736, 1600] }],
+      flowers: [44, 42, 27, 43], flowerRate: 0.11, tuftRate: 0.20,
+      treeLines: [{ y: -230, x0: -560, x1: 4020, step: 128, rows: 2, dy: 50, kinds: ['alt', 'oak', 'pine', 'oak'] }],
+      decor: [
+        ['tree', -260, 48, 'oak'], ['tree', 3700, 48, 'alt'],
+        ['tree', -260, 468, 'alt'], ['pine', 3700, 468],
+        ['lantern', -248, 108], ['lantern', 3696, 108],
+        ['bush', -256, 360, 2], ['bush', 3696, 360, 1],
+        ['tree', 960, 1128, 'alt'], ['tree', 1728, 1136, 'oak'], ['pine', 2496, 1128],
+        ['flowers', 1220, 1064, 180, 36], ['flowers', 2056, 1064, 180, 36]
+      ],
+      after(S, ctx) {
+        const { fillRect, hash2, toPx, toPy } = ctx;
+        const stampPlaza = (wx, wy, ww, wh) => {
+          const px0 = toPx(wx), py0 = toPy(wy), pw = Math.round(ww / 2), ph = Math.round(wh / 2);
+          fillRect(px0 - 2, py0 - 2, pw + 4, ph + 4, 34);
+          fillRect(px0, py0, pw, ph, 35);
+          for (let ty = py0 + 2, r = 0; ty < py0 + ph - 2; ty += 12, r++) {
+            const off = (r & 1) ? 8 : 0;
+            for (let tx = px0 + 2 - off; tx < px0 + pw - 2; tx += 16) {
+              const x0 = Math.max(px0 + 2, tx), x1 = Math.min(px0 + pw - 2, tx + 15);
+              const y1 = Math.min(py0 + ph - 2, ty + 11);
+              if (x1 - x0 < 3 || y1 - ty < 3) continue;
+              const h = hash2(tx, ty);
+              fillRect(x0, ty, x1 - x0, y1 - ty, h > 0.58 ? 37 : 36);
+              if (h < 0.32) fillRect(x0, ty, Math.min(6, x1 - x0), 1, 46);
+            }
+          }
+        };
+        // 东西电梯翼花岗岩平台 + 衔接西南/东南观景露台步道 + 南侧景观横轴石道
+        stampPlaza(-308, 36, 312, 292);
+        stampPlaza(-180, 324, 88, 200);
+        stampPlaza(3452, 36, 312, 292);
+        stampPlaza(3548, 324, 88, 200);
+        stampPlaza(760, 988, 1936, 52);
       }
-      // 舒缓海面波纹
-      for (let y = a.y + 16; y < a.y + a.h; y += 28) {
-        for (let x = a.x + ((Math.floor(y / 28) % 2) * 32); x < a.x + a.w; x += 64) {
-          A.R(g, x, y, 22, 2, "#74bee2");
-          A.R(g, x + 6, y - 2, 10, 2, "#a8dcf4");
-        }
-      }
-      // 船身外侧欢腾的白色浪花描边
-      g.save(); g.strokeStyle = "rgba(255,255,255,0.75)"; g.lineWidth = 6; g.setLineDash([12, 8]);
-      g.beginPath(); f.polygon.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath(); g.stroke(); g.restore();
-      // 糖果救生圈浮标
-      for (const [bx, by] of [[180, 720], [340, 748], [2580, 736], [2780, 690], [-110, 110], [2990, 110]]) {
-        A.pxEllipse(g, bx, by, 15, 7, "#f06272");
-        A.pxEllipse(g, bx, by, 10, 4, "#ffffff");
-        A.pxEllipse(g, bx, by, 4, 2, "#44a8ce");
+    }),
+    floorDecor(g, ox, oy, w, h, A) {
+      // 东西橡木区与中央洞石沙龙交界黄铜收边压条
+      for (const bx of [814, 2638]) {
+        const c = A.clipRect(ox, oy, w, h, { x: bx, y: 112, w: 6, h: 472 });
+        if (c) { A.R(g, c.x, c.y, c.w, c.h, '#7d4f2a'); A.R(g, c.x + 2, c.y, 2, c.h, '#e2b659'); }
       }
     },
-    floorDecor(g, ox, oy, w, h, A) {
-      const CP = { cx: 1650, cy: 470 };
-      const a = A.clipRect(ox, oy, w, h, { x: 1490, y: 330, w: 320, h: 280 });
-      if (a) A.withClip(g, a, () => {
-        A.pxEllipse(g, CP.cx, CP.cy, 156, 124, "#386484"); A.pxEllipse(g, CP.cx, CP.cy, 148, 118, "#f4ead2");
-        A.pxEllipse(g, CP.cx, CP.cy, 112, 88, "#e28492"); A.pxEllipse(g, CP.cx, CP.cy, 104, 82, "#fbf4e4");
-        A.R(g, CP.cx - 150, CP.cy - 2, 300, 4, "#386484"); A.R(g, CP.cx - 2, CP.cy - 120, 4, 240, "#386484");
-      });
+    faceDecor(g, wl, top, bottom, A) {
+      const x0 = wl.x, x1 = wl.x + wl.w, has = (a, b) => x0 <= a && x1 >= b;
+      if (has(1656, 1800)) {
+        A.R(g, 1660, top + 4, 136, 24, '#3b2618');
+        A.R(g, 1664, top + 6, 128, 20, '#24332c');
+        A.R(g, 1676, top + 12, 72, 2, '#fbf2dc');
+        A.R(g, 1676, top + 18, 96, 2, '#ffd166');
+      }
     },
     furniture: {
-      barrel(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h;
-        A.R(g, cx - 14, by - 32, 28, 30, '#8e5830'); A.R(g, cx - 16, by - 26, 32, 18, '#a66c3e');
-        A.R(g, cx - 16, by - 24, 32, 3, '#c89e48'); A.R(g, cx - 16, by - 12, 32, 3, '#c89e48');
-        A.pxEllipse(g, cx, by - 32, 14, 6, '#6e4220');
-        // 桶顶缤纷糖果堆
-        const c = /薄荷/.test(f.label) ? ['#78d6b8', '#ffffff'] : /草莓/.test(f.label) ? ['#f2788a', '#ffd0dc'] : ['#ffd25a', '#f28294', '#78c8e6'];
-        for (let i = 0; i < 5; i++) A.R(g, cx - 10 + i * 4, by - 36 - (i % 2) * 3, 5, 5, c[i % c.length]);
-      },
       menuboard(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w), top = by - 64;
-        A.R(g, x + 8, top + 34, 4, 30, '#6e4322'); A.R(g, x + w - 12, top + 34, 4, 30, '#6e4322');
-        A.R(g, x, top, w, 38, '#a87240'); A.R(g, x + 4, top + 4, w - 8, 30, '#2b4a5e');
-        A.text(g, '今日甜品 · 马卡龙塔', x + w / 2, top + 14, '#ffe698', 9);
-        A.text(g, '海盐圣代 / 草莓华夫', x + w / 2, top + 26, '#fbd0dc', 9);
+        const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+        // 3/4 胡桃木立式手冲风味黑板（纯整数像素块，0 半透明抗锯齿文字）
+        A.R(g, x + 8, by - 14, 6, 14, A.OUT);
+        A.R(g, x + w - 14, by - 14, 6, 14, A.OUT);
+        A.outlineBox(g, x, by - 56, w, 44, '#7d4c29', '#ad7246', '#4a2a16', A.OUT);
+        A.R(g, x + 4, by - 52, w - 8, 36, '#23322c');
+        A.R(g, x + 4, by - 52, w - 8, 2, '#354a41');
+        // 手冲咖啡杯图标与像素价目横条
+        A.outlineBox(g, x + 10, by - 44, 18, 16, '#f5eee0', '#ffffff', '#c7baa6');
+        A.R(g, x + 14, by - 48, 2, 4, '#ffd166');
+        A.R(g, x + 20, by - 48, 2, 4, '#ffd166');
+        A.R(g, x + 34, by - 44, w - 46, 4, '#ffd166');
+        A.R(g, x + 34, by - 36, w - 54, 2, '#f5eee0');
+        A.R(g, x + 34, by - 30, w - 50, 2, '#f5eee0');
+        A.R(g, x + 10, by - 22, w - 20, 2, '#88c498');
+      },
+      roaster(g, f, A) {
+        const cx = A.snap2(f.x + f.w / 2), by = A.snap2(f.y + f.h);
+        // 3/4 现代研发咖啡工坊微量黄铜铸铁烘焙机（替代旧版航海船舵，0 半透明像素）
+        A.outlineBox(g, cx - 28, by - 26, 56, 26, '#363d46', '#5e6978', '#1e2329', A.OUT_COOL);
+        // 前置不锈钢冷却圆盘与搅拌臂
+        A.pxEllipse(g, cx - 10, by - 26, 18, 8, A.OUT_COOL);
+        A.pxEllipse(g, cx - 10, by - 28, 16, 6, '#b8c2cc');
+        A.pxEllipse(g, cx - 10, by - 28, 12, 4, '#6e4023');
+        // 黄铜卧式烘焙滚筒与顶部银皮旋风进豆斗
+        A.outlineBox(g, cx - 14, by - 50, 38, 24, '#c8923b', '#f2c86e', '#7d541c', A.OUT);
+        A.R(g, cx - 10, by - 46, 30, 4, '#ffe69e');
+        A.pxEllipse(g, cx - 14, by - 38, 8, 10, A.OUT_COOL);
+        A.pxEllipse(g, cx - 14, by - 38, 6, 8, '#4a525e');
+        A.R(g, cx + 12, by - 66, 8, 18, A.OUT_COOL);
+        A.R(g, cx + 14, by - 64, 4, 14, '#7c8796');
+        A.outlineBox(g, cx - 8, by - 68, 20, 18, '#d9a648', '#ffe48e', '#8a5e20', A.OUT, true);
       },
       carousel(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h, rx = Math.round(f.w / 2), ry = Math.round(f.h / 2) - 2, cy = by - ry - 2;
-        // 奶油金边圆底座
-        A.pxEllipse(g, cx, cy + 5, rx, ry, '#8a5838');
-        A.pxEllipse(g, cx, cy, rx, ry, '#f8eed8');
-        A.pxEllipse(g, cx, cy, rx - 6, ry - 3, '#e898a8');
-        A.pxEllipse(g, cx, cy, rx - 14, ry - 7, '#fff8ea');
-        // 底层环绕小蛋糕与马卡龙
-        const sweets = ['#f2788a', '#78c8e0', '#ffd25a', '#98d690', '#c898e8', '#ff9e68'];
-        for (let i = 0; i < 8; i++) {
-          const ang = (i / 8) * Math.PI * 2;
-          const sx = Math.round(cx + Math.cos(ang) * (rx - 28)), sy = Math.round(cy + Math.sin(ang) * (ry - 13));
-          A.R(g, sx - 6, sy - 6, 12, 8, sweets[i % sweets.length]);
-          A.R(g, sx - 4, sy - 9, 8, 3, '#ffffff');
-          A.R(g, sx - 1, sy - 11, 3, 2, '#e04848');
+        const cx = A.snap2(f.x + f.w / 2), by = A.snap2(f.y + f.h), rx = A.snap2(f.w / 2) - 8;
+        // 中央胡桃木与黄铜高透玻璃法式烘焙岛台（淘汰马戏团旋转木马红白顶，统一现代研发沙龙质感）
+        A.pxEllipse(g, cx, by - 16, rx + 2, 22, A.OUT);
+        A.pxEllipse(g, cx, by - 18, rx, 20, '#6e4226');
+        A.pxEllipse(g, cx, by - 24, rx, 18, '#8f5832');
+        A.pxEllipse(g, cx, by - 28, rx - 4, 16, '#efe7da');
+        A.pxEllipse(g, cx - 4, by - 30, rx - 12, 12, '#faf6ef');
+        // 四组玻璃罩法式挞与可颂陈列盘
+        const items = ['#d98c42', '#e06d58', '#84c272', '#e8ba54'];
+        for (let i = 0; i < 4; i++) {
+          const px = cx - rx + 28 + i * Math.round((rx * 2 - 56) / 3);
+          A.outlineBox(g, px - 12, by - 44, 24, 16, '#d6edf6', '#ffffff', '#8ab4c4', A.OUT_COOL);
+          A.R(g, px - 8, by - 36, 16, 6, items[i]);
+          A.R(g, px - 6, by - 38, 8, 2, '#fff8e4');
         }
-        // 中层与顶层翻糖蛋糕塔 + 航海蓝白条纹顶篷
-        A.R(g, cx - 8, cy - 38, 16, 36, '#e2b85c');
-        A.pxEllipse(g, cx, cy - 22, 46, 16, '#78bce0');
-        A.pxEllipse(g, cx, cy - 24, 42, 14, '#fff8ea');
-        A.pxEllipse(g, cx, cy - 42, 28, 10, '#f28ea0');
-        A.pxEllipse(g, cx, cy - 44, 24, 8, '#fff8ea');
-        // 顶部草莓皇冠
-        A.R(g, cx - 6, cy - 56, 12, 10, '#e84c58'); A.R(g, cx - 3, cy - 60, 6, 4, '#ffd25a');
-      },
-      shipwheel(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h;
-        A.R(g, cx - 10, by - 6, 20, 6, '#5e3519');
-        A.R(g, cx - 4, by - 32, 8, 26, '#7a4a26');
-        const wy = by - 42;
-        A.pxEllipse(g, cx, wy, 18, 18, '#8e562e');
-        A.pxEllipse(g, cx, wy, 13, 13, '#d4ab78');
-        A.pxEllipse(g, cx, wy, 5, 5, '#e0b44c');
-        for (const [dx, dy] of [[-20, -1], [16, -1], [-1, -20], [-1, 16], [-15, -15], [12, -15], [-15, 12], [12, 12]]) {
-          A.R(g, cx + dx, wy + dy, 4, 4, '#6e3e1e');
-        }
+        // 中央双层黄铜甜品架与胡桃木暖光吊顶檐
+        A.R(g, cx - 6, by - 68, 12, 40, A.OUT);
+        A.R(g, cx - 4, by - 66, 8, 36, '#c8943c');
+        A.pxEllipse(g, cx, by - 50, 32, 10, A.OUT);
+        A.pxEllipse(g, cx, by - 52, 30, 8, '#f5eee0');
+        A.pxEllipse(g, cx, by - 70, rx - 14, 14, A.OUT);
+        A.pxEllipse(g, cx, by - 72, rx - 16, 12, '#784828');
+        A.pxEllipse(g, cx, by - 74, rx - 24, 8, '#b87d50');
+        A.R(g, cx - 24, by - 68, 12, 2, '#ffe48e');
+        A.R(g, cx + 12, by - 68, 12, 2, '#ffe48e');
       },
       waffle(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w);
-        A.R(g, x, by - 34, w, 34, '#46748e'); A.R(g, x + 2, by - 32, w - 4, 28, '#5c8ea8');
-        A.R(g, x - 2, by - 40, w + 4, 6, '#f4ecd8');
-        // 两台铸铁华夫饼炉 + 金黄华夫饼 + 糖浆瓶
-        for (const wx of [x + 18, x + 68]) {
-          A.R(g, wx, by - 48, 34, 10, '#363c42');
-          A.R(g, wx + 4, by - 46, 26, 6, '#e8a842');
+        const x = A.snap2(f.x), by = A.snap2(f.y + f.h), w = A.snap2(f.w);
+        // 3/4 胡桃木格栅与哑光洞石台面华夫可丽饼料理台
+        A.outlineBox(g, x, by - 34, w, 34, '#8f5832', '#bc8252', '#522f19', A.OUT);
+        for (let px = x + 8; px < x + w - 8; px += 12) A.R(g, px, by - 28, 2, 20, '#5c351c');
+        A.outlineBox(g, x - 2, by - 40, w + 4, 8, '#efe7da', '#fcf8f2', '#bfb29e', A.OUT);
+        A.outlineBox(g, x + 12, by - 48, w - 24, 10, '#5a636e', '#8e99a6', '#343a42', A.OUT_COOL);
+        for (let wx = x + 22; wx < x + w - 42; wx += 46) {
+          A.outlineBox(g, wx, by - 52, 32, 10, '#df9e42', '#ffd984', '#8f5a1e', A.OUT);
+          A.R(g, wx + 8, by - 50, 6, 2, '#fff8dc');
         }
-        A.R(g, x + 124, by - 50, 10, 12, '#d9534a'); A.R(g, x + 140, by - 50, 10, 12, '#e2a83c');
-        A.pxEllipse(g, x + w - 24, by - 44, 14, 6, '#ffffff');
       },
       giftpile(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h;
-        // 三只蝴蝶结丝带礼盒
-        A.R(g, x + 2, by - 18, 22, 18, '#f28294'); A.R(g, x + 11, by - 18, 4, 18, '#ffe278'); A.R(g, x + 2, by - 10, 22, 3, '#ffe278');
-        A.R(g, x + 24, by - 16, 20, 16, '#6fc3df'); A.R(g, x + 32, by - 16, 4, 16, '#ffffff');
-        A.R(g, x + 10, by - 32, 20, 14, '#ffd25a'); A.R(g, x + 18, by - 32, 4, 14, '#e0524a');
+        const x = A.snap2(f.x), by = A.snap2(f.y + f.h);
+        // 精品咖啡挂耳礼盒组（赤陶、鼠尾草绿与暖米礼盒配黄铜丝带）
+        A.outlineBox(g, x + 2, by - 22, 26, 22, '#c86a52', '#e8927a', '#7d3a2b', A.OUT);
+        A.R(g, x + 13, by - 22, 4, 22, '#e8bc5a');
+        A.outlineBox(g, x + 26, by - 18, 24, 18, '#4e7864', '#78a68e', '#2e4a3d', A.OUT);
+        A.R(g, x + 36, by - 18, 4, 18, '#f2e6d0');
+        A.outlineBox(g, x + 12, by - 38, 22, 18, '#e6d6be', '#faf4ea', '#a6947c', A.OUT);
+        A.R(g, x + 21, by - 38, 4, 18, '#c86a52');
       },
-      captaindesk(g, f, A) {
-        const x = Math.round(f.x), by = f.y + f.h, w = Math.round(f.w);
-        A.R(g, x, by - 34, w, 34, '#6e3e1e'); A.R(g, x + 3, by - 31, w - 6, 26, '#8e542c');
-        A.R(g, x - 2, by - 38, w + 4, 6, '#b87848');
-        // 航海图、黄铜罗盘与双层甜品架
-        A.R(g, x + 16, by - 44, 42, 8, '#f4e6c4'); A.R(g, x + 24, by - 42, 14, 4, '#68b078');
-        A.pxEllipse(g, x + 76, by - 42, 8, 6, '#e0b44c');
-        A.pxEllipse(g, x + w - 28, by - 44, 14, 5, '#ffffff');
-        A.pxEllipse(g, x + w - 28, by - 52, 10, 4, '#f28294');
-      },
-      telescope(g, f, A) {
-        const cx = Math.round(f.x + f.w / 2), by = f.y + f.h;
-        A.R(g, cx - 12, by - 24, 4, 24, '#6e3e1e'); A.R(g, cx + 8, by - 24, 4, 24, '#6e3e1e'); A.R(g, cx - 2, by - 26, 4, 26, '#542e14');
-        A.R(g, cx - 14, by - 36, 28, 8, '#d4a64a'); A.R(g, cx - 14, by - 36, 28, 2, '#f4d278');
-        A.R(g, cx + 12, by - 38, 6, 12, '#8ad4f0');
-      }
+      captaindesk(g, f, A) { A.COMMON.readtable(g, f); }
     }
   });
 })(typeof window !== 'undefined' ? window : globalThis);
