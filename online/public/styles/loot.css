@@ -1,15 +1,6 @@
-/* 需求③：搜打撤式物品格面板 + 需求①：房间空间提示条 + 需求④：RPG 储物箱背包与小游戏木匣。
+/* 需求③：搜打撤式物品格面板 + 需求④：RPG 储物箱背包与小游戏木匣。
    由 styles.css 按序 @import；像素硬边、稀有度描边、逐格翻牌。 */
 
-/* ---------- 独立空间提示条：燕尾切角木牌 ---------- */
-.zone-banner{position:absolute;left:50%;top:88px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;
-  padding:6px 15px;border:1.5px solid #c99650;border-radius:0;clip-path:var(--clip-banner);background:#382314f0;z-index:14;
-  font-size:11px;color:#fff5e4;filter:drop-shadow(0 8px 18px rgba(30,16,6,0.65));max-width:min(660px,92%);flex-wrap:wrap;justify-content:center}
-.zone-banner[hidden]{display:none}
-.zone-banner-tag{padding:2px 8px;border-radius:0;clip-path:var(--clip-card);background:#ffd268;color:#3d240c;font-size:10px;letter-spacing:.12em;font-weight:800}
-.zone-banner strong{color:#ffe49e;font-size:13px;letter-spacing:.04em;font-weight:700}
-.zone-banner-hint{color:#e6ccb0;font-size:10px}
-.zone-banner kbd{padding:1px 5px;border:1px solid #ad8052;border-radius:3px;background:#5c3e24;color:#fff6e8;font-size:10px}
 
 /* ---------- 第二轮：道具背包 / 商店 / buff 条 ---------- */
 .buff-bar{position:absolute;left:50%;transform:translateX(-50%);bottom:48px;display:flex;gap:6px;z-index:12;flex-wrap:wrap;justify-content:center;pointer-events:none}
@@ -115,8 +106,6 @@
   .loot-panel{width:308px;padding:12px}
   .loot-name{font-size:9px}
   .loot-icon{width:28px;height:28px}
-  .zone-banner{gap:6px;padding:5px 10px;font-size:10px}
-  .zone-banner-hint{display:none}
 }
 @media(prefers-reduced-motion:reduce){
   .loot-cell.is-hidden::after{animation:none}

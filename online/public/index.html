@@ -55,6 +55,7 @@
 <script src="js/search/loot-grid.js" defer></script>
 <script src="js/annual-review.js" defer></script>
 <script src="js/flowers.js" defer></script>
+<script src="js/tutorial.js" defer></script>
 <script src="game.js" defer></script>
 </head>
 <body>
@@ -92,12 +93,6 @@
       <div id="buff-bar" class="buff-bar" hidden aria-live="polite"></div>
       <div class="map-foot"><span id="coordinate">1F · 1/2</span><span class="walk-help"><kbd>W A S D</kbd> 移动 <i>·</i> 点击角色查档案 <i>·</i> <kbd>J</kbd> 敲 <i>·</i> <kbd>K</kbd> 交互/乘梯 <i>·</i> <kbd>C</kbd> 坏人线索 <i>·</i> <kbd>G</kbd> 日志 <i>·</i> <kbd>L</kbd> 排行榜 <i>·</i> <kbd>R</kbd> 名单 <i>·</i> <kbd>M</kbd> 档案 <i>·</i> <kbd>H</kbd> 规则 <i>·</i> <kbd>Esc</kbd> 退出全屏/关闭</span><p id="combat-status" class="combat-status" hidden aria-live="polite"></p></div>
       <div id="offline-banner" class="offline-banner" role="button" tabindex="0" aria-label="查看我的事件通知" hidden></div>
-      <!-- 需求①：进入独立小房间后的空间提示条（房间名 + 如何离开） -->
-      <div id="zone-banner" class="zone-banner" hidden aria-live="polite">
-        <span class="zone-banner-tag">独立空间</span>
-        <strong id="zone-banner-name"></strong>
-        <span class="zone-banner-hint">走到门口按 <kbd>K</kbd> 离开 · 退出后回到进入位置</span>
-      </div>
       <!-- 需求③：容器物品格面板（逐格揭示 + 全部拾取） -->
       <section id="loot" class="loot-panel" hidden role="dialog" aria-modal="false" aria-labelledby="loot-title">
         <div class="loot-head">
@@ -141,7 +136,7 @@
       </aside>
       <section id="target" class="panel target" hidden aria-label="目标公开档案"></section>
       <section id="candidates" class="panel candidates" hidden aria-label="重叠角色候选"></section>
-      <section id="mine" class="panel mine" hidden aria-label="我的信息，秘密字段可独立切换显示"></section>
+      <section id="mine" class="panel mine" hidden aria-label="我的信息，阵营与个人属性仅自己可见"></section>
       <section id="games" class="panel games" hidden aria-label="猜拳对战"></section>
       <section id="offline-summary" class="panel offline-summary" hidden aria-label="离线期间事件摘要"></section>
       <aside id="ranking" class="panel ranking" hidden aria-label="实时排行榜">
@@ -176,11 +171,6 @@
     <button id="invite-ok" type="button" class="btn-primary">知道了</button>
   </dialog>
   <dialog id="exploration" class="center-dialog exploration" aria-label="NPC 福利与幸运大转盘"></dialog>
-  <dialog id="private-dialog" class="center-dialog private-dialog" aria-labelledby="private-dialog-title">
-    <div class="panel-heading"><div><small>PRIVATE ACTION</small><h2 id="private-dialog-title">私密操作</h2><p id="private-dialog-target" class="panel-note"></p></div><button id="private-close" class="icon-button" type="button" aria-label="关闭私密操作">×</button></div>
-    <div id="private-content"></div>
-    <p class="hold-note">仅自己可见 · 关闭、Esc 或切出页面会清空输入；游戏仍在继续。</p>
-  </dialog>
     <script src="js/markup/badpool.js"></script>
     <script src="js/markup/rules.js"></script>
   <script src="js/markup/join.js"></script>

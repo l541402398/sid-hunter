@@ -6,11 +6,7 @@
 .mine .color-grid{margin:10px 0}
 .mine .secret-line{align-items:center;gap:8px}
 .mine .secret-line strong{margin-left:auto;overflow-wrap:anywhere;font-weight:700;color:var(--ink)}
-.eye-toggle,#mine-close{display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;padding:7px}
-.eye-toggle svg{width:18px;height:18px}
-.eye-toggle[aria-pressed=true]{border-color:var(--brand);background:var(--sun-soft);color:var(--brand-dk)}
-.eye-toggle[aria-pressed=true] .eye-slash{display:none}
-.eye-toggle:focus-visible,#mine-close:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+#mine-close{display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;padding:7px}
 /* 身份卡片：切角中立鎏金木匣卡（好人/坏人隐藏态完全同构） */
 .mine-identity{min-height:52px;border:1.5px solid #9c7144;border-radius:0;clip-path:var(--clip-plaque);padding:7px 12px;margin:10px 0;background:linear-gradient(180deg,#faeed4,#e8d2a9);box-shadow:inset 0 1px 0 #fff9eb}
 .identity-label{font-size:12.5px;font-weight:800;color:var(--brand-dk);white-space:nowrap}
@@ -83,3 +79,7 @@
 .sid-copy:hover{color:var(--brand-dk);background:var(--sun-soft)}
 /* 复制 toast：游戏内燕尾木牌提示 */
 #copy-toast{position:fixed;left:50%;bottom:36px;transform:translateX(-50%);background:linear-gradient(180deg,#3d2514,#26160b);color:#ffeac2;border:2px solid #c89448;border-radius:0;clip-path:var(--clip-banner);padding:10px 20px;z-index:100;pointer-events:none;filter:drop-shadow(0 10px 22px rgba(0,0,0,.7));font-weight:700}
+/* Keep the title and close button inside the personal panel on narrow screens. */
+.mine>.panel-heading>div{min-width:0;flex:1}
+.mine>.panel-heading small{white-space:normal;overflow-wrap:anywhere;font-size:8px;letter-spacing:.6px}
+.mine>.panel-heading h2{overflow-wrap:anywhere}

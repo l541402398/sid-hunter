@@ -11,6 +11,10 @@
       <button id="rules-close" type="button">返回游戏 <kbd>Esc</kbd></button>
     </header>
     <div class="rules-body">
+      <section class="rules-training-entry" aria-label="新手训练室">
+        <div><h3>先到训练室走一圈</h3><p>独立练习角色，7 步掌握基础操作。可跳过、随时再进入；正式角色留在原地图正常参与对局。</p></div>
+        <button id="tutorial-entry" type="button" aria-haspopup="dialog" aria-controls="tutorial-offer">进入新手训练室 →</button>
+      </section>
       <section class="rule-section">
         <span class="rule-number">01 / 活动赛制与对抗生命</span>
         <h3>两大阵营博弈 · 3 格对抗生命 · 积分为唯一成绩</h3>

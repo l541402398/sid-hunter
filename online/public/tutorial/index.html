@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>S-ID · 新手训练室</title></head>
+<body style="margin:0;background:#1c1109;color:#f5e5c9;font-family:sans-serif"><p id="load-note" style="padding:24px">正在打开训练室…</p>
+<script>
+// Use the live game's document as the single source of UI, including future menu changes.
+(async () => {
+  try {
+    const response = await fetch('/index.html');
+    if (!response.ok) throw Error('page');
+    const source = await response.text();
+    const parsed = new DOMParser().parseFromString(source, 'text/html');
+    parsed.head.insertAdjacentHTML('afterbegin', '<base href="/">');
+    parsed.title = 'S-ID · 新手训练室';
+    for (const script of parsed.querySelectorAll('script[src="js/annual-review.js"],script[src="js/tutorial.js"]')) script.remove();
+    parsed.querySelector('script[src="game.js"]').insertAdjacentHTML('beforebegin', '<script src="tutorial/model.js" defer><\/script><script src="tutorial/room.js" defer><\/script>');
+    parsed.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="tutorial/room.css">');
+    document.open(); document.write('<!doctype html>\n' + parsed.documentElement.outerHTML); document.close();
+  } catch {
+    document.getElementById('load-note').textContent = '训练室暂时无法打开，请返回办公室后重试。';
+  }
+})();
+</script></body></html>

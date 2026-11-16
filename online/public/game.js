@@ -5,6 +5,7 @@
 // 家具绘制、深度、遮挡与服务端足迹碰撞共用同一份地图。
 (() => {
   const $ = id => document.getElementById(id);
+  const practice = window.SID_PRACTICE;
   const BODY_HALF = WORLD.BODY_HALF, FOOT_TOP = WORLD.FOOT_TOP, FOOT_BOTTOM = WORLD.FOOT_BOTTOM;
   const fieldNames = WORLD.FIELD_NAMES, traitNames = WORLD.TRAIT_NAMES, MASK = WORLD.MASK;
   const palettes = WORLD.PALETTES, zones = WORLD.ZONES;
@@ -84,10 +85,10 @@
     selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); clearPrivate(true);
     nearbySig = ''; labels = []; keys.clear(); lastIntent = '';
     sendIntent(true);
-    syncZoneBanner();
+    syncZoneInfo();
     const self = selfPlayer();
     if (self) {
-      const cam = computeCamera(self.x, self.y);
+      const cam = practice?.cameraFor(viewW, viewH, scale, cssW, cssH) || computeCamera(self.x, self.y);
       cameraX = cam.x; cameraY = cam.y; drawCamX = cameraX; drawCamY = cameraY;
     }
     updateExplorationHUD();
@@ -110,11 +111,7 @@
   // 只在内容真正变化时才写 DOM：这些函数每帧都会被调用，重复写同值也会让浏览器每帧重算样式与布局。
   function setText(node, text) { if (node && node.textContent !== text) node.textContent = text; }
   function setProp(node, prop, value) { if (node && node[prop] !== value) node[prop] = value; }
-  function syncZoneBanner() {
-    const banner = $('zone-banner'), name = $('zone-banner-name');
-    if (!banner || !name) return;
-    setProp(banner, 'hidden', !zoneId);
-    if (zoneId) setText(name, `${floorId}F · ${zoneName}`);
+  function syncZoneInfo() {
     const chip = $('zone-name'), coord = $('coordinate');
     setText(chip, zoneId ? zoneName : floorName);
     setText(coord, zoneId ? `${floorId}F · ${zoneName}` : `${floorId}F / 7F`);
@@ -187,10 +184,10 @@
   let sessionGeneration = 0, privateGeneration = 0, explorationGeneration = 0;
   let explorationPanel = null, explorationResult = '', interactionFlight = null;
   let explorationDataSig = '', nearbySig = '';
-  const revealedFieldIds = new Set();
   let devCsrf = null, resetBusy = false;
   let sessionToken = null, stream = null, awaitingFirst = true, lastSkillTick = -1;
   // dev 分支并入：单点登录状态、匿名坏人线索池、摘要确认集合与开发 NPC 忙标志。
+  let tutorialAccountKey = '';
   let ssoRequired = false, ssoLoginUrl = '', ssoLogoutUrl = '', loginRedirecting = false;
   let badSlots = [], badPoolAvailable = false, lastBadPoolSig = '';
   let npcBusy = false;
@@ -286,6 +283,7 @@
     return h;
   }
   async function api(path, body, method) {
+    if (practice) return practice.request(path, body);
     const res = await fetch(path, { method: method || (body ? 'POST' : 'GET'), headers: headers(), body: body ? JSON.stringify(body) : undefined });
     let data = {};
     try { data = await res.json(); } catch { data = {}; }
@@ -300,6 +298,41 @@
     api, toast: showToast,
     changed: () => { lastTargetSig = ''; if (selected()) renderTarget(); if (mineOpen) renderMine(); }
   });
+  const tutorial = practice ? null : SID.tutorial?.create({
+    context: () => ({
+      joined: !!me,
+      owner: me ? `${me.id}:${me.name}` : '',
+      userKey: tutorialAccountKey || `guest:${me?.name || ''}`,
+      unavailable: !!$('annual-review-overlay')?.open ||
+        !!$('invite-dialog')?.open || !!floorFlight || !!zoneFlight || !!interactionFlight ||
+        !!skillFlight || !!combatFlight || !!gamesFlight || !!wheelSpinFlight ||
+        !!explorationPanel || privateOpen || wheelOpen || !!$('bad-pool-dialog')?.open || !!LOOT?.isOpen(),
+      record: me ? { hp: me.hp, score: me.score || 0, roundId, eventIds: pendingList().map(event => event.eventId) } : null
+    }),
+    prepare: async () => {
+      clearAllInput(); closeLoot(); closeGames(); closeRanking(); closeElevatorPicker();
+      if ($('rules-view').open) closeRules();
+      $('offline-summary').hidden = true; $('offline-summary').replaceChildren();
+      let timeout;
+      try {
+        const result = await Promise.race([stopIntent(), new Promise((_, reject) => {
+          timeout = setTimeout(() => reject(new Error('Stop input not confirmed')), 5000);
+        })]);
+        if (!result.ok) throw new Error('Stop input rejected');
+        return true;
+      } finally { clearTimeout(timeout); }
+    },
+    returned: record => {
+      keys.clear(); lastNow = performance.now();
+      const state = me ? `正式角色：${me.alive ? '对抗中' : '休战中'} · 生命 ${me.hp}/${me.maxHp} · 当前积分 ${me.score || 0}` : '正式角色状态已更新。';
+      const previous = new Set(record?.eventIds || []);
+      const events = pendingList().filter(event => !previous.has(event.eventId)).slice(-30).map(event => event.text);
+      if (record && record.roundId !== roundId) events.unshift('正式对局的场次已更新，当前显示新场状态。');
+      if (record && record.roundId === roundId && record.score !== (me?.score || 0)) events.push(`正式积分从 ${record.score} 变为 ${me?.score || 0}。`);
+      return { state, events };
+    },
+    toast: showToast
+  });
   // Insecure LAN contexts have no crypto.randomUUID, so the command id is random string based.
   // 换层保护字段：所有可能驱动移动/互动的上行请求都带上 roundId 与 expectedFloorRevision，
   // 让服务端丢弃换层前按住的迟到指令（不静默放行）。技能 /api/skill 不受楼层限制，不带这些字段。
@@ -310,7 +343,7 @@
     return f;
   }
   function operationModalOpen() {
-    return !!$('annual-review-overlay')?.open || !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
+    return !!tutorial?.isBlocking() || !!$('annual-review-overlay')?.open || !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
   }
   function sendIntent(force) {
     if (operationModalOpen() || elevatorPicker || gameClosed) keys.clear();
@@ -409,6 +442,7 @@
   }
   function showUser(user) {
     if (!user) return;
+    tutorialAccountKey = String(user.emp_no || '');
     const el = $('sso-user');
     el.hidden = false;
     el.textContent = `${user.name || user.emp_no}（${user.emp_no}）`;
@@ -438,6 +472,17 @@
   }
 
   async function boot() {
+    if (practice) {
+      $('join-page').hidden = true;
+      practice.boot({ applySnapshot, reset: () => {
+        clearAllInput(); closeLoot(); closeGames(); closeRanking(); closeElevatorPicker();
+        selectedId = null; lastTargetSig = lastRosterSig = lastBadPoolSig = ''; renderMap.clear();
+        $('search').value = '';
+        $('target').hidden = true; $('target').replaceChildren();
+        $('roster').hidden = true; $('roster-toggle').setAttribute('aria-expanded', 'false');
+      } });
+      requestAnimationFrame(frame); return;
+    }
     // F1 调试层先预取 7 层 TMJ，不阻塞登录/首帧；权威开关仍以服务端快照 config.tmj 为准。
     if (TMJ_DEBUG) TMJ_DEBUG.load('/tiled');
     if (TMJ_VISUAL) TMJ_VISUAL.load('/tiled');
@@ -618,13 +663,14 @@
     updateScoreDisplay(); syncTimeLeft(); syncRanking();
     if (wheelOpen) updateWheelControls();
     // 结算只自动弹出一次：关闭后不因 20Hz 快照反复弹出，新一轮开始时重置。
-    if (finished) {
+    if (finished && !tutorial?.isBlocking()) {
       if (!$('finish-overlay').hidden) renderFinish();
       else if (!finishShown) { finishShown = true; showFinish(); }
-    } else {
+    } else if (!finished) {
       finishShown = false;
       if (!$('finish-overlay').hidden) hideFinish();
     }
+    tutorial?.synchronize();
   }
 
   // ---------- 名单 / 日志 / 目标档案 ----------
@@ -911,10 +957,8 @@
   }
   function clearPrivate(clearMy) {
     privateGeneration++; privateOpen = false; pending = null; privateResult = '';
-    const block = $('private-content'); if (block) block.replaceChildren();
-    if ($('private-dialog').open) $('private-dialog').close();
-    $('private-dialog-target').textContent = '';
-    const gate = $('private-gate'); if (gate) { gate.textContent = '展开私密操作'; gate.setAttribute('aria-expanded', 'false'); }
+    selectedId = null; lastTargetSig = '';
+    $('target').hidden = true; $('target').replaceChildren();
     if (clearMy) {
       closeMine();
       $('offline-summary').hidden = true; $('offline-summary').replaceChildren();
@@ -949,6 +993,7 @@
   function select(id) {
     closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
+    keys.clear(); sendIntent(false);
     lastTargetSig = ''; renderTarget(); renderRoster();
   }
   // 目标公开档案的组织信息：合约区 + 交付组。显示在原“存活 · 公开档案”的位置；
@@ -962,19 +1007,12 @@
     $('target').hidden = false;
     const orgLine = targetOrgLine(p);
     const status = orgLine || (p.alive ? '对抗中 · 公开档案' : '休战中 · 积分保留');
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div><button id="private-gate" class="private-gate" aria-haspopup="dialog" aria-controls="private-dialog" aria-expanded="${privateOpen}">${privateOpen ? '收起私密操作' : '展开私密操作'}</button><p class="hold-note">私密操作面板 · 展开期间注意周围视线 · 切出页面或按 Esc 自动收起</p>`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() ? '<section id="private-content" class="target-skills" aria-label="对该人物使用技能"></section>' : ''}`;
     flowerUI?.bind(p);
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
-    $('private-gate').onclick = () => {
-      if (privateOpen) clearPrivate();
-      else {
-        keys.clear(); sendIntent(false); closeExploration(); closeGames(); closeMine();
-        privateOpen = true; renderPrivate();
-        $('private-dialog').showModal(); $('private-dialog').scrollTop = 0;
-        $('private-gate').textContent = '收起私密操作'; $('private-gate').setAttribute('aria-expanded', 'true');
-      }
-    };
-    if (holding()) { $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''}`; updateSkillStatus(); }
+    privateOpen = !!me && p.id !== selfId();
+    if (privateOpen) renderPrivate();
+
   }
   // ---------- 私密操作（每人 1 技能：好人指认 / 坏人刺杀） ----------
   function holding() { return privateOpen; }
@@ -1019,7 +1057,6 @@
   function renderPrivate() {
     const host = $('private-content'), p = selected(); if (!host) return;
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
-    $('private-dialog-target').textContent = `目标：${p.name}${p.alive ? '' : '（休战中）'}${p.protected ? ' · 受击保护中' : ''}`;
     const ids = availableSkills();
     const factionLabel = me.faction === 'good' ? '调查员（好人）专属技能' : '潜伏者（坏人）专属技能';
     const targetHealth = healthHTML(p, true);
@@ -1096,29 +1133,23 @@
     lastTargetSig = '';
     return !!result.ok;
   }
-  // Personal privacy choices are ephemeral: opening is always fully masked.
+  // Personal details are visible on open; closing still clears the personal panel.
   function closeMine(returnFocus = false) {
-    mineOpen = false; revealedFieldIds.clear();
+    mineOpen = false;
     $('mine').replaceChildren(); $('mine').hidden = true;
     $('my-info').setAttribute('aria-expanded', 'false');
     if (returnFocus) $('my-info').focus({ preventScroll: true });
   }
-  const eyeIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/><path class="eye-slash" d="M3 3 21 21" stroke="currentColor" stroke-width="2"/></svg>';
-  const personalFields = { identity: '身份详情', ...traitNames };
   function renderMine() {
     const host = $('mine');
     if (!mineOpen || !me) { closeMine(); return; }
     host.hidden = false;
-    // Build eyes once; snapshot refreshes update only value slots, never focusable controls.
+    // Build the panel once; snapshots update value slots without replacing controls.
     if (!host.childElementCount) {
-      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-flowers" class="mine-flowers"></div><div id="mine-colors" class="color-grid"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity">已隐藏</strong><button class="eye-toggle" id="eye-identity" data-field="identity" aria-label="显示身份详情" aria-pressed="false">${eyeIcon}</button></div><div id="mine-identity-details"></div></div>${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${personalFields[id]}</span><strong id="mine-value-${id}">***</strong><button class="eye-toggle" id="eye-${id}" data-field="${id}" aria-label="显示${personalFields[id]}" aria-pressed="false">${eyeIcon}</button></div>`).join('')}<p class="hold-note">每次打开默认全遮罩保护隐私。点击右侧眼睛图标单独显隐；切出页面、按 Esc 或打开规则页自动重置隐藏。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-flowers" class="mine-flowers"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity"></strong></div><div id="mine-identity-details"></div></div><div id="mine-colors" class="color-grid" aria-label="外观属性"></div><div id="mine-traits" aria-label="隐藏属性">${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${traitNames[id]}</span><strong id="mine-value-${id}"></strong></div>`).join('')}</div><p class="hold-note">阵营与个人属性仅自己可见。关闭面板、切出页面或打开规则页后收起。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
       if ($('mine-logout')) $('mine-logout').onclick = logout;
-      host.querySelectorAll('[data-field]').forEach(button => button.onclick = () => {
-        const id = button.dataset.field;
-        if (revealedFieldIds.has(id)) revealedFieldIds.delete(id); else revealedFieldIds.add(id);
-        renderMine();
-      });
+
     }
     const selfP = selfPlayer();
     $('mine-name').textContent = `我的信息 · ${me.name}`;
@@ -1135,20 +1166,11 @@
     const colors = selfP ? selfP.colors : {};
     const colorHTML = Object.entries(colors).map(([k,c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${escapeText(c[0])}</div>`).join('');
     if ($('mine-colors').innerHTML !== colorHTML) $('mine-colors').innerHTML = colorHTML;
-    for (const id of Object.keys(personalFields)) {
-      const revealed = revealedFieldIds.has(id), value = $(`mine-value-${id}`), eye = $(`eye-${id}`);
-      eye.setAttribute('aria-pressed', String(revealed));
-      eye.setAttribute('aria-label', `${revealed ? '隐藏' : '显示'}${personalFields[id]}`);
-      const html = !revealed ? (id === 'identity' ? '已隐藏' : '***')
-        : escapeText(id === 'identity' ? (me.faction === 'good' ? '调查员（好人）' : '潜伏者（坏人）') : me.traits[id]);
-      if (value.innerHTML !== html) value.innerHTML = html;
-    }
+    setText($('mine-value-identity'), me.faction === 'good' ? '调查员（好人）' : '潜伏者（坏人）');
+    for (const id of Object.keys(traitNames)) setText($(`mine-value-${id}`), me.traits?.[id] ?? '—');
     const details = $('mine-identity-details');
-    if (!revealedFieldIds.has('identity')) details.replaceChildren();
-    else {
-      const html = `<div class="mine-resources">${availableSkills().map(id => `<p>${escapeText(skillStatus(id, me.skills[id]))}</p>`).join('')}</div>`;
-      if (details.innerHTML !== html) details.innerHTML = html;
-    }
+    const resourceHTML = `<div class="mine-resources">${availableSkills().map(id => `<p>${escapeText(skillStatus(id, me.skills[id]))}</p>`).join('')}</div>`;
+    if (details.innerHTML !== resourceHTML) details.innerHTML = resourceHTML;
     const ssoEl = $('sso-user'), mineSsoEl = $('mine-sso-user');
     if (mineSsoEl) {
       const txt = ssoEl && !ssoEl.hidden ? (ssoEl.textContent || '') : '';
@@ -1159,6 +1181,7 @@
   // 管理员独立登录 /manager；玩家页面不再探测本机开发权限。
   function loadCapabilities() {}
   function resetToJoin() {
+    tutorial?.discard();
     sessionGeneration++; skillFlight = null; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
     if (stream) { stream.close(); stream = null; }
     closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); closeBadPool(); hideFinish(); keys.clear(); lastIntent = '';
@@ -2110,6 +2133,7 @@
   }
   // 每次快照自动做阶段迁移、权威采纳与自动弹窗；帧循环只负责计时刷新。
   function syncRpsLifecycle() {
+    if (tutorial?.isBlocking()) return;
     const games = me?.games; if (!games) return;
     const pending = games.rpsPending;
     if (!pending) {
@@ -2422,7 +2446,7 @@
     sendIntent(true);
     const self = selfPlayer();
     if (self) {
-      const cam = computeCamera(self.x, self.y);
+      const cam = practice?.cameraFor(viewW, viewH, scale, cssW, cssH) || computeCamera(self.x, self.y);
       cameraX = cam.x;
       cameraY = cam.y;
       drawCamX = cameraX; drawCamY = cameraY;
@@ -3887,6 +3911,11 @@
       const hitLabel = labels.some(l => Math.abs(badge.cx - (l.x + l.w / 2)) < (21 + l.w / 2 + 4) && badge.cy + 14 > l.y - 2 && badge.cy < l.y + l.h + 2);
       drawInteractPromptBadge(badge.cx, hitLabel ? badge.topY : badge.cy, '按：K');
     }
+    practice?.drawOverlay(ctx, {
+      healthBars: labels.filter(l => !l.p.npc).map(l => ({ id: l.p.id,
+        x: (l.x + 9 - drawCamX) * scale, y: (l.y + 17 - drawCamY) * scale,
+        width: (l.w - 18) * scale, height: 6 * scale }))
+    });
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawFogOverlay();
@@ -3958,7 +3987,7 @@
     // 相机：世界某轴小于视口时该轴居中（camX/ camY 可为负），否则夹在楼面内。
     // 需求①：房间内用房间自己的相机边界（房间通常小于一屏 → 整间居中，不产生滚动）。
     if (self) {
-      const cam = computeCamera(self.x, self.y);
+      const cam = practice?.cameraFor(viewW, viewH, scale, cssW, cssH) || computeCamera(self.x, self.y);
       cameraX = cam.x;
       cameraY = cam.y;
       const nearLift = !zoneId && portals.some(pt =>
@@ -3973,7 +4002,7 @@
     }
     setText($('floor-indicator'), `${floorId}F`);
     // 需求①：空间提示条 / 坐标随 zone 变化（房间内显示房间名）。
-    syncZoneBanner();
+    syncZoneInfo();
     const tick = Math.floor(serverNow() / 1000);
     if (tick !== lastSkillTick) {
       lastSkillTick = tick;
@@ -4003,12 +4032,14 @@
   }
   function frame(now) {
     requestAnimationFrame(frame);
+    if (practice && !practice.isActive()) return;
     // 留 2ms 余量，避免 60Hz 屏上因 rAF 时间戳抖动被误判为“未到时间”而掉到 30fps。
     if (now - lastNow < frameBudgetMs() - 2) return;
     frameDt = Math.max(0, Math.min(0.2, (now - lastNow) / 1000));
+    practice?.tick(frameDt, { mineOpen, cluesOpen: !!$('bad-pool-dialog')?.open, rosterOpen: !$('roster').hidden, selectedId, targetOpen: !$('target').hidden, confirming: !!pending });
     step(frameDt);
     lastNow = now;
-    if (!annualReviewDrawingPaused) {
+    if (!annualReviewDrawingPaused && !tutorial?.isPracticing()) {
       draw();
       const selfR = selfPlayer() ? renderMap.get(selfId()) : null;
       if (selfR) {
@@ -4037,7 +4068,7 @@
     $('candidate-close').onclick = () => { $('candidates').hidden = true; $('candidates').replaceChildren(); };
   }
   canvas.addEventListener('click', e => {
-    if ($('annual-review-overlay')?.open) return;
+    if ($('annual-review-overlay')?.open || tutorial?.isBlocking()) return;
     if (floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET') { canvas.focus(); return; }
     const { x, y } = canvasPoint(e);
     const list = drawList();
@@ -4321,8 +4352,6 @@
   };
   $('bad-pool-close').onclick = closeBadPool;
   $('bad-pool-dialog').addEventListener('cancel', e => { e.preventDefault(); closeBadPool(); });
-  $('private-close').onclick = () => { keys.clear(); sendIntent(false); clearPrivate(); };
-  $('private-dialog').addEventListener('cancel', e => { e.preventDefault(); keys.clear(); sendIntent(false); clearPrivate(); });
   $('exploration').addEventListener('cancel', e => { e.preventDefault(); closeExploration(); });
   renderBadPool();
   $('join-form').addEventListener('submit', e => {
@@ -4332,13 +4361,14 @@
   });
   // CAS 退出：先撤销本进程会话，再回落到 CAS 注销地址。
   async function logout() {
+    if (practice) { showToast('这是独立练习角色，退出教程即可返回办公室。'); return; }
     clearPrivate(true);
     await api('/api/auth/logout', {}).catch(() => {});
     redirectLogout();
   }
   $('my-info').onclick = () => {
     if (mineOpen) { clearPrivate(true); return; }
-    clearAllInput(); mineOpen = true; revealedFieldIds.clear();
+    clearAllInput(); mineOpen = true;
     $('my-info').setAttribute('aria-expanded', 'true'); renderMine();
   };
   document.addEventListener('pointercancel', clearAllInput, true);
@@ -4391,7 +4421,7 @@
     } else showToast(zoneId ? '走到门口按 K 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
   }
   document.addEventListener('keydown', e => {
-    if ($('annual-review-overlay')?.open) return;
+    if ($('annual-review-overlay')?.open || tutorial?.isBlocking()) return;
     // F1 碰撞调试层：任何时候都可开关，不改变输入/权威状态。
     if (e.key === 'F1') {
       e.preventDefault();
