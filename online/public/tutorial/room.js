@@ -321,11 +321,13 @@
       const step = room.state.step;
       const hint = $('movement-hint');
       hint.hidden = step !== 0;
-      if (step === 0 && view.player) {
+      const hintViewport = `${innerWidth}:${innerHeight}`;
+      if (step === 0 && hint.dataset.viewport !== hintViewport) {
         const width = Math.min(210, innerWidth - 24);
         hint.style.width = width + 'px';
-        hint.style.left = Math.max(12, Math.min(innerWidth - width - 12, view.player.x + 28)) + 'px';
-        hint.style.top = Math.max(12, Math.min(innerHeight - hint.offsetHeight - 64, view.player.y - 90)) + 'px';
+        hint.style.left = Math.max(12, Math.min(innerWidth - width - 12, innerWidth * .3 + 28)) + 'px';
+        hint.style.top = Math.max(12, Math.min(innerHeight - hint.offsetHeight - 64, innerHeight * .62 - 90)) + 'px';
+        hint.dataset.viewport = hintViewport;
       }
       if (step !== 1) return;
       ctx.save(); ctx.strokeStyle = '#ffe09a'; ctx.lineWidth = 2; ctx.fillStyle = '#f5d488';
@@ -335,7 +337,9 @@
       ctx.restore();
     },
     cameraFor(viewW, viewH, scale, width, height) {
-      if (room.state.step === 0) return { x: room.state.player.x - width * .3 / scale, y: room.state.player.y - height * .62 / scale };
+      // Anchor the room to its initial framing through movement and exploration.
+      // Following the player, then switching cameras at step 1, makes the map jump.
+      if (room.state.step < 6) return { x: layout.spawn.x - width * .3 / scale, y: layout.spawn.y - height * .62 / scale };
       if (room.state.step !== 6) return null;
       const rosterRight = $('roster').getBoundingClientRect().right;
       const screenX = Math.min(width-40, Math.max(width*.58,rosterRight+42));

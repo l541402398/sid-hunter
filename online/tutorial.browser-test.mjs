@@ -135,7 +135,19 @@ try{
   assert.equal(await room("document.getElementById('movement-hint').hidden"),false);
   assert.equal(await room("[...document.querySelectorAll('#movement-hint kbd')].map(k=>k.textContent).join('')"),'WASD');
   const hint=await room("document.getElementById('movement-hint').getBoundingClientRect().toJSON()");assert.ok(hint.x>=1440*.3+20);await capture('02-movement-wasd.png');
+  await room(`window.movementFrames=[];window.originalPracticeOverlay=SID_PRACTICE.drawOverlay;SID_PRACTICE.drawOverlay=function(ctx,view){
+   originalPracticeOverlay.call(this,ctx,view);
+   const phase=SID_PRACTICE.inspect().step;if(phase>1)return;
+   const m=ctx.getTransform(),hint=document.getElementById('movement-hint').getBoundingClientRect();
+   movementFrames.push({phase,camera:[m.a,m.b,m.c,m.d,m.e,m.f],player:view.player,hint:{x:hint.x,y:hint.y}});
+  }`);
   await key('KeyD','keyDown');await until('movement step',async()=>await step()===1);await key('KeyD','keyUp');
+  await waitRoom('movementFrames.filter(f=>f.phase===1).length>=3');
+  const frames=await room('movementFrames');await room('SID_PRACTICE.drawOverlay=originalPracticeOverlay');
+  assert.ok(frames.some(f=>f.phase===0)&&frames.some(f=>f.phase===1));
+  for(const frame of frames)assert.deepEqual(frame.camera,frames[0].camera,'The map must stay fixed while walking and entering exploration');
+  for(const frame of frames.filter(f=>f.phase===0))assert.deepEqual(frame.hint,{x:hint.x,y:hint.y},'WASD must stay at its initial screen position');
+  assert.ok(frames.at(-1).player.x>frames[0].player.x+20,'The character must move across the stationary map');
   assert.deepEqual(raw(),baseline);await capture('02-room-movement.png');
  });
  await check('退出保存进度，随时重进从当前步骤继续',async()=>{
