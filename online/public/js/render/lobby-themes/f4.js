@@ -218,23 +218,22 @@
       }),
       extraLand: [{ rect: [-640, -320, 4736, 1600] }],
       extraPaths: [
-        { style: 'stone', pts: [[-560, 1004, 26], [520, 1008, 26], [1728, 1004, 28], [2940, 1008, 26], [4020, 1004, 26]] },
-        { style: 'stone', pts: [[1430, 932, 22], [1460, 1004, 24]] }
+        { style: 'stone', pts: [[-560, 1020, 24], [520, 1024, 24], [1728, 1020, 26], [2940, 1024, 24], [4020, 1020, 24]] }
       ],
       flowers: [43, 44, 42, 27], flowerRate: 0.12, tuftRate: 0.18,
       treeLines: [
-        { y: -256, x0: -600, x1: 4060, step: 98, rows: 2, dy: 44, kinds: ['oak', 'sakura', 'pine', 'oak'] },
-        { y: 1136, x0: -600, x1: 4060, step: 100, rows: 2, dy: 46, kinds: ['oak', 'sakura', 'pine', 'oak'] }
+        { y: -252, x0: -580, x1: 4040, step: 136, rows: 2, dy: 52, kinds: ['oak', 'sakura', 'pine', 'oak'] },
+        { y: 1220, x0: -580, x1: 4040, step: 140, rows: 1, dy: 48, kinds: ['oak', 'sakura', 'pine', 'oak'] }
       ],
       decor: [
         ['bed', -540, 620, 200, 80, 'lavender'],
         ['bed', 3760, 620, 200, 80, 'tulip'],
-        ['bed', 2440, 1036, 240, 72, 'lavender'],
-        ['bed', 2820, 1036, 240, 72, 'tulip'],
+        ['bed', 2440, 1068, 220, 68, 'lavender'],
+        ['bed', 2820, 1068, 220, 68, 'tulip'],
         ['tree', -380, 120, 'oak'], ['tree', -420, 460, 'sakura'], ['pine', -360, 840],
         ['tree', 3820, 140, 'sakura'], ['tree', 3880, 520, 'oak'], ['pine', 3820, 880],
-        ['bench', 760, 1044], ['bench', 2080, 1044],
-        ['lantern', 700, 1052], ['lantern', 2020, 1052]
+        ['bench', 760, 1068], ['bench', 2080, 1068],
+        ['lantern', 700, 1088], ['lantern', 2020, 1088]
       ]
     }),
     floorDecor(g, ox, oy, w, h, A) {

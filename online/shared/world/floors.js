@@ -350,7 +350,9 @@
       rock: (x, y) => [[x - 14, y - 8, 28, 14]], pebble: () => [], bush: (x, y) => [[x - 14, y - 6, 28, 12]],
       lantern: (x, y) => [[x - 6, y, 12, 10]], lamp: (x, y) => [[x - 6, y, 12, 10]],
       fence: (x, y, len) => [[x, y + 6, len, 14]], fenceV: (x, y, len) => [[x, y, 12, len]],
-      bed: (x, y, w, h) => [[x, y, w, h]], crops: (x, y, w, h) => [[x, y, w, h]], pond: (x, y, w, h) => [[x + 8, y + 8, w - 16, h - 16]],
+      bed: (x, y, w, h, c) => (c === 'lavender' || c === 'tulip') ? [] : [[x, y, w, h]],
+      crops: (x, y, w, h, c) => (c === 'lavender' || c === 'tulip') ? [] : [[x, y, w, h]],
+      pond: (x, y, w, h) => [[x + 8, y + 8, w - 16, h - 16]],
       bench: (x, y) => [[x, y + 10, 64, 14]], umbrella: (x, y) => [[x - 22, y - 8, 44, 16]], picnic: (x, y) => [[x - 36, y - 12, 72, 24]],
       scarecrow: (x, y) => [[x - 6, y - 4, 12, 8]], well: (x, y) => [[x - 20, y - 14, 40, 22]], lighthouse: (x, y) => [[x - 26, y - 22, 52, 30]],
       telescope: (x, y) => [[x - 10, y - 6, 20, 10]], windmill: (x, y) => [[x - 22, y - 12, 44, 18]], bleacher: (x, y, w) => [[x, y, w, 52]],
@@ -366,7 +368,7 @@
       props: (y.props || []).map(p => p.slice()),
       paths: (y.paths || []).map(p => ({ style: p.style || 'dirt', pts: (p.pts || p).map(q => q.slice()) })),
       blocks: (y.blocks || []).map(([x, yy, w, h]) => ({ x, y: yy, w, h }))
-        .concat((y.props || []).flatMap(([t, x, yy, a, b]) => (YARD_PROP_BLOCK[t] ? YARD_PROP_BLOCK[t](x, yy, a, b) : []).map(([bx, by, bw, bh]) => ({ x: bx, y: by, w: bw, h: bh }))))
+        .concat((y.props || []).flatMap(([t, x, yy, a, b, c]) => (YARD_PROP_BLOCK[t] ? YARD_PROP_BLOCK[t](x, yy, a, b, c) : []).map(([bx, by, bw, bh]) => ({ x: bx, y: by, w: bw, h: bh }))))
     }));
     spec.spawns = L.spawns.map(([x, y]) => PX1(x, y));
     const byslug = Object.fromEntries((spec.npcs || []).map(n => [n.slug, n]));
@@ -784,6 +786,15 @@
           opening: doorOpening, footprint: { x: edgeX - 2, y: entryY - doorOpening / 2, w: 4, h: doorOpening }, depth: entryY + doorOpening / 2 });
         floor.portals.push({ id: `f${spec.id}:portal:${side}`, floorId: spec.id, side,
           x: hall.x + 72, y: entryY - 12, w: 64, h: 30 });
+      }
+      // 过滤任何侵入电梯翼石材承台裙板保护区（[h.x-52, h.y-98, h.w+104, h.h+154]）的 yardProp 碰撞，确保渲染与碰撞 100% 同源无幽灵墙。
+      if (floor.halls.length && floor.yards && floor.yards.length) {
+        const inHallApron = (r) => floor.halls.some(h => {
+          const ax = h.x - 52, ay = h.y - 98, aw = h.w + 104, ah = h.h + 154;
+          return r.x < ax + aw && r.x + r.w > ax && r.y < ay + ah && r.y + r.h > ay;
+        });
+        floor.walls = floor.walls.filter(w => !(w.yardProp && inHallApron(w)));
+        for (const yd of floor.yards) yd.blocks = yd.blocks.filter(b => !inHallApron(b));
       }
       // 阶段3：西侧 portal 统一落在「西侧核心筒」中心（stairLeft x=70，与参考图 5F/6F 一致），
       // 3F/4F 原有的局部重排（把左门挪到桌南空带）随之取消：锚点不再落在桌面遮挡足迹内。

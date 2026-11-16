@@ -1374,37 +1374,41 @@
     if (horiz) {
       const x1 = snap2(gt.x1), x2 = snap2(gt.x2), y = snap2(gt.y1), wd = x2 - x1;
       const down = inside((x1 + x2) / 2, y - 4) ? 1 : -1;      // 台阶朝庭院一侧延伸
-      const y0 = down > 0 ? y - 14 : y + 14;
-      R(g, x1, Math.min(y0, y0 + down * 40), wd, 40, OUT);
+      const y0 = down > 0 ? y - 16 : y + 16;
       for (let s = 0; s < 3; s++) {
-        const sy = y0 + down * (s * 12);
         const inset = s * 4;
-        R(g, x1 + 2 + inset, down > 0 ? sy : sy - 12, wd - 4 - inset * 2, 12, STEP[s]);
-        R(g, x1 + 2 + inset, down > 0 ? sy + 10 : sy - 2, wd - 4 - inset * 2, 2, RISER);
-        R(g, x1 + 2 + inset, down > 0 ? sy : sy - 12, wd - 4 - inset * 2, 2, '#f8f0dc');
-        for (let jx = x1 + 22 + inset + s * 6; jx < x2 - 12 - inset; jx += 34) R(g, jx, down > 0 ? sy + 2 : sy - 10, 2, 8, STEP[Math.min(2, s + 1)]);
+        const ty = down > 0 ? y0 + s * 12 : y0 - (s + 1) * 12;
+        R(g, x1 + inset, ty - 2, wd - inset * 2, 16, OUT);
+        R(g, x1 + 2 + inset, ty, wd - 4 - inset * 2, 12, STEP[s]);
+        R(g, x1 + 2 + inset, ty + 10, wd - 4 - inset * 2, 2, RISER);
+        R(g, x1 + 2 + inset, ty, wd - 4 - inset * 2, 2, '#f8f0dc');
+        for (let jx = x1 + 22 + inset + s * 6; jx < x2 - 12 - inset; jx += 34) R(g, jx, ty + 2, 2, 8, STEP[Math.min(2, s + 1)]);
       }
-      for (const px of [x1 - 10, x2 - 6]) {
-        R(g, px, y - 22, 16, 30, OUT);
-        R(g, px + 2, y - 20, 12, 26, P.cap);
-        R(g, px + 2, y - 20, 12, 4, P.capHi);
-        R(g, px + 2, y + 2, 12, 4, P.capLo);
+      const pierBot = down > 0 ? y + 22 : y + 16, pierTop = y - 20, pierH = pierBot - pierTop;
+      for (const px of [x1 - 12, x2 - 4]) {
+        R(g, px, pierTop, 16, pierH, OUT);
+        R(g, px + 2, pierTop + 2, 12, pierH - 4, P.cap);
+        R(g, px + 2, pierTop + 2, 12, 4, P.capHi);
+        R(g, px + 2, pierBot - 8, 12, 6, P.capLo);
       }
     } else {
       const y1 = snap2(gt.y1), y2 = snap2(gt.y2), x = snap2(gt.x1), ht = y2 - y1;
       const right = inside(x - 4, (y1 + y2) / 2) ? 1 : -1;
-      const x0 = right > 0 ? x - 14 : x + 14;
-      R(g, Math.min(x0, x0 + right * 40), y1, 40, ht, OUT);
+      const x0 = right > 0 ? x - 16 : x + 16;
       for (let s = 0; s < 3; s++) {
-        const sx = x0 + right * (s * 12), inset = s * 4;
-        R(g, right > 0 ? sx : sx - 12, y1 + 2 + inset, 12, ht - 4 - inset * 2, STEP[s]);
-        R(g, right > 0 ? sx + 10 : sx - 2, y1 + 2 + inset, 2, ht - 4 - inset * 2, RISER);
-        R(g, right > 0 ? sx : sx - 12, y1 + 2 + inset, 12, 2, '#f8f0dc');
+        const inset = s * 4;
+        const tx = right > 0 ? x0 + s * 12 : x0 - (s + 1) * 12;
+        R(g, tx - 2, y1 + inset, 16, ht - inset * 2, OUT);
+        R(g, tx, y1 + 2 + inset, 12, ht - 4 - inset * 2, STEP[s]);
+        R(g, right > 0 ? tx + 10 : tx, y1 + 2 + inset, 2, ht - 4 - inset * 2, RISER);
+        R(g, tx, y1 + 2 + inset, 12, 2, '#f8f0dc');
+        for (let jy = y1 + 20 + inset + s * 4; jy < y2 - 12 - inset; jy += 28) R(g, tx + 2, jy, 8, 2, STEP[Math.min(2, s + 1)]);
       }
-      for (const py of [y1 - 12, y2 - 4]) {
-        R(g, x - 8, py, 16, 16, OUT);
-        R(g, x - 6, py + 2, 12, 12, P.cap);
-        R(g, x - 6, py + 2, 12, 4, P.capHi);
+      for (const py of [y1 - 14, y2 - 4]) {
+        R(g, x - 14, py, 28, 18, OUT);
+        R(g, x - 12, py + 2, 24, 14, P.cap);
+        R(g, x - 12, py + 2, 24, 4, P.capHi);
+        R(g, x - 12, py + 12, 24, 4, P.capLo);
       }
     }
   }
@@ -1413,7 +1417,8 @@
     if (typeof document !== 'undefined' && f && f.id) {
       const ox = -640, oy = -320;
       const cw = (f.width || 3456) + 1280, ch = (f.height || 960) + 640;
-      const layer = getFloorLayer('ed:' + f.id, cw, ch, ox, oy, cg => paintEdges(cg, f));
+      const ySig = (f.yards || []).map(yd => yd.id + ':' + (yd.poly ? yd.poly.length : 0) + ':' + (yd.props ? yd.props.length : 0)).join(',');
+      const layer = getFloorLayer('ed:' + f.id + ':' + ySig, cw, ch, ox, oy, cg => paintEdges(cg, f));
       g.drawImage(layer.c, layer.ox, layer.oy);
       return true;
     }

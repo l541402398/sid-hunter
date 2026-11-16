@@ -48,41 +48,19 @@
         42: '#ffd25a', 43: '#fff4c4', 44: '#f06f6a', 45: '#78c7f5', 46: '#e2d4be'
       }),
       extraLand: [{ rect: [-640, -320, 4736, 1600] }],
-      flowers: [44, 42, 27, 43], flowerRate: 0.11, tuftRate: 0.20,
-      treeLines: [{ y: -230, x0: -560, x1: 4020, step: 128, rows: 2, dy: 50, kinds: ['alt', 'oak', 'pine', 'oak'] }],
-      decor: [
-        ['tree', -260, 48, 'oak'], ['tree', 3700, 48, 'alt'],
-        ['tree', -260, 468, 'alt'], ['pine', 3700, 468],
-        ['lantern', -248, 108], ['lantern', 3696, 108],
-        ['bush', -256, 360, 2], ['bush', 3696, 360, 1],
-        ['tree', 960, 1128, 'alt'], ['tree', 1728, 1136, 'oak'], ['pine', 2496, 1128],
-        ['flowers', 1220, 1064, 180, 36], ['flowers', 2056, 1064, 180, 36]
+      extraPaths: [
+        { style: 'stone', pts: [[-560, 1020, 22], [640, 1024, 22], [1728, 1020, 24], [2816, 1024, 22], [4020, 1020, 22]] }
       ],
-      after(S, ctx) {
-        const { fillRect, hash2, toPx, toPy } = ctx;
-        const stampPlaza = (wx, wy, ww, wh) => {
-          const px0 = toPx(wx), py0 = toPy(wy), pw = Math.round(ww / 2), ph = Math.round(wh / 2);
-          fillRect(px0 - 2, py0 - 2, pw + 4, ph + 4, 34);
-          fillRect(px0, py0, pw, ph, 35);
-          for (let ty = py0 + 2, r = 0; ty < py0 + ph - 2; ty += 12, r++) {
-            const off = (r & 1) ? 8 : 0;
-            for (let tx = px0 + 2 - off; tx < px0 + pw - 2; tx += 16) {
-              const x0 = Math.max(px0 + 2, tx), x1 = Math.min(px0 + pw - 2, tx + 15);
-              const y1 = Math.min(py0 + ph - 2, ty + 11);
-              if (x1 - x0 < 3 || y1 - ty < 3) continue;
-              const h = hash2(tx, ty);
-              fillRect(x0, ty, x1 - x0, y1 - ty, h > 0.58 ? 37 : 36);
-              if (h < 0.32) fillRect(x0, ty, Math.min(6, x1 - x0), 1, 46);
-            }
-          }
-        };
-        // 东西电梯翼花岗岩平台 + 衔接西南/东南观景露台步道 + 南侧景观横轴石道
-        stampPlaza(-308, 36, 312, 292);
-        stampPlaza(-180, 324, 88, 200);
-        stampPlaza(3452, 36, 312, 292);
-        stampPlaza(3548, 324, 88, 200);
-        stampPlaza(760, 988, 1936, 52);
-      }
+      flowers: [44, 42, 27, 43], flowerRate: 0.11, tuftRate: 0.20,
+      treeLines: [{ y: -236, x0: -560, x1: 4020, step: 136, rows: 2, dy: 52, kinds: ['alt', 'oak', 'pine', 'oak'] }],
+      decor: [
+        ['tree', -280, 48, 'oak'], ['tree', 3720, 48, 'alt'],
+        ['tree', -280, 468, 'alt'], ['pine', 3720, 468],
+        ['lantern', -256, 108], ['lantern', 3704, 108],
+        ['bush', -264, 360, 2], ['bush', 3704, 360, 1],
+        ['tree', 960, 1152, 'alt'], ['tree', 1728, 1156, 'oak'], ['pine', 2496, 1152],
+        ['flowers', 1220, 1068, 180, 36], ['flowers', 2056, 1068, 180, 36]
+      ]
     }),
     floorDecor(g, ox, oy, w, h, A) {
       // 东西橡木区与中央洞石沙龙交界黄铜收边压条

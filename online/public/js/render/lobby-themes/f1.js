@@ -84,35 +84,117 @@
       const wxToPx = wx => Math.round((wx - OX) / 2);
       const wyToPy = wy => Math.round((wy - OY) / 2);
 
+      function fillPolyMask(mark, poly, val) {
+        const pts = poly.map(p => [((p.x ?? p[0]) - OX) / 2, ((p.y ?? p[1]) - OY) / 2]);
+        let y0 = EH, y1 = 0;
+        for (const [, y] of pts) { y0 = Math.min(y0, Math.floor(y)); y1 = Math.max(y1, Math.ceil(y)); }
+        y0 = Math.max(0, y0); y1 = Math.min(EH - 1, y1);
+        const xs = [];
+        for (let y = y0; y <= y1; y++) {
+          const sy = y + 0.5; xs.length = 0;
+          for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+            const [xi, yi] = pts[i], [xj, yj] = pts[j];
+            if ((yi > sy) !== (yj > sy)) xs.push(xi + (sy - yi) * (xj - xi) / (yj - yi));
+          }
+          xs.sort((a, b) => a - b);
+          for (let k = 0; k + 1 < xs.length; k += 2) {
+            const a = Math.max(0, Math.round(xs[k])), b = Math.min(EW, Math.round(xs[k + 1]));
+            for (let x = a; x < b; x++) mark[y * EW + x] = val;
+          }
+        }
+      }
+
+      function ptInPolyWorld(poly, x, y) {
+        let inside = false;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const xi = poly[i].x ?? poly[i][0], yi = poly[i].y ?? poly[i][1];
+          const xj = poly[j].x ?? poly[j][0], yj = poly[j].y ?? poly[j][1];
+          if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        return inside;
+      }
+
+      // 折线拐角圆弧平滑插值（2 轮保端点限幅 Chaikin 切角，闭合环自动跨首尾平滑）
+      function smoothPathPts(pts) {
+        if (!pts || pts.length < 3) return pts || [];
+        let cur = pts.map(q => [q[0], q[1], q[2]]);
+        const closed = Math.hypot(cur[0][0] - cur[cur.length - 1][0], cur[0][1] - cur[cur.length - 1][1]) < 2.5;
+        for (let iter = 0; iter < 2; iter++) {
+          const n = cur.length;
+          if (n < 3) break;
+          const next = [];
+          if (!closed) next.push(cur[0]);
+          const start = closed ? 0 : 1;
+          const end = closed ? n - 1 : n - 1;
+          for (let i = start; i < end; i++) {
+            const p0 = cur[(i - 1 + n) % n];
+            const p1 = cur[i];
+            const p2 = cur[(i + 1) % n];
+            const d0 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) || 1;
+            const d2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) || 1;
+            const t0 = Math.min(0.30, 9 / d0);
+            const t2 = Math.min(0.30, 9 / d2);
+            next.push([
+              p1[0] + (p0[0] - p1[0]) * t0,
+              p1[1] + (p0[1] - p1[1]) * t0,
+              p1[2] + (p0[2] - p1[2]) * t0
+            ]);
+            next.push([
+              p1[0] + (p2[0] - p1[0]) * t2,
+              p1[1] + (p2[1] - p1[1]) * t2,
+              p1[2] + (p2[2] - p1[2]) * t2
+            ]);
+          }
+          if (closed && next.length) next.push([next[0][0], next[0][1], next[0][2]]);
+          else next.push(cur[n - 1]);
+          cur = next;
+        }
+        return cur;
+      }
+
       function buildExteriorCanvas(f) {
         const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
         const f1 = f || (root.WORLD && root.WORLD.floorById && root.WORLD.floorById(1)) || null;
         const westH = (f1 && Array.isArray(f1.halls) && f1.halls.find(h => h.side === 'left')) || { x: -144, y: 128, w: 144, h: 112 };
         const eastH = (f1 && Array.isArray(f1.halls) && f1.halls.find(h => h.side === 'right')) || { x: 3456, y: 128, w: 144, h: 112 };
-        const wPlazaY0 = westH.y - 84, wPlazaY1 = westH.y + westH.h + 88;
-        const ePlazaY0 = eastH.y - 84, ePlazaY1 = eastH.y + eastH.h + 88;
+        const bldgPoly = (f1 && Array.isArray(f1.polygon) && f1.polygon.length >= 3)
+          ? f1.polygon
+          : [{ x: 0, y: 0 }, { x: 3456, y: 0 }, { x: 3456, y: 480 }, { x: 2680, y: 480 }, { x: 2680, y: 960 }, { x: 780, y: 960 }, { x: 780, y: 480 }, { x: 0, y: 480 }];
+
         const grid = new Uint8Array(EW * EH);
+        const bldg = new Uint8Array(EW * EH);
         const land = new Uint8Array(EW * EH);
         const wall = new Uint8Array(EW * EH);
+        fillPolyMask(bldg, bldgPoly, 1);
+
         const pset = (x, y, c) => {
-          if (x >= 0 && x < EW && y >= 0 && y < EH && c) grid[y * EW + x] = c;
+          const ix = x | 0, iy = y | 0;
+          if (ix >= 0 && ix < EW && iy >= 0 && iy < EH && c && !bldg[iy * EW + ix]) grid[iy * EW + ix] = c;
         };
-        const pat = (x, y) => (x >= 0 && x < EW && y >= 0 && y < EH) ? grid[y * EW + x] : 0;
+        const pat = (x, y) => {
+          const ix = x | 0, iy = y | 0;
+          return (ix >= 0 && ix < EW && iy >= 0 && iy < EH) ? grid[iy * EW + ix] : 0;
+        };
         const fillDisc = (cx, cy, rx, ry, c) => {
           const x0 = Math.max(0, Math.floor(cx - rx)), x1 = Math.min(EW - 1, Math.ceil(cx + rx));
           const y0 = Math.max(0, Math.floor(cy - ry)), y1 = Math.min(EH - 1, Math.ceil(cy + ry));
           for (let y = y0; y <= y1; y++) {
             const dy = (y - cy) / ry;
+            const row = y * EW;
             for (let x = x0; x <= x1; x++) {
+              if (bldg[row + x]) continue;
               const dx = (x - cx) / rx;
-              if (dx * dx + dy * dy <= 1) grid[y * EW + x] = c;
+              if (dx * dx + dy * dy <= 1) grid[row + x] = c;
             }
           }
         };
         const fillRect = (x, y, w, h, c) => {
-          const x0 = Math.max(0, x), x1 = Math.min(EW, x + w);
-          const y0 = Math.max(0, y), y1 = Math.min(EH, y + h);
-          for (let yy = y0; yy < y1; yy++) for (let xx = x0; xx < x1; xx++) grid[yy * EW + xx] = c;
+          const x0 = Math.max(0, x | 0), x1 = Math.min(EW, (x + w) | 0);
+          const y0 = Math.max(0, y | 0), y1 = Math.min(EH, (y + h) | 0);
+          for (let yy = y0; yy < y1; yy++) {
+            const row = yy * EW;
+            for (let xx = x0; xx < x1; xx++) if (!bldg[row + xx]) grid[row + xx] = c;
+          }
         };
 
         // 1) 东南景观水池 32×32 成簇水纹模板
@@ -143,18 +225,18 @@
           return (n00 + (n10 - n00) * fx) * (1 - fy) + (n01 + (n11 - n01) * fx) * fy;
         };
 
-        // 2) 全域写实地面园区基底（land=1），仅在东南庭院跨桥处开凿一湾自然蜿蜒的镜面景观锦鲤溪池！
-        //    东南露台西岸 x<=1756（wx<=2872），樱花岛东岸 x>=1895（wx>=3150），南北水湾 y=396..576（wy=472..832）。
+        // 2) 全域写实地面园区基底（land=1），东南庭院跨桥处开凿镜面锦鲤水池：
+        //    严格对齐水池阻挡边界 wx=2876..3148 (px=1758..1893), wy=488..826 (py=404..572)，
+        //    池南 wy=828..928 留出宽敞平坦的修剪草坪与闭环漫步园路。
         for (let y = 0; y < EH; y++) {
           const row = y * EW;
-          const wob = Math.round(3 * Math.sin(y * 0.07) + 2 * Math.cos(y * 0.13));
+          const wob = Math.round(2 * Math.sin((y - 404) * 0.07) + 1.2 * Math.cos((y - 404) * 0.13));
           for (let x = 0; x < EW; x++) {
             let inPond = false;
-            if (x >= 1758 + wob && x <= 1894 + wob && y >= 404 && y <= 574) {
-              // 水池南北两端收圆，东侧环抱樱花庭院西缘
-              const ny = y < 424 ? (424 - y) / 20 : (y > 550 ? (y - 550) / 24 : 0);
-              const halfW = 66 * Math.sqrt(Math.max(0, 1 - ny * ny));
-              const midX = 1826 + wob;
+            if (x >= 1758 && x <= 1893 && y >= 404 && y <= 572) {
+              const ny = y < 424 ? (424 - y) / 20 : (y > 549 ? (y - 549) / 23 : 0);
+              const halfW = 64.5 * Math.sqrt(Math.max(0, 1 - ny * ny));
+              const midX = 1825.5 + wob;
               if (Math.abs(x - midX) <= halfW) inPond = true;
             }
             if (!inPond) land[row + x] = 1;
@@ -205,28 +287,24 @@
           const row = y * EW;
           for (let x = 0; x < EW; x++) {
             const i = row + x;
-            const inBldg = (x >= 320 && x <= 2048 && y >= 160 && y < 400) || (x >= 710 && x <= 1660 && y >= 400 && y < 640);
-            if (inBldg) continue;
+            if (bldg[i]) continue;
             if (land[i]) {
               const n = fastNoise(x, y) * 0.72 + fastNoise(((x * 3) + 41) % (EW - 20), ((y * 3) + 29) % (EH - 20)) * 0.28;
               let c = n < 0.34 ? 19 : (n < 0.70 ? 20 : 21);
-              // 景观池岸石材压边
-              if ((y + 1 < EH && !land[i + EW]) || (y > 0 && !land[i - EW]) || !land[i - 1] || !land[i + 1]) {
-                c = ((x + y) & 2) ? 37 : 36;
+              // 景观池岸石材压边（左上受光暖石 37，东南背光厚石 35/36）
+              const nW = y > 0 && !land[i - EW], sW = y + 1 < EH && !land[i + EW];
+              const wW = x > 0 && !land[i - 1], eW = x + 1 < EW && !land[i + 1];
+              if (nW || sW || wW || eW) {
+                c = (sW || eW) ? (((x + y) & 2) ? 37 : 36) : (((x + y) & 2) ? 36 : 35);
               }
-              const nearSouthWall = (x >= 320 && x <= 2048 && y >= 400 && y <= 408 && x < 710) ||
-                                    (x >= 710 && x <= 1660 && y >= 640 && y <= 648) ||
-                                    (x >= 1660 && x <= 2048 && y >= 400 && y <= 408);
-              const nearWestHallWall = (x >= 700 && x < 710 && y >= 400 && y <= 640);
-              const nearEastHallWall = (x > 1660 && x <= 1670 && y >= 400 && y <= 640);
-              if (nearSouthWall || nearWestHallWall || nearEastHallWall) {
-                const depth = Math.min(
-                  nearSouthWall ? (y <= 408 ? y - 400 : y - 640) : 99,
-                  nearWestHallWall ? (710 - x) : 99,
-                  nearEastHallWall ? (x - 1660) : 99
-                );
-                if (depth <= 3) c = 18;
-                else if (depth <= 6) c = 19;
+              // 建筑南墙与侧翼墙基柔和环境光投影（左上光源）
+              let sh = 0;
+              for (let k = 1; k <= 7 && !sh; k++) if (y - k >= 0 && bldg[i - EW * k]) sh = k;
+              for (let k = 1; k <= 5 && !sh; k++) if (x - k >= 0 && bldg[i - k]) sh = k;
+              if (sh) {
+                const wob = (((x >> 2) + (y >> 1)) % 3 === 0) ? 1 : 0;
+                if (sh <= 3 + wob) c = 18;
+                else if (sh <= 6 + wob) c = 19;
               }
               grid[i] = c;
             } else if (wall[i]) {
@@ -243,110 +321,254 @@
           }
         }
 
-        // 5.5) 东西电梯厅迎宾花岗岩广场 + 南北园区石板步道（彻底消除电梯厅悬在海面或压在樱花树冠上的违和感）
-        const stampStonePlaza = (px0, py0, pw, ph) => {
-          fillRect(px0 - 2, py0 - 2, pw + 4, ph + 4, 34);
-          fillRect(px0, py0, pw, ph, 35);
-          const tw = 16, th = 12;
-          for (let ty = py0 + 2, r = 0; ty < py0 + ph - 2; ty += th, r++) {
-            const off = (r & 1) ? 8 : 0;
-            for (let tx = px0 + 2 - off; tx < px0 + pw - 2; tx += tw) {
-              const x0 = Math.max(px0 + 2, tx), x1 = Math.min(px0 + pw - 2, tx + tw - 1);
-              const y1 = Math.min(py0 + ph - 2, ty + th - 1);
-              if (x1 - x0 < 3 || y1 - ty < 3) continue;
-              const h = hash2(tx, ty);
-              fillRect(x0, ty, x1 - x0, y1 - ty, h > 0.6 ? 37 : 36);
-              if (h < 0.35) fillRect(x0, ty, Math.min(6, x1 - x0), 1, 46);
+        // 5.5) 统一掩码（Mask Union）一体化建筑石材基座承台（东西电梯翼楼单层连续花岗岩承台，零叠压黑框、零悬空断头石板）
+        const paveMask = new Uint8Array(EW * EH);
+        const addPlinthMask = (wx0, wy0, ww, wh, cornerR) => {
+          const px0 = Math.max(2, wxToPx(wx0)), px1 = Math.min(EW - 2, wxToPx(wx0 + ww));
+          const py0 = Math.max(2, wyToPy(wy0)), py1 = Math.min(EH - 4, wyToPy(wy0 + wh));
+          const r = cornerR || 6;
+          for (let y = py0; y < py1; y++) {
+            const row = y * EW;
+            for (let x = px0; x < px1; x++) {
+              if (bldg[row + x] || !land[row + x]) continue;
+              let dx = 0, dy = 0;
+              if (x < px0 + r && !bldg[row + px0]) dx = (px0 + r) - x;
+              else if (x >= px1 - r && !bldg[row + px1 - 1]) dx = x - (px1 - 1 - r);
+              if (y < py0 + r) dy = (py0 + r) - y;
+              else if (y >= py1 - r) dy = y - (py1 - 1 - r);
+              if (dx > 0 && dy > 0 && dx * dx + dy * dy > r * r) continue;
+              paveMask[row + x] = 1;
             }
           }
         };
-        // 西电梯门厅外广场（随 f.halls 动态对齐）与南向连接园区步道
-        stampStonePlaza(wxToPx(westH.x - 164), wyToPy(wPlazaY0), Math.round((westH.w + 168) / 2), Math.round((wPlazaY1 - wPlazaY0) / 2));
-        stampStonePlaza(wxToPx(westH.x - 36), wyToPy(wPlazaY1 - 8), 44, Math.max(48, Math.round((676 - (wPlazaY1 - 8)) / 2)));
-        // 东电梯门厅外广场（随 f.halls 动态对齐）与南向连接园区步道
-        stampStonePlaza(wxToPx(eastH.x - 4), wyToPy(ePlazaY0), Math.round((eastH.w + 168) / 2), Math.round((ePlazaY1 - ePlazaY0) / 2));
-        stampStonePlaza(wxToPx(eastH.x + 56), wyToPy(ePlazaY1 - 8), 44, 104);
-        // 南翼外侧园区景观横轴石板漫步道（wy=988..1040）
-        stampStonePlaza(wxToPx(680), wyToPy(988), 1040, 26);
+        const westApron = { x0: westH.x - 52, y0: westH.y - 96, w: westH.w + 56, h: westH.h + 156 };
+        const eastApron = { x0: eastH.x - 4, y0: eastH.y - 96, w: eastH.w + 56, h: eastH.h + 156 };
+        addPlinthMask(westApron.x0, westApron.y0, westApron.w, westApron.h, 6);
+        addPlinthMask(eastApron.x0, eastApron.y0, eastApron.w, eastApron.h, 6);
 
-        // 6) 园区庭院暖砂砾石园路（闭环环绕西南 CQRD 花坛并衔接出入口台阶，东侧连接露台、木桥与樱花庭院）
-        const paths = [
-          // 西电梯南步道 -> 西南 CQRD 花坛南环 -> 东侧北上接 [600..720,480] 大堂庭院台阶
-          [[252, 496, 9], [364, 504, 9], [416, 556, 10], [492, 568, 10], [576, 568, 10], [642, 552, 9], [674, 514, 9], [662, 446, 9], [652, 398, 9]],
-          // CQRD 花坛北沿对称观赏园路
-          [[368, 500, 8], [392, 462, 8], [432, 438, 8], [520, 434, 8], [602, 436, 8], [662, 446, 8]],
-          // 东南露台双门 -> 跨溪木桥西桥头
-          [[1694, 398, 8], [1698, 432, 8], [1720, 458, 8], [1754, 470, 9]],
-          [[1660, 488, 8], [1704, 482, 8], [1754, 470, 9]],
-          // 樱花庭院东桥头环径
-          [[1896, 468, 8], [1942, 476, 9], [1988, 494, 8], [2012, 472, 7], [1986, 448, 7]]
+        // 承台外侧 3/4 南向石材立面厚边与草地接触短影（rules://66 过渡准则）
+        for (let y = 2; y < EH - 3; y++) {
+          const row = y * EW;
+          for (let x = 2; x < EW - 2; x++) {
+            const i = row + x;
+            if (paveMask[i] || bldg[i] || !land[i]) continue;
+            if (paveMask[i - EW]) {
+              grid[i] = (x % 12 === 0) ? 34 : 35;
+            } else if (paveMask[i - EW * 2] || paveMask[i - 1]) {
+              grid[i] = 18;
+            }
+          }
+        }
+        // 承台内部连续错缝花岗岩砖纹 + 1px 柔和受光/背光路缘与局部草叶自然咬边
+        for (let y = 2; y < EH - 3; y++) {
+          const row = y * EW;
+          for (let x = 2; x < EW - 2; x++) {
+            const i = row + x;
+            if (!paveMask[i]) continue;
+            const nOut = !paveMask[i - EW] && !bldg[i - EW];
+            const sOut = !paveMask[i + EW] && !bldg[i + EW];
+            const wOut = !paveMask[i - 1] && !bldg[i - 1];
+            const eOut = !paveMask[i + 1] && !bldg[i + 1];
+            if (nOut || wOut) {
+              const bite = (((x >> 1) * 7 + (y >> 1) * 5) % 9) === 0;
+              grid[i] = bite ? 20 : 35;
+              continue;
+            }
+            if (sOut || eOut) {
+              const bite = eOut && !sOut && (((y >> 1) * 7 + (x >> 1) * 3) % 11 === 0);
+              grid[i] = bite ? 19 : 34;
+              continue;
+            }
+            const nInner = (!paveMask[i - EW * 2] && !bldg[i - EW * 2]) || (!paveMask[i - 2] && !bldg[i - 2]);
+            if (nInner) {
+              grid[i] = 37;
+              continue;
+            }
+            const r = Math.floor(y / 8), off = (r & 1) ? 7 : 0;
+            const gx = (x + off) % 14, gy = y % 8;
+            const cellH = hash2(Math.floor((x + off) / 14), r);
+            if (gy === 0 || (gx === 0 && cellH > 0.18)) grid[i] = 35;
+            else if (gy === 1 && gx >= 1 && gx <= 6 && cellH < 0.42) grid[i] = 37;
+            else if (cellH > 0.84 && gy >= 3 && gy <= 4 && gx >= 4 && gx <= 7) grid[i] = 46;
+            else grid[i] = 36;
+          }
+        }
+        // 电梯翼楼墙脚环境光暗影
+        for (const h of [westH, eastH]) {
+          const hx0 = Math.max(2, wxToPx(h.x - 10)), hx1 = Math.min(EW - 2, wxToPx(h.x + h.w + 10));
+          const hy0 = Math.max(2, wyToPy(h.y - 70)), hy1 = Math.min(EH - 4, wyToPy(h.y + h.h + 22));
+          for (let y = hy0; y <= hy1; y++) {
+            const row = y * EW;
+            for (let x = hx0; x <= hx1; x++) {
+              if (paveMask[row + x] && grid[row + x] >= 36) grid[row + x] = 35;
+            }
+          }
+        }
+
+        // 6) 圆润连贯的庭院暖砂砾园路系统（优先读取 f1.yards 的 yd.paths，统一距离场融合消除一切分叉黑线与折角）
+        const defaultWorldPaths = [
+          // sw-lawn：从大堂南门台阶 [660,480] 引出平滑闭环，优雅环绕 CQRD 立体花坛
+          [[660, 480, 22], [660, 526, 20], [566, 542, 20], [396, 542, 20], [226, 554, 20], [174, 616, 20], [174, 718, 20], [232, 782, 20], [396, 794, 20], [570, 784, 20], [658, 730, 20], [668, 626, 20], [660, 526, 20]],
+          // se-isle：北门 [2750,480] 与西门 [2680,655] 汇入跨溪木桥西桥头 [2868,622]
+          [[2750, 480, 22], [2758, 542, 20], [2806, 602, 20], [2868, 622, 20]],
+          [[2680, 655, 22], [2746, 652, 20], [2808, 634, 20], [2868, 622, 20]],
+          // se-isle：东桥头 [3148,622] 引出东南樱花庭院与池南漫步闭环，回接西岸园路
+          [[3148, 622, 20], [3238, 616, 20], [3338, 646, 20], [3372, 730, 20], [3324, 842, 20], [3196, 884, 20], [3012, 888, 20], [2836, 872, 20], [2760, 786, 20], [2752, 652, 20]]
         ];
-        let bestRad = 0;
-        const pathDistSq = (px, py, pts) => {
-          let best = 1e9, rad = 0;
+        const rawYardPaths = [];
+        if (f1 && Array.isArray(f1.yards)) {
+          for (const yd of f1.yards) {
+            for (const p of (yd.paths || [])) {
+              const pts = Array.isArray(p) ? p : (p && p.pts);
+              if (Array.isArray(pts) && pts.length >= 2) rawYardPaths.push(pts);
+            }
+          }
+        }
+        const worldPathsToDraw = rawYardPaths.length ? rawYardPaths : defaultWorldPaths;
+        const smoothedPaths = worldPathsToDraw.map(wpts => smoothPathPts(
+          wpts.map(q => [(q[0] - OX) / 2, (q[1] - OY) / 2, (q[2] || 20) / 2])
+        ));
+
+        const pathMargin = new Float32Array(EW * EH);
+        pathMargin.fill(-999);
+        let pGlobalMinX = EW, pGlobalMaxX = 0, pGlobalMinY = EH, pGlobalMaxY = 0;
+        for (let pi = 0; pi < smoothedPaths.length; pi++) {
+          const pts = smoothedPaths[pi];
           for (let s = 0; s < pts.length - 1; s++) {
-            const [x1, y1, r1] = pts[s], [x2, y2, r2] = pts[s + 1];
-            const vx = x2 - x1, vy = y2 - y1, l2 = vx * vx + vy * vy || 1;
-            const t = Math.max(0, Math.min(1, ((px - x1) * vx + (py - y1) * vy) / l2));
-            const cx = x1 + vx * t, cy = y1 + vy * t;
-            const d2 = (px - cx) * (px - cx) + (py - cy) * (py - cy);
-            if (d2 < best) { best = d2; rad = r1 + (r2 - r1) * t; }
-          }
-          bestRad = rad;
-          return best;
-        };
-        for (const pts of paths) {
-          let minX = EW, maxX = 0, minY = EH, maxY = 0;
-          for (const [px, py, r] of pts) {
-            minX = Math.min(minX, px - r - 6); maxX = Math.max(maxX, px + r + 6);
-            minY = Math.min(minY, py - r - 6); maxY = Math.max(maxY, py + r + 6);
-          }
-          minX = Math.max(0, Math.floor(minX)); maxX = Math.min(EW - 1, Math.ceil(maxX));
-          minY = Math.max(0, Math.floor(minY)); maxY = Math.min(EH - 1, Math.ceil(maxY));
-          for (let y = minY; y <= maxY; y++) {
-            for (let x = minX; x <= maxX; x++) {
-              const i = y * EW + x;
-              if (!land[i]) continue;
-              const inBldg = (x >= 320 && x <= 2048 && y >= 160 && y < 400) || (x >= 710 && x <= 1660 && y >= 400 && y < 640);
-              if (inBldg) continue;
-              const d2 = pathDistSq(x, y, pts);
-              const rad = bestRad;
-              if (d2 > (rad + 2.5) * (rad + 2.5)) continue;
-              const d = Math.sqrt(d2);
-              const edgeJitter = (smoothNoise(x, y, 6) - 0.5) * 2.4;
-              const dr = d + edgeJitter;
-              if (dr <= rad) {
-                if (dr > rad - 1.4) grid[i] = 13;
-                else if (dr < rad * 0.45 && smoothNoise(x + 17, y + 9, 8) > 0.48) grid[i] = 16;
-                else grid[i] = 15;
+            const p1 = pts[s], p2 = pts[s + 1];
+            const x1 = p1[0], y1 = p1[1], r1 = p1[2];
+            const x2 = p2[0], y2 = p2[1], r2 = p2[2];
+            const rMax = (r1 > r2 ? r1 : r2) + 3;
+            const sx0 = Math.max(1, Math.floor((x1 < x2 ? x1 : x2) - rMax));
+            const sx1 = Math.min(EW - 2, Math.ceil((x1 > x2 ? x1 : x2) + rMax));
+            const sy0 = Math.max(1, Math.floor((y1 < y2 ? y1 : y2) - rMax));
+            const sy1 = Math.min(EH - 2, Math.ceil((y1 > y2 ? y1 : y2) + rMax));
+            if (sx0 < pGlobalMinX) pGlobalMinX = sx0;
+            if (sx1 > pGlobalMaxX) pGlobalMaxX = sx1;
+            if (sy0 < pGlobalMinY) pGlobalMinY = sy0;
+            if (sy1 > pGlobalMaxY) pGlobalMaxY = sy1;
+            const vx = x2 - x1, vy = y2 - y1, l2 = vx * vx + vy * vy || 1, invL2 = 1 / l2;
+            const dr = r2 - r1;
+            for (let y = sy0; y <= sy1; y++) {
+              const row = y * EW;
+              const dy1 = y - y1;
+              for (let x = sx0; x <= sx1; x++) {
+                const i = row + x;
+                if (!land[i] || bldg[i] || paveMask[i]) continue;
+                let t = ((x - x1) * vx + dy1 * vy) * invL2;
+                if (t < 0) t = 0; else if (t > 1) t = 1;
+                const dx = x - (x1 + vx * t), dy = y - (y1 + vy * t);
+                const rad = r1 + dr * t;
+                const lim = rad + 2.5;
+                const d2 = dx * dx + dy * dy;
+                if (d2 <= lim * lim) {
+                  const m = rad - Math.sqrt(d2);
+                  if (m > pathMargin[i]) pathMargin[i] = m;
+                }
               }
             }
           }
         }
 
-        // 7) 修剪草坪细节点缀（成团草芽与低密度园区野花，严禁单像素噪点）
-        for (let y = 16; y < EH - 16; y += 11) {
-          for (let x = 16; x < EW - 16; x += 13) {
+        const pathMask = new Uint8Array(EW * EH);
+        if (pGlobalMinX <= pGlobalMaxX) {
+          const bx0 = Math.max(2, pGlobalMinX - 2), bx1 = Math.min(EW - 3, pGlobalMaxX + 2);
+          const by0 = Math.max(2, pGlobalMinY - 2), by1 = Math.min(EH - 3, pGlobalMaxY + 2);
+          for (let y = by0; y <= by1; y++) {
+            const row = y * EW;
+            for (let x = bx0; x <= bx1; x++) {
+              const i = row + x;
+              if (pathMargin[i] < -2) continue;
+              const wob = (smoothNoise(x + 31, y + 19, 9) - 0.5) * 1.3;
+              if (pathMargin[i] + wob >= 0) pathMask[i] = 1;
+            }
+          }
+          // 1 轮形态学净边，消除路缘单像素毛刺
+          const pathClean = pathMask.slice();
+          for (let y = by0; y <= by1; y++) {
+            const row = y * EW;
+            for (let x = bx0; x <= bx1; x++) {
+              const i = row + x;
+              if (!land[i] || bldg[i] || paveMask[i]) continue;
+              const nb = pathClean[i - 1] + pathClean[i + 1] + pathClean[i - EW] + pathClean[i + EW];
+              if (pathClean[i] && nb <= 1) pathMask[i] = 0;
+              else if (!pathClean[i] && nb >= 3) pathMask[i] = 1;
+            }
+          }
+          // 统一渲染园路路牙（13）、过渡层（14）、暖砂心（15/16）与草芽咬边
+          for (let y = by0; y <= by1; y++) {
+            const row = y * EW;
+            for (let x = bx0; x <= bx1; x++) {
+              const i = row + x;
+              if (!pathMask[i]) {
+                // 园路南/东外侧草唇受左上光微亮（rules://66 tiles-edge-n-16）
+                if (land[i] && !bldg[i] && !paveMask[i] && (pathMask[i - EW] || pathMask[i - 1])) {
+                  if ((((x >> 1) * 5 + (y >> 1) * 3) % 4) === 0 && grid[i] >= 19 && grid[i] <= 21) grid[i] = 22;
+                }
+                continue;
+              }
+              const nOut = !pathMask[i - EW] && land[i - EW] && !bldg[i - EW];
+              const sOut = !pathMask[i + EW] && land[i + EW] && !bldg[i + EW];
+              const wOut = !pathMask[i - 1] && land[i - 1] && !bldg[i - 1];
+              const eOut = !pathMask[i + 1] && land[i + 1] && !bldg[i + 1];
+              if (nOut || wOut || sOut || eOut) {
+                const bite = (((x >> 1) * 7 + (y >> 1) * 11) % 10) === 0;
+                if (bite) grid[i] = (sOut || eOut) ? 21 : 19;
+                else grid[i] = (nOut || wOut) ? 13 : 14;
+                continue;
+              }
+              const nearNW = (!pathMask[i - EW * 2] && !bldg[i - EW * 2]) || (!pathMask[i - 2] && !bldg[i - 2]);
+              const nearSE = (!pathMask[i + EW * 2] && !bldg[i + EW * 2]) || (!pathMask[i + 2] && !bldg[i + 2]);
+              if (nearNW) {
+                grid[i] = (((x >> 1) + (y >> 1)) % 5 === 0) ? 13 : 14;
+              } else if (nearSE) {
+                grid[i] = (((x >> 1) * 3 + (y >> 1)) % 4 === 0) ? 16 : 15;
+              } else if (pathMargin[i] > 3.2 && smoothNoise(x + 17, y + 9, 10) > 0.53) {
+                grid[i] = 16;
+              } else {
+                grid[i] = 15;
+              }
+            }
+          }
+        }
+        // 园路砂心稀疏鹅卵石簇（成对 2px 受光 16 + 2px 暗部 14，零孤立像素）
+        for (let y = 24; y < EH - 24; y += 16) {
+          for (let x = 24; x < EW - 24; x += 18) {
+            const h = hash2(x + 3, y + 7);
+            if (h > 0.42) continue;
+            const px = x + Math.floor(h * 7) - 3, py = y + Math.floor(hash2(y, x) * 5) - 2;
+            const i = py * EW + px;
+            if (pathMargin[i] > 4.2 && pathMask[i] && pathMask[i + 1] && pathMask[i + EW + 1] && pathMask[i + EW + 2]) {
+              pset(px, py, 16); pset(px + 1, py, 16);
+              pset(px + 1, py + 1, 14); pset(px + 2, py + 1, 14);
+            }
+          }
+        }
+
+        // 7) 修剪草坪细节点缀（4-连通成团草芽与双瓣野花簇，严禁任何 4-邻域孤立单像素）
+        for (let y = 16; y < EH - 16; y += 12) {
+          for (let x = 16; x < EW - 16; x += 14) {
             const h = hash2(x, y);
             const px = x + Math.floor(h * 7) - 3, py = y + Math.floor(hash2(y, x) * 5) - 2;
-            if (px < 4 || px >= EW - 6 || py < 4 || py >= EH - 6) continue;
+            if (px < 6 || px >= EW - 8 || py < 6 || py >= EH - 8) continue;
             const i = py * EW + px;
-            if (!land[i] || grid[i] < 19 || grid[i] > 21) continue;
-            if (px >= 432 && px <= 604 && py >= 450 && py <= 536) continue;
-            if (h < 0.22) {
-              pset(px, py, 22); pset(px + 1, py, 22); pset(px, py - 1, 23);
-              pset(px + 2, py + 1, 19);
-            } else if (h > 0.91) {
+            if (!land[i] || bldg[i] || paveMask[i] || pathMask[i] || grid[i] < 19 || grid[i] > 21) continue;
+            if (px >= 430 && px <= 606 && py >= 448 && py <= 538) continue;
+            if (h < 0.20) {
+              pset(px, py, 22); pset(px + 1, py, 22);
+              pset(px, py - 1, 23); pset(px + 1, py - 1, 23);
+              pset(px + 1, py + 1, 19); pset(px + 2, py + 1, 19);
+            } else if (h > 0.92) {
               const fc = h > 0.97 ? 44 : 43;
-              pset(px, py - 1, fc); pset(px, py + 1, fc);
-              pset(px - 1, py, fc); pset(px + 1, py, fc);
-              pset(px, py, 42);
+              pset(px, py - 1, fc); pset(px + 1, py - 1, fc); pset(px, py, fc);
+              pset(px + 1, py, 42); pset(px + 2, py, 42);
+              pset(px + 1, py + 1, 19); pset(px + 2, py + 1, 19);
             }
           }
         }
 
         // 8) 嵌入西南前庭核心「CQRD」立体模纹花坛（160×72 原生网格精确压入 px=438, py=457）
-        const cqFn = L.themes?.[1]?.furniture?.cqrdbed || f.theme?.furniture?.cqrdbed;
+        const cqFn = L.themes?.[1]?.furniture?.cqrdbed || f?.theme?.furniture?.cqrdbed;
         if (cqFn && cqFn.buildGrid) {
           const { w: cw, h: ch, pal: cpal, grid: cgrid } = cqFn.buildGrid();
           const cx0 = wxToPx(236), cy0 = wyToPy(594);
@@ -372,11 +594,19 @@
           }
         }
 
-        // 9) 景观构件绘制函数
+        // 9) 景观构件绘制函数（全部 2× 原生像素精度、单源左上光照、成簇无噪点）
         const stampBridge = (px, py, pw, ph) => {
+          // 东西两端洞石桥头踏步垫石，让暖砂园路与木桥无缝咬合
+          for (const sx of [px - 3, px + pw]) {
+            fillRect(sx, py + 1, 3, ph - 2, 34);
+            fillRect(sx + (sx < px ? 1 : 0), py + 2, 2, ph - 4, 36);
+            fillRect(sx + (sx < px ? 1 : 0), py + 2, 2, 3, 37);
+          }
           for (let bx = 0; bx < pw; bx++) {
             const sd = (bx % 9 === 4) ? 2 : 3;
-            fillRect(px + bx, py + ph + 1, 1, sd, (bx % 8 < 2) ? 2 : 1);
+            for (let sy = 1; sy <= sd; sy++) {
+              if (!land[(py + ph + sy) * EW + (px + bx)]) pset(px + bx, py + ph + sy, (bx % 8 < 2) ? 2 : 1);
+            }
           }
           fillRect(px, py - 2, pw, ph + 4, 29);
           fillRect(px, py, pw, ph, 31);
@@ -416,20 +646,94 @@
           }
         };
 
-        const stampFence = (px, py, posts) => {
-          const step = 12;
+        const stampFence = (px, py, worldLenOrPosts) => {
+          const totalW = (!worldLenOrPosts || worldLenOrPosts <= 12)
+            ? ((worldLenOrPosts || 4) - 1) * 12 + 4
+            : Math.max(16, Math.round(worldLenOrPosts / 2));
+          const posts = Math.max(2, Math.round((totalW - 4) / 12) + 1);
+          const span = totalW - 4;
+          fillRect(px + 2, py + 3, totalW - 4, 2, 29);
+          fillRect(px + 2, py + 4, totalW - 4, 1, 32);
+          fillRect(px + 2, py + 6, totalW - 4, 2, 29);
+          fillRect(px + 2, py + 7, totalW - 4, 1, 30);
           for (let k = 0; k < posts; k++) {
-            const fx = px + k * step;
+            const fx = px + Math.round(k * span / (posts - 1));
             fillRect(fx + 1, py + 9, 4, 2, 18);
             fillRect(fx, py, 4, 10, 29);
             fillRect(fx + 1, py + 1, 2, 8, 31);
-            pset(fx + 1, py + 1, 33); pset(fx + 2, py + 1, 32);
-            if (k < posts - 1) {
-              fillRect(fx + 4, py + 3, 8, 2, 29);
-              fillRect(fx + 4, py + 4, 8, 1, 32);
-              fillRect(fx + 4, py + 6, 8, 2, 29);
-              fillRect(fx + 4, py + 7, 8, 1, 30);
-            }
+            fillRect(fx + 1, py + 1, 2, 2, 33);
+          }
+        };
+
+        const stampFenceV = (px, py, worldLen) => {
+          const totalH = Math.max(12, Math.round((worldLen || 40) / 2));
+          const posts = Math.max(2, Math.round((totalH - 6) / 10) + 1);
+          fillRect(px + 1, py + 3, 2, totalH - 4, 32);
+          fillRect(px + 3, py + 3, 1, totalH - 4, 29);
+          for (let k = 0; k < posts; k++) {
+            const fy = py + Math.round(k * (totalH - 8) / (posts - 1));
+            fillRect(px + 1, fy + 8, 5, 2, 18);
+            fillRect(px, fy, 4, 9, 29);
+            fillRect(px + 1, fy + 1, 2, 7, 31);
+            fillRect(px + 1, fy + 1, 2, 2, 33);
+          }
+        };
+
+        const stampBench = (px, py) => {
+          // 64×24 世界像素（32×12 原生网格）现代园区暖木铸铁休憩长椅，碰撞盒对齐 [wx, wy+10, 64, 14]
+          fillRect(px + 2, py + 10, 30, 2, 18);
+          // 铸铁侧架与支腿
+          for (const lx of [1, 28]) {
+            fillRect(px + lx, py + 1, 3, 10, 34);
+            fillRect(px + lx, py + 2, 2, 2, 36);
+          }
+          // 靠背暖雪松木条（左上受光）
+          fillRect(px, py, 32, 5, 29);
+          fillRect(px + 1, py + 1, 30, 1, 33);
+          fillRect(px + 1, py + 2, 30, 1, 32);
+          fillRect(px + 1, py + 3, 30, 1, 30);
+          // 座面格栅与前缘厚板
+          fillRect(px, py + 5, 32, 5, 29);
+          fillRect(px + 1, py + 5, 30, 2, 33);
+          fillRect(px + 1, py + 7, 30, 1, 32);
+          fillRect(px + 1, py + 8, 30, 1, 31);
+          for (const ax of [1, 29]) {
+            fillRect(px + ax, py + 4, 2, 3, 34);
+            fillRect(px + ax, py + 4, 2, 1, 36);
+          }
+        };
+
+        const stampFlowers = (px, py, nw, nh) => {
+          // 自然错落的园区宿根花丛（地面平铺可走，成团绿叶衬底 + 2×2/3px 花瓣簇，0 孤立噪点）
+          const w = Math.max(10, nw || 24), h = Math.max(8, nh || 16);
+          const count = Math.max(3, Math.round((w * h) / 52));
+          const palette = [43, 44, 27, 42, 45];
+          for (let k = 0; k < count; k++) {
+            const ha = hash2(px + k * 11, py + k * 5), hb = hash2(py + k * 17, px + k * 3);
+            const cx = px + 3 + Math.floor(ha * Math.max(1, w - 7));
+            const cy = py + 3 + Math.floor(hb * Math.max(1, h - 6));
+            if (paveMask[cy * EW + cx] || pathMask[cy * EW + cx]) continue;
+            fillDisc(cx + 1, cy + 2, 4, 2, 18);
+            fillDisc(cx, cy + 1, 4, 2, 19);
+            fillRect(cx - 2, cy, 3, 2, 21);
+            fillRect(cx - 2, cy - 1, 2, 1, 22);
+            const fc = palette[Math.floor(hash2(k * 7, px + py) * palette.length)];
+            fillRect(cx - 1, cy - 2, 2, 2, fc);
+            fillRect(cx, cy - 1, 2, 2, fc);
+            if (fc !== 42) fillRect(cx + 1, cy - 2, 2, 1, 42);
+            else fillRect(cx + 1, cy - 2, 2, 1, 43);
+          }
+        };
+
+        const stampHedge = (px, py, nw) => {
+          const w = Math.max(12, nw || 32);
+          fillRect(px + 2, py + 4, w - 2, 2, 18);
+          fillRect(px, py - 5, w, 9, 17);
+          fillRect(px + 1, py - 4, w - 2, 7, 19);
+          fillRect(px + 1, py - 4, w - 2, 3, 21);
+          for (let x = 2; x < w - 4; x += 6) {
+            fillRect(px + x, py - 4, 3, 2, 22);
+            fillRect(px + x + 2, py + 1, 3, 2, 18);
           }
         };
 
@@ -438,7 +742,7 @@
           fillRect(px - 2, py + 3, 5, 4, 34);
           fillRect(px - 1, py + 4, 3, 2, 36);
           fillRect(px - 1, py - 6, 3, 10, 29);
-          pset(px, py - 5, 31); pset(px, py - 3, 31);
+          fillRect(px, py - 5, 1, 3, 31);
           fillRect(px - 3, py - 12, 7, 7, 29);
           fillRect(px - 2, py - 11, 5, 5, 42);
           fillRect(px - 1, py - 10, 3, 3, 43);
@@ -446,14 +750,31 @@
           fillRect(px - 2, py - 15, 5, 1, 36);
         };
 
+        const stampLamp = (px, py) => {
+          fillDisc(px + 1, py + 5, 5, 2, 18);
+          fillRect(px - 2, py + 2, 5, 3, 34);
+          fillRect(px - 1, py + 2, 3, 2, 36);
+          fillRect(px - 1, py - 18, 3, 20, 34);
+          fillRect(px, py - 16, 1, 6, 36);
+          fillRect(px, py - 8, 1, 5, 36);
+          fillRect(px - 4, py - 24, 9, 6, 34);
+          fillRect(px - 3, py - 23, 7, 4, 42);
+          fillRect(px - 2, py - 22, 3, 2, 43);
+          fillRect(px - 5, py - 26, 11, 2, 34);
+          fillRect(px - 3, py - 27, 7, 1, 36);
+        };
+
         const stampRock = (px, py, large) => {
-          const rx = large ? 8 : 6, ry = large ? 6 : 4;
-          fillDisc(px + 1, py + 3, rx, ry - 1, 18);
+          // 三平面切面景石（rules://65 第 14 条：左上受光顶面 37 + 正面 36 + 右下背光面 35，告别同心圆枕头阴影）
+          const rx = large ? 8 : 6, ry = large ? 5 : 4;
+          fillDisc(px + 2, py + 3, rx, ry - 1, 18);
           fillDisc(px, py, rx, ry, 34);
-          fillDisc(px, py - 1, rx - 1, ry - 1, 35);
-          fillDisc(px - 1, py - 2, rx - 2, ry - 2, 36);
-          fillDisc(px - 2, py - 3, Math.max(2, rx - 4), Math.max(1, ry - 3), 37);
-          pset(px + 2, py + 1, 19); pset(px + 3, py + 1, 20);
+          fillDisc(px, py, rx - 1, ry - 1, 35);
+          fillDisc(px - 1, py - 1, rx - 2, ry - 1, 36);
+          fillRect(px - Math.max(3, rx - 4), py - ry + 1, Math.max(3, rx - 2), 2, 37);
+          fillRect(px - rx + 2, py - ry + 2, 3, 2, 37);
+          if (large) fillRect(px + 1, py - 1, 3, 1, 34);
+          fillRect(px + 2, py + ry - 1, 2, 1, 19);
         };
 
         const stampBush = (px, py, berry) => {
@@ -467,16 +788,16 @@
           }
           if (berry) {
             const fc = berry === 2 ? 27 : 44;
-            pset(px - 3, py - 3, fc); pset(px - 2, py - 3, fc);
-            pset(px + 3, py - 1, fc); pset(px + 4, py - 1, fc);
+            fillRect(px - 3, py - 3, 2, 2, fc);
+            fillRect(px + 2, py - 1, 2, 2, fc);
           }
         };
 
         const stampLotus = (px, py, flower) => {
-          if (pat(px, py) > 7) return; // 仅在东南水池内绘制睡莲
+          if (pat(px, py) > 7) return;
           fillDisc(px, py, 6, 3, 19);
           fillDisc(px - 1, py - 1, 4, 2, 21);
-          pset(px + 3, py - 1, 3);
+          fillRect(px + 2, py - 1, 2, 1, 3);
           if (flower) {
             fillRect(px - 2, py - 3, 4, 2, 27);
             fillRect(px - 1, py - 4, 2, 2, 43);
@@ -515,7 +836,10 @@
           fillDisc(px - 1, py + 2, 11, 5, 17);
           if (kind === 'sakura') {
             for (const [ox, oy] of [[-11, 5], [-6, 8], [7, 7], [13, 4], [2, 9]]) {
-              if (pat(px + ox, py + oy) >= 18) { pset(px + ox, py + oy, 27); pset(px + ox + 1, py + oy, 26); }
+              if (pat(px + ox, py + oy) >= 18) {
+                fillRect(px + ox, py + oy, 2, 1, 27);
+                fillRect(px + ox + 1, py + oy + 1, 2, 1, 26);
+              }
             }
           }
           fillRect(px - 3, py - 14, 6, 16, 29);
@@ -524,7 +848,7 @@
           fillRect(px - 4, py - 1, 2, 3, 29);
           fillRect(px + 2, py - 1, 2, 3, 29);
           fillRect(px - 3, py - 14, 6, 4, 29);
-          const cPal = kind === 'sakura'
+          const cPal = (kind === 'sakura' || kind === 'alt' || kind === 'maple')
             ? { out: 24, sh: 25, mid: 26, hi: 27, rim: 28 }
             : { out: 17, sh: 18, mid: 20, hi: 22, rim: 23 };
           const lobes = [
@@ -555,71 +879,347 @@
           ]) fillRect(px + cx, py + cy, cw, ch, kc);
         };
 
+        // 庭院周界「园区修剪矮绿篱 + 暖木洞石矮柱护栏」（紧贴可达边界外侧，拐角单墩无缝咬合、52px 等距石柱模数）
+        const stampPier = (px, py) => {
+          fillRect(px + 1, py + 7, 6, 2, 18);
+          fillRect(px, py - 2, 6, 9, 34);
+          fillRect(px + 1, py, 4, 6, 36);
+          fillRect(px + 3, py, 2, 6, 35);
+          fillRect(px + 1, py - 1, 4, 2, 37);
+          fillRect(px + 1, py - 2, 4, 1, 33);
+        };
+        const stampPerimeterH = (wx1, wx2, wy, outSignY) => {
+          const pxL = wxToPx(Math.min(wx1, wx2)) - 4;
+          const pxR = wxToPx(Math.max(wx1, wx2)) + 3;
+          if (pxR - pxL < 6) return;
+          const py = wyToPy(wy) + (outSignY > 0 ? 3 : -5);
+          fillRect(pxL + 2, py + 5, pxR - pxL - 1, 2, 18);
+          for (let x = pxL + 1; x <= pxR - 1; x++) {
+            const sc = ((x >> 2) % 3 === 0) ? -1 : 0;
+            pset(x, py - 3 + sc, 17);
+            pset(x, py - 2 + sc, ((x >> 1) % 4 === 0) ? 23 : 22);
+            pset(x, py - 1, 21);
+            pset(x, py, ((x >> 2) & 1) ? 20 : 21);
+            pset(x, py + 1, 19);
+            pset(x, py + 4, 17);
+          }
+          fillRect(pxL + 1, py + 2, pxR - pxL - 1, 1, 33);
+          fillRect(pxL + 1, py + 3, pxR - pxL - 1, 1, 31);
+          const pierStart = pxL;
+          const pierEnd = pxR - 5;
+          const span = Math.max(1, pierEnd - pierStart);
+          const nPiers = Math.max(2, Math.round(span / 26) + 1);
+          for (let k = 0; k < nPiers; k++) {
+            const qx = pierStart + Math.round(k * span / (nPiers - 1));
+            stampPier(qx, py - 1);
+          }
+        };
+        const stampPerimeterV = (wx, wy1, wy2, outSignX, isFirst, isLast, fullY0, fullY1) => {
+          const baseTop = wyToPy(fullY0) - 4;
+          const baseBot = wyToPy(fullY1) + 3;
+          const py0 = isFirst ? Math.max(2, baseTop) : wyToPy(Math.min(wy1, wy2));
+          const py1 = isLast ? Math.min(EH - 4, baseBot) : wyToPy(Math.max(wy1, wy2));
+          if (py1 - py0 < 2) return;
+          const px = wxToPx(wx) + (outSignX < 0 ? -4 : -2);
+          fillRect(px + 6, py0 + 1, 2, py1 - py0 + 1, 18);
+          for (let y = py0; y <= py1; y++) {
+            const sc = ((y >> 2) % 3 === 0) ? 1 : 0;
+            pset(px, y, 17);
+            pset(px + 1, y, ((y >> 1) % 4 === 0) ? 23 : 22);
+            pset(px + 2, y, sc ? 22 : 21);
+            pset(px + 3, y, (y % 6 < 4) ? 32 : 21);
+            pset(px + 4, y, ((y >> 2) & 1) ? 20 : 19);
+            pset(px + 5, y, 17);
+          }
+          const totalSpan = Math.max(1, baseBot - baseTop);
+          const nPiers = Math.max(2, Math.round(totalSpan / 26) + 1);
+          for (let k = 0; k < nPiers; k++) {
+            const qy = baseTop + Math.round(k * totalSpan / (nPiers - 1));
+            if (qy >= py0 - 1 && qy <= py1 + 1) {
+              // 首尾角墩若与水平护栏相交，与水平护栏同坐标叠合为单一角柱
+              stampPier(px, qy - 1);
+            }
+          }
+        };
+
         // 10) 东南镜面水池跨溪原木景观桥与池内睡莲
         stampBridge(wxToPx(2860), wyToPy(590), 148, 32);
-        for (const [lx, ly, fl] of [[2960, 520, 1], [3040, 545, 0], [2950, 710, 1], [3030, 760, 0]]) {
+        for (const [lx, ly, fl] of [[2960, 524, 1], [3040, 548, 0], [2950, 712, 1], [3030, 760, 0]]) {
           stampLotus(wxToPx(lx), wyToPy(ly), fl);
         }
 
-        // 11) 按 Y 坐标由远及近绘制庭院景物（彻底移走曾被东西电梯厅硬截断的 [-110,250]/[3540,240] 樱花树）
+        // 11) 动态读取 f1.yards 庭院景物 + 庭院周界围栏 + 零遮挡远景框景林带
+        const fallbackYards = [
+          {
+            id: 'sw-lawn',
+            poly: [{ x: 44, y: 480 }, { x: 780, y: 480 }, { x: 780, y: 928 }, { x: 44, y: 928 }],
+            gates: [{ x1: 600, y1: 480, x2: 720, y2: 480 }],
+            props: [
+              ['fence', 120, 512, 96],
+              ['pine', 724, 594],
+              ['tree', 102, 608, 'sakura'],
+              ['lantern', 86, 696],
+              ['rock', 716, 692, 0],
+              ['bush', 712, 764, 1],
+              ['rock', 96, 772, 1],
+              ['tree', 126, 868, 'oak'],
+              ['bench', 360, 846],
+              ['lantern', 628, 848],
+              ['tree', 708, 876, 'sakura'],
+              ['bush', 236, 872, 1],
+              ['bush', 528, 868, 2],
+              ['flowers', 584, 586, 52, 36],
+              ['flowers', 284, 834, 48, 28]
+            ]
+          },
+          {
+            id: 'se-isle',
+            poly: [{ x: 2680, y: 480 }, { x: 3536, y: 480 }, { x: 3536, y: 928 }, { x: 2680, y: 928 }],
+            gates: [{ x1: 2700, y1: 480, x2: 2800, y2: 480 }, { x1: 2680, y1: 610, x2: 2680, y2: 700 }],
+            props: [
+              ['pine', 3210, 588],
+              ['tree', 3448, 596, 'sakura'],
+              ['lantern', 3168, 682],
+              ['rock', 2816, 708, 1],
+              ['bush', 3258, 708, 2],
+              ['tree', 3458, 738, 'oak'],
+              ['bench', 3228, 756],
+              ['pine', 3452, 876],
+              ['tree', 2716, 876, 'sakura'],
+              ['rock', 3180, 824, 0],
+              ['bush', 2868, 816, 1],
+              ['lantern', 3368, 862],
+              ['flowers', 3284, 534, 60, 36],
+              ['flowers', 3240, 636, 48, 28]
+            ]
+          }
+        ];
+        const hasLiveYardProps = !!(f1 && Array.isArray(f1.yards) && f1.yards.some(y => Array.isArray(y.props) && y.props.length > 0));
+        const activeYards = hasLiveYardProps ? f1.yards : fallbackYards;
+
         const props = [];
         const addProp = (yWorld, fn) => props.push({ y: yWorld, fn });
 
-        addProp(524, () => stampFence(wxToPx(148), wyToPy(514), 5));
-
-        addProp(624, () => stampLantern(wxToPx(70), wyToPy(614)));
-        addProp(782, () => stampLantern(wxToPx(642), wyToPy(772)));
-        addProp(580, () => stampLantern(wxToPx(3160), wyToPy(570)));
-        addProp(wPlazaY0 + 16, () => stampLantern(wxToPx(westH.x - 108), wyToPy(wPlazaY0 + 16)));
-        addProp(ePlazaY0 + 16, () => stampLantern(wxToPx(eastH.x + eastH.w + 108), wyToPy(ePlazaY0 + 16)));
-
-        for (const [rx, ry, big] of [
-          [92, 762, 1], [712, 688, 0], [186, 818, 0],
-          [2800, 710, 1], [3220, 710, 1], [3440, 630, 0]
-        ]) addProp(ry, () => stampRock(wxToPx(rx), wyToPy(ry), big));
-
-        for (const [bx, by, br] of [
-          [84, 584, 2], [326, 534, 1], [538, 534, 2], [702, 644, 1],
-          [268, 812, 1], [602, 810, 2],
-          [3250, 560, 2], [3420, 686, 1], [westH.x - 116, wPlazaY1 + 36, 1], [eastH.x + eastH.w + 100, ePlazaY1 + 36, 2]
-        ]) addProp(by, () => stampBush(wxToPx(bx), wyToPy(by), br));
-
-        for (const [tx, ty, type] of [
-          // 北侧园区林荫行道树（窗外真实绿景）
-          [westH.x - 112, wPlazaY0 - 20, 'oak'], [380, -34, 'pine'], [960, -36, 'oak'], [1480, -34, 'sakura'],
-          [2020, -36, 'oak'], [2540, -34, 'pine'], [3280, -34, 'sakura'], [eastH.x + eastH.w + 112, ePlazaY0 - 20, 'pine'],
-          // 东西电梯广场南外侧行道树（动态避开东西电梯翼楼及迎宾广场）
-          [westH.x - 116, Math.max(456, wPlazaY1 + 128), 'oak'], [eastH.x + eastH.w + 100, Math.max(456, ePlazaY1 + 128), 'oak'],
-          // 西南 CQRD 前庭景观树（与 yards[0].blocks 同源）
-          [116, 560, 'sakura'], [740, 560, 'pine'], [138, 804, 'oak'], [676, 800, 'sakura'],
-          // 东南樱花庭院景观树（与 yards[1].blocks 同源）
-          [2810, 562, 'pine'], [3290, 592, 'sakura'], [3420, 694, 'oak'], [3240, 720, 'pine'],
-          // 南侧园区林带远景树
-          [920, 1130, 'oak'], [1728, 1140, 'sakura'], [2480, 1130, 'pine']
-        ]) addProp(ty, () => {
-          const px = wxToPx(tx), py = wyToPy(ty);
-          if (type === 'pine') stampPine(px, py);
-          else stampCanopyTree(px, py, type);
+        // 11.1) 扫描每个可达庭院的非建筑外边缘，生成闭合的矮绿篱+石柱木护栏
+        const gateHits = (yd, wx, wy) => (yd.gates || []).some(g => {
+          const x1 = g.x1 ?? g[0], y1 = g.y1 ?? g[1], x2 = g.x2 ?? g[2], y2 = g.y2 ?? g[3];
+          return wx >= Math.min(x1, x2) - 8 && wx <= Math.max(x1, x2) + 8 && wy >= Math.min(y1, y2) - 8 && wy <= Math.max(y1, y2) + 8;
         });
+        const inAnyYard = (wx, wy) => activeYards.some(yd => ptInPolyWorld(yd.poly, wx, wy));
+        for (const yd of activeYards) {
+          const poly = yd.poly || [];
+          for (let k = 0; k < poly.length; k++) {
+            const ax = poly[k].x ?? poly[k][0], ay = poly[k].y ?? poly[k][1];
+            const bx = poly[(k + 1) % poly.length].x ?? poly[(k + 1) % poly.length][0];
+            const by = poly[(k + 1) % poly.length].y ?? poly[(k + 1) % poly.length][1];
+            const horiz = Math.abs(ay - by) < 2;
+            const vert = Math.abs(ax - bx) < 2;
+            if (!horiz && !vert) continue;
+            if (horiz) {
+              const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), yFixed = Math.round((ay + by) / 2);
+              const outY = ptInPolyWorld(poly, (x0 + x1) / 2, yFixed + 4) ? -1 : 1;
+              let runStart = null;
+              const flushH = (endX) => {
+                if (runStart !== null && endX - runStart >= 12) {
+                  const s0 = runStart, s1 = endX;
+                  addProp(yFixed + (outY > 0 ? 8 : -2), () => stampPerimeterH(s0, s1, yFixed, outY));
+                }
+                runStart = null;
+              };
+              for (let sx = x0; sx < x1; sx += 8) {
+                const mx = Math.min(x1 - 1, sx + 4);
+                const testY = yFixed + outY * 12;
+                const pxT = wxToPx(mx), pyT = wyToPy(testY);
+                const touchesBldg = (pxT >= 0 && pxT < EW && pyT >= 0 && pyT < EH && bldg[pyT * EW + pxT]) || ptInPolyWorld(bldgPoly, mx, testY);
+                const open = !touchesBldg && !inAnyYard(mx, testY) && !gateHits(yd, mx, yFixed);
+                if (open && runStart === null) runStart = sx;
+                else if (!open) flushH(sx);
+              }
+              flushH(x1);
+            } else {
+              const y0 = Math.min(ay, by), y1 = Math.max(ay, by), xFixed = Math.round((ax + bx) / 2);
+              const outX = ptInPolyWorld(poly, xFixed + 4, (y0 + y1) / 2) ? -1 : 1;
+              let runStart = null;
+              const flushV = (endY) => {
+                if (runStart !== null && endY - runStart >= 12) {
+                  const s0 = runStart, s1 = endY;
+                  const step = 52;
+                  for (let cy = s0; cy < s1; cy += step) {
+                    const seg0 = cy, seg1 = Math.min(s1, cy + step);
+                    const isFirst = (cy === s0), isLast = (seg1 >= s1);
+                    addProp(seg1, () => stampPerimeterV(xFixed, seg0, seg1, outX, isFirst, isLast, s0, s1));
+                  }
+                }
+                runStart = null;
+              };
+              for (let sy = y0; sy < y1; sy += 8) {
+                const my = Math.min(y1 - 1, sy + 4);
+                const testX = xFixed + outX * 12;
+                const pxT = wxToPx(testX), pyT = wyToPy(my);
+                const touchesBldg = (pxT >= 0 && pxT < EW && pyT >= 0 && pyT < EH && bldg[pyT * EW + pxT]) || ptInPolyWorld(bldgPoly, testX, my);
+                const open = !touchesBldg && !inAnyYard(testX, my) && !gateHits(yd, xFixed, my);
+                if (open && runStart === null) runStart = sy;
+                else if (!open) flushV(sy);
+              }
+              flushV(y1);
+            }
+          }
+        }
+
+        // 11.2) 完整视觉包围盒定义（世界像素），用于庭院登记与远景 100% 零遮挡守卫
+        const visBoxForProp = (p) => {
+          const [t, x, y, a, b] = p;
+          if (t === 'tree') return { x: x - 36, y: y - 82, w: 72, h: 100 };
+          if (t === 'pine') return { x: x - 30, y: y - 84, w: 60, h: 98 };
+          if (t === 'bush') return { x: x - 20, y: y - 16, w: 40, h: 28 };
+          if (t === 'rock') return { x: x - 18, y: y - 14, w: 36, h: 24 };
+          if (t === 'lantern') return { x: x - 12, y: y - 34, w: 24, h: 54 };
+          if (t === 'lamp') return { x: x - 14, y: y - 58, w: 28, h: 72 };
+          if (t === 'bench') return { x: x - 4, y: y - 4, w: 72, h: 28 };
+          if (t === 'fence') {
+            const wLen = (!a || a <= 12) ? ((a || 4) - 1) * 24 + 8 : a;
+            return { x: x - 4, y: y - 4, w: wLen + 8, h: 26 };
+          }
+          if (t === 'fenceV') return { x: x - 6, y: y - 4, w: 20, h: (a || 40) + 8 };
+          if (t === 'hedge') return { x: x - 4, y: y - 12, w: (a || 64) + 8, h: 26 };
+          if (t === 'flowers') return { x: x, y: y, w: a || 48, h: b || 32 };
+          return { x: x - 16, y: y - 16, w: 32, h: 32 };
+        };
+        const boxesOverlap = (a, b, pad = 0) => (
+          a.x - pad < b.x + b.w &&
+          a.x + a.w + pad > b.x &&
+          a.y - pad < b.y + b.h &&
+          a.y + a.h + pad > b.y
+        );
+        const placedVisBoxes = [];
+        // CQRD 花坛主体视觉禁区登记
+        placedVisBoxes.push({ x: 234, y: 590, w: 324, h: 150 });
+        // 跨溪木桥视觉禁区登记
+        placedVisBoxes.push({ x: 2852, y: 582, w: 312, h: 80 });
+
+        const queueProp = (p) => {
+          const [t, x, y, a, b] = p;
+          const px = wxToPx(x), py = wyToPy(y);
+          if (t === 'flowers') {
+            stampFlowers(px, py, Math.round((a || 48) / 2), Math.round((b || 32) / 2));
+            return;
+          }
+          if (t === 'pebble') {
+            fillRect(px, py, 3, 2, 35); fillRect(px, py, 2, 1, 37);
+            return;
+          }
+          placedVisBoxes.push(visBoxForProp(p));
+          if (t === 'tree') addProp(y, () => stampCanopyTree(px, py, a || 'oak'));
+          else if (t === 'pine') addProp(y, () => stampPine(px, py));
+          else if (t === 'bush') addProp(y, () => stampBush(px, py, a));
+          else if (t === 'rock') addProp(y, () => stampRock(px, py, a));
+          else if (t === 'lantern') addProp(y + 10, () => stampLantern(px, py));
+          else if (t === 'lamp') addProp(y + 10, () => stampLamp(px, py));
+          else if (t === 'fence') addProp(y + 20, () => stampFence(px, py, a));
+          else if (t === 'fenceV') addProp(y + (a || 40), () => stampFenceV(px, py, a));
+          else if (t === 'bench') addProp(y + 22, () => stampBench(px, py));
+          else if (t === 'hedge') addProp(y + 6, () => stampHedge(px, py, Math.round((a || 64) / 2)));
+        };
+
+        // 绘制所有可达庭院内景物（与 layouts/f1.js 100% 同源）
+        const yardPropSource = hasLiveYardProps ? f1.yards : fallbackYards;
+        for (const yd of yardPropSource) {
+          for (const p of (yd.props || [])) queueProp(p);
+        }
+
+        // 11.3) 远景背景框景装饰（经过建筑外墙+26px 裙边、电梯承台、可达庭院+周界绿篱与已放置景物的 100% 零重叠守卫）
+        const forbiddenZones = [
+          // 主建筑北翼（含北檐口 -20 与南墙地基裙边 +28）
+          { x: -20, y: -20, w: 3496, h: 528 },
+          // 主建筑南翼（含南墙地基裙边 +28）
+          { x: 760, y: 480, w: 1940, h: 508 },
+          // 西/东电梯翼楼及一体化花岗岩承台（含外扩余量）
+          { x: westApron.x0 - 16, y: westApron.y0 - 16, w: westApron.w + 32, h: westApron.h + 36 },
+          { x: eastApron.x0 - 16, y: eastApron.y0 - 16, w: eastApron.w + 32, h: eastApron.h + 36 }
+        ];
+        for (const yd of activeYards) {
+          let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+          for (const pt of (yd.poly || [])) {
+            const px = pt.x ?? pt[0], py = pt.y ?? pt[1];
+            if (px < x0) x0 = px; if (px > x1) x1 = px;
+            if (py < y0) y0 = py; if (py > y1) y1 = py;
+          }
+          if (x1 > x0) forbiddenZones.push({ x: x0 - 28, y: y0 - 28, w: (x1 - x0) + 56, h: (y1 - y0) + 56 });
+        }
+
+        const farDecorCandidates = [
+          // 北窗外园区林荫行道树与低矮景石灌木（全部保持 y <= -54，不碰北墙压顶）
+          ['tree', -310, -16, 'oak'], ['pine', 360, -56], ['bush', 650, -52, 1], ['tree', 940, -58, 'oak'],
+          ['bush', 1220, -52, 2], ['tree', 1480, -56, 'sakura'], ['rock', 1756, -52, 1], ['tree', 2020, -58, 'oak'],
+          ['pine', 2540, -56], ['bush', 2890, -52, 1], ['tree', 3260, -56, 'sakura'], ['pine', 3760, -16],
+          // 西电梯承台外侧园区绿地（错开 X/Y，彻底根除 bush 叠在 oak 头顶的问题）
+          ['lantern', westApron.x0 - 52, westH.y + 56],
+          ['bush', westApron.x0 - 144, westH.y + 24, 1],
+          ['pine', westApron.x0 - 168, westH.y + 190],
+          ['bush', westApron.x0 - 68, westApron.y0 + westApron.h + 52, 1],
+          ['tree', westApron.x0 + 52, Math.max(442, westApron.y0 + westApron.h + 132), 'oak'],
+          ['tree', -316, 566, 'sakura'], ['rock', -156, 650, 1], ['pine', -246, 768], ['bush', -156, 868, 2],
+          // 东电梯承台外侧园区绿地（bush 与 oak 水平错开 148px，零重叠）
+          ['lantern', eastApron.x0 + eastApron.w + 52, eastH.y + 56],
+          ['bush', eastApron.x0 + eastApron.w + 144, eastH.y + 24, 2],
+          ['bush', eastApron.x0 + eastApron.w - 48, eastApron.y0 + eastApron.h + 52, 2],
+          ['tree', eastApron.x0 + eastApron.w + 100, Math.max(446, eastApron.y0 + eastApron.h + 136), 'oak'],
+          ['tree', 3728, 624, 'sakura'], ['rock', 3652, 744, 1], ['pine', 3756, 858], ['bush', 3644, 920, 1],
+          // 南侧园区远景生态林带（y >= 1084，完全避开南翼建筑裙边与庭院南护栏）
+          ['tree', 220, 1112, 'oak'], ['bush', 490, 1086, 1], ['pine', 880, 1122], ['bush', 1290, 1092, 2],
+          ['tree', 1728, 1134, 'sakura'], ['rock', 2120, 1096, 1], ['pine', 2520, 1122],
+          ['bush', 2930, 1086, 2], ['tree', 3300, 1112, 'oak']
+        ];
+
+        let farPlaced = 0, farSkipped = 0;
+        for (const cand of farDecorCandidates) {
+          const vb = visBoxForProp(cand);
+          if (forbiddenZones.some(fz => boxesOverlap(vb, fz, 0)) || placedVisBoxes.some(pb => boxesOverlap(vb, pb, 8))) {
+            farSkipped++;
+            continue;
+          }
+          farPlaced++;
+          queueProp(cand);
+        }
 
         props.sort((a, b) => a.y - b.y);
         for (const pr of props) pr.fn();
 
-        // 12) 消除 4-邻域孤立单像素
+        // 12) 确保建筑镂空区严格透明、外景陆水区 100% 不透明，并清零全部 4-邻域孤立像素（及 8-邻域孤立描边噪点）
+        for (let i = 0; i < grid.length; i++) {
+          if (bldg[i]) grid[i] = 0;
+          else if (!grid[i]) grid[i] = 20;
+        }
+        const isOutline = new Uint8Array(64);
+        isOutline[8] = 1; isOutline[17] = 1; isOutline[24] = 1; isOutline[29] = 1; isOutline[34] = 1; isOutline[48] = 1;
         let strayFixed = 0;
-        for (let pass = 0; pass < 4; pass++) {
-          for (let y = 1; y < EH - 1; y++) {
+        for (let pass = 0; pass < 5; pass++) {
+          let passFixes = 0;
+          for (let y = 0; y < EH; y++) {
             const row = y * EW;
-            for (let x = 1; x < EW - 1; x++) {
-              const v = grid[row + x];
-              if (!v || v === 8 || v === 17 || v === 24 || v === 29 || v === 34 || v === 48) continue;
-              if (grid[row + x - 1] === v || grid[row + x + 1] === v || grid[row - EW + x] === v || grid[row + EW + x] === v) continue;
-              const l = grid[row + x - 1], r = grid[row + x + 1], u = grid[row - EW + x], d = grid[row + EW + x];
-              const best = (l && (l === r || l === u || l === d)) ? l : ((u && (u === d || u === r)) ? u : (r || u || l || d));
-              if (best) { grid[row + x] = best; strayFixed++; }
-              else { grid[row + x] = 0; strayFixed++; }
+            for (let x = 0; x < EW; x++) {
+              const idx = row + x;
+              if (bldg[idx]) continue;
+              const v = grid[idx];
+              const l = x > 0 ? grid[idx - 1] : 0;
+              const r = x + 1 < EW ? grid[idx + 1] : 0;
+              const u = y > 0 ? grid[idx - EW] : 0;
+              const d = y + 1 < EH ? grid[idx + EW] : 0;
+              if (l === v || r === v || u === v || d === v) continue;
+              if (isOutline[v]) {
+                const ul = (x > 0 && y > 0) ? grid[idx - EW - 1] : 0;
+                const ur = (x + 1 < EW && y > 0) ? grid[idx - EW + 1] : 0;
+                const dl = (x > 0 && y + 1 < EH) ? grid[idx + EW - 1] : 0;
+                const dr = (x + 1 < EW && y + 1 < EH) ? grid[idx + EW + 1] : 0;
+                if (ul === v || ur === v || dl === v || dr === v) continue;
+              }
+              const best = (l && (l === r || l === u || l === d)) ? l : ((u && (u === d || u === r)) ? u : (r || u || l || d || 20));
+              grid[idx] = best;
+              strayFixed++;
+              passFixes++;
             }
           }
+          if (!passFixes) break;
         }
 
         const cv = document.createElement('canvas');
@@ -638,14 +1238,25 @@
         const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
         return {
           cv, grid, w: EW, h: EH, pal: EXT_PAL,
-          audit: { w: EW, h: EH, palCount: EXT_PAL.length - 1, buildMs: +(t1 - t0).toFixed(1), strayFixed }
+          audit: { w: EW, h: EH, palCount: EXT_PAL.length - 1, buildMs: +(t1 - t0).toFixed(1), strayFixed, farPlaced, farSkipped }
         };
       }
 
       let cachedExt = null, cachedKey = '';
       const ensureExt = (f) => {
         const f1 = f || (root.WORLD && root.WORLD.floorById && root.WORLD.floorById(1)) || null;
-        const key = f1 && Array.isArray(f1.halls) ? f1.halls.map(h => `${h.side}:${h.x},${h.y}`).join('|') : 'default';
+        const hallSig = f1 && Array.isArray(f1.halls) ? f1.halls.map(h => `${h.side}:${h.x},${h.y},${h.w},${h.h}`).join('|') : 'default';
+        const yardSig = f1 && Array.isArray(f1.yards)
+          ? f1.yards.map(yd => {
+              const poly = yd.poly || [];
+              const p0 = poly.length ? `${poly[0].x ?? poly[0][0]},${poly[0].y ?? poly[0][1]}` : '';
+              const pN = poly.length ? `${poly[poly.length - 1].x ?? poly[poly.length - 1][0]},${poly[poly.length - 1].y ?? poly[poly.length - 1][1]}` : '';
+              const pr = (yd.props || []).map(p => p.join(',')).join(';');
+              const pa = (yd.paths || []).map(p => ((Array.isArray(p) ? p : p.pts) || []).map(q => q.join(',')).join('/')).join(';');
+              return `${yd.id}:${poly.length}:${p0}-${pN}:${pr}:${pa}`;
+            }).join('|')
+          : 'noyards';
+        const key = `${hallSig}::${yardSig}`;
         if (!cachedExt || cachedKey !== key) {
           cachedExt = buildExteriorCanvas(f1);
           cachedKey = key;
