@@ -4,9 +4,30 @@
   const $ = id => document.getElementById(id), T = window.TutorialRoom, W = window.WORLD;
   const scene = W.roomById('f1:room:manager');
   const cabinet = scene.furniture.find(f => f.type === 'cabinet' && f.container);
-  const target = { x: 300, y: 285 };
-  const people = T.PEOPLE.map((p, i) => ({ ...p, x: 400 + i * 45, y: 250 + i * 70 }));
-  const layout = { cabinet, target, people, speed: W.SPEED, spawn: { x: 210, y: 285 }, resume: { x: 105, y: 190 }, collides: (x, y) => W.roomCollides(scene.id, x, y) };
+  function freeSpot(x, y) {
+    for (let radius = 0; radius <= Math.max(scene.width, scene.height); radius += 12) {
+      for (let i = 0; i < 16; i++) {
+        const px = Math.round(x + Math.cos(i * Math.PI / 8) * radius);
+        const py = Math.round(y + Math.sin(i * Math.PI / 8) * radius);
+        if (!W.roomCollides(scene.id, px, py)) return { x: px, y: py };
+      }
+    }
+    throw new Error('No walkable practice position in this room');
+  }
+  function clearLane() {
+    for (let y = cabinet.y + cabinet.h + 100; y < scene.height - 60; y += 12) {
+      for (let x = Math.round(scene.width / 4); x < scene.width - 140; x += 12) {
+        let clear = true;
+        for (let dx = 0; dx <= 90; dx += 3) if (W.roomCollides(scene.id, x + dx, y)) { clear = false; break; }
+        if (clear) return { spawn: { x, y }, target: { x: x + 90, y } };
+      }
+    }
+    throw new Error('No clear practice movement lane');
+  }
+  const lane = clearLane(), target = lane.target;
+  const people = T.PEOPLE.map((p, i) => ({ ...p, ...freeSpot(scene.width * (.63 + i * .1), scene.height * (.64 + i * .13)) }));
+  const layout = { cabinet, target, people, speed: W.SPEED, spawn: lane.spawn,
+    resume: freeSpot(cabinet.x + cabinet.w / 2, cabinet.y + cabinet.h + 68), collides: (x, y) => W.roomCollides(scene.id, x, y) };
   const clone = value => JSON.parse(JSON.stringify(value));
   const post = (type, extra = {}) => { if (parent !== window) parent.postMessage({ type: 'sid-tutorial:' + type, ...extra }, location.origin); };
   const colors = (hair, top) => ({ hair, top, pants: ['炭灰', '#505d70'], shoes: ['棕色', '#927253'] });
