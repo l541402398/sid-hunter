@@ -237,58 +237,175 @@
       }
     }
 
-    // 6) 小径（读取庭院 paths；世界半径 → 原生半径）
+    // 6) 一体化连续园路系统（读取庭院 paths ∪ extraPaths → 拐角圆弧平滑 + 全局距离场平滑并集 + 统一路缘包边）
     const PS = Object.assign({
       dirt: { kind: 'dirt', edge: 13, base: 14, light: 15, pebble: 16 },
       stone: { kind: 'flag', edge: 34, base: 36, light: 37, grout: 35 },
-      deck: { kind: 'plank', edge: 29, base: 31, light: 32, seam: 30 },
+      deck: { kind: 'plank', edge: 29, base: 31, light: 32, seam: 30, hi: 33 },
       sand: { kind: 'dirt', edge: 13, base: 15, light: 16, pebble: 14 }
     }, cfg.pathStyles || {});
+    const styleList = [null], styleIdMap = new Map();
+    const getStyleId = (name) => {
+      const key = PS[name] ? name : 'dirt';
+      if (styleIdMap.has(key)) return styleIdMap.get(key);
+      const id = styleList.length;
+      styleList.push(PS[key]);
+      styleIdMap.set(key, id);
+      return id;
+    };
+    const smoothPathPts = (raw) => {
+      if (raw.length < 3) return raw;
+      const out = [raw[0]];
+      for (let k = 1; k < raw.length - 1; k++) {
+        const [ax, ay, ar] = raw[k - 1], [bx, by, br] = raw[k], [cx, cy, cr] = raw[k + 1];
+        const v1x = ax - bx, v1y = ay - by, l1 = Math.hypot(v1x, v1y);
+        const v2x = cx - bx, v2y = cy - by, l2 = Math.hypot(v2x, v2y);
+        if (l1 > 4 && l2 > 4) {
+          const cut = Math.min(6.5, l1 * 0.28, l2 * 0.28);
+          const q0x = bx + v1x / l1 * cut, q0y = by + v1y / l1 * cut, q0r = br + (ar - br) * (cut / l1);
+          const q1x = bx + v2x / l2 * cut, q1y = by + v2y / l2 * cut, q1r = br + (cr - br) * (cut / l2);
+          out.push([q0x, q0y, q0r], [0.25 * q0x + 0.5 * bx + 0.25 * q1x, 0.25 * q0y + 0.5 * by + 0.25 * q1y, br], [q1x, q1y, q1r]);
+        } else {
+          out.push(raw[k]);
+        }
+      }
+      out.push(raw[raw.length - 1]);
+      return out;
+    };
+    const pathMask = new Uint8Array(EW * EH);
     const allPaths = [];
-    for (const yd of (f.yards || [])) for (const p of (yd.paths || [])) allPaths.push(p);
-    for (const p of (cfg.extraPaths || [])) allPaths.push(p);
-    for (const p of allPaths) {
-      const st = PS[p.style] || PS.dirt;
-      const pts = p.pts.map(([x, y, r]) => [(x - OX) / 2, (y - OY) / 2, (r || 18) / 2]);
-      let x0 = EW, x1 = 0, y0 = EH, y1 = 0;
-      for (const [x, y, r] of pts) { x0 = Math.min(x0, x - r - 6); x1 = Math.max(x1, x + r + 6); y0 = Math.min(y0, y - r - 6); y1 = Math.max(y1, y + r + 6); }
-      x0 = Math.max(0, x0 | 0); x1 = Math.min(EW - 1, Math.ceil(x1)); y0 = Math.max(0, y0 | 0); y1 = Math.min(EH - 1, Math.ceil(y1));
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-        const i = y * EW + x;
-        if (!land[i] || bldg[i]) continue;
-        let best = 1e9, rad = 0, tAlong = 0, dirx = 1, diry = 0;
-        for (let s = 0; s < pts.length - 1; s++) {
-          const [ax, ay, ar] = pts[s], [bx, by, br] = pts[s + 1];
-          const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
-          const t = Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / l2));
-          const cx = ax + vx * t, cy = ay + vy * t, d2 = (x - cx) ** 2 + (y - cy) ** 2;
-          if (d2 < best) { best = d2; rad = ar + (br - ar) * t; tAlong = s + t; const l = Math.sqrt(l2); dirx = vx / l; diry = vy / l; }
+    for (const yd of (f.yards || [])) for (const p of (yd.paths || [])) if (p.pts && p.pts.length >= 2) allPaths.push(p);
+    for (const p of (cfg.extraPaths || [])) if (p.pts && p.pts.length >= 2) allPaths.push(p);
+    if (allPaths.length) {
+      const pathSd = new Float32Array(EW * EH); pathSd.fill(1e4);
+      const pathSid = new Uint8Array(EW * EH);
+      const pathAlong = new Int16Array(EW * EH);
+      let ux0 = EW, ux1 = 0, uy0 = EH, uy1 = 0;
+      for (const p of allPaths) {
+        const sid = getStyleId(p.style), st = styleList[sid];
+        const pts = smoothPathPts(p.pts.map(([x, y, r]) => [(x - OX) / 2, (y - OY) / 2, (r || 18) / 2]));
+        let x0 = EW, x1 = 0, y0 = EH, y1 = 0;
+        for (const [x, y, r] of pts) {
+          x0 = Math.min(x0, x - r - 6); x1 = Math.max(x1, x + r + 6);
+          y0 = Math.min(y0, y - r - 6); y1 = Math.max(y1, y + r + 6);
         }
-        if (best > (rad + 3) * (rad + 3)) continue;
-        const d = Math.sqrt(best);
-        if (st.kind === 'plank') {
-          if (d > rad) continue;
-          const along = Math.round(x * dirx + y * diry), across = d;
-          if (across > rad - 1.5) grid[i] = st.edge;
-          else grid[i] = (along % 5 === 0) ? st.seam : ((Math.floor(along / 5) % 3 === 0) ? st.light : st.base);
-          continue;
+        x0 = Math.max(0, x0 | 0); x1 = Math.min(EW - 1, Math.ceil(x1));
+        y0 = Math.max(0, y0 | 0); y1 = Math.min(EH - 1, Math.ceil(y1));
+        if (x0 < ux0) ux0 = x0; if (x1 > ux1) ux1 = x1;
+        if (y0 < uy0) uy0 = y0; if (y1 > uy1) uy1 = y1;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const i = y * EW + x;
+          if (!land[i] || bldg[i]) continue;
+          let best = 1e9, rad = 0, dirx = 1, diry = 0;
+          for (let s = 0; s < pts.length - 1; s++) {
+            const [ax, ay, ar] = pts[s], [bx, by, br] = pts[s + 1];
+            const vx = bx - ax, vy = by - ay, l2 = vx * vx + vy * vy || 1;
+            const t = Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / l2));
+            const cx = ax + vx * t, cy = ay + vy * t, d2 = (x - cx) ** 2 + (y - cy) ** 2;
+            if (d2 < best) { best = d2; rad = ar + (br - ar) * t; const l = Math.sqrt(l2); dirx = vx / l; diry = vy / l; }
+          }
+          if (best > (rad + 5) * (rad + 5)) continue;
+          const wob = st.kind === 'plank' ? 0
+            : (st.kind === 'flag' ? (smoothNoise(x + 31, y + 17, 16) - 0.5) * 1.25 : (smoothNoise(x + 31, y + 17, 12) - 0.5) * 1.85);
+          const sd = Math.sqrt(best) - rad + wob;
+          const along = Math.round(x * dirx + y * diry);
+          const prev = pathSd[i];
+          if (prev > 900) {
+            pathSd[i] = sd; pathSid[i] = sid; pathAlong[i] = along;
+          } else {
+            const k = 2.8, h = Math.max(0, k - Math.abs(prev - sd)) / k;
+            if (sd < prev) { pathSid[i] = sid; pathAlong[i] = along; }
+            pathSd[i] = Math.min(prev, sd) - h * h * k * 0.25;
+          }
         }
-        const dr = d + (smoothNoise(x, y, 5) - 0.5) * 4.2;
-        if (dr > rad) continue;
-        if (st.kind === 'flag') {
-          if (dr > rad - 1.5) { grid[i] = ((x + y) % 5 === 0) ? 22 : 19; continue; }
-          const cx = Math.floor((x + (Math.floor(y / 6) & 1) * 4) / 8), cy = Math.floor(y / 6);
-          const gx = (x + (Math.floor(y / 6) & 1) * 4) % 8, gy = y % 6;
-          grid[i] = (gx === 0 || gy === 0) ? st.grout : (gy === 1 || gx === 1 ? st.light : (hash2(cx, cy) > 0.7 ? st.edge + 1 : st.base));
-          continue;
+      }
+      if (ux0 <= ux1 && uy0 <= uy1) {
+        for (let y = uy0; y <= uy1; y++) for (let x = ux0; x <= ux1; x++) {
+          const i = y * EW + x;
+          if (pathSd[i] <= 0 && land[i] && !bldg[i]) pathMask[i] = pathSid[i];
         }
-        if (dr > rad - 1.8) grid[i] = ((x + y) % 5 === 0) ? 22 : (dr > rad - 0.9 ? 19 : st.edge);
-        else if (dr < rad * 0.42 && smoothNoise(x + 17, y + 9, 8) > 0.48) grid[i] = st.light;
-        else grid[i] = st.base;
+        // 清理 1px 毛刺与针孔，确保路缘石单像素连续圆润
+        for (let y = Math.max(1, uy0); y <= Math.min(EH - 2, uy1); y++) for (let x = Math.max(1, ux0); x <= Math.min(EW - 2, ux1); x++) {
+          const i = y * EW + x;
+          if (bldg[i] || !land[i]) continue;
+          const nb = (pathMask[i - 1] > 0) + (pathMask[i + 1] > 0) + (pathMask[i - EW] > 0) + (pathMask[i + EW] > 0);
+          if (pathMask[i] && nb <= 1) pathMask[i] = 0;
+          else if (!pathMask[i] && nb >= 3) pathMask[i] = pathMask[i - 1] || pathMask[i + 1] || pathMask[i - EW];
+        }
+        const edgeM = new Uint8Array(EW * EH);
+        for (let y = uy0; y <= uy1; y++) for (let x = ux0; x <= ux1; x++) {
+          const i = y * EW + x;
+          if (!pathMask[i]) continue;
+          const outN = y > 0 && !pathMask[i - EW] && !bldg[i - EW];
+          const outS = y < EH - 1 && !pathMask[i + EW] && !bldg[i + EW];
+          const outW = x > 0 && !pathMask[i - 1] && !bldg[i - 1];
+          const outE = x < EW - 1 && !pathMask[i + 1] && !bldg[i + 1];
+          if (outN || outS || outW || outE) edgeM[i] = (outN ? 1 : 0) | (outW ? 2 : 0) | (outS ? 4 : 0) | (outE ? 8 : 0);
+        }
+        for (let y = uy0; y <= uy1; y++) for (let x = ux0; x <= ux1; x++) {
+          const i = y * EW + x, sid = pathMask[i];
+          if (!sid) continue;
+          const st = styleList[sid], em = edgeM[i];
+          const cN = y > 0 ? edgeM[i - EW] : 0, cS = y < EH - 1 ? edgeM[i + EW] : 0;
+          const cW = x > 0 ? edgeM[i - 1] : 0, cE = x < EW - 1 ? edgeM[i + 1] : 0;
+          const isCurb = !em && (cN || cS || cW || cE);
+          // 不同铺装材质交接处（如木栈台衔接石板园路）绘 1px 温润石材收口条
+          const diffMat = !em && ((y > 0 && pathMask[i - EW] && pathMask[i - EW] !== sid) || (x > 0 && pathMask[i - 1] && pathMask[i - 1] !== sid));
+          if (diffMat) { grid[i] = 37; continue; }
+          if (st.kind === 'plank') {
+            if (em) { grid[i] = st.edge; continue; }
+            if (isCurb) { grid[i] = (cN || cW) ? (st.hi || 33) : st.light; continue; }
+            const along = pathAlong[i], m = ((along % 6) + 6) % 6;
+            grid[i] = m === 0 ? st.seam : (m === 1 && ((Math.floor(along / 6) + (y >> 3)) % 3 === 0) ? st.light : st.base);
+            continue;
+          }
+          if (st.kind === 'flag') {
+            if (em) {
+              // 左上草皮咬合暗影 19 + 右下温润石牙 35，彻底告别生硬粗黑框
+              grid[i] = (em & 3) ? 19 : st.grout;
+              continue;
+            }
+            if (isCurb) {
+              const joint = ((x + y) % 14 === 0);
+              grid[i] = joint ? st.grout : ((cN || cW) ? st.light : st.base);
+              continue;
+            }
+            // 低对比度大规格错缝石板（14×9 原生格 = 28×18 世界像素）
+            const row = Math.floor(y / 9), off = (row & 1) * 7;
+            const cx = Math.floor((x + off) / 14), gx = (x + off) % 14, gy = y % 9;
+            if (gx === 0 || gy === 0) {
+              grid[i] = st.grout;
+            } else {
+              const h = hash2(cx, row);
+              if (gy === 1 && gx >= 2 && gx <= 6 && h < 0.36) grid[i] = st.light;
+              else if (gy === 7 && gx >= 7 && gx <= 11 && h > 0.78) grid[i] = st.grout;
+              else grid[i] = st.base;
+            }
+            continue;
+          }
+          // 砂砾 / 自然园路：暖棕路牙 + 柔滑受光路拱
+          if (em) { grid[i] = (em & 3) ? st.edge : 19; continue; }
+          if (isCurb) { grid[i] = st.base; continue; }
+          if (pathSd[i] < -2.2) {
+            const n = smoothNoise(x + 17, y + 9, 9);
+            grid[i] = n > 0.68 ? st.pebble : st.light;
+          } else {
+            grid[i] = st.base;
+          }
+        }
+        // 稀疏草芽自然咬合路缘（成对 ≥2px，零孤立杂点）
+        for (let y = Math.max(2, uy0); y <= Math.min(EH - 3, uy1); y++) for (let x = Math.max(2, ux0); x <= Math.min(EW - 3, ux1); x++) {
+          const i = y * EW + x;
+          if (!edgeM[i] || ((x * 5 + y * 3) % 19 !== 0)) continue;
+          if (edgeM[i + 1] && (isGround(grid[i - EW]) || isGround(grid[i + EW]))) {
+            const gc = (edgeM[i] & 1) ? 21 : 22;
+            grid[i] = gc; grid[i + 1] = gc;
+          }
+        }
       }
     }
 
-    // 7) 草地细节（成簇 ≥3px 的高光草芽与十字小花），避开庭院景物落脚处
+    // 7) 草地细节（成簇 ≥3px 的高光草芽与十字小花），避开道路、庭院护栏带与景物落脚处
     const flowerCols = cfg.flowers || [43, 44, 45];
     const tuftAvoid = [];
     for (const yd of (f.yards || [])) for (const p of (yd.props || [])) tuftAvoid.push([toPx(p[1]), toPy(p[2])]);
@@ -296,11 +413,17 @@
       const h = hash2(x, y);
       const px = x + Math.floor(h * 7) - 3, py = y + Math.floor(hash2(y, x) * 5) - 2;
       const i = py * EW + px;
-      if (!land[i] || bldg[i] || !isGround(grid[i])) continue;
-      if (h < (cfg.tuftRate ?? 0.24)) { pset(px, py, 22); pset(px + 1, py, 22); pset(px, py - 1, 23); pset(px + 2, py + 1, 19); pset(px + 3, py, 22); }
-      else if (h > 1 - (cfg.flowerRate ?? 0.10)) {
+      if (!land[i] || bldg[i] || pathMask[i] || !isGround(grid[i])) continue;
+      if (tuftAvoid.some(([ax, ay]) => Math.abs(px - ax) < 10 && Math.abs(py - ay) < 8)) continue;
+      if (h < (cfg.tuftRate ?? 0.24)) {
+        pset(px, py, 22); pset(px + 1, py, 22); pset(px + 2, py, 22);
+        pset(px, py - 1, 23); pset(px + 1, py - 1, 23);
+        pset(px + 1, py + 1, 19); pset(px + 2, py + 1, 19);
+      } else if (h > 1 - (cfg.flowerRate ?? 0.10)) {
         const fc = flowerCols[Math.floor(hash2(px, py) * flowerCols.length)];
-        pset(px, py - 1, fc); pset(px, py + 1, fc); pset(px - 1, py, fc); pset(px + 1, py, fc); pset(px, py, 42);
+        pset(px, py + 1, 19); pset(px + 1, py + 1, 19);
+        pset(px + 1, py - 1, fc); pset(px, py, fc); pset(px + 1, py, fc);
+        pset(px, py - 1, 43);
       }
     }
 
@@ -463,8 +586,15 @@
     };
     S.umbrella = (px, py) => {
       fillDisc(px + 3, py + 3, 12, 3, 18); fillRect(px, py - 20, 1, 22, 34);
-      for (let dy = -6; dy <= 0; dy++) { const w = 12 - Math.round((dy + 6) * 0.2) - (dy < -4 ? (dy + 7) * 3 : 0); for (let dx = -w; dx <= w; dx++) pset(px + dx, py - 22 + dy + 6, dy === 0 ? 17 : (Math.floor((dx + 13) / 4) & 1 ? 44 : 43)); }
-      fillRect(px - 1, py - 29, 3, 2, 34);
+      const uw = [4, 7, 10, 11, 12, 12, 12];
+      for (let dy = -6; dy <= 0; dy++) {
+        const w = uw[dy + 6], ry = py - 16 + dy;
+        for (let dx = -w; dx <= w; dx++) {
+          const edge = dy === 0 || Math.abs(dx) === w || (dy === -6 && Math.abs(dx) <= w);
+          pset(px + dx, ry, edge ? 17 : ((Math.floor((dx + 13) / 4) & 1) ? 44 : 43));
+        }
+      }
+      fillRect(px - 1, py - 24, 3, 2, 34); pset(px, py - 24, 37); pset(px - 1, py - 24, 37);
       fillRect(px + 4, py - 2, 14, 6, 45); fillRect(px + 5, py - 1, 12, 1, 43); // 沙滩巾
     };
     S.picnic = (px, py) => {
@@ -623,36 +753,48 @@
       for (let by = 0; by < ph; by += 18) { fillRect(px - 4, py + by, 4, 6, 29); fillRect(px + pw, py + by, 4, 6, 29); fillRect(px - 3, py + by + 1, 2, 1, 33); fillRect(px + pw + 1, py + by + 1, 2, 1, 33); }
       fillRect(px + pw + 2, py + 2, 2, ph - 2, 1);
     };
-    S.terraceApron = (ap) => {                   // 电梯翼楼悬挑石材露台裙板（与 2F–7F 各层石材色板 34..37 自动同源）
-      const px0 = Math.max(2, toPx(ap.x0)), px1 = Math.min(EW - 2, toPx(ap.x1));
+    S.terraceApron = (ap) => {                   // 电梯翼楼一体化倒角石材基座裙板（单层连续铺装，零重影叠框）
+      const isLeft = ap.h.side === 'left';
+      const px0 = Math.max(2, toPx(ap.x0)), px1 = Math.min(EW - 3, toPx(ap.x1));
       const py0 = Math.max(2, toPy(ap.y0)), py1 = Math.min(EH - 4, toPy(ap.y1));
       for (let y = py0; y <= py1 + 2; y++) {
         for (let x = px0; x <= px1 + 1; x++) {
           const i = y * EW + x;
           if (bldg[i]) continue;
-          if (y > py1 || x > px1) {
-            if (land[i]) grid[i] = 18;
+          const ox = isLeft ? (x - px0) : (px1 - x);
+          const cutN = ox + (y - py0), cutS = ox + (py1 - y);
+          const inPlinth = x <= px1 && y <= py1 && cutN >= 3 && cutS >= 3;
+          if (!inPlinth) {
+            if (land[i] && ((y > py1 && y <= py1 + 2 && x >= px0 + 2 && x <= px1 + 1) || (!isLeft && x === px1 + 1 && y >= py0 + 3 && y <= py1))) {
+              grid[i] = 18;
+            }
             continue;
           }
-          // 1px 石材深色外轮廓 + 南侧 3px 石砌立面厚边
-          if (x === px0 || x === px1 || y === py0 || y === py1) {
+          const outerEdge = (isLeft ? x === px0 : x === px1) || cutN === 3 || cutS === 3;
+          if (y === py1 || cutS === 3) {
             grid[i] = 34;
-          } else if (y >= py1 - 3) {
-            grid[i] = ((x - px0) % 12 === 0) ? 34 : 35;
-          } else if (y === py0 + 1 || x === px0 + 1) {
-            grid[i] = 37;
+          } else if (y === py1 - 1) {
+            grid[i] = ((x - px0) % 14 === 0) ? 34 : 35;
+          } else if (y === py0 || (isLeft && x === px0) || cutN === 3) {
+            grid[i] = 19;
+          } else if (!isLeft && x === px1) {
+            grid[i] = 35;
+          } else if (y === py0 + 1 || (isLeft && x === px0 + 1) || cutN === 4) {
+            grid[i] = ((x + y) % 14 === 0) ? 35 : 37;
+          } else if (outerEdge) {
+            grid[i] = 35;
           } else {
-            const r = Math.floor((y - py0) / 8), off = (r & 1) ? 6 : 0;
-            const gx = (x - px0 + off) % 12, gy = (y - py0) % 8;
+            const r = Math.floor((y - py0) / 9), off = (r & 1) * 7;
+            const cx = Math.floor((x - px0 + off) / 14), gx = (x - px0 + off) % 14, gy = (y - py0) % 9;
             if (gx === 0 || gy === 0) grid[i] = 35;
-            else if ((gx === 1 || gy === 1) && hash2(Math.floor((x + off) / 12), r) < 0.42) grid[i] = 37;
+            else if (gy === 1 && gx >= 2 && gx <= 6 && hash2(cx, r) < 0.38) grid[i] = 37;
             else grid[i] = 36;
           }
         }
       }
-      // 电梯翼楼墙基环绕环境光暗影
-      const hx0 = Math.max(px0 + 2, toPx(ap.h.x - 7)), hx1 = Math.min(px1 - 2, toPx(ap.h.x + ap.h.w + 7));
-      const hy0 = Math.max(py0 + 2, toPy(ap.h.y - 68)), hy1 = Math.min(py1 - 4, toPy(ap.h.y + ap.h.h + 17));
+      // 电梯翼楼墙基环绕柔和环境光闭塞
+      const hx0 = Math.max(px0 + 2, toPx(ap.h.x - 6)), hx1 = Math.min(px1 - 2, toPx(ap.h.x + ap.h.w + 6));
+      const hy0 = Math.max(py0 + 2, toPy(ap.h.y - 68)), hy1 = Math.min(py1 - 3, toPy(ap.h.y + ap.h.h + 16));
       for (let y = hy0; y <= hy1; y++) {
         for (let x = hx0; x <= hx1; x++) {
           const i = y * EW + x;
@@ -660,44 +802,297 @@
         }
       }
     };
+    // 庭院周界 3/4 洞石压顶雪松矮柱 + 修剪黄杨绿篱（紧贴可达边界外侧，消灭无形空气墙）
+    const pSafe = (x, y, c) => {
+      x |= 0; y |= 0;
+      if (x >= 0 && x < EW && y >= 0 && y < EH && c && !bldg[y * EW + x]) grid[y * EW + x] = c;
+    };
+    S.yardBollard = (bx, by) => {
+      for (let dx = -1; dx <= 3; dx++) if (by + 9 < EH && land[(by + 9) * EW + (bx + dx)]) pSafe(bx + dx, by + 9, 18);
+      for (let dy = 0; dy < 9; dy++) for (let dx = -2; dx <= 2; dx++) pSafe(bx + dx, by + dy, 29);
+      for (let dy = 1; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) pSafe(bx + dx, by + dy, 36);
+      pSafe(bx - 1, by + 1, 37); pSafe(bx, by + 1, 37);
+      for (let dy = 3; dy <= 6; dy++) {
+        pSafe(bx - 1, by + dy, 32); pSafe(bx, by + dy, 31); pSafe(bx + 1, by + dy, 30);
+      }
+      for (let dx = -1; dx <= 1; dx++) pSafe(bx + dx, by + 7, 35);
+    };
+    S.yardHedgeH = (px0, px1, pyEdge, outY) => {
+      if (px1 - px0 < 4) return;
+      const topY = outY > 0 ? pyEdge : pyEdge - 8;
+      for (let x = px0 + 1; x <= px1; x++) {
+        const m = (x - px0) % 10;
+        if (topY + 8 < EH && land[(topY + 8) * EW + x]) pSafe(x, topY + 8, 18);
+        if (m >= 1 && m <= 8 && topY + 9 < EH && land[(topY + 9) * EW + x]) pSafe(x, topY + 9, 18);
+      }
+      for (let x = px0; x < px1; x++) {
+        const m = (x - px0) % 10, mound = Math.floor((x - px0) / 10);
+        const dip = (m === 0 || m === 9) ? 1 : 0;
+        const y0 = topY + dip, y1 = topY + 7;
+        for (let y = y0; y <= y1; y++) {
+          if (x === px0 || x === px1 - 1 || y === y0 || y === y1) { pSafe(x, y, FO.out); continue; }
+          const dy = y - topY;
+          if ((dy === 1 && m >= 2 && m <= 4) || (dy === 2 && m >= 1 && m <= 3)) pSafe(x, y, FO.hi);
+          else if (dy <= 2 || (dy === 3 && m >= 2 && m <= 6)) pSafe(x, y, FO.l);
+          else if (dy <= 4) pSafe(x, y, m >= 8 ? FO.d : FO.mid);
+          else pSafe(x, y, (m >= 6 && dy === 6) || (m >= 7 && dy === 5) ? FO.sh : FO.d);
+        }
+        // 绿篱点缀四连通花蕾簇（与竖向绿篱材质完全统一）
+        if (m === 5 && (mound % 3 === 1) && x + 1 < px1 - 3) {
+          const fc = flowerCols[mound % flowerCols.length];
+          pSafe(x + 1, topY + 2, fc); pSafe(x, topY + 3, fc); pSafe(x + 1, topY + 3, fc); pSafe(x, topY + 2, 43);
+        }
+      }
+      const span = px1 - px0, nPosts = Math.max(1, Math.round(span / 28));
+      for (let k = 0; k <= nPosts; k++) {
+        const bx = k === 0 ? px0 + 2 : (k === nPosts ? px1 - 3 : Math.round(px0 + 2 + (span - 5) * k / nPosts));
+        S.yardBollard(bx, topY);
+      }
+    };
+    S.yardHedgeV = (pxEdge, py0, py1, outX) => {
+      if (py1 - py0 < 4) return;
+      const leftX = outX < 0 ? pxEdge - 7 : pxEdge;
+      for (let y = py0; y < py1; y++) {
+        const n = (y - py0) % 9;
+        if (outX > 0) {
+          if (leftX + 7 < EW && land[y * EW + leftX + 7]) pSafe(leftX + 7, y, 18);
+          if (n >= 1 && n <= 7 && leftX + 8 < EW && land[y * EW + leftX + 8]) pSafe(leftX + 8, y, 18);
+        } else if (pxEdge < EW && land[y * EW + pxEdge] && !pathMask[y * EW + pxEdge]) {
+          pSafe(pxEdge, y, 18);
+        }
+        const indent = n === 0 ? 1 : 0;
+        const xL = leftX + indent, xR = leftX + 6 - indent;
+        for (let x = xL; x <= xR; x++) {
+          if (x === xL || x === xR || y === py0 || y === py1 - 1) { pSafe(x, y, FO.out); continue; }
+          const dx = x - leftX;
+          if (dx <= 2) pSafe(x, y, (n >= 2 && n <= 4) ? FO.hi : FO.l);
+          else if (dx === 3) pSafe(x, y, n <= 5 ? FO.mid : FO.d);
+          else pSafe(x, y, n <= 4 ? FO.d : FO.sh);
+        }
+      }
+      const span = py1 - py0, nPosts = Math.max(1, Math.round(span / 26));
+      for (let k = 0; k < nPosts; k++) {
+        const by = k === 0 ? py0 : Math.round(py0 + span * k / nPosts) - 4;
+        if (by + 8 <= py1 + 2) S.yardBollard(leftX + 3, by);
+      }
+    };
     if (cfg.stamps) Object.assign(S, cfg.stamps(S, { pset, pat, fillRect, fillDisc, hash2, smoothNoise, EW, EH, toPx, toPy, grid, land, bldg }));
 
-    // 9) 底层景物（桥 / 水上物 / 地台）与按 Y 排序的地表景物（自动剔除侵入电梯石材露台的树冠/灌木/船只/田垄）
+    // 提取所有可达庭院（f.yards）的非建筑外边缘片段，生成闭合 3/4 绿篱矮栏
+    const inPolyW = (poly, wx, wy) => {
+      let c = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i], b = poly[j];
+        if (((a.y > wy) !== (b.y > wy)) && (wx < (b.x - a.x) * (wy - a.y) / (b.y - a.y) + a.x)) c = !c;
+      }
+      return c;
+    };
+    const yardHSegs = [], yardVSegs = [];
+    for (const yd of (f.yards || [])) {
+      if (yd.kind === 'pier' || !yd.poly || yd.poly.length < 3) continue;
+      const poly = yd.poly;
+      const atGateW = (wx, wy) => (yd.gates || []).some(g => wx >= g.x1 - 4 && wx <= g.x2 + 4 && wy >= g.y1 - 4 && wy <= g.y2 + 4);
+      const hHere = [], vHere = [];
+      for (let k = 0; k < poly.length; k++) {
+        const a = poly[k], b = poly[(k + 1) % poly.length];
+        if (Math.abs(a.y - b.y) < 2) {
+          const wy = Math.round((a.y + b.y) / 2), wx0 = Math.min(a.x, b.x), wx1 = Math.max(a.x, b.x);
+          if (wx1 - wx0 < 8) continue;
+          const outY = inPolyW(poly, (wx0 + wx1) / 2, wy - 3) ? 1 : -1;
+          let run = null;
+          for (let s = wx0; s < wx1; s += 4) {
+            const cx = Math.min(wx1 - 1, s + 2), opx = toPx(cx), opy = toPy(wy + outY * 10);
+            const open = opx >= 0 && opx < EW && opy >= 0 && opy < EH && !bldg[opy * EW + opx] && !yardM[opy * EW + opx] && !atGateW(cx, wy);
+            if (open && run === null) run = s;
+            else if (!open && run !== null) { if (s - run >= 12) hHere.push({ wx0: run, wx1: s, wy, outY }); run = null; }
+          }
+          if (run !== null && wx1 - run >= 12) hHere.push({ wx0: run, wx1, wy, outY });
+        } else if (Math.abs(a.x - b.x) < 2) {
+          const wx = Math.round((a.x + b.x) / 2), wy0 = Math.min(a.y, b.y), wy1 = Math.max(a.y, b.y);
+          if (wy1 - wy0 < 8) continue;
+          const outX = inPolyW(poly, wx - 3, (wy0 + wy1) / 2) ? 1 : -1;
+          let run = null;
+          for (let s = wy0; s < wy1; s += 4) {
+            const cy = Math.min(wy1 - 1, s + 2), opx = toPx(wx + outX * 10), opy = toPy(cy);
+            const open = opx >= 0 && opx < EW && opy >= 0 && opy < EH && !bldg[opy * EW + opx] && !yardM[opy * EW + opx] && !atGateW(wx, cy);
+            if (open && run === null) run = s;
+            else if (!open && run !== null) { if (s - run >= 12) vHere.push({ wx, wy0: run, wy1: s, outX }); run = null; }
+          }
+          if (run !== null && wy1 - run >= 12) vHere.push({ wx, wy0: run, wy1, outX });
+        }
+      }
+      // 拐角自动外扩咬合：若水平段端点衔接竖向段，水平段外延 7px 包覆竖向段端头并立转角石柱
+      for (const hs of hHere) {
+        let px0 = toPx(hs.wx0), px1 = toPx(hs.wx1);
+        for (const vs of vHere) {
+          if (vs.outX < 0 && Math.abs(vs.wx - hs.wx0) <= 6 && (Math.abs(vs.wy1 - hs.wy) <= 6 || Math.abs(vs.wy0 - hs.wy) <= 6)) px0 -= 7;
+          if (vs.outX > 0 && Math.abs(vs.wx - hs.wx1) <= 6 && (Math.abs(vs.wy1 - hs.wy) <= 6 || Math.abs(vs.wy0 - hs.wy) <= 6)) px1 += 7;
+        }
+        yardHSegs.push({ px0, px1, py: toPy(hs.wy), wy: hs.wy, outY: hs.outY });
+      }
+      for (const vs of vHere) yardVSegs.push({ px: toPx(vs.wx), py0: toPy(vs.wy0), py1: toPy(vs.wy1), outX: vs.outX });
+    }
+
+    // 9) 全局视觉包围盒防遮挡守卫（f.yards 优先 → 远景 decor / treeLines 自动避让建筑裙边、庭院护栏、承台、园路与已放置景物）
     const flat = new Set(['bed', 'crops', 'flowers', 'pond', 'picnic', 'fireflies', 'pebble']);
     const water = new Set(['boat', 'buoy', 'lotus']);
-    const rawAll = [];
-    for (const yd of (f.yards || [])) for (const p of (yd.props || [])) rawAll.push(p);
-    for (const p of (cfg.decor || [])) rawAll.push(p);
-    // 远岸林带：两排交错、品种与间距带确定性抖动（框景用，不可达）
+    const visBox = (p) => {
+      const [t, x, y, a, b] = p, px = toPx(x), py = toPy(y);
+      const pw = Math.round((a || 0) / 2), ph = Math.round((b || 0) / 2);
+      switch (t) {
+        case 'tree': return [px - 19, py - 42, px + 19, py + 10];
+        case 'pine': return [px - 16, py - 42, px + 16, py + 8];
+        case 'palm': return [px - 13, py - 44, px + 25, py + 8];
+        case 'bush': return [px - 10, py - 10, px + 10, py + 9];
+        case 'rock': return [px - 9, py - 7, px + 10, py + 8];
+        case 'pebble': return [px - 1, py - 1, px + 7, py + 5];
+        case 'lantern': case 'chime': return [px - 7, py - 16, px + 7, py + 10];
+        case 'lamp': case 'hoop': return [px - 7, py - 28, px + 7, py + 8];
+        case 'bench': return [px - 2, py - 2, px + 35, py + 12];
+        case 'umbrella': return [px - 14, py - 30, px + 19, py + 7];
+        case 'arch': return [px - 19, py - 38, px + 19, py + 4];
+        case 'dome': return [px - 5, py - 10, px + pw + 7, py + ph + 8];
+        case 'bed': case 'crops': case 'flowers': case 'pond': case 'fireflies':
+          return [px - 3, py - 6, px + pw + 4, py + ph + 5];
+        case 'shed': return [px - 4, py - 2, px + pw + 5, py + ph + 5];
+        case 'bridge': case 'bridgeV': return [px - 5, py - 5, px + pw + 5, py + ph + 5];
+        case 'fence': return [px - 2, py - 2, px + pw + 6, py + 12];
+        case 'fenceV': return [px - 2, py - 2, px + 8, py + pw + 12];
+        case 'hedge': return [px - 2, py - 7, px + pw + 2, py + 7];
+        case 'bleacher': return [px - 2, py - 2, px + pw + 2, py + 28];
+        case 'telescope': return [px - 9, py - 20, px + 10, py + 5];
+        case 'lotus': return [px - 6, py - 5, px + 6, py + 3];
+        case 'boat': return [px - 17, py - 25, px + 19, py + 7];
+        case 'buoy': return [px - 5, py - 5, px + 5, py + 4];
+        case 'picnic': return [px - 19, py - 12, px + 19, py + 9];
+        case 'scarecrow': return [px - 9, py - 29, px + 11, py + 5];
+        case 'well': return [px - 13, py - 23, px + 16, py + 8];
+        case 'lighthouse': return [px - 17, py - 79, px + 23, py + 10];
+        case 'windmill': return [px - 20, py - 53, px + 21, py + 8];
+        case 'campfire': return [px - 10, py - 10, px + 10, py + 7];
+        case 'sign': return [px - 8, py - 16, px + 10, py + 4];
+        case 'crate': return [px - 8, py - 10, px + 9, py + 5];
+        case 'barrel': return [px - 6, py - 11, px + 8, py + 5];
+        case 'stall': return [px - 23, py - 35, px + 23, py + 6];
+        case 'goal': return [px - 10, py - 18, px + 10, py + 17];
+        case 'swing': return [px - 12, py - 34, px + 14, py + 4];
+        case 'balloon': return [px - 21, py - 67, px + 21, py + 8];
+        default: return [px - 14, py - 24, px + 14, py + 8];
+      }
+    };
+    const forbidM = new Uint8Array(EW * EH);
+    const dilateTmp = new Uint8Array(EW * EH);
+    const colSum = new Int16Array(EW);
+    const dilateInto = (src, rxL, rxR, ryU, ryD) => {
+      dilateTmp.fill(0);
+      colSum.fill(0);
+      for (let y = 0; y < EH; y++) {
+        const row = y * EW;
+        let s = 0;
+        for (let x = 0; x <= Math.min(EW - 1, rxR); x++) s += src[row + x] ? 1 : 0;
+        for (let x = 0; x < EW; x++) {
+          if (s > 0) dilateTmp[row + x] = 1;
+          if (x + rxR + 1 < EW && src[row + x + rxR + 1]) s++;
+          if (x - rxL >= 0 && src[row + x - rxL]) s--;
+        }
+      }
+      for (let y = 0; y <= Math.min(EH - 1, ryD); y++) {
+        const row = y * EW;
+        for (let x = 0; x < EW; x++) colSum[x] += dilateTmp[row + x];
+      }
+      for (let y = 0; y < EH; y++) {
+        const row = y * EW;
+        const addOff = y + ryD + 1 < EH ? (y + ryD + 1) * EW : -1;
+        const subOff = y - ryU >= 0 ? (y - ryU) * EW : -1;
+        for (let x = 0; x < EW; x++) {
+          if (colSum[x] > 0) forbidM[row + x] = 1;
+          if (addOff >= 0) colSum[x] += dilateTmp[addOff + x];
+          if (subOff >= 0) colSum[x] -= dilateTmp[subOff + x];
+        }
+      }
+    };
+    // ① 建筑轮廓（南侧外扩 14 原生格 = 28px 护住南墙压顶+地基裙边，其余方向 8 格）
+    dilateInto(bldg, 8, 8, 14, 8);
+    // ② 可达庭院（外扩 11..12 原生格护住庭院内部与外侧周界矮绿篱护栏）
+    dilateInto(yardM, 11, 11, 12, 11);
+    // ③ 电梯翼楼承台裙板
+    for (const ap of hallAprons) {
+      const x0 = Math.max(0, toPx(ap.x0) - 4), x1 = Math.min(EW - 1, toPx(ap.x1) + 4);
+      const y0 = Math.max(0, toPy(ap.y0) - 4), y1 = Math.min(EH - 1, toPy(ap.y1) + 6);
+      for (let y = y0; y <= y1; y++) forbidM.fill(1, y * EW + x0, y * EW + x1 + 1);
+    }
+    // ④ 全局路径掩码（外扩 2 原生格护住路缘）
+    dilateInto(pathMask, 2, 2, 2, 2);
+    // ⑤ 主题额外禁放矩形（如 7F 远景裙房挑檐女儿墙）
+    for (const [rx, ry, rw, rh] of (cfg.forbidRects || [])) {
+      const x0 = Math.max(0, toPx(rx)), x1 = Math.min(EW - 1, toPx(rx + rw));
+      const y0 = Math.max(0, toPy(ry)), y1 = Math.min(EH - 1, toPy(ry + rh));
+      for (let y = y0; y <= y1; y++) forbidM.fill(1, y * EW + x0, y * EW + x1 + 1);
+    }
+    // 二维前缀和表：O(1) 判定任意候选视觉包围盒是否触碰禁区
+    const SW = EW + 1, forbidSAT = new Int32Array(SW * (EH + 1));
+    for (let y = 0; y < EH; y++) {
+      let rowSum = 0;
+      const rOff = (y + 1) * SW, pOff = y * SW, mOff = y * EW;
+      for (let x = 0; x < EW; x++) {
+        rowSum += forbidM[mOff + x];
+        forbidSAT[rOff + x + 1] = forbidSAT[pOff + x + 1] + rowSum;
+      }
+    }
+    const boxHitsForbid = (x0, y0, x1, y1) => {
+      const ax = Math.max(0, x0), ay = Math.max(0, y0), bx = Math.min(EW, x1 + 1), by = Math.min(EH, y1 + 1);
+      if (bx <= ax || by <= ay) return 0;
+      return forbidSAT[by * SW + bx] - forbidSAT[ay * SW + bx] - forbidSAT[by * SW + ax] + forbidSAT[ay * SW + ax];
+    };
+
+    const hitsHallApron = (p) => {
+      if (!hallAprons.length) return false;
+      const [bx0, by0, bx1, by1] = visBox(p);
+      return hallAprons.some(ap => bx1 > toPx(ap.x0) - 4 && bx0 < toPx(ap.x1) + 4 && by1 > toPy(ap.y0) - 5 && by0 < toPy(ap.y1) + 6);
+    };
+    const placedBoxes = [], all = [];
+    let skippedDecor = 0;
+    // 庭院内景物优先级最高（由 collision-yards 保证零重叠，登记包围盒供远景避让）
+    for (const yd of (f.yards || [])) {
+      for (const p of (yd.props || [])) {
+        if (hitsHallApron(p)) continue;
+        all.push(p);
+        placedBoxes.push(visBox(p));
+      }
+    }
+    // 收集远景候选景物（主题重点 decor 优先，远岸林带 treeLines 其次）
+    const farCands = [];
+    for (const p of (cfg.decor || [])) farCands.push(p);
     for (const tl of (cfg.treeLines || [])) {
       const kinds = tl.kinds || ['oak', 'alt', 'pine'];
       for (let row = 0; row < (tl.rows || 2); row++) for (let x = tl.x0 + row * (tl.step / 2); x < tl.x1; x += tl.step) {
         const h = hash2(Math.round(x), Math.round(tl.y + row * 31));
         const k = kinds[Math.floor(h * kinds.length)];
         const jx = Math.round(x + (h - 0.5) * tl.step * 0.5), jy = Math.round(tl.y + row * (tl.dy || 46) + (hash2(row, Math.round(x)) - 0.5) * 16);
-        if (h > 0.9) rawAll.push(['bush', jx, jy, 1 + (h > 0.95 ? 1 : 0)]);
-        else if (k === 'pine') rawAll.push(['pine', jx, jy]);
-        else rawAll.push([k === 'palm' ? 'palm' : 'tree', jx, jy, k]);
+        if (h > 0.9) farCands.push(['bush', jx, jy, 1 + (h > 0.95 ? 1 : 0)]);
+        else if (k === 'pine') farCands.push(['pine', jx, jy]);
+        else farCands.push([k === 'palm' ? 'palm' : 'tree', jx, jy, k]);
       }
     }
-    const hitsHallApron = (p) => {
-      if (!hallAprons.length) return false;
-      const [t, x, y, a, b] = p;
-      let bx0, by0, bx1, by1;
-      if (t === 'bed' || t === 'crops' || t === 'flowers' || t === 'pond' || t === 'shed' || t === 'dome' || t === 'bridge' || t === 'bridgeV' || t === 'fireflies') {
-        bx0 = x - 8; by0 = y - 24; bx1 = x + (a || 0) + 8; by1 = y + (b || 0) + 12;
-      } else if (t === 'fence' || t === 'bleacher' || t === 'hedge') {
-        bx0 = x - 8; by0 = y - 20; bx1 = x + (a || 0) + 8; by1 = y + 32;
-      } else if (t === 'fenceV') {
-        bx0 = x - 12; by0 = y - 12; bx1 = x + 16; by1 = y + (a || 0) + 12;
-      } else if (t === 'tree' || t === 'pine' || t === 'palm' || t === 'windmill' || t === 'lighthouse' || t === 'balloon') {
-        bx0 = x - 44; by0 = y - 98; bx1 = x + 44; by1 = y + 22;
-      } else {
-        bx0 = x - 38; by0 = y - 58; bx1 = x + 38; by1 = y + 20;
+    for (const p of farCands) {
+      const t = p[0], px = toPx(p[1]), py = toPy(p[2]);
+      const vb = visBox(p), [x0, y0, x1, y1] = vb;
+      if (x0 < 2 || y0 < 2 || x1 >= EW - 2 || y1 >= EH - 2 || px < 2 || px >= EW - 2 || py < 2 || py >= EH - 2) { skippedDecor++; continue; }
+      const ci = py * EW + px;
+      if (water.has(t)) {
+        if (land[ci] || wall[ci]) { skippedDecor++; continue; }
+      } else if (t !== 'bridge' && t !== 'bridgeV') {
+        if (!land[ci]) { skippedDecor++; continue; }
+        if (flat.has(t) && (!land[Math.min(EH - 1, y1 - 2) * EW + Math.max(0, x0 + 2)] || !land[Math.min(EH - 1, y1 - 2) * EW + Math.min(EW - 1, x1 - 2)])) {
+          skippedDecor++; continue;
+        }
       }
-      return hallAprons.some(ap => bx1 > ap.x0 - 8 && bx0 < ap.x1 + 8 && by1 > ap.y0 - 10 && by0 < ap.y1 + 12);
-    };
-    const all = rawAll.filter(p => !hitsHallApron(p));
+      if (boxHitsForbid(x0, y0, x1, y1) > 0) { skippedDecor++; continue; }
+      if (placedBoxes.some(b => x0 < b[2] + 3 && x1 > b[0] - 3 && y0 < b[3] + 3 && y1 > b[1] - 3)) { skippedDecor++; continue; }
+      all.push(p);
+      placedBoxes.push(vb);
+    }
+
     const draw = (p) => {
       const [t, x, y, a, b] = p, fn = S[t === 'crops' ? 'bed' : t];
       if (!fn) return;
@@ -709,22 +1104,34 @@
       else fn(px, py, a, b);
     };
     for (const p of all) if (p[0] === 'bridge' || p[0] === 'bridgeV' || water.has(p[0])) draw(p);
-    // 电梯翼楼脚下铺设悬挑建筑石材露台裙板（替代旧版水上木栈桥）
+    // 电梯翼楼脚下铺设一体化建筑石材露台裙板
     for (const ap of hallAprons) S.terraceApron(ap);
     for (const p of all) if (flat.has(p[0])) draw(p);
-    all.filter(p => !flat.has(p[0]) && !water.has(p[0]) && p[0] !== 'bridge' && p[0] !== 'bridgeV').sort((a, b) => a[2] - b[2]).forEach(draw);
+    // 庭院东西侧竖向绿篱 → 按 Y 深度排序的地表立面景物与水平庭院绿篱护栏
+    for (const vs of yardVSegs) S.yardHedgeV(vs.px, vs.py0, vs.py1, vs.outX);
+    const uprightTasks = all
+      .filter(p => !flat.has(p[0]) && !water.has(p[0]) && p[0] !== 'bridge' && p[0] !== 'bridgeV')
+      .map(p => ({ y: p[2], run: () => draw(p) }));
+    for (const hs of yardHSegs) {
+      uprightTasks.push({ y: hs.wy + (hs.outY > 0 ? 16 : 0), run: () => S.yardHedgeH(hs.px0, hs.px1, hs.py, hs.outY) });
+    }
+    uprightTasks.sort((a, b) => a.y - b.y).forEach(t => t.run());
     if (cfg.after) cfg.after(S, { pset, pat, fillRect, fillDisc, hash2, smoothNoise, toPx, toPy, grid, land, bldg });
 
-    // 10) 去孤立像素（保留结构描边与水沫）
+    // 10) 去孤立像素（保留结构描边与水沫，清零全部 4-邻域非保留杂点）
     const keep = new Set([8, 17, 24, 29, 34, 42, 43, 7, 6].concat(cfg.keep || []));
     let fixed = 0;
-    for (let pass = 0; pass < 3; pass++) for (let y = 1; y < EH - 1; y++) for (let x = 1, i = y * EW + 1; x < EW - 1; x++, i++) {
+    for (let pass = 0; pass < 8; pass++) for (let y = 1; y < EH - 1; y++) for (let x = 1, i = y * EW + 1; x < EW - 1; x++, i++) {
       const v = grid[i];
       if (!v || keep.has(v) || bldg[i]) continue;
       if (grid[i - 1] === v || grid[i + 1] === v || grid[i - EW] === v || grid[i + EW] === v) continue;
-      const l = grid[i - 1], r = grid[i + 1], u = grid[i - EW], d = grid[i + EW];
-      const best = (l && (l === r || l === u || l === d)) ? l : ((u && (u === d || u === r)) ? u : (r || u || l || d));
-      if (best) { grid[i] = best; fixed++; }
+      const l = bldg[i - 1] ? 0 : grid[i - 1], r = bldg[i + 1] ? 0 : grid[i + 1];
+      const u = bldg[i - EW] ? 0 : grid[i - EW], d = bldg[i + EW] ? 0 : grid[i + EW];
+      let best = (l && (l === r || l === u || l === d)) ? l : ((u && (u === d || u === r)) ? u : (r || u || l || d));
+      if (!best) {
+        for (const di of [-EW - 1, -EW + 1, EW - 1, EW + 1]) if (!bldg[i + di] && grid[i + di]) { best = grid[i + di]; break; }
+      }
+      if (best && best !== v) { grid[i] = best; fixed++; }
     }
     // 11) 装填画布（建筑内部保持透明，交由楼面层绘制）
     const cv = document.createElement('canvas'); cv.width = EW; cv.height = EH;
@@ -736,15 +1143,35 @@
     const dst = new Uint32Array(img.data.buffer);
     for (let i = 0; i < grid.length; i++) dst[i] = grid[i] ? pal32[grid[i]] : (bldg[i] ? 0 : bg32);
     cg.putImageData(img, 0, 0);
-    return { cv, grid, w: EW, h: EH, pal: PALX, audit: { w: EW, h: EH, palCount: PALX.length - 1, buildMs: +(performance.now() - t0).toFixed(1), strayFixed: fixed } };
+    return {
+      cv, grid, w: EW, h: EH, pal: PALX,
+      audit: {
+        w: EW, h: EH, palCount: PALX.length - 1,
+        buildMs: +(performance.now() - t0).toFixed(1),
+        strayFixed: fixed,
+        placedProps: all.length,
+        skippedDecor,
+        yardHedges: yardHSegs.length + yardVSegs.length
+      }
+    };
   }
 
   // 主题入口：exterior: L.API.biomeExterior(cfg)
+  function yardCacheSig(f) {
+    if (!f || !f.yards) return '';
+    return f.yards.map(yd => {
+      const ps = (yd.poly || []).map(q => q.x + ',' + q.y).join(';');
+      const pr = (yd.props || []).length + ':' + ((yd.props && yd.props[0]) ? yd.props[0].join(',') : '');
+      const pt = (yd.paths || []).length;
+      return yd.id + '[' + ps + '|' + pr + '|' + pt + ']';
+    }).join('/');
+  }
   function biomeExterior(cfg) {
-    let cache = null, cacheFloor = null;
+    let cache = null, cacheFloor = null, cacheSig = '';
     function drawExterior(g, f, A, a) {
       if (typeof document === 'undefined') return;
-      if (!cache || cacheFloor !== f) { cache = build(f, cfg); cacheFloor = f; }
+      const sig = yardCacheSig(f);
+      if (!cache || cacheFloor !== f || cacheSig !== sig) { cache = build(f, cfg); cacheFloor = f; cacheSig = sig; }
       g.save(); g.imageSmoothingEnabled = false; g.drawImage(cache.cv, a.x, a.y, a.w, a.h); g.restore();
     }
     drawExterior.getAuditInfo = () => cache && cache.audit;

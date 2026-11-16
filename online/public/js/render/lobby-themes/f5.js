@@ -47,43 +47,21 @@
         42: '#ffd25a', 43: '#fff4c4', 44: '#f06f6a', 45: '#78c7f5', 46: '#e2d4be'
       }),
       extraLand: [{ rect: [-640, -320, 4736, 1600] }],
-      flowers: [43, 44, 27], flowerRate: 0.08, tuftRate: 0.18,
-      treeLines: [{ y: -230, x0: -560, x1: 4020, step: 132, rows: 2, dy: 52, kinds: ['oak', 'pine', 'alt', 'oak'] }],
-      decor: [
-        ['tree', -260, 56, 'oak'], ['pine', 3700, 56],
-        ['tree', -260, 580, 'pine'], ['tree', 3700, 580, 'oak'],
-        ['lantern', -248, 180], ['lantern', 3696, 180],
-        ['bush', -256, 468, 1], ['bush', 3696, 468, 2],
-        ['pond', 1468, 1068, 520, 112],
-        ['bench', 1320, 1088], ['bench', 2048, 1088],
-        ['lantern', 1260, 1088], ['lantern', 2180, 1088],
-        ['tree', 1020, 1136, 'oak'], ['tree', 2420, 1136, 'alt']
+      extraPaths: [
+        { style: 'stone', pts: [[-560, 1020, 22], [640, 1024, 22], [1728, 1020, 24], [2816, 1024, 22], [4020, 1020, 22]] }
       ],
-      after(S, ctx) {
-        const { fillRect, hash2, toPx, toPy } = ctx;
-        const stampPlaza = (wx, wy, ww, wh) => {
-          const px0 = toPx(wx), py0 = toPy(wy), pw = Math.round(ww / 2), ph = Math.round(wh / 2);
-          fillRect(px0 - 2, py0 - 2, pw + 4, ph + 4, 34);
-          fillRect(px0, py0, pw, ph, 35);
-          for (let ty = py0 + 2, r = 0; ty < py0 + ph - 2; ty += 12, r++) {
-            const off = (r & 1) ? 8 : 0;
-            for (let tx = px0 + 2 - off; tx < px0 + pw - 2; tx += 16) {
-              const x0 = Math.max(px0 + 2, tx), x1 = Math.min(px0 + pw - 2, tx + 15);
-              const y1 = Math.min(py0 + ph - 2, ty + 11);
-              if (x1 - x0 < 3 || y1 - ty < 3) continue;
-              const h = hash2(tx, ty);
-              fillRect(x0, ty, x1 - x0, y1 - ty, h > 0.58 ? 37 : 36);
-              if (h < 0.32) fillRect(x0, ty, Math.min(6, x1 - x0), 1, 46);
-            }
-          }
-        };
-        // 东西电梯厅花岗岩迎宾铺装广场 + 南翼园区漫步石道
-        stampPlaza(-308, 176, 312, 272);
-        stampPlaza(-180, 444, 88, 180);
-        stampPlaza(3452, 176, 312, 272);
-        stampPlaza(3548, 444, 88, 180);
-        stampPlaza(860, 988, 1736, 52);
-      }
+      flowers: [43, 44, 27], flowerRate: 0.08, tuftRate: 0.18,
+      treeLines: [{ y: -236, x0: -560, x1: 4020, step: 136, rows: 2, dy: 52, kinds: ['oak', 'pine', 'alt', 'oak'] }],
+      decor: [
+        ['tree', -280, 56, 'oak'], ['pine', 3720, 56],
+        ['pine', -280, 580], ['tree', 3720, 580, 'oak'],
+        ['lantern', -256, 180], ['lantern', 3704, 180],
+        ['bush', -264, 468, 1], ['bush', 3704, 468, 2],
+        ['pond', 1468, 1068, 520, 112],
+        ['bench', 1300, 1096], ['bench', 2048, 1096],
+        ['lantern', 1240, 1104], ['lantern', 2180, 1104],
+        ['tree', 1020, 1152, 'oak'], ['tree', 2420, 1152, 'alt']
+      ]
     }),
     floorDecor(g, ox, oy, w, h, A) {
       // 中庭黄铜与暖白洞石星轨纪念地徽（严避 217,204,163±6）

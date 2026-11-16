@@ -46,48 +46,36 @@
         46: '#e2d4be', 47: '#524640', 48: '#2c3d4f'
       }),
       extraLand: [{ rect: [-640, -320, 4736, 1600] }],
+      forbidRects: [[-352, 982, 4160, 68]],
       flowers: [43, 44, 27, 42], flowerRate: 0.09, tuftRate: 0.16,
       treeLines: [{ y: -236, x0: -520, x1: 3980, step: 140, rows: 2, dy: 52, kinds: ['oak', 'alt', 'pine', 'oak'] }],
       decor: [
-        ['tree', -260, 48, 'oak'], ['tree', 3700, 48, 'alt'],
-        ['pine', -260, 488], ['tree', 3700, 488, 'oak'],
-        ['lantern', -248, 108], ['lantern', 3696, 108],
-        ['bush', -256, 384, 1], ['bush', 3696, 384, 2],
-        ['tree', 640, 1136, 'oak'], ['tree', 1728, 1140, 'alt'], ['pine', 2800, 1136]
+        ['tree', -280, 48, 'oak'], ['tree', 3720, 48, 'alt'],
+        ['pine', -280, 488], ['tree', 3720, 488, 'oak'],
+        ['lantern', -256, 108], ['lantern', 3704, 108],
+        ['bush', -264, 384, 1], ['bush', 3704, 384, 2],
+        ['tree', 640, 1148, 'oak'], ['tree', 1728, 1152, 'alt'], ['pine', 2800, 1148]
       ],
       after(S, ctx) {
-        const { fillRect, hash2, toPx, toPy } = ctx;
-        const stampPlaza = (wx, wy, ww, wh) => {
-          const px0 = toPx(wx), py0 = toPy(wy), pw = Math.round(ww / 2), ph = Math.round(wh / 2);
-          fillRect(px0 - 2, py0 - 2, pw + 4, ph + 4, 34);
-          fillRect(px0, py0, pw, ph, 35);
-          for (let ty = py0 + 2, r = 0; ty < py0 + ph - 2; ty += 12, r++) {
-            const off = (r & 1) ? 8 : 0;
-            for (let tx = px0 + 2 - off; tx < px0 + pw - 2; tx += 16) {
-              const x0 = Math.max(px0 + 2, tx), x1 = Math.min(px0 + pw - 2, tx + 15);
-              const y1 = Math.min(py0 + ph - 2, ty + 11);
-              if (x1 - x0 < 3 || y1 - ty < 3) continue;
-              const h = hash2(tx, ty);
-              fillRect(x0, ty, x1 - x0, y1 - ty, h > 0.58 ? 37 : 36);
-              if (h < 0.32) fillRect(x0, ty, Math.min(6, x1 - x0), 1, 46);
-            }
-          }
-        };
-        // 东西电梯翼屋顶石材前庭平台
-        stampPlaza(-308, 36, 312, 300);
-        stampPlaza(-180, 332, 88, 212);
-        stampPlaza(3452, 36, 312, 300);
-        stampPlaza(3548, 332, 88, 212);
-        // 现代研发大楼裙房屋顶外缘女儿墙压顶挑檐（3/4 暖灰洞石压顶 + 深古铜滴水檐 + 采光天窗列）
-        const cx0 = toPx(-340), cx1 = toPx(3796), cyS = toPy(984);
-        fillRect(cx0, cyS, cx1 - cx0, 28, 34);
-        fillRect(cx0 + 2, cyS + 2, cx1 - cx0 - 4, 14, 36);
-        fillRect(cx0 + 2, cyS + 2, cx1 - cx0 - 4, 3, 37);
-        fillRect(cx0 + 2, cyS + 16, cx1 - cx0 - 4, 10, 47);
+        const { pset, fillRect, toPx, toPy, land } = ctx;
+        // 现代研发大楼裙房屋顶外缘女儿墙压顶挑檐（3/4 分段暖灰洞石压顶 + 深古铜滴水檐 + 采光天窗列，零叠压石板框）
+        const cx0 = toPx(-340), cx1 = toPx(3796), cw = cx1 - cx0, cyS = toPy(988);
+        for (let x = cx0 + 2; x <= cx1; x++) {
+          if (cyS + 27 < 800 && land[(cyS + 27) * 2368 + x]) { pset(x, cyS + 26, 18); pset(x, cyS + 27, 18); }
+        }
+        fillRect(cx0 + 1, cyS, cw - 2, 26, 34);
+        fillRect(cx0, cyS + 1, cw, 24, 34);
+        fillRect(cx0 + 2, cyS + 1, cw - 4, 13, 36);
+        fillRect(cx0 + 2, cyS + 15, cw - 4, 9, 47);
+        for (let sx = cx0 + 10; sx < cx1 - 12; sx += 24) {
+          fillRect(sx, cyS + 1, 1, 13, 35);
+          fillRect(sx + 2, cyS + 1, Math.min(14, cx1 - 4 - sx), 2, 37);
+        }
         for (let sx = cx0 + 24; sx < cx1 - 48; sx += 64) {
-          fillRect(sx, cyS + 5, 36, 8, 34);
-          fillRect(sx + 2, cyS + 6, 32, 6, 48);
-          fillRect(sx + 4, cyS + 7, 10, 2, 6);
+          fillRect(sx - 4, cyS + 15, 2, 9, 34);
+          fillRect(sx, cyS + 4, 36, 8, 34);
+          fillRect(sx + 2, cyS + 5, 32, 6, 48);
+          fillRect(sx + 4, cyS + 6, 10, 2, 6);
         }
       }
     }),
