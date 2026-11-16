@@ -3,7 +3,8 @@
 (() => {
   const $ = id => document.getElementById(id), T = window.TutorialRoom, W = window.WORLD;
   const scene = W.roomById('f1:room:manager');
-  const cabinet = scene.furniture.find(f => f.type === 'cabinet' && f.container);
+  const desk = scene.furniture.filter(f => f.type === 'desk' && f.container)
+    .sort((a, b) => W.distanceToEntity(scene.entry, a) - W.distanceToEntity(scene.entry, b))[0];
   function freeSpot(x, y) {
     for (let radius = 0; radius <= Math.max(scene.width, scene.height); radius += 12) {
       for (let i = 0; i < 16; i++) {
@@ -15,19 +16,19 @@
     throw new Error('No walkable practice position in this room');
   }
   function clearLane() {
-    for (let y = cabinet.y + cabinet.h + 100; y < scene.height - 60; y += 12) {
+    for (let y = desk.y + desk.h + 100; y < scene.height - 60; y += 12) {
       for (let x = Math.round(scene.width / 4); x < scene.width - 140; x += 12) {
         let clear = true;
         for (let dx = 0; dx <= 90; dx += 3) if (W.roomCollides(scene.id, x + dx, y)) { clear = false; break; }
-        if (clear) return { spawn: { x, y }, target: { x: x + 90, y } };
+        if (clear) return { spawn: { x, y } };
       }
     }
     throw new Error('No clear practice movement lane');
   }
-  const lane = clearLane(), target = lane.target;
+  const lane = clearLane();
   const people = T.PEOPLE.map((p, i) => ({ ...p, ...freeSpot(scene.width * (.63 + i * .1), scene.height * (.64 + i * .13)) }));
-  const layout = { cabinet, target, people, speed: W.SPEED, spawn: lane.spawn,
-    resume: freeSpot(cabinet.x + cabinet.w / 2, cabinet.y + cabinet.h + 68), collides: (x, y) => W.roomCollides(scene.id, x, y) };
+  const layout = { desk, people, speed: W.SPEED, spawn: lane.spawn,
+    resume: freeSpot(desk.x + desk.w / 2, desk.y + desk.h + 68), collides: (x, y) => W.roomCollides(scene.id, x, y) };
   const clone = value => JSON.parse(JSON.stringify(value));
   const post = (type, extra = {}) => { if (parent !== window) parent.postMessage({ type: 'sid-tutorial:' + type, ...extra }, location.origin); };
   const colors = (hair, top) => ({ hair, top, pants: ['炭灰', '#505d70'], shoes: ['棕色', '#927253'] });
@@ -63,7 +64,7 @@
     return { type: 'snapshot', serverTime: Date.now(), roundId: 'tutorial-' + generation, players: actors, directory: actors, me: me(),
       logs, aliveCount: 3, outCount: 0, finished: false, config: { tmj: false },
       nextClueAt: s.cluesPublished ? Date.now() - 1000 : Date.now() + Math.ceil(s.cluesLeft * 1000),
-      badSlots: [{ key: 'tutorial-bad', label: '坏人01', alive: true, systemClues: { colors: s.cluesPublished ? { top: '砖红', hair: '银白' } : {}, traits: {} } }],
+      badSlots: [{ key: 'tutorial-bad', label: '坏人01', alive: true, systemClues: { colors: s.cluesPublished ? T.CLUE_COLORS : {}, traits: {} } }],
       rules: { endsAt: 0 }, historicalRanking: [], ranking: null, glassDoors: [] };
   }
   function push() { if (bridge && active) bridge.applySnapshot(clone(snapshot())); }
@@ -98,8 +99,9 @@
       'clues-card': ['clues-card', '推理坏人身份', '根据系统公布的信息，推理出坏人是谁。', '#bad-slots .bad-slot', true],
       'clues-close': ['clues-close', '关闭线索窗口', '记住砖红上衣、银白头发，接下来去玩家名单中搜索。', '#bad-pool-close'],
       'roster-open': ['roster-toggle', '打开玩家名单', '点击这里查看人物的公开信息，并用关键字筛选。', '#roster-toggle'],
-      'roster-search': ['roster-search', '输入关键字搜索', '可以输入姓名或已公开的属性。试着输入「砖红」或「练习人物甲」，找到匹配线索的人物后点下一步。', '#search', true],
+      'roster-search': ['roster-search', '输入关键字搜索', '输入系统线索中的上衣颜色「砖红」，找到匹配的人物后点下一步。', '#search', true],
       'roster-alpha': ['roster-alpha', '查看练习人物甲', '这位人物的公开属性符合刚才的线索，点击打开档案。', '#roster-items [data-player="2"]'],
+      'target-colors': ['target-colors', '对照系统线索', '他的头发是银白色，上衣是砖红色，与系统线索「坏人01」一致。对照下方线索卡，确认后点下一步。', '#target [data-color="hair"], #target [data-color="top"]', true],
       'accuse': ['accuse', '使用技能：指认', '档案中可以直接使用技能。点击「指认」，然后确认。', '#accuse'],
       'confirm': ['confirm', '确认指认', '核对目标是练习人物甲。指认潜伏者会扣除对方 1 格生命，误指好人则扣除自己的生命。', '#confirm'],
       'target-close': ['target-close', '关闭人物档案', '指认成功！关闭窗口，看看地图和名单中的血量变化。', '#target-close'],
@@ -112,7 +114,11 @@
     if (phase === 'clues-open' && view.cluesOpen) def = ['clues-wait', '等待线索公布', '练习倒计时已经加速，稍等片刻就会公布属性。', '#bad-slots .bad-slot'];
     if (['clues-card','clues-close'].includes(phase) && !view.cluesOpen) def = ['clue-next', '重新打开线索', '点击继续阅读坏人信息。', '#clue-next'];
     if (phase.startsWith('roster-') && phase !== 'roster-open' && !view.rosterOpen) def = ['roster-toggle', '继续查看名单', '打开玩家名单继续搜索练习人物甲。', '#roster-toggle'];
-    if (['accuse','confirm','target-close'].includes(phase) && !view.targetOpen) def = ['roster-alpha', '打开练习人物甲', '点击名单中的练习人物甲，继续使用技能。', '#roster-items [data-player="2"]'];
+    if (['target-colors','accuse','confirm','target-close'].includes(phase) && (!view.targetOpen || view.selectedId !== 2)) {
+      def = view.rosterOpen
+        ? ['roster-alpha', '打开练习人物甲', '点击名单中的练习人物甲，继续核对线索和使用技能。', '#roster-items [data-player="2"]']
+        : ['roster-toggle', '继续查看名单', '打开玩家名单，继续核对人物线索。', '#roster-toggle'];
+    }
     return { id: def[0], title: def[1], detail: def[2], selector: def[3], next: !!def[4] };
   }
   function hideSpotlight() {
@@ -127,7 +133,18 @@
     const node = document.querySelector(def.selector);
     if (!node || node.getBoundingClientRect().width === 0) { hideSpotlight(); return; }
     const changed = overlay.dataset.target !== def.id || overlay.hidden;
-    if (changed) node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (changed) {
+      // Scroll only the panel's contents. Scrolling the page can move a centered
+      // profile out of the viewport, especially when highlighting two fields.
+      for (let parent = node.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+        if (!['auto', 'scroll'].includes(getComputedStyle(parent).overflowY) || parent.scrollHeight <= parent.clientHeight) continue;
+        const bounds = node.getBoundingClientRect(), panel = parent.getBoundingClientRect();
+        const top = panel.top + parent.clientTop + 8, bottom = panel.top + parent.clientTop + parent.clientHeight - 8;
+        if (bounds.top < top) parent.scrollTop += bounds.top - top;
+        else if (bounds.bottom > bottom) parent.scrollTop += bounds.bottom - bottom;
+        break;
+      }
+    }
     // A manual popover stays above native dialog backdrops. Attach it inside the
     // active modal so its Next/Exit controls remain interactive under modal inertness.
     const modal = [...document.querySelectorAll('dialog[open]')].at(-1);
@@ -140,8 +157,8 @@
     if (!overlay.matches(':popover-open')) overlay.showPopover();
     overlay.dataset.target = def.id; overlay.dataset.phase = room.state.phase;
     document.body.classList.add('tutorial-spotlighting');
-    const bounds = node.getBoundingClientRect();
-    const raw = [{ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }];
+    const nodes = [...document.querySelectorAll(def.selector)];
+    const raw = nodes.map(n => n.getBoundingClientRect());
     if (room.state.phase === 'health' && mapHealth) raw.push(mapHealth);
     const rects = raw.map(r => ({ x: Math.max(2, r.x - 5), y: Math.max(2, r.y - 5),
       right: Math.min(innerWidth - 2, r.x + r.width + 5), bottom: Math.min(innerHeight - 2, r.y + r.height + 5) }));
@@ -154,11 +171,26 @@
     }));
     $('spotlight-title').textContent = def.title; $('spotlight-detail').textContent = def.detail;
     const next = $('spotlight-next'); next.hidden = !def.next;
-    next.textContent = room.state.phase === 'health' ? '完成训练 →' : '下一步 →';
+    next.textContent = room.state.phase === 'health' ? '完成训练' : '下一步';
     next.disabled = room.state.phase === 'roster-search' && !($('search').value.trim() && document.querySelector('#roster-items [data-player="2"]'));
-    const note = $('spotlight-note'), nw = Math.min(270, innerWidth - 24);
+    const reference = $('spotlight-reference');
+    reference.hidden = def.id !== 'target-colors';
+    if (!reference.hidden && !reference.firstChild) {
+      // Keep a copy of the actual published card so the comparison uses identical content and styling.
+      const card = document.querySelector('#bad-slots .bad-slot')?.cloneNode(true);
+      if (card) {
+        card.querySelectorAll('.bad-clue').forEach(row => { if (row.querySelector('strong').textContent === W.MASK) row.remove(); });
+        card.querySelectorAll('.bad-clue-heading').forEach(heading => heading.remove());
+        reference.append(card);
+      }
+    }
+    const r = { x: Math.min(...rects.map(r => r.x)), y: Math.min(...rects.map(r => r.y)),
+      right: Math.max(...rects.map(r => r.right)), bottom: Math.max(...rects.map(r => r.bottom)) }, gap = 16;
+    const sideSpace = Math.max(r.x - gap - 12, innerWidth - r.right - gap - 12);
+    const note = $('spotlight-note'), nw = Math.min(270, innerWidth - 24,
+      def.id === 'target-colors' && sideSpace >= 200 ? sideSpace : 270);
     note.style.width = nw + 'px';
-    const nh = note.offsetHeight, r = rects[0], gap = 28;
+    const nh = note.offsetHeight;
     let x, y;
     if (r.right + gap + nw <= innerWidth - 12) { x = r.right + gap; y = Math.max(12, Math.min(innerHeight - nh - 12, (r.y + r.bottom - nh)/2)); }
     else if (r.x - gap - nw >= 12) { x = r.x - gap - nw; y = Math.max(12, Math.min(innerHeight - nh - 12, (r.y + r.bottom - nh)/2)); }
@@ -167,12 +199,9 @@
       y = r.bottom + 26 + nh <= innerHeight - 12 ? r.bottom + 26 : Math.max(12, r.y - nh - 26);
     }
     // Keep two health highlights clear of the explanation as well.
-    if (rects.length > 1) { x = Math.max(12, (innerWidth-nw)/2); y = Math.max(12, innerHeight-nh-48); }
+    if (room.state.phase === 'health') { x = Math.max(12, (innerWidth-nw)/2); y = Math.max(12, innerHeight-nh-48); }
+    y = Math.max(12, Math.min(innerHeight - nh - 12, y));
     note.style.left = x + 'px'; note.style.top = y + 'px';
-    const tipX = (r.x + r.right)/2, tipY = y >= r.bottom ? r.bottom + 4 : y + nh <= r.y ? r.y - 4 : (r.y+r.bottom)/2;
-    const startX = x >= r.right ? x - 3 : x+nw <= r.x ? x+nw+3 : x+nw/2;
-    const startY = y >= r.bottom ? y-3 : y+nh<=r.y ? y+nh+3 : y+nh/2;
-    $('spotlight-arrow').setAttribute('d', `M${startX} ${startY}L${tipX} ${tipY}`);
     const key = def.id + '|' + room.state.phase;
     if (spotlightKey !== key) {
       spotlightKey = key;
@@ -198,7 +227,8 @@
   }
   function start(progress) {
     completionShown = false; if ($('training-complete').open) $('training-complete').close(); hideSpotlight(); generation++; input = {}; elapsed = lastPush = 0; lastStep = -1; swingAt = 0;
-    room = T.create(progress, layout); searched = room.state.explored ? [cabinet.id] : []; logs = [];
+    $('spotlight-reference').replaceChildren();
+    room = T.create(progress, layout); searched = room.state.explored ? [desk.id] : []; logs = [];
     lastPublished = room.state.cluesPublished;
     active = true; bridge.reset();
     log('欢迎进入新手训练室，当前操作仅影响练习角色。');
@@ -207,12 +237,12 @@
   }
   function exit() { input = {}; active = false; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); post('exit'); }
   function completeSearch(id) {
-    if (!active || id !== cabinet.id) return { ok: false, status: 400, error: '请靠近训练室的文件柜。' };
+    if (!active || id !== desk.id) return { ok: false, status: 400, error: '请靠近身边高亮的书桌。' };
     const item = scene.furniture.find(f => f.id === id);
     if (W.distanceToEntity(room.state.player, item) > W.INTERACT_RANGE) return { ok: false, status: 400, error: '距离太远，请靠近后再搜索。' };
-    if (!room.nearCabinet() || room.state.step < 1) return { ok: false, status: 400, error: '先完成移动，再靠近左上方发光的文件柜探索。' };
+    if (!room.nearDesk() || room.state.step < 1) return { ok: false, status: 400, error: '先完成移动，再靠近身边高亮的书桌探索。' };
     room.explore(); searched = [...new Set([...searched, id])];
-    log('探索文件柜，获得 2 分练习积分。');
+    log('探索书桌，获得 2 分练习积分。');
     const result = { ok: true, status: 200, mode: 'points', gainedPoints: 2, points: 2, score: room.state.player.score, exploration: exploration(), resultText: '获得 2 积分（练习）' };
     push(); renderGuide(); return result;
   }
@@ -220,8 +250,9 @@
     boot(callbacks) {
       bridge = callbacks;
       document.body.classList.add('practice-game');
-      $('stage').insertAdjacentHTML('beforeend', `<div class="tutorial-context"><strong>新手训练室</strong><small>独立练习角色</small><small class="context-copy">正式角色留在原位置，正常受击与计分</small><button id="room-exit" type="button">退出教程</button></div><aside id="training-guide" class="training-guide" aria-label="新手教程任务"><div class="lesson-heading"><span id="lesson-number"></span><small>仅练习数据</small><button id="tutorial-lesson-collapse" type="button" aria-label="折叠或展开教程提示">−</button></div><ol id="lesson-progress" aria-label="教程进度"></ol><div id="lesson-copy"><div aria-live="polite"><h2 id="lesson-title"></h2><p id="lesson-task"></p><p id="lesson-detail"></p></div><p id="lesson-tip" class="lesson-tip"></p><div class="lesson-actions"><button id="lesson-next" type="button" hidden>返回办公室 →</button><button id="lesson-restart" type="button">从头练习</button></div></div></aside>`);
-      document.body.insertAdjacentHTML('beforeend', `<div id="tutorial-spotlight" popover="manual" hidden aria-label="教程操作引导"><svg id="spotlight-svg" aria-hidden="true"><defs><marker id="tutorial-arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M1 1 6 4 1 7" fill="none" stroke="#ffe1a0" stroke-width="1.5"/></marker></defs><path id="spotlight-shade" fill-rule="evenodd"/><path id="spotlight-arrow" marker-end="url(#tutorial-arrowhead)"/></svg><div id="spotlight-rings"></div><div id="spotlight-note" role="status"><strong id="spotlight-title"></strong><p id="spotlight-detail"></p><button id="spotlight-next" type="button" hidden>下一步 →</button></div><button id="spotlight-exit" type="button">退出教程</button></div><dialog id="training-complete" class="center-dialog" aria-labelledby="training-complete-title"><div class="panel-heading"><h2 id="training-complete-title">恭喜您完成了新手训练营</h2></div><p>你已经学会移动、交互、查看信息、推理线索、搜索名单和使用技能。</p><p>正式角色的最新状态将在返回办公室时显示。</p><button id="training-complete-exit" type="button">返回办公室 →</button><button id="training-complete-restart" type="button">重新练习</button></dialog>`);
+      $('stage').insertAdjacentHTML('beforeend', `<div class="tutorial-context"><strong>新手训练室</strong><small>独立练习角色</small><small class="context-copy">正式角色留在原位置，正常受击与计分</small><button id="room-exit" type="button">退出教程</button></div><aside id="training-guide" class="training-guide" aria-label="新手教程任务"><div class="lesson-heading"><span id="lesson-number"></span><small>仅练习数据</small><button id="tutorial-lesson-collapse" type="button" aria-label="折叠或展开教程提示">−</button></div><ol id="lesson-progress" aria-label="教程进度"></ol><div id="lesson-copy"><div aria-live="polite"><h2 id="lesson-title"></h2><p id="lesson-task"></p><p id="lesson-detail"></p></div><p id="lesson-tip" class="lesson-tip"></p><div class="lesson-actions"><button id="lesson-next" type="button" hidden>返回办公室</button><button id="lesson-restart" type="button">从头练习</button></div></div></aside>`);
+      document.body.insertAdjacentHTML('beforeend', `<div id="tutorial-spotlight" popover="manual" hidden aria-label="教程操作引导"><svg id="spotlight-svg" aria-hidden="true"><path id="spotlight-shade" fill-rule="evenodd"/></svg><div id="spotlight-rings"></div><div id="spotlight-note" role="status"><strong id="spotlight-title"></strong><p id="spotlight-detail"></p><div id="spotlight-reference" aria-label="系统公布的坏人01线索对照" hidden></div><button id="spotlight-next" type="button" hidden>下一步</button></div><button id="spotlight-exit" type="button">退出教程</button></div><dialog id="training-complete" class="center-dialog" aria-labelledby="training-complete-title"><div class="panel-heading"><h2 id="training-complete-title">恭喜您完成了新手训练营</h2></div><p>你已经学会移动、交互、查看信息、推理线索、搜索名单和使用技能。</p><p>正式角色的最新状态将在返回办公室时显示。</p><button id="training-complete-exit" type="button">返回办公室</button><button id="training-complete-restart" type="button">重新练习</button></dialog>`);
+      $('stage').insertAdjacentHTML('beforeend', '<div id="movement-hint" hidden><strong>试着移动</strong><div class="movement-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><span>这几个按键可以移动人物</span></div>');
       $('spotlight-exit').onclick = exit; $('training-complete-exit').onclick = exit;
       $('training-complete-restart').onclick = () => start({ step: 0 });
       $('training-complete').addEventListener('cancel', event => { event.preventDefault(); exit(); });
@@ -288,14 +319,23 @@
       if (!active) return;
       drawCount++;
       const step = room.state.step;
-      if (step !== 0 && step !== 1) return;
+      const hint = $('movement-hint');
+      hint.hidden = step !== 0;
+      if (step === 0 && view.player) {
+        const width = Math.min(210, innerWidth - 24);
+        hint.style.width = width + 'px';
+        hint.style.left = Math.max(12, Math.min(innerWidth - width - 12, view.player.x + 28)) + 'px';
+        hint.style.top = Math.max(12, Math.min(innerHeight - hint.offsetHeight - 64, view.player.y - 90)) + 'px';
+      }
+      if (step !== 1) return;
       ctx.save(); ctx.strokeStyle = '#ffe09a'; ctx.lineWidth = 2; ctx.fillStyle = '#f5d488';
       ctx.font = 'bold 11px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif'; ctx.textAlign = 'center';
-      if (step === 0) { ctx.strokeRect(target.x - 24, target.y - 16, 48, 32); ctx.fillText('走到这里', target.x, target.y - 26); }
-      else { ctx.strokeRect(cabinet.x - 5, cabinet.y - 24, cabinet.w + 10, cabinet.h + 30); ctx.fillText('K 探索', cabinet.x + cabinet.w / 2, cabinet.y - 34); }
+      ctx.strokeRect(desk.x - 5, desk.y - 24, desk.w + 10, desk.h + 30);
+      ctx.fillText('K 探索书桌', desk.x + desk.w / 2, desk.y - 34);
       ctx.restore();
     },
     cameraFor(viewW, viewH, scale, width, height) {
+      if (room.state.step === 0) return { x: room.state.player.x - width * .3 / scale, y: room.state.player.y - height * .62 / scale };
       if (room.state.step !== 6) return null;
       const rosterRight = $('roster').getBoundingClientRect().right;
       const screenX = Math.min(width-40, Math.max(width*.58,rosterRight+42));
@@ -303,7 +343,7 @@
     },
     isActive: () => active,
     // Read-only diagnostic values for renderer and integration acceptance.
-    inspect: () => ({ step: room.state.step, phase: room.state.phase, mapHealth, position: { x: room.state.player.x, y: room.state.player.y }, sceneId: scene.id, cabinetId: cabinet.id, target: { ...target }, drawCount, active })
+    inspect: () => ({ step: room.state.step, phase: room.state.phase, mapHealth, position: { x: room.state.player.x, y: room.state.player.y }, sceneId: scene.id, deskId: desk.id, drawCount, active })
   };
   window.addEventListener('message', event => {
     if (event.origin !== location.origin || event.source !== parent) return;

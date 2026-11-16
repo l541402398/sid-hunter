@@ -1005,7 +1005,7 @@
     $('target').hidden = false;
     const orgLine = targetOrgLine(p);
     const status = orgLine || (p.alive ? '对抗中 · 公开档案' : '休战中 · 积分保留');
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() ? '<section id="private-content" class="target-skills" aria-label="对该人物使用技能"></section>' : ''}`;
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute" data-color="${k}"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() ? '<section id="private-content" class="target-skills" aria-label="对该人物使用技能"></section>' : ''}`;
     flowerUI?.bind(p);
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     privateOpen = !!me && p.id !== selfId();
@@ -3468,7 +3468,7 @@
     }
     // 角色与选中框始终保持可见（不因走到建筑物或高大家具后方而隐藏玩家）。
     const covered = false;
-    if (!p.npc && p.id === meId && p.id !== selectedId && !covered) {
+    if (!practice && !p.npc && p.id === meId && p.id !== selectedId && !covered) {
       // 自己只保留头顶小箭头，不绘制脚底蓝圈；地面影子由角色身体函数绘制。
       const off = Math.round(Math.sin(clock * 2.6) * 1.5);
       rect(x - 3, effectY - 60 + off, 6, 3, '#9ed4ff'); rect(x - 2, effectY - 57 + off, 4, 2, '#9ed4ff');
@@ -3483,8 +3483,10 @@
       rect(x + 13, effectY - 53, 8, 2, b); rect(x + 19, effectY - 53, 2, 7, b);
       rect(x - 21, yb + 3, 9, 2, b); rect(x - 21, yb - 2, 2, 7, b);
       rect(x + 13, yb + 3, 8, 2, b); rect(x + 19, yb - 2, 2, 7, b);
-      const off = Math.round(Math.sin(clock * 3.4) * 2);
-      rect(x - 4, effectY - 61 + off, 8, 3, '#8fd0ff'); rect(x - 3, effectY - 59 + off, 6, 2, '#8fd0ff'); rect(x - 2, effectY - 57 + off, 4, 2, '#8fd0ff');
+      if (!practice) {
+        const off = Math.round(Math.sin(clock * 3.4) * 2);
+        rect(x - 4, effectY - 61 + off, 8, 3, '#8fd0ff'); rect(x - 3, effectY - 59 + off, 6, 2, '#8fd0ff'); rect(x - 2, effectY - 57 + off, 4, 2, '#8fd0ff');
+      }
       ctx.globalAlpha = 1;
     }
     if (seen) {
@@ -3939,7 +3941,9 @@
       const hitLabel = labels.some(l => Math.abs(badge.cx - (l.x + l.w / 2)) < (21 + l.w / 2 + 4) && badge.cy + 14 > l.y - 2 && badge.cy < l.y + l.h + 2);
       drawInteractPromptBadge(badge.cx, hitLabel ? badge.topY : badge.cy, '按：K');
     }
+    const practiceSelf = practice && renderMap.get(selfId());
     practice?.drawOverlay(ctx, {
+      player: practiceSelf ? { x: (practiceSelf.x - drawCamX) * scale, y: (practiceSelf.y - drawCamY) * scale } : null,
       healthBars: labels.filter(l => !l.p.npc).map(l => ({ id: l.p.id,
         x: (l.x + 9 - drawCamX) * scale, y: (l.y + 17 - drawCamY) * scale,
         width: (l.w - 18) * scale, height: 6 * scale }))
