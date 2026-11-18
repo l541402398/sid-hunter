@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import { dirname, join, resolve, basename } from 'node:path';
+import http from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
 import { createHash, randomUUID } from 'node:crypto';
@@ -33,23 +34,23 @@ const online = dirname(fileURLToPath(import.meta.url)), root = dirname(online);
 const outputs = join(root, 'outputs');
 const profile = join(outputs, `.rps-profile-${randomUUID().slice(0, 8)}`);
 const reportPath = join(outputs, 'rps-browser-qa.json');
+const shotTarget = join(outputs, 'rps-target.png');
 const shotInvitation = join(outputs, 'rps-invitation.png');
 const shotSelection = join(outputs, 'rps-selection.png');
 const shotResult = join(outputs, 'rps-result.png');
 const shotMobile = join(outputs, 'rps-mobile.png');
-const chromePath = process.env.SID_CHROME || '/usr/bin/google-chrome';
+const chromePath = process.env.SID_CHROME || (process.platform === 'win32'
+  ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  : '/usr/bin/google-chrome');
 
-// ============================ 配置（main 通知最终 selectors 后填写） ============================
-// 产品尚未完成：PRODUCT_READY 保持 false，本脚本仅跑 PLAN 模式。
-// 下方 NEW 协议的 selectors 与 API 契约需 main 在前后端并行实现完成后，回传“最终 selectors”再填。
+// ============================ 配置 ============================
 const CFG = {
-  PRODUCT_READY: false,
+  PRODUCT_READY: true,
   HOST: '127.0.0.1',
-  // world.js 现有常量（升级协议默认值，待 main 确认未被改）：30s 邀请、10s selecting、5s 冷却、stake=1。
   INVITE_TTL_MS: 30000,
   SELECTING_MS: 10000,
   COOLDOWN_MS: 5000,
-  STAKE: 1,
+  STAKE: 2,
   // 稳定、复用自现有页面的 selectors（加入流程未变）。
   join: {
     joinPage: '#join-page',
@@ -57,33 +58,27 @@ const CFG = {
     submit: '#join-form button[type=submit]',
     rosterCount: '#roster-count',
   },
-  // —— 以下为「猜拳升级」新增 UI 的 selectors 需求。值保持 'TODO' 表示待 main 确认。
-  // 每个条目后注释为该 selector 验收时的作用。
+  // 猜拳升级 UI selectors（与 online/public/game.js & index.html 同步）。
   rps: {
-    // 入口（唯一）：靠近角色按 K 弹交互菜单，或点击目标角色，出现「邀请猜拳」项。games-toggle 入口已移除。
-    inviteEntry: 'TODO',            // 发起邀请的触发入口（E 交互菜单项 / 点击 target 出现的按钮）
-    // games-toggle「互动小游戏」入口已按最终决定【移除】：仅用于断言其不存在（应为 null/隐藏）且 toolbar 无『互动小游戏』文案。
-    gamesToggle: '#games-toggle',   // 仅用于断言“已移除”，不再作为可点击入口
+    inviteEntry: '#target-invite-rps',
+    gamesToggle: '#games-toggle',
     requireGamesToggleRemoved: true,
-    // 被邀请方自动出现的「邀请确认弹窗」：同意 / 拒绝。
-    invitePopup: 'TODO',            // 被邀请方可见的邀请确认弹窗容器
-    inviteAccept: 'TODO',           // 弹窗内「同意」按钮（rpsReply/rpsAccept）
-    inviteReject: 'TODO',           // 弹窗内「拒绝」按钮（rpsReject）
-    // selecting 阶段：上方自己(左) / 对手(右) 的待揭示手势 SVG；下方三按钮。
-    arena: 'TODO',                  // selecting 竞技场容器
-    selfHand: 'TODO',               // 自己侧 SVG（data-choice 反映 ownChoice，仅自己可见）
-    opponentHand: 'TODO',           // 对手侧 SVG（deadline 前不应显示对手 choice）
-    choiceRock: 'TODO',             // 石头按钮（建议带 data-choice="rock"）
-    choicePaper: 'TODO',            // 布按钮
-    choiceScissors: 'TODO',         // 剪刀按钮（pixel SVG 明确手势）
-    deadlineLabel: 'TODO',          // 倒计时文案（双方一致，始于 accept）
-    // 结算揭示：权威揭示后双方 choice + 胜负 + delta。
-    result: 'TODO',                 // 结算揭示视图容器
-    resultSelf: 'TODO',             // 自己出拳揭示
-    resultOpponent: 'TODO',         // 对手出拳揭示
-    resultVerdict: 'TODO',          // 胜/负/平 + 筹码 delta 文案
-    cooldownLabel: 'TODO',          // 冷却中文案
-    pending: 'TODO',                // pending 状态容器（仅自己可见 ownChoice/ownRevision）
+    invitePopup: '#games',
+    inviteAccept: '#games-accept',
+    inviteReject: '#games-reject',
+    arena: '#games-rps',
+    selfHand: '#games-self-glyph',
+    opponentHand: '#games-opp-glyph',
+    choiceRock: '#games-choice-rock',
+    choicePaper: '#games-choice-paper',
+    choiceScissors: '#games-choice-scissors',
+    deadlineLabel: '#games-timer',
+    result: '#games-result-card',
+    resultSelf: '#games-self-glyph',
+    resultOpponent: '#games-opp-glyph',
+    resultVerdict: '#games-result',
+    cooldownLabel: '#target-rps-note',
+    pending: '#games-phase',
   },
   // API 契约（已对照 online/room.js 当前实现确认复用 /api/play，以 kind 区分）。
   api: {
@@ -175,7 +170,7 @@ class Ctx {
     ctxBySession.set(this.sessionId, this);
     await this.send('Runtime.enable'); await this.send('Page.enable'); await this.send('Network.enable');
     await this.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1100, deviceScaleFactor: 1, mobile: false });
-    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__qaSSE=[];window.__qaAPI=[];const NES=window.EventSource;window.EventSource=class extends NES{constructor(...a){super(...a);this.addEventListener('message',()=>window.__qaSSE.push(performance.now()));}};const __f=window.fetch;window.fetch=function(...a){const u=String(a[0]);return __f.apply(this,a).then(r=>{try{const c=r.clone();c.json().then(j=>window.__qaAPI.push({url:u,status:r.status,body:j})).catch(()=>{});}catch(e){}return r;});};` });
+    await this.send('Page.addScriptToEvaluateOnNewDocument', { source: `try{const d=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());localStorage.setItem('sid-annual-review-day:guest',d);}catch(e){}window.__qaSSE=[];window.__qaAPI=[];const NES=window.EventSource;window.EventSource=class extends NES{constructor(...a){super(...a);this.addEventListener('message',()=>window.__qaSSE.push(performance.now()));}};const __f=window.fetch;window.fetch=function(...a){const u=String(a[0]);return __f.apply(this,a).then(r=>{try{const c=r.clone();c.json().then(j=>window.__qaAPI.push({url:u,status:r.status,body:j})).catch(()=>{});}catch(e){}return r;});};` });
   }
   onMessage(m) {
     if (m.method === 'Runtime.exceptionThrown') this.runtimeErrors.push(m.params);
@@ -205,9 +200,19 @@ class Ctx {
 // ============================ 登录两个隔离会话 ============================
 async function joinReal(ctx, nickname) {
   await ctx.navigate(base + '/', `!!document.querySelector(${JSON.stringify(CFG.join.joinPage)})&&!document.querySelector(${JSON.stringify(CFG.join.joinPage)}).hidden`);
+  // 若纪念册仍处于打开态，先通过 Esc 关闭。
+  if (await ctx.ev(`!!document.querySelector('#annual-review-overlay')?.open`).catch(() => false)) {
+    await ctx.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await ctx.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+    await waitFor('纪念册关闭', () => ctx.ev(`!document.querySelector('#annual-review-overlay')?.open && !document.querySelector('.shell')?.inert`).catch(() => false));
+  }
   await ctx.typeText(CFG.join.nickname, nickname);
   await ctx.click(CFG.join.submit);
-  await waitFor('已加入并收到权威快照', async () => ctx.ev(`document.querySelector(${JSON.stringify(CFG.join.joinPage)}).hidden&&__qaSSE.length>1`).catch(() => false));
+  await waitFor('已加入并收到权威快照', async () => ctx.ev(`document.querySelector(${JSON.stringify(CFG.join.joinPage)}).hidden&&__qaSSE.length>0`).catch(() => false));
+  await pause(120);
+  // 若自动弹出新人训练室引导框，先点击「跳过，直接玩」并等待主界面的 inert 解除。
+  await ctx.ev(`(()=>{const offer=document.querySelector('#tutorial-offer');const skip=document.querySelector('#tutorial-skip');if(offer&&offer.open&&skip){skip.click();return true;}return false;})()`).catch(() => false);
+  await waitFor('主界面解除阻塞', async () => ctx.ev(`!document.querySelector('.shell')?.inert && !document.querySelector('#tutorial-offer')?.open`).catch(() => false));
   return ctx.ev(`localStorage.getItem('sid_session_token')`);
 }
 
@@ -269,12 +274,288 @@ async function runPlan() {
   return { A, B };
 }
 
-// ============================ RUN 模式占位（产品就绪、main 填完 selectors 后展开） ============================
-// 完整用例骨架与 PLAN 一一对应；下面以伪代码标注每步断言，待 RUN 模式装配真实 selector/断言。
+// ============================ RUN 模式：完整端到端双会话 + 像素 + 移动端验收 ============================
+async function postTest(path, body) {
+  const res = await fetch(base + path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5000)
+  });
+  return { status: res.status, data: await res.json().catch(() => null) };
+}
+
+function openApiStream(token) {
+  return new Promise((resolveStream, rejectStream) => {
+    const req = http.get(`${base}/api/stream?sid_token=${encodeURIComponent(token)}`, res => {
+      res.on('data', () => {});
+      resolveStream({ req, res });
+    });
+    req.once('error', rejectStream);
+  });
+}
+
 async function runAcceptance() {
-  // 见 PLAN 13 项，逐条映射为 test()：RPS-01..RPS-13。
-  // 关键工具已就绪：joinReal / moveTo / ctx.ev 读 me.games / ctx.api('/api/play',{kind,...}) / 两 context 互为对手读对方 DOM 校验私密。
-  throw Error('RUN 模式未装配：请 main 回传最终 selectors（消除 CFG.rps 中全部 TODO）后将 PRODUCT_READY 置 true。');
+  const openStreams = [];
+  const check = async (name, fn) => {
+    try {
+      const detail = await fn();
+      results.push({ name, pass: true, detail: detail ?? null });
+      console.log(`PASS ${name}`);
+    } catch (err) {
+      results.push({ name, pass: false, detail: err.message });
+      console.error(`FAIL ${name}: ${err.stack}`);
+      throw err;
+    }
+  };
+
+  try {
+    const A = new Ctx('A'), B = new Ctx('B');
+    await A.create(); await B.create();
+    const tokenA = await joinReal(A, 'RPS甲');
+    const tokenB = await joinReal(B, 'RPS乙');
+    const sA0 = await A.state(tokenA);
+    const sB0 = await B.state(tokenB);
+    const idA = sA0.me.id, idB = sB0.me.id;
+
+    // 1) 无 #games-toggle，像素图集 HTTP 200 且 Canvas API 已就绪
+    await check('RPS-01 入口与像素图集就绪', async () => {
+      const hasToggle = await A.ev(`!!document.querySelector('#games-toggle')`);
+      const toolbarText = await A.ev(`document.querySelector('.toolbar')?.textContent || ''`);
+      assert.equal(hasToggle, false, '#games-toggle 必须已移除');
+      assert.equal(toolbarText.includes('互动小游戏'), false, 'toolbar 不得含旧互动小游戏文案');
+      const sheetRes = await fetch(`${base}/assets/vendor/sid-rps-duel/rps-sheet.png`);
+      assert.equal(sheetRes.status, 200, 'rps-sheet.png 应返回 200');
+      await waitFor('SID.rpsArt 图片就绪', () => A.ev(`!!window.SID?.rpsArt?.isReady()`).catch(() => false));
+      return { idA, idB };
+    });
+
+    // 创建第 3 名 API 玩家 C 供后续 2 次满额与移动端测试使用
+    const joinC = await A.api('/api/join', { nickname: 'RPS丙' });
+    assert.equal(joinC.status, 200);
+    const tokenC = joinC.data.sessionToken;
+    const idC = joinC.data.playerId;
+    const streamC = await openApiStream(tokenC);
+    openStreams.push(streamC);
+
+    // 把 A/B 放到 2F 空旷无遮挡相邻处（距 28px）
+    await postTest('/api/test/place', { playerId: idA, floorId: 2, x: 500, y: 350, zoneId: null });
+    await postTest('/api/test/place', { playerId: idB, floorId: 2, x: 528, y: 350, zoneId: null });
+    await waitFor('A/B 同层就近可见', async () => A.ev(`(() => {
+      const b = document.querySelector('#nearby-items button[data-entity="player:${idB}"]:not([hidden])');
+      return !!b;
+    })()`).catch(() => false));
+
+    // 2) 就近 HUD 与 target 猜拳卡片 + rps-target.png
+    await check('RPS-02 目标档案猜拳卡 + 就近提示 + 截图', async () => {
+      const nearbyText = await A.ev(`document.querySelector('#nearby-items button[data-entity="player:${idB}"]')?.textContent || ''`);
+      assert.match(nearbyText, /猜拳/, '就近按钮应含猜拳提示');
+      await A.click(`#nearby-items button[data-entity="player:${idB}"]`);
+      await waitFor('target-rps 渲染完成', () => A.ev(`(() => {
+        const card = document.querySelector('#target-rps');
+        const btn = document.querySelector('#target-invite-rps');
+        return !!card && !!btn && !btn.disabled;
+      })()`).catch(() => false));
+      const badgeCheck = await A.ev(`(() => {
+        const c = document.querySelector('#target-rps-icon');
+        if (!c) return { ok: false };
+        const ctx = c.getContext('2d');
+        const data = ctx.getImageData(0, 0, c.width, c.height).data;
+        let opaque = 0;
+        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) opaque++;
+        return { ok: opaque > 50, smoothing: ctx.imageSmoothingEnabled, pts: document.querySelector('#target-rps-points')?.textContent, pair: document.querySelector('#target-rps-pair')?.textContent };
+      })()`);
+      assert.equal(badgeCheck.ok, true, '#target-rps-icon 应绘出非空像素');
+      assert.equal(badgeCheck.smoothing, false, 'imageSmoothingEnabled 必须为 false');
+      assert.match(badgeCheck.pts, /0\/10 分/);
+      assert.match(badgeCheck.pair, /0\/2 次/);
+      await A.screenshot(shotTarget);
+      return badgeCheck;
+    });
+
+    // 3) 发起邀请 → 被邀请方自动弹出邀请弹窗 + rps-invitation.png
+    await check('RPS-03 发起邀请与被邀请弹窗 + 截图', async () => {
+      await A.click(CFG.rps.inviteEntry);
+      await waitFor('B 自动弹出邀请窗口', () => B.ev(`(() => {
+        const g = document.querySelector('#games');
+        const acc = document.querySelector('#games-accept');
+        const rej = document.querySelector('#games-reject');
+        return !!g && !g.hidden && !!acc && !acc.hidden && !!rej && !rej.hidden;
+      })()`).catch(() => false));
+      await B.screenshot(shotInvitation);
+      const pendingA = (await A.state(tokenA)).me.games.rpsPending;
+      const pendingB = (await B.state(tokenB)).me.games.rpsPending;
+      assert.equal(pendingA.role, 'from');
+      assert.equal(pendingB.role, 'to');
+      return { cid: pendingA.id };
+    });
+
+    // 4) 接受进入 selecting → 双方选拳 + 改选 + 严格隐私校验 + rps-selection.png
+    await check('RPS-04 selecting 阶段改选与绝对隐私不泄露 + 截图', async () => {
+      await B.click(CFG.rps.inviteAccept);
+      await waitFor('双方进入 selecting 且选择按钮可用', async () => {
+        const okA = await A.ev(`!document.querySelector('#games-choice-rock')?.disabled`).catch(() => false);
+        const okB = await B.ev(`!document.querySelector('#games-choice-scissors')?.disabled`).catch(() => false);
+        return okA && okB;
+      });
+      await A.click(CFG.rps.choicePaper);
+      await pause(60);
+      await A.click(CFG.rps.choiceRock); // 改选石头
+      // B 使用快捷键 2（Digit2 -> 剪刀）出拳
+      await B.ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', bubbles: true }))`).catch(() => false);
+      await B.send('Input.dispatchKeyEvent', { type: 'keyDown', key: '2', code: 'Digit2', windowsVirtualKeyCode: 50 });
+      await B.send('Input.dispatchKeyEvent', { type: 'keyUp', key: '2', code: 'Digit2', windowsVirtualKeyCode: 50 });
+
+      await waitFor('服务端确认 A=rock, B=scissors', async () => {
+        const pA = (await A.state(tokenA)).me.games.rpsPending;
+        const pB = (await B.state(tokenB)).me.games.rpsPending;
+        return pA?.ownChoice === 'rock' && pB?.ownChoice === 'scissors';
+      });
+      const stA = await A.state(tokenA), stB = await B.state(tokenB);
+      assert.equal(stA.me.games.rpsPending.deadline, stB.me.games.rpsPending.deadline, '双方 deadline 必须一致');
+      assert.equal('opponentChoice' in stA.me.games.rpsPending, false, 'A pending 不得泄露对手选择');
+      assert.equal('opponentChosen' in stA.me.games.rpsPending, false, 'A pending 不得泄露对手是否已选');
+      for (const pub of stA.players) {
+        for (const k of CFG.projection.publicMustNotHave) assert.equal(k in pub, false, `公共投影不得含 ${k}`);
+      }
+      const domA = await A.ev(`({
+        selfChoice: document.querySelector('#games-self-glyph')?.dataset.choice,
+        oppChoice: document.querySelector('#games-opp-glyph')?.dataset.choice,
+        canvOk: (() => {
+          const c = document.querySelector('#games-self-canvas');
+          const d = c?.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          let n = 0; if (d) for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+          return n > 100 && c.getContext('2d').imageSmoothingEnabled === false;
+        })()
+      })`);
+      assert.equal(domA.selfChoice, 'rock');
+      assert.equal(domA.oppChoice, 'hidden', '截止前对手 DOM 状态必须为 hidden');
+      assert.equal(domA.canvOk, true, '手势 Canvas 必须渲染清晰像素且禁平滑');
+      await A.screenshot(shotSelection);
+      return domA;
+    });
+
+    // 5) 推进截止时间揭示结算 → 胜者 +2 分，败者扣 0 分 + rps-result.png
+    await check('RPS-05 权威揭示：赢 +2 分、输扣 0 分、与TA 1/2 次 + 截图', async () => {
+      await postTest('/api/test/advance', { ms: 10500 });
+      await waitFor('双方弹出结算卡片', async () => {
+        const aOk = await A.ev(`!document.querySelector('#games-result-card')?.hidden`).catch(() => false);
+        const bOk = await B.ev(`!document.querySelector('#games-result-card')?.hidden`).catch(() => false);
+        return aOk && bOk;
+      });
+      await pause(320); // 等撞击动画定格
+      const stA = await A.state(tokenA), stB = await B.state(tokenB);
+      assert.equal(stA.me.games.rpsResult.status, 'resolved');
+      assert.equal(stA.me.games.rpsResult.delta, 2, '赢一局应得 +2 分');
+      assert.equal(stA.me.score, 2);
+      assert.equal(stA.me.games.rpsPoints, 2);
+      assert.equal(stB.me.games.rpsResult.delta, 0, '猜错/落败应扣 0 分');
+      assert.equal(stB.me.score, 0);
+      assert.equal(stA.me.games.rpsResult.pairPlayed, 1);
+      const oppRevealed = await A.ev(`document.querySelector('#games-opp-glyph')?.dataset.choice`);
+      assert.equal(oppRevealed, 'scissors');
+      await A.screenshot(shotResult);
+      return { scoreA: stA.me.score, scoreB: stB.me.score, verdict: await A.ev(`document.querySelector('#games-result')?.textContent`) };
+    });
+
+    // 6) 再来一局平局（双方扣 0 分）后达同人 2/2 上限 → 禁用第 3 次邀请
+    await check('RPS-06 再来一局平局 + 同人 2 次上限拦截', async () => {
+      await postTest('/api/test/advance', { ms: 5500 });
+      await waitFor('再来一局按钮就绪', () => A.ev(`(() => { const b = document.querySelector('#games-rematch'); return !!b && !b.hidden && !b.disabled; })()`).catch(() => false));
+      await A.click('#games-rematch');
+      await waitFor('B 收到第 2 局邀请', () => B.ev(`!document.querySelector('#games-accept')?.hidden`).catch(() => false));
+      await B.click(CFG.rps.inviteAccept);
+      await waitFor('第 2 局进入 selecting', () => A.ev(`!document.querySelector('#games-choice-paper')?.disabled`).catch(() => false));
+      await A.click(CFG.rps.choicePaper);
+      await B.click(CFG.rps.choicePaper);
+      await waitFor('第 2 局选拳落库', async () => {
+        const pA = (await A.state(tokenA)).me.games.rpsPending;
+        const pB = (await B.state(tokenB)).me.games.rpsPending;
+        return pA?.ownChoice === 'paper' && pB?.ownChoice === 'paper';
+      });
+      await postTest('/api/test/advance', { ms: 10500 });
+      await waitFor('第 2 局结算且满 2/2 次', async () => {
+        const st = await A.state(tokenA);
+        const domReady = await A.ev(`!document.querySelector('#games-result-card')?.hidden && /2\\s*\\/\\s*2/.test(document.querySelector('#games-rps-pair')?.textContent || '')`).catch(() => false);
+        return st.me.games.rpsResult?.pairPlayed === 2 && domReady;
+      });
+      const rematchState = await A.ev(`({ disabled: document.querySelector('#games-rematch')?.disabled, text: document.querySelector('#games-rematch')?.textContent, scoreA: document.querySelector('#games-score')?.textContent })`);
+      assert.equal(rematchState.disabled, true, '第 2 局结束后再来一局按钮必须禁用');
+      assert.match(rematchState.text, /2\/2/);
+      await A.click('#games-result-close');
+      await postTest('/api/test/advance', { ms: 5500 });
+      const stA2 = await A.state(tokenA);
+      assert.equal(stA2.me.score, 2, '平局不加分也不扣分');
+      const thirdInv = await A.api('/api/play', {
+        roundId: stA2.roundId,
+        expectedFloorRevision: stA2.me.floorRevision,
+        commandId: commandId(),
+        kind: 'rpsInvite',
+        targetId: idB
+      }, tokenA);
+      assert.equal(thirdInv.data.ok, false, '同人第 3 次 API 邀请应被拒');
+      assert.match(thirdInv.data.error, /已猜拳满 2 次/);
+      return rematchState;
+    });
+
+    // 7) 移动端 390x844 布局无横向溢出 + rps-mobile.png（与第 3 位玩家 RPS丙 展开界面）
+    await check('RPS-07 移动端 390x844 对决视口无横向溢出 + 截图', async () => {
+      await postTest('/api/test/place', { playerId: idC, floorId: 2, x: 528, y: 350, zoneId: null });
+      await postTest('/api/test/place', { playerId: idB, floorId: 2, x: 750, y: 350, zoneId: null });
+      const stA3 = await A.state(tokenA);
+      const stC0 = await A.api('/api/state', undefined, tokenC).then(r => r.data);
+      const invC = await A.api('/api/play', {
+        roundId: stA3.roundId, expectedFloorRevision: stA3.me.floorRevision,
+        commandId: commandId(), kind: 'rpsInvite', targetId: idC
+      }, tokenA);
+      assert.equal(invC.data.ok, true, `A 邀请未玩过的 C 应成功: ${invC.data.error || ''}`);
+      const cid = invC.data.games.rpsPending.id;
+      await A.api('/api/play', {
+        roundId: stC0.roundId, expectedFloorRevision: stC0.me.floorRevision,
+        commandId: commandId(), kind: 'rpsAccept', challengeId: cid
+      }, tokenC);
+      await A.setViewport(390, 844);
+      await waitFor('移动端 390 selecting 就绪', () => A.ev(`(() => {
+        const g = document.querySelector('#games'), b = document.querySelector('#games-choice-scissors');
+        return !!g && !g.hidden && !!b && !b.disabled;
+      })()`).catch(() => false));
+      await A.click(CFG.rps.choiceScissors);
+      await pause(120);
+      const layout = await A.ev(`(() => {
+        const g = document.querySelector('#games')?.getBoundingClientRect();
+        const btns = ['rock', 'scissors', 'paper'].map(c => document.querySelector('#games-choice-' + c)?.getBoundingClientRect());
+        return {
+          scrollW: document.documentElement.scrollWidth,
+          innerW: window.innerWidth,
+          gamesRight: g ? Math.round(g.right) : 0,
+          gamesLeft: g ? Math.round(g.left) : 0,
+          btnsFit: btns.every(b => b && b.left >= 0 && b.right <= 390)
+        };
+      })()`);
+      assert.ok(layout.scrollW <= 390, `视口存在横向溢出 scrollW=${layout.scrollW}`);
+      assert.equal(layout.btnsFit, true, '三颗出拳按钮必须全部处于 390px 视口内');
+      await A.screenshot(shotMobile);
+      return layout;
+    });
+
+    // 8) 零运行时异常与零非预期控制台错误
+    await check('RPS-08 零运行时异常与零非预期 console.error', async () => {
+      const filterConsole = err => {
+        const txt = JSON.stringify(err);
+        return !/status of 401|status of 403|favicon/i.test(txt);
+      };
+      const errsA = A.consoleErrors.filter(filterConsole);
+      const errsB = B.consoleErrors.filter(filterConsole);
+      runtimeErrorsAll.push(...A.runtimeErrors, ...B.runtimeErrors, ...errsA, ...errsB);
+      assert.equal(A.runtimeErrors.length, 0, `A runtimeErrors: ${JSON.stringify(A.runtimeErrors)}`);
+      assert.equal(B.runtimeErrors.length, 0, `B runtimeErrors: ${JSON.stringify(B.runtimeErrors)}`);
+      assert.equal(errsA.length, 0, `A consoleErrors: ${JSON.stringify(errsA)}`);
+      assert.equal(errsB.length, 0, `B consoleErrors: ${JSON.stringify(errsB)}`);
+      return { runtimeErrors: 0, consoleErrors: 0 };
+    });
+  } finally {
+    for (const s of openStreams) { try { s.req.destroy(); } catch {} }
+  }
 }
 
 // ============================ main ============================

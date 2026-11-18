@@ -65,7 +65,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   if(session&&!session.settled)room.rules.timeLimitMs=session.endsAt-room.room.startedAt;
   room.setChargeInterval(config.chargeIntervalMs);
   if(typeof room.setCombatConfig==='function')room.setCombatConfig({initialHp:config.initialHp,protectMs:config.protectMs,goodChargeIntervalMs:config.goodChargeIntervalMs,badChargeIntervalMs:config.badChargeIntervalMs});
-  function snapshot(){const r=room.room;return{roundId:r.roundId,startedAt:r.startedAt,initialHp:r.initialHp,players:r.players,sessions:[...r.sessions],features:r.features,
+  function snapshot(){const r=room.room;return{roundId:r.roundId,startedAt:r.startedAt,initialHp:r.initialHp,players:r.players,sessions:[...r.sessions],features:r.features,featuresConfigured:!!r.featuresConfigured,
     searchSessions:[...r.searchSessions],searchSeq:r.searchSeq,
     finished:r.finished,finishReason:r.finishReason,lastResult:r.lastResult,ranking:r.ranking,logs:r.logs,eliminateEvents:r.eliminateEvents,pausedAt:r.pausedAt||0};}
   function record(){return{version:3,config,session,planDay,plan,consumed,revision,clueSchedule:{...clueSchedule},liveSnapshot:snapshot()};}

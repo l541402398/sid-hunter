@@ -192,9 +192,12 @@ async function handle(ctx) {
       const mutation=MANAGER.mutationGate(req,token,body);
       if(mutation.status!==200)return managerReply(res,mutation);
       const previous = ROOM.room.features;
+      const previousConfigured = !!ROOM.room.featuresConfigured;
       ROOM.room.features = sanitizeFeatures(body && body.features, previous);
+      ROOM.room.featuresConfigured = true;
       if (!MANAGER.persist()) {
         ROOM.room.features = previous;
+        ROOM.room.featuresConfigured = previousConfigured;
         return send(res,503,{ok:false,error:'小游戏配置保存失败，游戏已冻结，请检查存储'});
       }
       return managerReply(res, { status: 200, body: { ok: true, features: featureList(ROOM.room.features) } });
