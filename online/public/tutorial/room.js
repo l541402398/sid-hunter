@@ -102,8 +102,8 @@
       'roster-search': ['roster-search', '输入关键字搜索', '输入系统线索中的上衣颜色「砖红」，找到匹配的人物后点下一步。', '#search', true],
       'roster-alpha': ['roster-alpha', '查看练习人物甲', '这位人物的公开属性符合刚才的线索，点击打开档案。', '#roster-items [data-player="2"]'],
       'target-colors': ['target-colors', '对照系统线索', '他的头发是银白色，上衣是砖红色，与系统线索「坏人01」一致。对照下方线索卡，确认后点下一步。', '#target [data-color="hair"], #target [data-color="top"]', true],
-      'accuse': ['accuse', '使用技能：指认', '档案中可以直接使用技能。点击「指认」，然后确认。', '#accuse'],
-      'confirm': ['confirm', '确认指认', '核对目标是练习人物甲。指认潜伏者会扣除对方 1 格生命，误指好人则扣除自己的生命。', '#confirm'],
+      'accuse': ['accuse', '使用技能：指认', '核对线索后，点击「指认」，然后确认。误指好人会扣除自己 1 格生命。', '#accuse', false, ['误指好人会扣除自己 1 格生命。']],
+      'confirm': ['confirm', '确认指认', '核对目标是练习人物甲。指认潜伏者会扣除对方 1 格生命。误指好人会扣除自己 1 格生命。', '#confirm', false, ['误指好人会扣除自己 1 格生命。']],
       'target-close': ['target-close', '关闭人物档案', '指认成功！关闭窗口，看看地图和名单中的血量变化。', '#target-close'],
       'health': ['health', '生命减少了 1 点', '练习人物甲在地图和玩家名单中的血量都已从 3/3 变为 2/3。', '#roster-items [data-player="2"] .combat-health', true]
     };
@@ -119,7 +119,17 @@
         ? ['roster-alpha', '打开练习人物甲', '点击名单中的练习人物甲，继续核对线索和使用技能。', '#roster-items [data-player="2"]']
         : ['roster-toggle', '继续查看名单', '打开玩家名单，继续核对人物线索。', '#roster-toggle'];
     }
-    return { id: def[0], title: def[1], detail: def[2], selector: def[3], next: !!def[4] };
+    return { id: def[0], title: def[1], detail: def[2], selector: def[3], next: !!def[4], emphasis: def[5] || [] };
+  }
+  function panelCloseButton() {
+    return document.querySelector('#rules-view[open] #rules-close, #bad-pool-dialog[open] #bad-pool-close, #exploration[open] #exploration-close')
+      || ['target', 'mine', 'loot', 'games', 'ranking', 'roster'].filter(id => !$(id).hidden)
+        .map(id => $(id).querySelector(`#${id}-close`)).find(Boolean);
+  }
+  function escapePanel() {
+    if ($('training-complete').open) { exit(); return; }
+    const close = panelCloseButton();
+    if (close) close.click(); else exit();
   }
   function hideSpotlight() {
     const overlay = $('tutorial-spotlight');
@@ -160,16 +170,30 @@
     const nodes = [...document.querySelectorAll(def.selector)];
     const raw = nodes.map(n => n.getBoundingClientRect());
     if (room.state.phase === 'health' && mapHealth) raw.push(mapHealth);
-    const rects = raw.map(r => ({ x: Math.max(2, r.x - 5), y: Math.max(2, r.y - 5),
-      right: Math.min(innerWidth - 2, r.x + r.width + 5), bottom: Math.min(innerHeight - 2, r.y + r.height + 5) }));
+    const paddedRect = r => ({ x: Math.max(2, r.x - 5), y: Math.max(2, r.y - 5),
+      right: Math.min(innerWidth - 2, r.x + r.width + 5), bottom: Math.min(innerHeight - 2, r.y + r.height + 5) });
+    const rects = raw.map(paddedRect);
+    const controls = [panelCloseButton(), room.state.phase === 'confirm' ? $('cancel') : null]
+      .filter(n => n && !nodes.includes(n)).map(n => paddedRect(n.getBoundingClientRect()));
     const pathRect = r => `M${r.x} ${r.y}H${r.right}V${r.bottom}H${r.x}Z`;
-    $('spotlight-shade').setAttribute('d', `M0 0H${innerWidth}V${innerHeight}H0Z ` + rects.map(pathRect).join(' '));
+    $('spotlight-shade').setAttribute('d', `M0 0H${innerWidth}V${innerHeight}H0Z ` + [...rects, ...controls].map(pathRect).join(' '));
     $('spotlight-svg').setAttribute('viewBox', `0 0 ${innerWidth} ${innerHeight}`);
     $('spotlight-rings').replaceChildren(...rects.map(r => {
       const ring = document.createElement('div'); ring.className = 'spotlight-ring';
       ring.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.right-r.x}px;height:${r.bottom-r.y}px`; return ring;
     }));
-    $('spotlight-title').textContent = def.title; $('spotlight-detail').textContent = def.detail;
+    $('spotlight-title').textContent = def.title;
+    const detail = $('spotlight-detail'), detailKey = JSON.stringify([def.detail, def.emphasis]);
+    if (detail.dataset.content !== detailKey) {
+      detail.replaceChildren();
+      const pattern = def.emphasis.find(text => def.detail.includes(text));
+      if (pattern) {
+        const index = def.detail.indexOf(pattern), strong = document.createElement('strong');
+        strong.className = 'tutorial-emphasis'; strong.textContent = pattern;
+        detail.append(def.detail.slice(0, index), strong, def.detail.slice(index + pattern.length));
+      } else detail.textContent = def.detail;
+      detail.dataset.content = detailKey;
+    }
     const next = $('spotlight-next'); next.hidden = !def.next;
     next.textContent = room.state.phase === 'health' ? '完成训练' : '下一步';
     next.disabled = room.state.phase === 'roster-search' && !($('search').value.trim() && document.querySelector('#roster-items [data-player="2"]'));
@@ -184,8 +208,10 @@
         reference.append(card);
       }
     }
-    const r = { x: Math.min(...rects.map(r => r.x)), y: Math.min(...rects.map(r => r.y)),
-      right: Math.max(...rects.map(r => r.right)), bottom: Math.max(...rects.map(r => r.bottom)) }, gap = 16;
+    const placementRects = room.state.phase === 'confirm' && $('cancel')
+      ? [...rects, paddedRect($('cancel').getBoundingClientRect())] : rects;
+    const r = { x: Math.min(...placementRects.map(r => r.x)), y: Math.min(...placementRects.map(r => r.y)),
+      right: Math.max(...placementRects.map(r => r.right)), bottom: Math.max(...placementRects.map(r => r.bottom)) }, gap = 16;
     const sideSpace = Math.max(r.x - gap - 12, innerWidth - r.right - gap - 12);
     const note = $('spotlight-note'), nw = Math.min(270, innerWidth - 24,
       def.id === 'target-colors' && sideSpace >= 200 ? sideSpace : 270);
@@ -218,6 +244,7 @@
     if (phase === 'roster-open' && view.rosterOpen) room.event('roster-open');
     if (phase === 'roster-alpha' && view.selectedId === 2 && view.targetOpen) room.event('alpha-open');
     if (phase === 'accuse' && view.confirming) room.event('confirm-open');
+    if (phase === 'confirm' && !view.confirming) room.event('cancel');
     if (phase === 'target-close' && !view.targetOpen) room.event('target-close');
     if (room.state.step === 6 && !$('logs').hidden) $('logs-toggle').click();
     if (room.state.step === 6 && !view.rosterOpen) $('roster-toggle').click();
@@ -261,11 +288,15 @@
         renderGuide(); updateSpotlight(lastView);
       };
       window.addEventListener('keydown', event => {
+        if (active && event.key === 'Escape') {
+          event.preventDefault(); event.stopImmediatePropagation();
+          if (!event.repeat) escapePanel();
+          return;
+        }
         if ($('tutorial-spotlight').hidden) return;
-        if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); exit(); return; }
         const def = spotlightDefinition(lastView), node = def && document.querySelector(def.selector);
         if (event.code === 'Tab') {
-          const controls = [node, $('spotlight-next'), $('spotlight-exit')].filter(n => n && !n.hidden && !n.disabled && n.matches('button,input'));
+          const controls = [...new Set([node, panelCloseButton(), room.state.phase === 'confirm' ? $('cancel') : null, $('spotlight-next'), $('spotlight-exit')])].filter(n => n && !n.hidden && !n.disabled && n.matches('button,input'));
           const i = controls.indexOf(document.activeElement), offset = event.shiftKey ? -1 : 1;
           event.preventDefault(); event.stopImmediatePropagation(); controls[(i+offset+controls.length)%controls.length]?.focus({preventScroll:true}); return;
         }
@@ -352,6 +383,7 @@
   window.addEventListener('message', event => {
     if (event.origin !== location.origin || event.source !== parent) return;
     if (event.data?.type === 'sid-tutorial:init' && bridge) start(event.data.progress);
+    if (event.data?.type === 'sid-tutorial:escape' && active) escapePanel();
     if (event.data?.type === 'sid-tutorial:pause') { active = false; input = {}; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); }
   });
 })();

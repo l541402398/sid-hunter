@@ -55,3 +55,10 @@ test('移动教学允许任意方向走动，但碰墙不能累计进度',()=>{
   for(let i=0;i<20;i++)blocked.move(1,0,.05);
   assert.equal(blocked.state.step,0);assert.equal(blocked.state.player.walk,0);
 });
+test('取消指认确认后回到指认引导，可重新确认且不改变生命与积分',()=>{
+  const room=T.create({step:5});room.event('next');room.event('confirm-open');
+  const before=JSON.stringify([room.state.player,room.state.npcHp]);
+  assert.equal(room.event('cancel'),true);assert.equal(room.state.phase,'accuse');
+  assert.equal(room.accuse('alpha'),false);assert.equal(JSON.stringify([room.state.player,room.state.npcHp]),before);
+  room.event('confirm-open');assert.equal(room.accuse('alpha'),true);
+});

@@ -46,7 +46,7 @@
       const transitions = { 'mine-open:mine-open': 'mine-faction', 'mine-faction:next': 'mine-colors',
         'mine-colors:next': 'mine-traits', 'mine-traits:next': 'mine-close', 'clues-card:next': 'clues-close',
         'roster-open:roster-open': 'roster-search', 'roster-search:search': 'roster-alpha',
-        'target-colors:next': 'accuse', 'accuse:confirm-open': 'confirm' };
+        'target-colors:next': 'accuse', 'accuse:confirm-open': 'confirm', 'confirm:cancel': 'accuse' };
       if (transitions[p + ':' + name]) { state.phase = transitions[p + ':' + name]; return true; }
       if (p === 'mine-close' && name === 'mine-close') { state.profileViewed = true; return advance(2); }
       if (p === 'clues-close' && name === 'clues-close') { state.cluesRead = true; return advance(3); }

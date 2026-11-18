@@ -1,4 +1,6 @@
 /* All game UI comes from /styles.css. Only the instructional layer is added here. */
+:root{--tutorial-emphasis-color:#fff36b;--tutorial-emphasis-bg:#ffe34d1f}
+#spotlight-note .tutorial-emphasis{display:block;margin-top:8px;padding:5px 8px;border-left:2px solid currentColor;font-size:inherit;font-weight:850;color:var(--tutorial-emphasis-color);background:var(--tutorial-emphasis-bg)}
 /* Panels may scroll; the full-screen game itself must stay anchored. */
 body.practice-game,.practice-game .shell,.practice-game .game-layout,.practice-game .stage,.practice-game .map-view{overflow:clip}
 /* The shared narrow-screen top offset otherwise combines with translateY(-50%). */

@@ -133,7 +133,12 @@
       e.stopImmediatePropagation();
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (type === 'keydown') { if (overlay.open) exit(); else if (offer.open) skip(); else if (summary.open) { summary.close(); unlock(); } }
+        if (type === 'keydown' && !e.repeat) {
+          if (overlay.open) {
+            if (loaded) frame.contentWindow.postMessage({ type: 'sid-tutorial:escape' }, location.origin);
+            else exit();
+          } else if (offer.open) skip(); else if (summary.open) { summary.close(); unlock(); }
+        }
       } else if (!['Tab', 'Enter', ' '].includes(e.key)) e.preventDefault();
     }, true);
     window.addEventListener('annual-review:close', synchronize);

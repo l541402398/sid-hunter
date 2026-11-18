@@ -972,7 +972,10 @@
     for (const id of pointerIds) { try { if (canvas.hasPointerCapture && canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); } catch { } }
     pointerIds.clear();
     // blur 与 hidden 连续发生时零意图签名去重；不重发任何换层 POST。
-    sendIntent(false); clearPrivate(true); closeExploration(); closeWheel(); closeBadPool();
+    sendIntent(false);
+    // A passive interruption stops practice movement without dismissing its lesson panels.
+    if (practice && ['blur', 'visibilitychange', 'pointercancel'].includes(e?.type)) return;
+    clearPrivate(true); closeExploration(); closeWheel(); closeBadPool();
   }
   window.addEventListener('annual-review:open', () => {
     annualReviewDrawingPaused = true;
@@ -1144,7 +1147,7 @@
     host.hidden = false;
     // Build the panel once; snapshots update value slots without replacing controls.
     if (!host.childElementCount) {
-      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-flowers" class="mine-flowers"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity"></strong></div><div id="mine-identity-details"></div></div><div id="mine-colors" class="color-grid" aria-label="外观属性"></div><div id="mine-traits" aria-label="隐藏属性">${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${traitNames[id]}</span><strong id="mine-value-${id}"></strong></div>`).join('')}</div><p class="hold-note">阵营与个人属性仅自己可见。关闭面板、切出页面或打开规则页后收起。</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-flowers" class="mine-flowers"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity"></strong></div><div id="mine-identity-details"></div></div><div id="mine-colors" class="color-grid" aria-label="外观属性"></div><div id="mine-traits" aria-label="隐藏属性">${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${traitNames[id]}</span><strong id="mine-value-${id}"></strong></div>`).join('')}</div><p class="hold-note">${practice ? '教程面板可按 Esc 或点击关闭按钮收起，切换窗口不会关闭。' : '阵营与个人属性仅自己可见。关闭面板、切出页面或打开规则页后收起。'}</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
       if ($('mine-logout')) $('mine-logout').onclick = logout;
 
@@ -4149,7 +4152,7 @@
       // 需求③：容器点击打开物品格面板（不再是一键搜完的旧面板）。
       if (npc) openExploration('npc', npc.entityId);
       else if (front?.container) openLootFor(front);
-      else { closeExploration(); clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); }
+      else if (!practice) { closeExploration(); clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); }
     }
     canvas.focus();
   });
@@ -4550,7 +4553,7 @@
     keys.delete(e.code); sendIntent(false);
   });
   window.addEventListener('blur', clearAllInput);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) clearAllInput(); });
+  document.addEventListener('visibilitychange', e => { if (document.hidden) clearAllInput(e); });
   document.addEventListener('focusin', () => { if (isTyping()) { keys.clear(); sendIntent(true); } });
   // 视口尺寸变化（含全屏切换、窗口缩放、旋转）重建 backing 与统一缩放，自适应而不裁剪或拉伸。
   window.addEventListener('resize', () => resizeCanvas());

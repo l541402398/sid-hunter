@@ -205,6 +205,43 @@ try{
   await clickRoom('#spotlight-next');await phase('accuse');
   assert.equal(await room("!!document.getElementById('private-gate')"),false);assert.equal(await room("document.getElementById('accuse').closest('#target')!==null"),true);await capture('06-direct-skill.png');
  });
+ await check('指认引导保留失焦面板、切回仍显示蒙层；关闭或取消后重开可继续',async()=>{
+  const assertAccuse=async()=>{
+   await phase('accuse');
+   await waitRoom("document.getElementById('tutorial-spotlight').dataset.target==='accuse'");
+   assert.equal(await room("document.getElementById('target').hidden"),false);
+   assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'accuse');
+   assert.equal(await room("document.getElementById('tutorial-spotlight').matches(':popover-open')"),true);
+  };
+  const interrupt=async()=>{
+   await room("window.dispatchEvent(new Event('blur'));Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));delete document.hidden;document.dispatchEvent(new Event('visibilitychange'));document.dispatchEvent(new Event('pointercancel'));window.dispatchEvent(new Event('focus'))");
+   await delay(200);
+  };
+  const hp=await room("SID_PRACTICE.request('/api/state').then(s=>[s.me.hp,s.me.score,s.players[1].hp])");
+  await interrupt();await assertAccuse();
+  // Switch Chromium tabs as well as dispatching the separate blur/hidden events above.
+  const other=await call('Target.createTarget',{url:'about:blank'});
+  try{
+   await call('Target.activateTarget',{targetId:other.targetId});await wait('document.hidden');
+   await call('Page.bringToFront');await wait('!document.hidden');await assertAccuse();
+  }finally{await call('Target.closeTarget',{targetId:other.targetId});await call('Page.bringToFront');}
+  await room("document.getElementById('office').click()");await assertAccuse();
+  await room("document.getElementById('spotlight-shade').dispatchEvent(new MouseEvent('click',{bubbles:true}))");await assertAccuse();
+  const emphasis=await room("(()=>{const e=document.querySelector('#spotlight-detail .tutorial-emphasis'),c=getComputedStyle(e);return{text:e.textContent,color:c.color,weight:c.fontWeight,background:c.backgroundColor}})()");
+  assert.equal(emphasis.text,'误指好人会扣除自己 1 格生命。');assert.equal(emphasis.color,'rgb(255, 243, 107)');assert.ok(Number(emphasis.weight)>=800);assert.notEqual(emphasis.background,'rgba(0, 0, 0, 0)');
+  await noteVisible();await capture('06-accuse-warning.png');
+  for(const action of ['close','escape','parent-escape']){
+   await clickRoom('#accuse');await phase('confirm');await interrupt();await phase('confirm');assert.equal(await room("!!document.getElementById('confirm')"),true);
+   if(action==='close')await clickRoom('#target-close');else{
+    if(action==='parent-escape')await ev("document.getElementById('tutorial-overlay').focus()");else await room("document.getElementById('confirm').focus()");
+    await key('Escape');
+   }
+   await waitRoom("document.getElementById('target').hidden");assert.equal(await ev("document.getElementById('tutorial-overlay').open"),true);
+   await waitRoom("document.getElementById('tutorial-spotlight').dataset.target==='roster-alpha'");await clickRoom('#roster-items [data-player="2"]');await assertAccuse();
+  }
+  await clickRoom('#accuse');await phase('confirm');await clickRoom('#cancel');await assertAccuse();
+  assert.deepEqual(await room("SID_PRACTICE.request('/api/state').then(s=>[s.me.hp,s.me.score,s.players[1].hp])"),hp);
+ });
  await check('直接指认并关闭档案，地图和名单的实际血条同时高亮为2/3',async()=>{
   await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');
   await waitRoom("document.getElementById('score-value').textContent==='12'");await capture('06-skill-result.png');
@@ -239,7 +276,7 @@ try{
    await initPractice(2);await phase('mine-open');await clickRoom('#my-info');
    for(const p of ['mine-faction','mine-colors','mine-traits']){await phase(p);await noteVisible();await capture(`09-${p}-${width}.png`);await clickRoom('#spotlight-next');}
    await phase('mine-close');await clickRoom('#mine-close');await phase('clues-open');await clickRoom('#bad-toggle');await phase('clues-card');await noteVisible();await capture(`09-clues-${width}.png`);await clickRoom('#spotlight-next');await phase('clues-close');await clickRoom('#bad-pool-close');
-   await phase('roster-open');await clickRoom('#roster-toggle');await phase('roster-search');await room("document.getElementById('search').focus()");await call('Input.insertText',{text:'砖红'});await waitRoom("!document.getElementById('spotlight-next').disabled");await clickRoom('#spotlight-next');await phase('roster-alpha');await clickRoom('#roster-items [data-player="2"]');await phase('target-colors');await comparisonVisible();await capture(`09-comparison-${width}.png`);await clickRoom('#spotlight-next');await phase('accuse');await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');await clickRoom('#target-close');await phase('health');await delay(200);
+   await phase('roster-open');await clickRoom('#roster-toggle');await phase('roster-search');await room("document.getElementById('search').focus()");await call('Input.insertText',{text:'砖红'});await waitRoom("!document.getElementById('spotlight-next').disabled");await clickRoom('#spotlight-next');await phase('roster-alpha');await clickRoom('#roster-items [data-player="2"]');await phase('target-colors');await comparisonVisible();await capture(`09-comparison-${width}.png`);await clickRoom('#spotlight-next');await phase('accuse');await noteVisible();await capture(`09-warning-${width}.png`);await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');await clickRoom('#target-close');await phase('health');await delay(200);
    await noteVisible();const m=await room('SID_PRACTICE.inspect().mapHealth');assert.ok(m.x>=0&&m.y>=0&&m.x+m.width<=width&&m.y+m.height<=height,JSON.stringify(m));await capture(`09-health-${width}.png`);
    await clickRoom('#spotlight-next');await waitRoom("document.getElementById('training-complete').open");
   }
