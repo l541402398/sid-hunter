@@ -71,6 +71,14 @@
     minigameWinPoints: 2,
     minigameDailyCap: 10
   };
+  const RPS_RULES = Object.freeze({
+    winPoints: 2,
+    sessionPointCap: 10,
+    maxPlaysPerOpponent: 2,
+    inviteTimeoutMs: 30000,
+    roundMs: 10000,
+    cooldownMs: 5000
+  });
   // 结束规则：按《年会对抗游戏业务方案.md》§一，默认按每日配置截止或管理员结算，不因剩100人或坏人全灭自动结束（100是获奖人数）。
   const RULES = { endRemainingPlayers: 100, timeLimitMs: 2 * 60 * 60 * 1000 };
   // 积分来源（整改后：统一积分，取消独立金币与首搜/首游/身份码/单独击杀奖励）
@@ -192,5 +200,5 @@
   // 战争迷雾：5F 地牢回廊。半径是世界像素，服务端裁剪与客户端渲染共用同一份，
   // 否则改客户端会看到"服务端没发、但客户端还画着残影"的不一致。
   const FLOOR_FOG = { 5: { radius: 180 } };
-  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome };
+  return { WORLD_W, WORLD_H, FLOOR_SCALE, FLOOR_FOG, VIEW_W, VIEW_H, SPEED, MIN_Y, MAX_Y, MIN_X, MAX_X, BODY_HALF, FOOT_TOP, FOOT_BOTTOM, DOOR_HALF_PX_H, DOOR_HALF_PX_V, ZONES, FIELD_NAMES, TRAIT_NAMES, MASK, ACTION, PALETTES, INTERACT_RANGE, PLAY_CONFIG, RPS_RULES, RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE, rpsOutcome };
 });

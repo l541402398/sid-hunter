@@ -79,6 +79,7 @@ async function handle(ctx) {
       if (!body || typeof body !== 'object') return send(res, 400, { ok: false, error: 'body required' });
       const { sanitizeFeatures } = require('../features.js');
       ROOM.room.features = sanitizeFeatures(body.features, ROOM.room.features);
+      ROOM.room.featuresConfigured = true;
       return send(res, 200, { ok: true, features: ROOM.room.features });
     }
     if (action === 'minigame-act') {

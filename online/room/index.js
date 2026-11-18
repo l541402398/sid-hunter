@@ -52,9 +52,19 @@ function createRoom(options = {}) {
   const playConfig = WORLD.PLAY_CONFIG;
   // 结束规则默认取 WORLD.RULES；测试可通过 options.rules 覆盖（如小房间活人阈值）。
   const rules = { ...WORLD.RULES, ...(options.rules || {}) };
+  const rpsRuleCfg = WORLD.RPS_RULES || {};
   const room = {
-    // 功能开关：管理页可随时开关（见 server/features.js）。默认全开，未配置时行为与以前一致。
-    features: sanitizeFeatures(options && options.features, defaultFeatures()),
+    // 功能开关：管理页可随时开关（见 server/features.js）。未显式持久化过的旧快照自动切到新默认（仅开猜拳）。
+    features: sanitizeFeatures(
+      (options && options.features && (!options.restore || options.restore.featuresConfigured))
+        ? options.features
+        : (options && options.restore && options.restore.featuresConfigured ? options.restore.features : undefined),
+      defaultFeatures()
+    ),
+    featuresConfigured: Boolean(
+      (options && options.features && (!options.restore || options.restore.featuresConfigured)) ||
+      (options && options.restore && options.restore.featuresConfigured)
+    ),
     players: [],
     chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs,
     // 试玩默认读 SKILL_CONFIG（90s）；正式场由 activity/管理页覆盖为 COMBAT 建议值（好30/坏20分钟）
@@ -512,7 +522,7 @@ function createRoom(options = {}) {
       input: { up: false, down: false, left: false, right: false },
       walk: 0,
       spriteFacing: 'front',
-      exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
+      exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0, rpsPlayedByTarget: {} },
       achievements: { points: 0, byKind: {} },
       games: { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
       combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
@@ -601,7 +611,7 @@ function createRoom(options = {}) {
         input: { up: false, down: false, left: false, right: false },
         walk: 0,
         spriteFacing: 'front',
-        exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
+        exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0, rpsPlayedByTarget: {} },
         achievements: { points: 0, byKind: {} },
         games: { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
         combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
@@ -1327,13 +1337,14 @@ function createRoom(options = {}) {
   function syncDailyEconomy(p, t) {
     if (!p) return;
     const d = accuseDayKey(t);
-    if (!p.exploration) p.exploration = { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 };
+    if (!p.exploration) p.exploration = { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0, rpsPlayedByTarget: {} };
     if (!p.exploration.exchangedToday || typeof p.exploration.exchangedToday !== 'object') p.exploration.exchangedToday = {};
     if (!Number.isFinite(p.exploration.dailyScoreRedeemed)) p.exploration.dailyScoreRedeemed = 0;
     if (!Number.isFinite(p.exploration.exploreCount)) p.exploration.exploreCount = (p.exploration.searched || []).length;
     if (!Number.isFinite(p.exploration.hammerPointsToday)) p.exploration.hammerPointsToday = 0;
     if (!p.exploration.hammerPointsByTarget || typeof p.exploration.hammerPointsByTarget !== 'object') p.exploration.hammerPointsByTarget = {};
     if (!Number.isFinite(p.exploration.minigamePointsToday)) p.exploration.minigamePointsToday = 0;
+    if (!p.exploration.rpsPlayedByTarget || typeof p.exploration.rpsPlayedByTarget !== 'object') p.exploration.rpsPlayedByTarget = {};
     if (!p.games) p.games = { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null };
     if (!Number.isFinite(p.games.wheelDailySpins)) {
       p.games.wheelDailySpins = Object.values(p.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0);
@@ -1352,6 +1363,7 @@ function createRoom(options = {}) {
       p.exploration.hammerPointsToday = 0;
       p.exploration.hammerPointsByTarget = {};
       p.exploration.minigamePointsToday = 0;
+      p.exploration.rpsPlayedByTarget = {};
       p.games.wheelDailySpins = 0;
       p.games.wheelSpins = {};
     }
@@ -1757,6 +1769,23 @@ function createRoom(options = {}) {
     };
   }
 
+  function rpsPairCount(a, b) {
+    if (!a || !b) return 0;
+    const countA = Number(a.exploration?.rpsPlayedByTarget?.[String(b.id)]) || 0;
+    const countB = Number(b.exploration?.rpsPlayedByTarget?.[String(a.id)]) || 0;
+    return Math.max(countA, countB);
+  }
+  function recordRpsPairPlay(a, b) {
+    if (!a || !b) return 0;
+    if (!a.exploration) a.exploration = {};
+    if (!b.exploration) b.exploration = {};
+    if (!a.exploration.rpsPlayedByTarget || typeof a.exploration.rpsPlayedByTarget !== 'object') a.exploration.rpsPlayedByTarget = {};
+    if (!b.exploration.rpsPlayedByTarget || typeof b.exploration.rpsPlayedByTarget !== 'object') b.exploration.rpsPlayedByTarget = {};
+    const next = rpsPairCount(a, b) + 1;
+    a.exploration.rpsPlayedByTarget[String(b.id)] = next;
+    b.exploration.rpsPlayedByTarget[String(a.id)] = next;
+    return next;
+  }
   function gamesProjection(p) {
     // rpsPending 投影：仅展示本人 ownChoice/ownRevision，绝不泄露对手出拳或是否已选。
     const pending = p.games.rpsPending;
@@ -1776,12 +1805,20 @@ function createRoom(options = {}) {
       Number(p.games.wheelDailySpins) || 0,
       Object.values(p.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0)
     );
+    const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
+    const rpsWinPoints = Number(playConfig.minigameWinPoints) || Number(rpsRuleCfg.winPoints) || 2;
+    const rpsPairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
     return {
       wheelSpins: { ...p.games.wheelSpins },
       wheelDailySpins,
       rpsPending, rpsUntil: p.games.rpsUntil,
       lastResult: p.games.lastResult,
-      rpsResult: p.games.rpsResult ? { ...p.games.rpsResult } : null
+      rpsResult: p.games.rpsResult ? { ...p.games.rpsResult } : null,
+      rpsPoints: Number(p.exploration?.minigamePointsToday) || 0,
+      rpsPointCap,
+      rpsWinPoints,
+      rpsPairCap,
+      rpsPairCounts: { ...(p.exploration?.rpsPlayedByTarget || {}) }
     };
   }
   function combatProjection(p) {
@@ -1798,11 +1835,14 @@ function createRoom(options = {}) {
   // reason 可为字符串或 (player)=>string，用于按本人视角反馈“谁未选”。
   function cancelChallenge(challenge, t, reason) {
     const from = find(challenge.fromId), to = find(challenge.toId);
+    const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
+    const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
     room.challenges.delete(challenge.id);
     for (const p of [from, to]) {
       if (!p) continue;
       const text = typeof reason === 'function' ? reason(p) : reason;
       const mySel = challenge.selections[p.id];
+      const opp = p.id === challenge.fromId ? to : from;
       p.games.rpsPending = null;
       p.games.rpsUntil = t + playConfig.rpsCooldownMs;
       p.games.lastResult = `猜拳已取消：${text}，不计分。`;
@@ -1810,12 +1850,17 @@ function createRoom(options = {}) {
         id: challenge.id, status: 'cancelled',
         ownChoice: mySel ? mySel.choice : null,
         opponentChoice: null,
-        opponentName: p.id === challenge.fromId ? (to && to.name) : (from && from.name),
+        opponentId: opp ? opp.id : null,
+        opponentName: opp ? opp.name : null,
+        pairPlayed: opp ? rpsPairCount(p, opp) : 0,
+        pairCap,
+        rpsPoints: Number(p.exploration?.minigamePointsToday) || 0,
+        rpsPointCap,
         outcome: null, delta: 0, reason: text, completedAt: t
       };
     }
   }
-  // 截止结算：仅当双方都已选且仍存活/在线/金币足够才结算；否则取消（未选齐则反馈谁未选）。
+  // 截止结算：仅当双方都已选且仍在线才结算；否则取消（未选齐则反馈谁未选）。
   // 进入选择阶段后锁定双方，不重新限制距离与视线。
   function settleChallenge(challenge, t) {
     const from = find(challenge.fromId), to = find(challenge.toId);
@@ -1827,22 +1872,32 @@ function createRoom(options = {}) {
       let fromGain = 0, toGain = 0;
       if (outcomeSign > 0) fromGain = awardMinigameWin(from);
       else if (outcomeSign < 0) toGain = awardMinigameWin(to);
+      const pairPlayed = recordRpsPairPlay(from, to);
+      const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
+      const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
       gainAchievement(from, outcomeSign > 0 ? 'rpsWin' : outcomeSign < 0 ? 'rpsLose' : 'rpsDraw');
       gainAchievement(to, outcomeSign < 0 ? 'rpsWin' : outcomeSign > 0 ? 'rpsLose' : 'rpsDraw');
       const labels = { rock: '石头', paper: '布', scissors: '剪刀' };
       room.challenges.delete(challenge.id);
       for (const p of [from, to]) {
         const mine = p.id === challenge.fromId ? fromSel : toSel, opp = p.id === challenge.fromId ? toSel : fromSel;
+        const oppPlayer = p.id === challenge.fromId ? to : from;
         const outcome = outcomeSign === 0 ? 'draw' : (p.id === challenge.fromId ? (outcomeSign > 0 ? 'win' : 'lose') : (outcomeSign > 0 ? 'lose' : 'win'));
         const gain = p.id === challenge.fromId ? fromGain : toGain;
+        const capped = outcome === 'win' && gain === 0;
         p.games.rpsPending = null;
         p.games.rpsUntil = t + playConfig.rpsCooldownMs;
-        p.games.lastResult = `猜拳结算：你出${labels[mine.choice]}，${p.id === challenge.fromId ? to.name : from.name}出${labels[opp.choice]}；${outcome === 'draw' ? '平局' : outcome === 'win' ? '你获胜' : '你落败'}${gain > 0 ? `，积分+${gain}` : '，不计分'}。`;
+        p.games.lastResult = `猜拳结算：你出${labels[mine.choice]}，${oppPlayer.name}出${labels[opp.choice]}；${outcome === 'draw' ? '平局，不扣积分' : outcome === 'win' ? (capped ? `你获胜（本场猜拳积分已满 ${rpsPointCap} 分）` : `你获胜，积分+${gain}`) : '你落败，不扣积分'}。`;
         p.games.rpsResult = {
           id: challenge.id, status: 'resolved',
           ownChoice: mine.choice, opponentChoice: opp.choice,
-          opponentName: p.id === challenge.fromId ? to.name : from.name,
+          opponentId: oppPlayer.id,
+          opponentName: oppPlayer.name,
           outcome, delta: gain, points: gain,
+          pairPlayed, pairCap,
+          rpsPoints: Number(p.exploration?.minigamePointsToday) || 0,
+          rpsPointCap,
+          capped,
           reason: 'settled', completedAt: t
         };
       }
@@ -1885,11 +1940,14 @@ function createRoom(options = {}) {
   }
   function rpsValidation(from, to) {
     if (!from || !to || from.id === to.id) return '猜拳目标无效';
+    if (from.npc || to.npc) return '测试 NPC 无法回应猜拳，请邀请真人玩家互动';
     // 休战可参与；不再要求金币押注
     if (!from.online || !to.online) return '参与者不在线';
-    if (from.floorId !== to.floorId) return '双方不在同一楼层';
+    if (!sameZone(from, to)) return from.floorId !== to.floorId ? '双方不在同一楼层' : '双方不在同一房间';
     if (WORLD.distanceToEntity(from, to) > WORLD.INTERACT_RANGE) return '距离太远，请靠近后再试';
-    if (!WORLD.lineClear(from, to, floorBlockers(from.floorId))) return '家具挡住了猜拳双方';
+    if (!WORLD.lineClear(from, to, zoneBlockersOf(from))) return '家具挡住了猜拳双方';
+    const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
+    if (rpsPairCount(from, to) >= pairCap) return `本场与该玩家已猜拳满 ${pairCap} 次，去和其他同事互动吧`;
     return '';
   }
   function awardMinigameWin(p) {
@@ -1924,6 +1982,9 @@ function createRoom(options = {}) {
     if (movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能参与小游戏');
     if (!actor.online && (!body || !['rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(body.kind))) return fail('你不在线，不能参与小游戏');
     if (!body || typeof body !== 'object') return fail('小游戏指令无效');
+    if (['rpsInvite', 'rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(body.kind) && !room.features.rps) {
+      return fail('猜拳小游戏暂未开放');
+    }
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
     if (!commandId.trim()) return fail('缺少 commandId');
     if (room.processed.has(commandId)) return fail('该指令已结算过');
@@ -2153,6 +2214,9 @@ function createRoom(options = {}) {
     actor.x = landing.x;
     actor.y = landing.y;
     // 换层一定回到楼层公共空间：房间是楼层的子空间，跨层后旧的 zone 不再成立。
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === actor.id || ch.toId === actor.id) cancelChallenge(ch, t, '参与者进出房间');
+    }
     actor.zoneId = null;
     actor.zoneReturn = null;
     actor.floorRevision += 1;
@@ -2223,6 +2287,9 @@ function createRoom(options = {}) {
     const access = zoneDoorAccess(actor, [roomId], WORLD.ROOM_ENTER_PAD);
     if (!access.ok) return reject(access.reason);
     // 进入：先记下楼层位置，再把玩家放进房间内部落点。
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === actor.id || ch.toId === actor.id) cancelChallenge(ch, t, '参与者进出房间');
+    }
     actor.zoneReturn = { x: actor.x, y: actor.y, floorId: actor.floorId };
     actor.zoneId = target.id;
     actor.x = target.entry.x;
@@ -2254,6 +2321,9 @@ function createRoom(options = {}) {
     let landing = { x: back.x, y: back.y };
     if (WORLD.floorCollides(actor.floorId, landing.x, landing.y, floorBlockers(actor.floorId))) {
       landing = { x: zone.door.x, y: zone.door.y };
+    }
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === actor.id || ch.toId === actor.id) cancelChallenge(ch, t, '参与者进出房间');
     }
     actor.zoneId = null;
     actor.zoneReturn = null;

@@ -34,7 +34,7 @@ const restoredSnapshot = admin?.liveSnapshot
 const PRIZES = createPrizePool({ initial: STORE.loadPrizes(), persist: state => STORE.enabled ? STORE.savePrizes(state) : false });
 const ROOM = createRoom({ prizes: PRIZES, flowerRecipients: STORE.loadFlowerRecipients(),
   roleModelEmpNos, persistFlowerRecipients: list => STORE.saveFlowerRecipients(list),
-  ...(restoredSnapshot ? { restore:restoredSnapshot, features:restoredSnapshot.features } : {}) });
+  ...(restoredSnapshot ? { restore:restoredSnapshot, ...(restoredSnapshot.featuresConfigured ? { features: restoredSnapshot.features } : {}) } : {}) });
 require('./server/auth.js').bindRoom(ROOM);
 // 重启恢复的玩家可能来自旧代码：用员工库补一次组织信息，目标档案无需等重连即可显示。
 for (const player of ROOM.room.players) {

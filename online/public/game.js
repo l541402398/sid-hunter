@@ -206,6 +206,8 @@
   let rpsLocalChoice = null, rpsRevision = 0, rpsAckRevision = 0, rpsRemoteRevision = 0;
   let rpsChooseFlight = null, rpsChoosePending = null, rpsUnconfirmed = false;
   let rpsResultDismissId = null, rpsAutoId = null, rpsAutoPhase = null, rpsLastSelfGlyph = '', rpsLastOppGlyph = '';
+  let rpsRevealSeenId = null, rpsRevealStartAt = 0, rpsDrawSig = '';
+  let featuresState = { rps: true, spire: false, tank: false, parkour: false };
   let snapshotGen = 0; // 每次快照自增；防止旧 HTTP 响应覆盖已更新的快照投影
   // 新增：大转盘覆盖层 / 排行榜 / 结算（均只读私有投影与公开投影，不新增身份线索）。
   let wheelOpen = false, wheelTarget = null, wheelSlots = null, wheelAngle = 0, wheelAnim = 0, wheelAnimating = false;
@@ -527,8 +529,10 @@
       rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
       rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
       rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
+      rpsRevealSeenId = null; rpsRevealStartAt = 0; rpsDrawSig = '';
     }
     glassDoorStates = Object.fromEntries((s.glassDoors || []).map(d => [d.id, { open: d.open }]));
+    if (s.features && typeof s.features === 'object') featuresState = { ...featuresState, ...s.features };
     // TMJ 权威开关由服务端下发：关闭时完全走旧碰撞；打开时客户端同步 portal/spawn 布局供渲染侧使用。
     if (TMJ_DEBUG && s.config && typeof s.config.tmj === 'boolean') TMJ_DEBUG.apply(s.config.tmj);
     serverTime = s.serverTime || Date.now();
@@ -946,11 +950,36 @@
     lastRosterSig = ''; lastTargetSig = '';
     renderRoster(); if (selected()) renderTarget();
   });
+  window.addEventListener('sid-rps-art-ready', () => {
+    if ($('target-rps-icon')) SID.rpsArt?.drawSprite($('target-rps-icon'), 'vs-crest', { scale: 1 });
+    if (gamesDomReady) {
+      paintRpsChoiceButtons();
+      SID.rpsArt?.drawSprite($('games-vs-canvas'), 'vs-crest', { scale: 1 });
+      rpsDrawSig = '';
+      syncGames();
+    }
+  });
   function selected() { return selectedId === null ? null : everyone().find(p => p.id === selectedId) || null; }
   function syncTarget() {
     const p = selected();
-    const sig = p ? JSON.stringify([(({ x, y, ...profile }) => profile)(p), isInviteable(p), me?.games?.rpsPending?.id || null, me?.games?.rpsResult?.id || null, me?.flowers, flowerUI?.signature(), finished, gameClosed]) : '';
-    if (sig === lastTargetSig) { if (holding()) updateSkillStatus(); return; }
+    const sig = p ? JSON.stringify([
+      (({ x, y, ...profile }) => profile)(p),
+      isInviteable(p),
+      rpsFeatureEnabled(),
+      rpsPointsEarned(),
+      rpsPairPlayed(p.id),
+      me?.games?.rpsPending?.id || null,
+      me?.games?.rpsResult?.id || null,
+      me?.flowers,
+      flowerUI?.signature(),
+      finished,
+      gameClosed
+    ]) : '';
+    if (sig === lastTargetSig) {
+      if (holding()) updateSkillStatus();
+      updateTargetRpsStatus();
+      return;
+    }
     lastTargetSig = sig;
     renderTarget();
   }
@@ -1003,14 +1032,82 @@
   function targetOrgLine(p) {
     return [p.dept, p.deliveryGroup].filter(Boolean).map(escapeText).join(' · ');
   }
+  function updateTargetRpsStatus() {
+    const p = selected(), card = $('target-rps');
+    if (!p || !card || !me) return;
+    const pts = rpsPointsEarned(), ptCap = rpsPointCap();
+    const played = rpsPairPlayed(p.id), pairCap = rpsPairCap();
+    const pendingMatch = me.games?.rpsPending;
+    const resultMatch = me.games?.rpsResult && me.games.rpsResult.id !== rpsResultDismissId ? me.games.rpsResult : null;
+    const coolSec = Math.max(0, Math.ceil(((me.games?.rpsUntil || 0) - rpsNow()) / 1000));
+    const self = selfPlayer();
+    const inRangeAndClear = !!(self && WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE
+      && p.floorId === me.floorId && (p.zoneId || null) === (me.zoneId || null)
+      && WORLD.lineClear(self, p, occluders));
+    setText($('target-rps-points'), `本场 ${pts}/${ptCap} 分`);
+    setText($('target-rps-pair'), `与TA ${played}/${pairCap} 次`);
+    const pairPill = $('target-rps-pair');
+    if (pairPill) pairPill.dataset.full = String(played >= pairCap);
+    const inviteBtn = $('target-invite-rps'), returnBtn = $('target-return-rps'), noteEl = $('target-rps-note');
+    if (returnBtn) {
+      returnBtn.hidden = !pendingMatch && !resultMatch;
+      returnBtn.textContent = pendingMatch ? '返回正在进行的猜拳' : '查看上局猜拳结果';
+    }
+    let btnText = '邀请猜拳', noteText = '';
+    const disabled = finished || !!gameClosed || p.online === false || !!pendingMatch || played >= pairCap || coolSec > 0 || selfDisabled() || !inRangeAndClear || !!gamesFlight;
+    if (finished) {
+      btnText = '本场已结束';
+      noteText = '活动已结束，无法发起猜拳。';
+    } else if (gameClosed) {
+      btnText = '暂不可用';
+      noteText = gameClosed;
+    } else if (p.online === false) {
+      btnText = '对方离线';
+      noteText = '对方当前离线，暂不可邀请猜拳。';
+    } else if (pendingMatch) {
+      btnText = '对局进行中';
+      noteText = '你有未完成的猜拳，点击「返回正在进行的猜拳」继续。';
+    } else if (played >= pairCap) {
+      btnText = `已满 ${pairCap}/${pairCap} 次`;
+      noteText = `本场与「${p.name}」已玩满 ${pairCap}/${pairCap} 次，去找其他玩家互动吧！`;
+    } else if (coolSec > 0) {
+      btnText = `冷却 ${coolSec}s`;
+      noteText = `猜拳冷却中，${coolSec} 秒后可继续邀请。`;
+    } else if (selfDisabled()) {
+      btnText = '状态受限';
+      noteText = '眩晕或僵直中，暂时无法发起猜拳。';
+    } else if (!inRangeAndClear) {
+      btnText = '需靠近后邀请';
+      noteText = `走近到「${p.name}」64 像素内且无遮挡即可邀请（含休战玩家）。`;
+    } else {
+      btnText = gamesFlight ? '正在发送…' : '邀请猜拳';
+      noteText = pts >= ptCap
+        ? `本场猜拳积分已满 ${ptCap}/${ptCap} 分，仍可继续切磋（赢 +0 分）！`
+        : `10 秒同步出拳 · 赢 +${rpsWinPoints()} 分（本场最多 ${ptCap} 分），平局或猜错不扣分。`;
+    }
+    if (inviteBtn) {
+      inviteBtn.disabled = disabled;
+      setText(inviteBtn, btnText);
+    }
+    setText(noteEl, noteText);
+  }
   function renderTarget() {
     const p = selected();
     if (!p) { clearPrivate(); $('target').hidden = true; $('target').replaceChildren(); return; }
     $('target').hidden = false;
     const orgLine = targetOrgLine(p);
     const status = orgLine || (p.alive ? '对抗中 · 公开档案' : '休战中 · 积分保留');
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute" data-color="${k}"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() ? '<section id="private-content" class="target-skills" aria-label="对该人物使用技能"></section>' : ''}`;
+    const rpsCardHTML = me && p.id !== selfId() && !p.npc && rpsFeatureEnabled()
+      ? `<section id="target-rps" class="rps-target-card" aria-label="猜拳切磋"><div class="rps-target-head"><canvas id="target-rps-icon" class="rps-pixel-badge" width="48" height="48" aria-hidden="true"></canvas><div class="rps-target-meta"><div class="rps-target-title-row"><strong>猜拳切磋</strong><span id="target-rps-points" class="rps-points-pill"></span><span id="target-rps-pair" class="rps-pair-pill"></span></div><p class="rps-target-sub">赢 +${rpsWinPoints()} 分 · 猜错不扣分 · 同人限 ${rpsPairCap()} 次</p></div></div><div class="rps-target-actions"><button type="button" id="target-invite-rps" class="target-invite-rps rps-invite-btn">邀请猜拳</button><button type="button" id="target-return-rps" class="rps-return-btn" hidden>返回正在进行的猜拳</button></div><p id="target-rps-note" class="rps-target-note"></p></section>`
+      : '';
+    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}${rpsCardHTML}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute" data-color="${k}"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() ? '<section id="private-content" class="target-skills" aria-label="对该人物使用技能"></section>' : ''}`;
     flowerUI?.bind(p);
+    if ($('target-rps')) {
+      SID.rpsArt?.drawSprite($('target-rps-icon'), 'vs-crest', { scale: 1 });
+      $('target-invite-rps').onclick = () => sendRps({ kind: 'rpsInvite', targetId: p.id });
+      $('target-return-rps').onclick = () => openGames();
+      updateTargetRpsStatus();
+    }
     $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
     privateOpen = !!me && p.id !== selfId();
     if (privateOpen) renderPrivate();
@@ -1191,6 +1288,8 @@
     rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
     rpsChooseFlight = null; rpsChoosePending = null; rpsUnconfirmed = false;
     rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
+    rpsRevealSeenId = null; rpsRevealStartAt = 0; rpsDrawSig = '';
+    featuresState = { rps: true, spire: false, tank: false, parkour: false };
     rulesInfo = null; finishReason = ''; rankingList = null; historicalRanking = []; finishShown = false; lastRankingSig = '';
     wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
     nearbySig = ''; $('nearby-items').replaceChildren();
@@ -1535,7 +1634,7 @@
     }
     let pBest = null, pD = Infinity;
     for (const p of players) {
-      if (p.id === me.id || p.online === false || p.floorId !== me.floorId) continue;
+      if (p.id === me.id || p.npc || p.online === false || p.floorId !== me.floorId || (p.zoneId || null) !== (me.zoneId || null)) continue;
       if (!WORLD.lineClear(self, p, occluders)) continue;
       const d = WORLD.distanceToEntity(self, p);
       if (d <= WORLD.INTERACT_RANGE && d < pD) { pD = d; pBest = { kind: 'player', id: p.id }; }
@@ -1981,38 +2080,63 @@
     overlay.hidden = true; lastFinishSig = '';
     $('finish-reason').textContent = ''; $('finish-ranking').replaceChildren();
   }
+  function nearbyRpsPlayer() {
+    const self = selfPlayer();
+    if (!self || !me || finished || !rpsFeatureEnabled()) return null;
+    let best = null, bestDist = Infinity;
+    for (const p of players) {
+      if (p.id === me.id || p.npc || p.online === false || p.floorId !== me.floorId || (p.zoneId || null) !== (me.zoneId || null)) continue;
+      if (!WORLD.lineClear(self, p, occluders)) continue;
+      const d = WORLD.distanceToEntity(self, p);
+      if (d <= WORLD.INTERACT_RANGE && d < bestDist) { bestDist = d; best = p; }
+    }
+    return best;
+  }
   function updateExplorationHUD() {
     const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
     setText($('cover-status'), self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入');
     updatePrizeChip();
-    const nearby = nearbyEntities(), sig = JSON.stringify(nearby.map(n => [n.kind, n.id]).sort());
+    const nearby = nearbyEntities();
+    const nearP = nearbyRpsPlayer();
+    const hudItems = nearP ? [...nearby, { kind: 'player', id: `player:${nearP.id}`, playerId: nearP.id, entity: nearP }] : nearby;
+    const sig = JSON.stringify(hudItems.map(n => n.kind === 'player' ? [n.kind, n.id, n.entity.name, rpsPairPlayed(n.playerId)] : [n.kind, n.id]).sort());
     if (sig !== nearbySig) {
       nearbySig = sig;
       // 名称控件按实体复用；进出范围也不替换按下中的按钮。
       const host = $('nearby-items');
-      for (const item of nearby) {
+      for (const item of hudItems) {
         let button = [...host.children].find(b => b.dataset.entity === item.id);
         if (!button) {
           button = document.createElement('button'); button.dataset.entity = item.id;
-          button.onclick = () => activateNearby(item.kind, item.id); host.append(button);
+          button.onclick = () => activateNearby(button.dataset.nearKind || item.kind, button.dataset.playerId ? Number(button.dataset.playerId) : item.id);
+          host.append(button);
         }
-        // 文案随状态更新（房间门/出口/容器/NPC 四类）。
-        // 每项都带「按：K」前缀，让玩家知道这些按钮等价于按 K（用户要求把提示统一成实际键位）。
-        button.textContent = item.kind === 'container' ? `按：K · ${item.entity.container.name}`
-          : item.kind === 'door' ? `按：K · 进入「${item.entity.name}」`
-            : item.kind === 'exit' ? `按：K · 离开「${item.entity.name}」`
-              : `按：K · ${item.entity.name} · 大转盘 / NPC 福利`;
+        button.dataset.nearKind = item.kind;
+        if (item.kind === 'player') {
+          button.dataset.playerId = String(item.playerId);
+          const played = rpsPairPlayed(item.playerId), pairCap = rpsPairCap();
+          button.textContent = played >= pairCap
+            ? `按：K · 查看「${item.entity.name}」档案（猜拳已满 ${pairCap}/${pairCap}）`
+            : `按：K · 与「${item.entity.name}」猜拳 / 档案（${played}/${pairCap}）`;
+        } else {
+          delete button.dataset.playerId;
+          button.textContent = item.kind === 'container' ? `按：K · ${item.entity.container.name}`
+            : item.kind === 'door' ? `按：K · 进入「${item.entity.name}」`
+              : item.kind === 'exit' ? `按：K · 离开「${item.entity.name}」`
+                : `按：K · ${item.entity.name} · 大转盘 / NPC 福利`;
+        }
       }
-      for (const button of host.children) button.hidden = !nearby.some(item => item.id === button.dataset.entity);
+      for (const button of host.children) button.hidden = !hudItems.some(item => item.id === button.dataset.entity);
     }
-    setProp($('nearby-empty'), 'hidden', nearby.length > 0);
+    setProp($('nearby-empty'), 'hidden', hudItems.length > 0);
     setText($('nearby-empty'), !me ? '加入后靠近容器或 NPC'
       : finished ? '游戏已结束，探索已冻结'
           : zoneId ? '靠近容器搜索 · 走到门口按 K 离开房间'
-            : '靠近容器 / NPC / 房间门，按 K 互动（64 像素）');
+            : '靠近角色 / 容器 / NPC / 房间门，按 K 互动（64 像素）');
   }
   // 就近列表点击与 K 键共用同一套分流逻辑（门 → 容器 → NPC → 玩家档案）。
   function activateNearby(kind, id) {
+    if (kind === 'player') { select(Number(id)); return; }
     if (kind === 'door') { const r = WORLD.roomById(id); if (r) enterRoom(r.id, r.name); return; }
     if (kind === 'exit') { const r = WORLD.roomById(id); if (r) leaveRoom(r.name); return; }
     if (kind === 'container') { openLootFor(explorationEntity('container', id)); return; }
@@ -2023,21 +2147,30 @@
   // ---------- 猜拳小游戏：服务端权威 邀请 → 接受 → 10 秒可修改出拳 → 截止揭示 ----------
   const RPS_LABELS = { rock: '石头', paper: '布', scissors: '剪刀' };
   function rpsNow() { return serverNow(); }
-  // 三个可区分的像素手势（64 viewBox，crispEdges）：握拳 / 剪刀手 / 张开手掌；未出拳占位与问号。
-  function rpsGlyph(choice) {
-    if (choice === 'rock') {
-      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="12" y="22" width="40" height="30" rx="7" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="15" y="25" width="34" height="24" rx="5" fill="#f0c08c"/><rect x="9" y="30" width="14" height="15" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="19" y="39" width="3" height="9" fill="#c98f57"/><rect x="27" y="39" width="3" height="9" fill="#c98f57"/><rect x="35" y="39" width="3" height="9" fill="#c98f57"/></svg>`;
-    }
-    if (choice === 'scissors') {
-      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="20" y="33" width="24" height="21" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="23" y="36" width="18" height="15" rx="4" fill="#f0c08c"/><rect x="17" y="13" width="9" height="26" rx="4" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="38" y="13" width="9" height="26" rx="4" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="30" y="33" width="4" height="18" fill="#e7b27a"/></svg>`;
-    }
-    if (choice === 'paper') {
-      return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="18" y="31" width="28" height="23" rx="6" fill="#e7b27a" stroke="#7a4a22" stroke-width="2"/><rect x="21" y="34" width="22" height="18" rx="4" fill="#f0c08c"/><rect x="13" y="19" width="7" height="19" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="23" y="14" width="7" height="24" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="33" y="14" width="7" height="24" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/><rect x="43" y="19" width="7" height="19" rx="3" fill="#f0c08c" stroke="#7a4a22" stroke-width="2"/></svg>`;
-    }
-    return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="14" y="20" width="36" height="30" rx="10" fill="none" stroke="#7e93ad" stroke-width="3" stroke-dasharray="6 5"/><circle cx="32" cy="35" r="9" fill="none" stroke="#7e93ad" stroke-width="3"/></svg>`;
+  function rpsFeatureEnabled() { return featuresState?.rps !== false; }
+  function rpsPointCap() { return Number(me?.games?.rpsPointCap || WORLD.RPS_RULES?.sessionPointCap) || 10; }
+  function rpsWinPoints() { return Number(me?.games?.rpsWinPoints || WORLD.RPS_RULES?.winPoints) || 2; }
+  function rpsPairCap() { return Number(me?.games?.rpsPairCap || WORLD.RPS_RULES?.maxPlaysPerOpponent) || 2; }
+  function rpsPointsEarned() { return Number(me?.games?.rpsPoints ?? me?.exploration?.minigamePoints) || 0; }
+  function rpsPairPlayed(targetId) {
+    if (targetId == null) return 0;
+    const fromGames = me?.games?.rpsPairCounts?.[targetId];
+    if (typeof fromGames === 'number') return fromGames;
+    return Number(me?.exploration?.rpsPlayedByTarget?.[targetId]) || 0;
   }
-  function rpsQuestion() {
-    return `<svg class="rps-glyph" viewBox="0 0 64 64" shape-rendering="crispEdges" aria-hidden="true"><rect x="14" y="20" width="36" height="30" rx="10" fill="#17273c" stroke="#5b83ad" stroke-width="3"/><text x="32" y="45" text-anchor="middle" font-family="ui-monospace,monospace" font-size="30" font-weight="700" fill="#9cc9ef">?</text></svg>`;
+  function paintRpsChoiceButtons() {
+    for (const choice of ['rock', 'scissors', 'paper']) {
+      const btn = $(`games-choice-${choice}`);
+      const cnv = btn?.querySelector('canvas[data-sprite]');
+      if (cnv) SID.rpsArt?.drawSprite(cnv, cnv.dataset.sprite, { scale: 1 });
+    }
+  }
+  function updateRpsAvatar(hostEl, playerObj, fallbackName) {
+    if (!hostEl) return;
+    const key = playerObj ? `${playerObj.id}:${JSON.stringify(playerObj.colors || {})}` : `name:${fallbackName || ''}`;
+    if (hostEl.dataset.avatarKey === key) return;
+    hostEl.dataset.avatarKey = key;
+    hostEl.innerHTML = playerObj?.colors ? portrait(playerObj) : '';
   }
   function openGames() {
     const host = $('games');
@@ -2046,14 +2179,69 @@
     host.hidden = false;
     if (!gamesDomReady) {
       gamesDomReady = true;
-      // 只建一次 DOM；20Hz 快照 / 帧循环只更新文本、disabled、aria-pressed 与手势槽，绝不重建按钮。
-      host.innerHTML = `<div class="panel-heading"><div><small>RPS</small><h2>猜拳对战</h2></div><button id="games-close" class="icon-button" aria-label="取消并关闭猜拳">×</button></div><div class="games-body"><div id="games-rps" class="rps-arena" hidden><p class="games-balance">我的积分 <strong id="games-score">0</strong></p><div class="rps-top"><div class="rps-side rps-self"><span class="rps-role">你</span><span class="rps-name" id="games-self-name"></span><span class="rps-glyph-slot" id="games-self-glyph"></span></div><div class="rps-vs">VS</div><div class="rps-side rps-opp"><span class="rps-role">对手</span><span class="rps-name" id="games-opp-name"></span><span class="rps-glyph-slot" id="games-opp-glyph"></span></div></div><p id="games-phase" class="rps-phase"></p><div class="rps-choices" role="group" aria-label="选择出拳"><button type="button" id="games-choice-rock" data-choice="rock" aria-pressed="false" aria-label="石头">${rpsGlyph('rock')}<span>石头</span></button><button type="button" id="games-choice-scissors" data-choice="scissors" aria-pressed="false" aria-label="剪刀">${rpsGlyph('scissors')}<span>剪刀</span></button><button type="button" id="games-choice-paper" data-choice="paper" aria-pressed="false" aria-label="布">${rpsGlyph('paper')}<span>布</span></button></div><p id="games-timer" class="games-timer"></p><p id="games-unconfirmed" class="rps-unconfirmed" hidden></p><div class="games-pending-actions"><button type="button" id="games-accept" class="rps-accept" hidden>接受</button><button type="button" id="games-reject" class="rps-reject" hidden>拒绝</button><button type="button" id="games-cancel" hidden>取消</button></div><p id="games-result" class="private-result" hidden></p><button type="button" id="games-result-close" class="rps-result-close" hidden>关闭结果</button></div></div>`;
+      // 只建一次 DOM；20Hz 快照 / 帧循环只更新文本、disabled、aria-pressed 与像素 Canvas，绝不重建按钮。
+      host.innerHTML = `<div class="panel-heading"><div><small>RPS · 酒馆切磋</small><h2>猜拳对决</h2></div><button id="games-close" class="icon-button" aria-label="取消并关闭猜拳">×</button></div>
+        <div class="games-body">
+          <div id="games-rps" class="rps-arena" hidden>
+            <div class="rps-session-strip">
+              <div class="rps-session-left">
+                <span class="rps-session-label">猜拳积分 <strong id="games-rps-points">0 / 10</strong></span>
+                <div id="games-gem-bar" class="rps-gem-bar" aria-label="猜拳积分进度"><i class="rps-gem"></i><i class="rps-gem"></i><i class="rps-gem"></i><i class="rps-gem"></i><i class="rps-gem"></i></div>
+                <span id="games-rps-pair" class="rps-pair-pill">与TA 0 / 2 次</span>
+              </div>
+              <p class="games-balance">今日总分 <strong id="games-score">0</strong></p>
+            </div>
+            <div class="rps-top">
+              <div class="rps-side rps-self">
+                <div class="rps-side-id"><span id="games-self-avatar" class="rps-avatar"></span><div class="rps-side-labels"><span class="rps-role">你</span><span class="rps-name" id="games-self-name"></span></div></div>
+                <span class="rps-glyph-slot" id="games-self-glyph" data-choice="none"><canvas id="games-self-canvas" class="rps-hand-canvas" width="64" height="64" aria-hidden="true"></canvas></span>
+                <span id="games-self-state" class="rps-hand-tag">备战中</span>
+              </div>
+              <div class="rps-vs"><canvas id="games-vs-canvas" class="rps-vs-canvas" width="48" height="48" aria-hidden="true"></canvas><span id="games-vs-label" class="rps-vs-label">VS</span></div>
+              <div class="rps-side rps-opp">
+                <div class="rps-side-id"><span id="games-opp-avatar" class="rps-avatar"></span><div class="rps-side-labels"><span class="rps-role">对手</span><span class="rps-name" id="games-opp-name"></span></div></div>
+                <span class="rps-glyph-slot" id="games-opp-glyph" data-choice="hidden"><canvas id="games-opp-canvas" class="rps-hand-canvas" width="64" height="64" aria-hidden="true"></canvas></span>
+                <span id="games-opp-state" class="rps-hand-tag">秘牌未揭</span>
+              </div>
+            </div>
+            <p id="games-phase" class="rps-phase"></p>
+            <div id="games-timer-bar" class="rps-timer-bar" hidden><span id="games-timer-fill" class="rps-timer-fill"></span></div>
+            <p id="games-timer" class="games-timer"></p>
+            <div class="rps-choices" role="group" aria-label="选择出拳（支持数字键 1 2 3）">
+              <button type="button" id="games-choice-rock" data-choice="rock" aria-pressed="false" aria-label="石头"><canvas class="rps-btn-canvas" data-sprite="btn-rock" width="32" height="32" aria-hidden="true"></canvas><span class="rps-choice-label">石头</span><kbd class="rps-kbd">1</kbd></button>
+              <button type="button" id="games-choice-scissors" data-choice="scissors" aria-pressed="false" aria-label="剪刀"><canvas class="rps-btn-canvas" data-sprite="btn-scissors" width="32" height="32" aria-hidden="true"></canvas><span class="rps-choice-label">剪刀</span><kbd class="rps-kbd">2</kbd></button>
+              <button type="button" id="games-choice-paper" data-choice="paper" aria-pressed="false" aria-label="布"><canvas class="rps-btn-canvas" data-sprite="btn-paper" width="32" height="32" aria-hidden="true"></canvas><span class="rps-choice-label">布</span><kbd class="rps-kbd">3</kbd></button>
+            </div>
+            <p id="games-unconfirmed" class="rps-unconfirmed" hidden></p>
+            <div class="games-pending-actions"><button type="button" id="games-accept" class="rps-accept" hidden>接受对战</button><button type="button" id="games-reject" class="rps-reject" hidden>婉拒</button><button type="button" id="games-cancel" hidden>取消</button></div>
+            <div id="games-result-card" class="rps-result-card" hidden>
+              <canvas id="games-result-badge" class="rps-result-badge" width="48" height="48" aria-hidden="true"></canvas>
+              <div class="rps-result-copy">
+                <strong id="games-result-title"></strong>
+                <p id="games-result" class="private-result" hidden></p>
+              </div>
+            </div>
+            <div class="rps-result-actions"><button type="button" id="games-rematch" class="rps-rematch" hidden>再来一局</button><button type="button" id="games-result-close" class="rps-result-close" hidden>关闭结果</button></div>
+          </div>
+        </div>`;
       $('games-close').onclick = exitRps;
       for (const choice of ['rock', 'paper', 'scissors']) $(`games-choice-${choice}`).onclick = () => rpsChoose(choice);
       $('games-accept').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsAccept', challengeId: p.id }); };
       $('games-reject').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsReject', challengeId: p.id }); };
       $('games-cancel').onclick = () => { const p = me?.games?.rpsPending; if (p) sendRps({ kind: 'rpsCancel', challengeId: p.id }); };
+      $('games-rematch').onclick = () => {
+        const res = me?.games?.rpsResult;
+        const oppId = res?.opponentId;
+        if (!oppId) return;
+        const opp = everyone().find(x => x.id === oppId);
+        if (!isInviteable(opp)) { showToast('当前暂无法向该玩家发起下一局'); return; }
+        rpsResultDismissId = res.id;
+        sendRps({ kind: 'rpsInvite', targetId: oppId });
+      };
       $('games-result-close').onclick = () => { const r = me?.games?.rpsResult; if (r) rpsResultDismissId = r.id; syncGames(); };
+      paintRpsChoiceButtons();
+      SID.rpsArt?.drawSprite($('games-vs-canvas'), 'vs-crest', { scale: 1 });
+      rpsDrawSig = '';
     }
     syncRpsLifecycle();
     syncGames();
@@ -2061,7 +2249,7 @@
   function closeGames() {
     const host = $('games');
     // 仅关闭视图；不发送 rpsCancel，进行中的邀请/对局在服务端继续，可随时重开恢复（由 target 菜单「返回正在进行的猜拳」或阶段迁移自动恢复）。
-    gamesDomReady = false; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
+    gamesDomReady = false; rpsLastSelfGlyph = ''; rpsLastOppGlyph = ''; rpsDrawSig = '';
     if (host) { host.hidden = true; host.replaceChildren(); }
   }
   async function exitRps() {
@@ -2080,14 +2268,16 @@
     return { ...data, status: response.status };
   }
   function isInviteable(p) {
-    // 休战玩家可以发起/接受猜拳（只按在线、距离、视线判断）。
-    if (!p || !me || finished || p.id === me.id || p.npc || p.online === false) return false;
+    // 休战玩家可以发起/接受猜拳（按功能开关、同层同室、距离、视线与同人 2 次上限判断；满 10 分仍可游玩）。
+    if (!p || !me || finished || !rpsFeatureEnabled() || p.id === me.id || p.npc || p.online === false) return false;
     const self = selfPlayer(); if (!self) return false;
-    return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && p.floorId === me.floorId && WORLD.lineClear(self, p, occluders)
+    if (rpsPairPlayed(p.id) >= rpsPairCap()) return false;
+    return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && p.floorId === me.floorId && (p.zoneId || null) === (me.zoneId || null)
+      && WORLD.lineClear(self, p, occluders)
       && !me.games?.rpsPending && rpsNow() >= (me.games?.rpsUntil || 0) && !selfDisabled() && !gamesFlight;
   }
   function inviteDisabled() {
-    return !me || finished || selfDisabled() || !!gamesFlight
+    return !me || finished || !rpsFeatureEnabled() || selfDisabled() || !!gamesFlight
       || me.games?.rpsPending != null || rpsNow() < (me.games?.rpsUntil || 0);
   }
   // 本地乐观选择 + 合并串行队列：每次点击立即更新 ownChoice，再按修订号递增提交最终最新选择。
@@ -2171,57 +2361,135 @@
     renderArena(pending, result);
   }
   function renderArena(pending, result) {
+    const oppId = pending ? (pending.role === 'from' ? pending.toId : pending.fromId) : (result?.opponentId || null);
     const oppName = pending ? (pending.role === 'from' ? pending.toName : pending.fromName) : (result ? result.opponentName : '');
+    const oppObj = oppId != null ? everyone().find(x => x.id === oppId) : null;
     $('games-self-name').textContent = me.name || '你';
     $('games-opp-name').textContent = oppName || '对手';
-    let selfGlyph = rpsGlyph(rpsLocalChoice), oppGlyph = rpsQuestion();
-    if (result) {
-      selfGlyph = rpsGlyph(result.ownChoice);
-      oppGlyph = result.status === 'resolved' ? rpsGlyph(result.opponentChoice) : rpsQuestion();
+    updateRpsAvatar($('games-self-avatar'), selfPlayer(), me.name);
+    updateRpsAvatar($('games-opp-avatar'), oppObj, oppName);
+
+    const pts = rpsPointsEarned(), ptCap = rpsPointCap(), winPts = rpsWinPoints(), pairCap = rpsPairCap();
+    const played = result && typeof result.pairPlayed === 'number' ? result.pairPlayed : rpsPairPlayed(oppId);
+    setText($('games-rps-points'), `${pts} / ${ptCap} 分`);
+    const gems = $('games-gem-bar')?.querySelectorAll('.rps-gem') || [];
+    const filledGems = Math.min(gems.length, Math.floor(pts / Math.max(1, winPts)));
+    gems.forEach((g, idx) => g.classList.toggle('is-filled', idx < filledGems));
+    setText($('games-rps-pair'), `与TA ${played} / ${pairCap} 次`);
+    if ($('games-rps-pair')) $('games-rps-pair').dataset.full = String(played >= pairCap);
+
+    const selfChoice = result ? (result.ownChoice || null) : (rpsLocalChoice || null);
+    const oppRevealed = !!(result && result.status === 'resolved' && result.opponentChoice);
+    const oppChoice = oppRevealed ? result.opponentChoice : null;
+    const selfSprite = selfChoice ? `hand-${selfChoice}` : 'hand-ready';
+    const oppSprite = oppChoice ? `opp-${oppChoice}` : 'hand-mystery';
+
+    const selfSlot = $('games-self-glyph'), oppSlot = $('games-opp-glyph');
+    selfSlot.dataset.choice = selfChoice || 'none';
+    selfSlot.setAttribute('aria-label', `自己的手势：${RPS_LABELS[selfChoice] || '未选择'}`);
+    oppSlot.dataset.choice = oppChoice || 'hidden';
+    oppSlot.setAttribute('aria-label', oppRevealed ? `对手手势：${RPS_LABELS[oppChoice]}` : '对手选择尚未揭示');
+    setText($('games-self-state'), selfChoice ? `已出 ${RPS_LABELS[selfChoice]}` : (pending?.phase === 'selecting' ? '请选择出拳' : '准备出拳'));
+    setText($('games-opp-state'), oppChoice ? `对方出 ${RPS_LABELS[oppChoice]}` : (pending?.phase === 'selecting' ? '秘牌已封 · 待揭示' : '等待应战'));
+
+    const perfNow = performance.now();
+    let selfDx = 0, selfDy = 0, oppDx = 0, oppDy = 0, spark = 0, badgeSprite = '';
+    if (result?.status === 'resolved') {
+      if (rpsRevealSeenId !== result.id) { rpsRevealSeenId = result.id; rpsRevealStartAt = perfNow; }
+      const animSelf = SID.rpsArt?.revealAnim(perfNow - rpsRevealStartAt, 'self') || { dx: 0, dy: 0, spark: 0 };
+      const animOpp = SID.rpsArt?.revealAnim(perfNow - rpsRevealStartAt, 'opp') || { dx: 0, dy: 0, spark: 0 };
+      selfDx = animSelf.dx; selfDy = animSelf.dy; oppDx = animOpp.dx; oppDy = animOpp.dy;
+      spark = animSelf.spark || 0;
+      badgeSprite = result.outcome === 'win' ? 'badge-win' : result.outcome === 'lose' ? 'badge-lose' : 'badge-draw';
+    } else {
+      rpsRevealSeenId = null;
+      if (pending?.phase === 'selecting') {
+        selfDy = SID.rpsArt?.selectingOffset(perfNow) || 0;
+        oppDy = SID.rpsArt?.selectingOffset(perfNow + 180) || 0;
+      }
     }
-    // 仅在手势变化时重写 innerHTML，避免 20Hz/帧循环重建。
-    if (rpsLastSelfGlyph !== selfGlyph) { $('games-self-glyph').innerHTML = selfGlyph; rpsLastSelfGlyph = selfGlyph; }
-    if (rpsLastOppGlyph !== oppGlyph) { $('games-opp-glyph').innerHTML = oppGlyph; rpsLastOppGlyph = oppGlyph; }
-    $('games-self-glyph').dataset.choice = result ? (result.ownChoice || 'none') : (rpsLocalChoice || 'none');
-    $('games-self-glyph').setAttribute('aria-label', `自己的手势：${RPS_LABELS[result ? result.ownChoice : rpsLocalChoice] || '未选择'}`);
-    $('games-opp-glyph').dataset.choice = result?.status === 'resolved' ? result.opponentChoice : 'hidden';
-    $('games-opp-glyph').setAttribute('aria-label', result?.status === 'resolved' ? `对手手势：${RPS_LABELS[result.opponentChoice]}` : '对手选择尚未揭示');
-    const phaseEl = $('games-phase'), timerEl = $('games-timer');
+
+    const artReady = !!SID.rpsArt?.isReady();
+    const drawSig = `${selfSprite}|${selfDx},${selfDy}|${oppSprite}|${oppDx},${oppDy}|${spark}|${badgeSprite}|${artReady}`;
+    if (drawSig !== rpsDrawSig) {
+      rpsDrawSig = drawSig;
+      SID.rpsArt?.drawSprite($('games-self-canvas'), selfSprite, { scale: 1, offsetX: selfDx, offsetY: selfDy, spark });
+      SID.rpsArt?.drawSprite($('games-opp-canvas'), oppSprite, { scale: 1, offsetX: oppDx, offsetY: oppDy, spark });
+      if (badgeSprite) SID.rpsArt?.drawSprite($('games-result-badge'), badgeSprite, { scale: 1 });
+    }
+
+    const phaseEl = $('games-phase'), timerEl = $('games-timer'), timerBar = $('games-timer-bar'), timerFill = $('games-timer-fill');
     const choices = ['rock', 'paper', 'scissors'].map(c => $(`games-choice-${c}`));
     const accept = $('games-accept'), reject = $('games-reject'), cancel = $('games-cancel');
-    const unconfirmed = $('games-unconfirmed'), resultEl = $('games-result'), resultClose = $('games-result-close');
+    const unconfirmed = $('games-unconfirmed'), resultCard = $('games-result-card'), resultTitle = $('games-result-title');
+    const resultEl = $('games-result'), rematchBtn = $('games-rematch'), resultClose = $('games-result-close');
     const now = serverNow();
     if (result) {
       const status = result.status, outcome = result.outcome;
       const delta = typeof result.delta === 'number' ? result.delta : 0;
+      const cardOutcome = status === 'resolved' ? (outcome || 'draw') : 'cancelled';
+      resultCard.dataset.outcome = cardOutcome;
+      $('games-rps').dataset.outcome = cardOutcome;
       phaseEl.textContent = status === 'resolved'
-        ? (outcome === 'win' ? '你获胜' : outcome === 'lose' ? '你落败' : outcome === 'draw' ? '平局' : '已结算')
-        : '已取消';
+        ? (outcome === 'win' ? '本局获胜！' : outcome === 'lose' ? '惜败 · 猜错不扣分' : outcome === 'draw' ? '握手言和 · 平局' : '已结算')
+        : '对局已取消';
       timerEl.textContent = '';
+      if (timerBar) timerBar.hidden = true;
       for (const b of choices) { b.disabled = true; b.setAttribute('aria-pressed', 'false'); }
       accept.hidden = reject.hidden = cancel.hidden = true;
       unconfirmed.hidden = true;
+      resultCard.hidden = false;
+      $('games-result-badge').hidden = status !== 'resolved';
+      resultTitle.textContent = status === 'resolved'
+        ? (outcome === 'win'
+          ? (delta > 0 ? `胜出！猜拳积分 +${delta}` : `胜出！（已满 ${ptCap}/${ptCap} 分 · +0）`)
+          : outcome === 'lose' ? '惜败 · 不扣任何积分' : '平局 · 双方不扣积分')
+        : '本局取消 · 不扣积分、不计次数';
       resultEl.hidden = false;
       resultEl.textContent = status === 'resolved'
-        ? `你出${RPS_LABELS[result.ownChoice]}，对方出${RPS_LABELS[result.opponentChoice]} · ${outcome === 'win' ? `你获胜，积分 +${delta}` : outcome === 'lose' ? '你落败，不扣积分' : '平局，不计分'}`
+        ? `你出${RPS_LABELS[result.ownChoice]}，对方出${RPS_LABELS[result.opponentChoice]} · ${outcome === 'win' ? (delta > 0 ? `积分 +${delta}（本场 ${pts}/${ptCap} 分，与TA ${played}/${pairCap} 次）` : `本场已达 ${ptCap}/${ptCap} 分上限（+0 分，与TA ${played}/${pairCap} 次）`) : outcome === 'lose' ? `你落败，不扣积分（与TA ${played}/${pairCap} 次）` : `平局，不计分（与TA ${played}/${pairCap} 次）`}`
         : `本次取消：${result.reason || '对战已结束'} · 不扣积分、不计胜负`;
+      const oppInviteable = isInviteable(oppObj);
+      const pairExhausted = played >= pairCap;
+      const coolSec = Math.max(0, Math.ceil(((me.games?.rpsUntil || 0) - now) / 1000));
+      rematchBtn.hidden = !oppId;
+      rematchBtn.disabled = !oppInviteable;
+      setText(rematchBtn, pairExhausted ? `与TA已满 ${pairCap}/${pairCap} 次 · 去找其他同事吧`
+        : coolSec > 0 ? `再来一局（冷却 ${coolSec}s）`
+          : oppInviteable ? `再来一局（${played}/${pairCap} 次）` : '当前不可续战');
       resultClose.hidden = false;
       return;
     }
+    delete $('games-rps').dataset.outcome;
+    resultCard.hidden = true;
+    rematchBtn.hidden = true;
+    rematchBtn.disabled = true;
     const phase = pending.phase === 'selecting' ? 'selecting' : 'invited';
     if (phase === 'invited') {
-      phaseEl.textContent = pending.role === 'to' ? `${pending.fromName} 邀请你猜拳，是否接受？` : `已邀请 ${pending.toName}，等待对方接受`;
-      const left = Math.max(0, Math.ceil((pending.expiresAt - now) / 1000));
+      phaseEl.textContent = pending.role === 'to' ? `${pending.fromName} 邀请你猜拳切磋，是否接受？` : `已邀请 ${pending.toName} 猜拳，等待对方回应`;
+      const leftMs = Math.max(0, (pending.expiresAt || 0) - now);
+      const left = Math.max(0, Math.ceil(leftMs / 1000));
+      const totalInviteMs = Number(WORLD.RPS_RULES?.inviteTimeoutMs) || 30000;
       timerEl.textContent = `邀请 ${left} 秒后超时自动取消，不扣积分`;
+      if (timerBar && timerFill) {
+        timerBar.hidden = false;
+        timerFill.style.width = `${Math.max(0, Math.min(100, (leftMs / totalInviteMs) * 100)).toFixed(1)}%`;
+      }
       for (const b of choices) { b.disabled = true; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
       accept.hidden = pending.role !== 'to'; reject.hidden = pending.role !== 'to'; cancel.hidden = false;
       unconfirmed.hidden = true; resultEl.hidden = true; resultClose.hidden = true;
     } else {
-      phaseEl.textContent = '十秒选择 · 倒计时结束统一揭示（截止前可改）';
+      phaseEl.textContent = '十秒同步出拳 · 截止前可随时改选（支持数字键 1 / 2 / 3）';
       const deadline = pending.deadline;
-      const settled = now >= deadline; // 截止但权威结果未到
-      const left = Math.max(0, Math.ceil((deadline - now) / 1000));
-      timerEl.textContent = settled ? '等待结算…' : `剩余 ${left} 秒 · 截止前可改`;
+      const settled = now >= deadline;
+      const leftMs = Math.max(0, deadline - now);
+      const left = Math.max(0, Math.ceil(leftMs / 1000));
+      const totalRoundMs = Math.max(1000, deadline - (pending.startedAt || (deadline - (WORLD.RPS_RULES?.roundMs || 10000))));
+      timerEl.textContent = settled ? '倒计时结束，正在揭晓…' : `剩余 ${left} 秒 · 截止前可改选`;
+      if (timerBar && timerFill) {
+        timerBar.hidden = false;
+        timerFill.style.width = `${Math.max(0, Math.min(100, (leftMs / totalRoundMs) * 100)).toFixed(1)}%`;
+      }
       const canChoose = !settled && !finished && !selfDisabled();
       for (const b of choices) { b.disabled = !canChoose; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
       accept.hidden = reject.hidden = true; cancel.hidden = false;
@@ -2238,6 +2506,7 @@
     const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
     gamesFlight = request; gamesResult = '';
     syncGames();
+    if (!$('target').hidden) updateTargetRpsStatus();
     try {
       keys.clear(); sendIntent(true);
       const result = await rpsApi({ commandId: commandId(), ...extra });
@@ -2253,7 +2522,15 @@
       gamesResult = result.ok ? (result.resultText || '') : (result.error || '请求被拒绝');
       if (!result.ok && gamesResult) showToast(gamesResult);
     } catch { if (same()) { gamesResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showToast(gamesResult); } }
-    finally { if (gamesFlight === request) gamesFlight = null; if (same()) { syncGames(); updateScoreDisplay(); } }
+    finally {
+      if (gamesFlight === request) gamesFlight = null;
+      if (same()) {
+        syncGames();
+        updateScoreDisplay();
+        if (!$('target').hidden) updateTargetRpsStatus();
+        updateExplorationHUD();
+      }
+    }
   }
   // ---------- J 敲：无伤害，只眩晕 0.8 秒 / 僵直 1 秒；目标由服务端判定 ----------
   async function attack() {
@@ -4044,6 +4321,7 @@
       if (holding()) updateSkillStatus();
       updateBuffHUD();
       if (mineOpen) renderMine();
+      if (!$('target').hidden) updateTargetRpsStatus();
       syncTimeLeft();
       if (!$('ranking').hidden) syncRanking();
       if (wheelOpen) updateWheelControls();
@@ -4063,7 +4341,7 @@
   function frameBudgetMs() {
     if (typeof document.hasFocus === 'function' && !document.hasFocus()) return 100;
     const transitioning = floorState !== 'IDLE_SOURCE' && floorState !== 'IDLE_TARGET';
-    return (keys.size || sceneMoving || transitioning) ? 1000 / 60 : 1000 / 30;
+    return (keys.size || sceneMoving || transitioning || !$('games').hidden) ? 1000 / 60 : 1000 / 30;
   }
   function frame(now) {
     requestAnimationFrame(frame);
@@ -4495,8 +4773,16 @@
       }
       clearAllInput(); $('candidates').hidden = true; $('candidates').replaceChildren(); return;
     }
+    // 猜拳面板打开时支持数字键 1/2/3 快捷出拳（石头/剪刀/布），忽略其余游戏内快捷键。
+    if (!$('games').hidden) {
+      if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && !isTyping()) {
+        const keyMap = { Digit1: 'rock', Numpad1: 'rock', Digit2: 'scissors', Numpad2: 'scissors', Digit3: 'paper', Numpad3: 'paper' };
+        if (keyMap[e.code]) { e.preventDefault(); rpsChoose(keyMap[e.code]); }
+      }
+      return;
+    }
     // 转盘 / 结算覆盖层打开时，忽略移动、K、J 等游戏内按键。
-    if (wheelOpen || !$('finish-overlay').hidden || !$('games').hidden) return;
+    if (wheelOpen || !$('finish-overlay').hidden) return;
     // 面板优先消费方向键 / K：只移动蓝框，不移动人物。保留 Tab、数字直达和按钮原生激活。
     if (elevatorPicker) {
       if (['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) {

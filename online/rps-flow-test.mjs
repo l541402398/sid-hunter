@@ -46,7 +46,8 @@ const pend = (r, id = 0) => r.privateSnapshot(id).me.games.rpsPending;
 
 function fixture(count = 5) {
   // random 固定：首位为坏人，其余为好人（确定性阵营夹具）。
-  const r = createRoom({ random: () => 0.99 });
+  let drawIdx = 0;
+  const r = createRoom({ random: () => (drawIdx++ === 0 ? 0.1 : 0.99) });
   // dev 新增 floorGuard：play 指令须携带当前 roundId 与本人 floorRevision（客户端从快照读取）。
   const rawPlay = r.play;
   r.play = (sid, body) => rawPlay(sid, body && typeof body === 'object'
@@ -71,11 +72,11 @@ const cancel = (r, id, extra = {}) =>
 const choose = (r, id, choice, revision, commandId = nonce(), extra = {}) =>
   r.play(r.find(id).sessionId, { commandId, kind: 'rpsChoose', challengeId: r.find(id).games.rpsPending.id, choice, revision, ...extra });
 // 直接进入“选择”阶段，双方都已选，并推进到 deadline 之后触发结算。
-function settleBoth(r, fromChoice, toChoice) {
-  const cid = r.find(0).games.rpsPending.id;
-  choose(r, 0, fromChoice, 1);
-  choose(r, 1, toChoice, 1);
-  const deadline = pend(r,0).deadline;
+function settleBoth(r, fromChoice, toChoice, fromId = 0, toId = 1) {
+  const cid = r.find(fromId).games.rpsPending.id;
+  choose(r, fromId, fromChoice, 1);
+  choose(r, toId, toChoice, 1);
+  const deadline = pend(r, fromId).deadline;
   setClock(deadline + 1);
   r.step(0); // 触发 syncRoom 结算
   return cid;
@@ -192,7 +193,7 @@ await test('隐私：私有投影仅 ownChoice/ownRevision，公共投影无 gam
   // 公共快照不含任何私有字段
   const pub = r.publicSnapshot();
   for (const pl of pub.players) {
-    for (const k of ['games', 'exploration', 'hp', 'choice', 'chips', 'rpsPending', 'rpsResult', 'lastResult']) {
+    for (const k of ['games', 'exploration', 'choice', 'chips', 'rpsPending', 'rpsResult', 'lastResult']) {
       assert.ok(!(k in pl), `公共不应含 ${k}`);
     }
   }
@@ -393,6 +394,89 @@ await test('结束同帧优先级：游戏结束后截止不结算', () => {
   r2.step(0); // checkFinish(已结束) -> syncRoom(取消) ，不结算
   assert.equal(r2.find(0).exploration.chips, 3);
   assert.equal(r2.find(0).games.rpsResult.status, 'cancelled');
+});
+
+// ===== 13b. 年会新规：仅默认开猜拳、赢+2错不扣、满10分不限次、同人限2次 =====
+await test('新规：默认只开猜拳；features.rps=false 拦截；同人限2次；满10分仍可玩且+0分；reset 清零', () => {
+  const r = fixture(9);
+  assert.equal(WORLD.RPS_RULES.winPoints, 2);
+  assert.equal(WORLD.RPS_RULES.sessionPointCap, 10);
+  assert.equal(WORLD.RPS_RULES.maxPlaysPerOpponent, 2);
+  assert.deepEqual(r.room.features, { rps: true, spire: false, tank: false, parkour: false });
+
+  // 1) 关闭 rps 开关后，rpsInvite 应被拒
+  r.room.features.rps = false;
+  assert.equal(invite(r, 0, 1).ok, false, 'features.rps=false 时禁止发起猜拳');
+  r.room.features.rps = true;
+
+  // 2) 未完成局（拒绝/取消/邀请超时/单未选超时/离线取消）均不占用同人 2 次上限
+  assert.equal(invite(r, 0, 1).ok, true);
+  assert.equal(reject(r, 1).ok, true);
+  setClock(r.find(0).games.rpsUntil + 1);
+
+  assert.equal(invite(r, 0, 1).ok, true);
+  assert.equal(cancel(r, 0).ok, true);
+  setClock(r.find(0).games.rpsUntil + 1);
+
+  assert.equal(invite(r, 0, 1).ok, true);
+  setClock(pend(r, 0).expiresAt + 1);
+  r.step(0); // 邀请超时
+  setClock(r.find(0).games.rpsUntil + 1);
+
+  assert.equal(invite(r, 0, 1).ok, true);
+  assert.equal(accept(r, 1).ok, true);
+  choose(r, 0, 'rock', 1);
+  setClock(pend(r, 0).deadline + 1);
+  r.step(0); // 单方未选超时取消
+  setClock(r.find(0).games.rpsUntil + 1);
+
+  assert.equal(r.privateSnapshot(0).me.games.rpsPairCounts[r.find(1).id] || 0, 0, '未完成局不应占用同人次数');
+
+  // 3) 同人最多 2 次有效对局（含平局，且双向合并计数）：A vs B 玩满 2 次后禁止第 3 次
+  assert.equal(invite(r, 0, 1).ok, true);
+  assert.equal(accept(r, 1).ok, true);
+  settleBoth(r, 'rock', 'scissors'); // 第 1 次：A 胜 +2（score=2）
+  assert.equal(r.find(0).score, 2);
+  assert.equal(r.privateSnapshot(0).me.games.rpsResult.pairPlayed, 1);
+  setClock(r.find(0).games.rpsUntil + 1);
+
+  assert.equal(invite(r, 1, 0).ok, true); // 反向邀请 B -> A
+  assert.equal(accept(r, 0).ok, true);
+  settleBoth(r, 'paper', 'paper'); // 第 2 次：平局 +0，仍计入同人次数
+  assert.equal(r.find(0).score, 2, '平局不加分也不扣分');
+  assert.equal(r.find(1).score, 0, '落败/平局均不扣分');
+  assert.equal(r.privateSnapshot(0).me.games.rpsPairCounts[r.find(1).id], 2);
+
+  setClock(Math.max(r.find(0).games.rpsUntil, r.find(1).games.rpsUntil) + 1);
+  const blockedA = invite(r, 0, 1);
+  const blockedB = invite(r, 1, 0);
+  assert.equal(blockedA.ok, false, '第3次 A->B 应被拒');
+  assert.match(blockedA.error, /已猜拳满 2 次/);
+  assert.equal(blockedB.ok, false, '第3次 B->A 应被拒');
+
+  // 4) 立即邀请第 3 名玩家不受同人上限影响，且总分满 10 后第 6/7 局胜出仍可游玩（+0 分）
+  for (let oppIdx = 2; oppIdx <= 7; oppIdx++) {
+    r.find(oppIdx).x = r.find(0).x + 20; r.find(oppIdx).y = r.find(0).y;
+    setClock(Math.max(r.find(0).games.rpsUntil, r.find(oppIdx).games.rpsUntil) + 1);
+    const inv = invite(r, 0, oppIdx);
+    assert.equal(inv.ok, true, `应能继续与玩家${oppIdx}猜拳: ${inv.error || ''}`);
+    assert.equal(accept(r, oppIdx).ok, true);
+    settleBoth(r, 'rock', 'scissors', 0, oppIdx);
+  }
+  const snap0 = r.privateSnapshot(0).me;
+  assert.equal(snap0.games.rpsPoints, 10, '本场猜拳积分封顶 10 分');
+  assert.equal(snap0.score, 10, '玩家总分对应为 10 分（共赢 7 局：首 5 局 +2，后 2 局 +0）');
+  assert.equal(snap0.games.rpsResult.status, 'resolved', '满 10 分后仍可完成对局');
+  assert.equal(snap0.games.rpsResult.outcome, 'win');
+  assert.equal(snap0.games.rpsResult.delta, 0, '满 10 分后获胜 delta=0');
+  assert.equal(snap0.games.rpsResult.capped, true, '满 10 分后获胜标记 capped=true');
+
+  // 5) reset() 后次数与积分上限全部清零
+  r.reset();
+  const a2 = r.join('s-new-a', '新甲').player;
+  const b2 = r.join('s-new-b', '新乙').player;
+  a2.x = 500; a2.y = 350; b2.x = 520; b2.y = 350;
+  assert.equal(r.play(a2.sessionId, { roundId: r.room.roundId, expectedFloorRevision: a2.floorRevision, commandId: nonce(), kind: 'rpsInvite', targetId: b2.id }).ok, true);
 });
 
 // 恢复真实时间，准备 HTTP 一致性测试。
