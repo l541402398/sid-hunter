@@ -15,8 +15,8 @@
     { title: '观察结果', task: '查看地图和名单中的血量变化', detail: '两处血条同步由 3/3 变为 2/3。', tip: '生命归零后进入休战，已有积分保留，仍可参与非对抗玩法。' }
   ];
   const PHASES = [
-    ['move'], ['explore'], ['mine-open','mine-faction','mine-colors','mine-traits','mine-close'],
-    ['clues-open','clues-card','clues-close'], ['roster-open','roster-search','roster-alpha'],
+    ['move'], ['explore','explore-close'], ['mine-open','mine-faction','mine-colors','mine-traits','mine-close'],
+    ['clues-countdown','clues-open','clues-card','clues-close'], ['roster-open','roster-search','roster-alpha'],
     ['target-colors','accuse','confirm','target-close'], ['health'], ['complete']
   ];
   const DESK = { x: 430, y: 215, w: 90, h: 68 };
@@ -44,10 +44,12 @@
     function event(name) {
       const p = state.phase;
       const transitions = { 'mine-open:mine-open': 'mine-faction', 'mine-faction:next': 'mine-colors',
-        'mine-colors:next': 'mine-traits', 'mine-traits:next': 'mine-close', 'clues-card:next': 'clues-close',
+        'mine-colors:next': 'mine-traits', 'mine-traits:next': 'mine-close',
+        'clues-countdown:next': 'clues-open', 'clues-card:next': 'clues-close',
         'roster-open:roster-open': 'roster-search', 'roster-search:search': 'roster-alpha',
         'target-colors:next': 'accuse', 'accuse:confirm-open': 'confirm', 'confirm:cancel': 'accuse' };
       if (transitions[p + ':' + name]) { state.phase = transitions[p + ':' + name]; return true; }
+      if (p === 'explore-close' && name === 'loot-close') return advance(1);
       if (p === 'mine-close' && name === 'mine-close') { state.profileViewed = true; return advance(2); }
       if (p === 'clues-close' && name === 'clues-close') { state.cluesRead = true; return advance(3); }
       if (p === 'roster-alpha' && name === 'alpha-open') return advance(4);
@@ -77,9 +79,11 @@
       return Math.hypot(p.x - x, p.y - y) <= 64;
     }
     function explore() {
-      if (state.step < 1 || !nearDesk()) return false;
-      if (!state.explored) { state.player.score += 2; state.explored = true; }
-      return advance(1);
+      if (state.phase !== 'explore' || !nearDesk()) return false;
+      state.explored = true;
+      state.player.score += 2;
+      state.phase = 'explore-close';
+      return true;
     }
     function viewProfile() { return event('mine-open'); }
     function tick(dt) {

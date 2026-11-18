@@ -9,7 +9,11 @@ function profile(room) {
   room.event('mine-close');assert.equal(room.state.step,3);
 }
 function clues(room) {
+  assert.equal(room.state.phase,'clues-countdown');
+  assert.equal(room.state.cluesLeft,5);
   for(let i=0;i<51;i++)room.tick(.1);
+  assert.equal(room.state.cluesPublished,true);assert.equal(room.readClues(),false);
+  room.event('next');assert.equal(room.state.phase,'clues-open');
   assert.equal(room.state.cluesPublished,true);room.readClues();assert.equal(room.state.phase,'clues-card');
   room.event('next');room.event('clues-close');assert.equal(room.state.step,4);
 }
@@ -23,7 +27,9 @@ function roster(room) {
 test('七步教程按顺序完成：逐项讲解、搜索指认、确认两处血量后才完成',()=>{
   const room=T.create();assert.equal(room.explore(),false);
   for(let i=0;i<18;i++)room.move(1,0,.05);assert.equal(room.state.step,1);
-  for(let i=0;i<18;i++)room.move(1,-1,.05);assert.ok(room.nearDesk());room.explore();room.explore();assert.equal(room.state.player.score,2);
+  for(let i=0;i<18;i++)room.move(1,-1,.05);assert.ok(room.nearDesk());
+  assert.equal(room.explore(),true);assert.equal(room.state.phase,'explore-close');assert.equal(room.state.step,1);
+  assert.equal(room.explore(),false);assert.equal(room.state.player.score,2);assert.equal(room.event('loot-close'),true);
   profile(room);clues(room);roster(room);assert.equal(room.accuse('alpha'),true);
   assert.equal(room.state.npcHp,2);assert.equal(room.state.step,5);assert.equal(room.state.phase,'target-close');assert.equal(room.state.player.score,12);
   assert.equal(room.accuse('alpha'),false);room.event('target-close');assert.equal(room.state.step,6);

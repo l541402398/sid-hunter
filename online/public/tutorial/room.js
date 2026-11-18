@@ -34,16 +34,17 @@
   const colors = (hair, top) => ({ hair, top, pants: ['炭灰', '#505d70'], shoes: ['棕色', '#927253'] });
   const ownColors = colors(['栗棕', '#9f6748'], ['草绿', '#75a58a']);
   let room = T.create(null, layout), active = false, bridge = null, elapsed = 0, lastPush = 0, lastStep = -1, lastPublished = false;
-  let input = {}, searched = [], generation = 0, swingAt = 0, logs = [], drawCount = 0, spotlightKey = '', mapHealth = null, lastView = {}, completionShown = false;
+  let input = { x: 0, y: 0 }, combat, searched = [], generation = 0, logs = [], drawCount = 0, spotlightKey = '', mapHealth = null, lastView = {}, completionShown = false;
   function log(message, type = 'tutorial') {
     logs.unshift({ time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), text: message, type });
     logs = logs.slice(0, 30);
   }
   function publicPlayer(id, name, position, look, hp) {
+    const swing = id === 1 ? combat : null;
     return { ...position, id, name, colors: look, hp, maxHp: 3, alive: true, online: true, score: id === 1 ? room.state.player.score : 0,
       floorId: 1, zoneId: scene.id, protected: false, traits: { saying: '***', food: '***', sport: '***' }, sid: '***-***-***',
-      spriteFacing: position.facing || 'front', facing: { x: 1, y: 0 }, lastAttackDirection: 'right', lastAttackFacing: { x: 1, y: 0 },
-      lastAttackAt: id === 1 ? swingAt : 0, swingAt: id === 1 ? swingAt : 0 };
+      spriteFacing: position.facing || 'front', facing: swing?.facing, lastAttackDirection: swing?.lastAttackDirection,
+      lastAttackFacing: swing?.lastAttackFacing, lastAttackAt: swing?.lastAttackAt ?? 0 };
   }
   function exploration() { return { clues: [], searched: [...searched], pendingQuizContainerIds: [] }; }
   function me() {
@@ -54,7 +55,7 @@
       traits: { saying: '稳住别慌', food: '番茄面', sport: '散步' }, traitPublic: { saying: false, food: false, sport: false }, sidRevealed: [false, false, false],
       exploration: exploration(), npcExchange: { exploredCount: searched.length, used: {}, effects: [] }, flowers: { received: 0, sentPoints: 0, sentTo: [] },
       games: { rpsPending: null, rpsResult: null, rpsUntil: 0, wheelDailySpins: 0, wheelSpins: {} },
-      combat: { facing: { x: 1, y: 0 }, attackUntil: 0, lastAttackAt: swingAt, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', stunUntil: 0, freezeUntil: 0 },
+      combat: { ...combat },
       skills: { accuse: { chargesRemaining: 1, maxCharges: 1, cooldownMs: 0, cooldownUntil: 0, chargeIntervalMs: 1800000, nextChargeAt: 0 } },
       accusedToday: [], skillsFrozenAt: null, pending: [], interactionSummary: null, prize: null };
   }
@@ -90,11 +91,13 @@
   function spotlightDefinition(view) {
     const phase = room.state.phase;
     const definitions = {
+      'explore-close': ['loot-close', '关闭探索结果', '查看这次探索获得的积分，然后点击关闭，继续下一步。', '#loot-close'],
       'mine-open': ['my-info', '点击「我的信息」', '先了解自己的阵营、外观属性和隐藏属性。', '#my-info'],
       'mine-faction': ['mine-faction', '我的阵营', '你是调查员（好人），可以使用「指认」。正式对局每场会重新分配阵营。', '.mine-identity', true],
       'mine-colors': ['mine-colors', '外观属性', '头发、上衣、裤子和鞋子的颜色默认公开，其他玩家也能看到，可以与系统线索核对。', '#mine-colors', true],
       'mine-traits': ['mine-traits', '隐藏属性', '口头禅、爱吃的食物和喜欢的运动只有自己能直接看到。其他玩家要等属性公开后才能查看或搜索。', '#mine-traits', true],
       'mine-close': ['mine-close', '关闭个人信息', '点击这里关闭面板，接下来查看系统公布的坏人线索。', '#mine-close'],
+      'clues-countdown': ['clue-countdown', '线索公布倒计时', '这里显示距离下次公布坏人线索还有多久。归零时，系统会公开新的线索。训练室的倒计时只有几秒。', '#clue-next-left', true],
       'clues-open': ['bad-toggle', '点击「线索」', '展开坏人线索，观察系统公布的属性。', '#bad-toggle'],
       'clues-card': ['clues-card', '推理坏人身份', '根据系统公布的信息，推理出坏人是谁。', '#bad-slots .bad-slot', true],
       'clues-close': ['clues-close', '关闭线索窗口', '记住砖红上衣、银白头发，接下来去玩家名单中搜索。', '#bad-pool-close'],
@@ -145,6 +148,7 @@
     const node = document.querySelector(def.selector);
     if (!node || node.getBoundingClientRect().width === 0) { hideSpotlight(); return; }
     const changed = overlay.dataset.target !== def.id || overlay.hidden;
+    const ringChanged = changed || overlay.dataset.phase !== room.state.phase;
     if (changed) {
       // Scroll only the panel's contents. Scrolling the page can move a centered
       // profile out of the viewport, especially when highlighting two fields.
@@ -180,10 +184,18 @@
     const pathRect = r => `M${r.x} ${r.y}H${r.right}V${r.bottom}H${r.x}Z`;
     $('spotlight-shade').setAttribute('d', `M0 0H${innerWidth}V${innerHeight}H0Z ` + [...rects, ...controls].map(pathRect).join(' '));
     $('spotlight-svg').setAttribute('viewBox', `0 0 ${innerWidth} ${innerHeight}`);
-    $('spotlight-rings').replaceChildren(...rects.map(r => {
-      const ring = document.createElement('div'); ring.className = 'spotlight-ring';
-      ring.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.right-r.x}px;height:${r.bottom-r.y}px`; return ring;
-    }));
+    const rings = $('spotlight-rings');
+    if (ringChanged) rings.replaceChildren();
+    while (rings.childElementCount > rects.length) rings.lastElementChild.remove();
+    rects.forEach((r, i) => {
+      let ring = rings.children[i];
+      if (!ring) {
+        ring = document.createElement('div');
+        ring.className = 'spotlight-ring';
+        rings.append(ring);
+      }
+      ring.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.right-r.x}px;height:${r.bottom-r.y}px`;
+    });
     $('spotlight-title').textContent = def.title;
     const detail = $('spotlight-detail'), detailKey = JSON.stringify([def.detail, def.emphasis]);
     if (detail.dataset.content !== detailKey) {
@@ -249,6 +261,7 @@
   }
   function observe(view) {
     const phase = room.state.phase;
+    if (phase === 'explore-close' && $('loot').hidden) room.event('loot-close');
     if (phase === 'mine-open' && view.mineOpen) room.event('mine-open');
     if (phase === 'mine-close' && !view.mineOpen) room.event('mine-close');
     if (phase === 'clues-open' && view.cluesOpen) room.readClues();
@@ -265,7 +278,9 @@
     }
   }
   function start(progress) {
-    completionShown = false; if ($('training-complete').open) $('training-complete').close(); hideSpotlight(); generation++; input = {}; elapsed = lastPush = 0; lastStep = -1; swingAt = 0;
+    completionShown = false; if ($('training-complete').open) $('training-complete').close(); hideSpotlight(); generation++; input = { x: 0, y: 0 }; elapsed = lastPush = 0; lastStep = -1;
+    combat = { facing: { x: 1, y: 0 }, attackUntil: 0, lastAttackAt: 0,
+      lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', stunUntil: 0, freezeUntil: 0 };
     $('spotlight-reference').replaceChildren();
     room = T.create(progress, layout); searched = room.state.explored ? [desk.id] : []; logs = [];
     lastPublished = room.state.cluesPublished;
@@ -274,15 +289,18 @@
     $('training-guide').classList.remove('is-collapsed'); $('tutorial-lesson-collapse').textContent = '−';
     push(); renderGuide(); $('office').focus({ preventScroll: true });
   }
-  function exit() { input = {}; active = false; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); post('exit'); }
+  function exit() { input = { x: 0, y: 0 }; active = false; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); post('exit'); }
   function completeSearch(id) {
     if (!active || id !== desk.id) return { ok: false, status: 400, error: '请靠近身边高亮的书桌。' };
     const item = scene.furniture.find(f => f.id === id);
     if (W.distanceToEntity(room.state.player, item) > W.INTERACT_RANGE) return { ok: false, status: 400, error: '距离太远，请靠近后再搜索。' };
-    if (!room.nearDesk() || room.state.step < 1) return { ok: false, status: 400, error: '先完成移动，再靠近身边高亮的书桌探索。' };
-    room.explore(); searched = [...new Set([...searched, id])];
-    log('探索书桌，获得 2 分练习积分。');
-    const result = { ok: true, status: 200, mode: 'points', gainedPoints: 2, points: 2, score: room.state.player.score, exploration: exploration(), resultText: '获得 2 积分（练习）' };
+    const previousScore = room.state.player.score;
+    if (!room.explore()) return { ok: false, status: 400, error: '先完成移动，再靠近身边高亮的书桌探索。' };
+    searched = [id];
+    const score = room.state.player.score, points = score - previousScore;
+    log(`探索书桌，获得 ${points} 分练习积分。`);
+    const result = { ok: true, status: 200, mode: 'points', gained: { points }, score,
+      exploration: exploration(), resultText: `获得 ${points} 积分（练习）` };
     push(); renderGuide(); return result;
   }
   window.SID_PRACTICE = {
@@ -328,7 +346,13 @@
     },
     async request(path, body = {}) {
       if (!active) return { status: 400, ok: false, error: '练习已暂停。' };
-      if (path === '/api/input') { input = { up: !!body?.up, down: !!body?.down, left: !!body?.left, right: !!body?.right }; return { ok: true, status: 200 }; }
+      if (path === '/api/input') {
+        const x = Number(!!body?.right) - Number(!!body?.left), y = Number(!!body?.down) - Number(!!body?.up);
+        input = { x, y };
+        const length = Math.hypot(x, y);
+        if (length) combat.facing = { x: x / length, y: y / length };
+        return { ok: true, status: 200 };
+      }
       if (path === '/api/state') return { ...snapshot(), status: 200 };
       if (path === '/api/pending-players') return { ok: true, status: 200, groups: [], players: [], count: 0, roundId: 'tutorial-' + generation };
       if (path === '/api/search/start') return completeSearch(body.containerId);
@@ -339,7 +363,16 @@
         setTimeout(push, 0);
         return { ok: true, status: 200, serverTime: Date.now(), resultText: room.state.result, hp: room.state.player.hp, alive: true, score: room.state.player.score, skills: me().skills, accusedToday: [] };
       }
-      if (path === '/api/attack') { swingAt = Date.now(); push(); return { ok: true, status: 200, combat: me().combat, resultText: '完成练习敲击', score: room.state.player.score }; }
+      if (path === '/api/attack') {
+        const now = Date.now();
+        if (now < combat.attackUntil) return { ok: false, status: 400, error: '攻击冷却中', combat: { ...combat } };
+        combat.lastAttackAt = now;
+        combat.attackUntil = now + W.PLAY_CONFIG.attackCooldownMs;
+        combat.lastAttackFacing = combat.facing;
+        combat.lastAttackDirection = W.spriteDirection(combat.facing.x, combat.facing.y, room.state.player.facing);
+        push();
+        return { ok: true, status: 200, combat: { ...combat }, resultText: '完成练习敲击', score: room.state.player.score };
+      }
       if (path === '/api/zone/exit') { exit(); return { ok: false, status: 400, error: '已退出教程。' }; }
       if (path === '/api/ack') return { ok: true, status: 200 };
       return { ok: false, status: 400, error: '这项功能可在返回正式对局后体验。' };
@@ -348,7 +381,7 @@
       if (!active) return;
       document.querySelector('.tutorial-context').style.top = `${Math.ceil(document.querySelector('.game-hud').getBoundingClientRect().bottom) + 8}px`;
       elapsed += dt;
-      room.move(Number(input.right) - Number(input.left), Number(input.down) - Number(input.up), dt);
+      room.move(input.x, input.y, dt);
       room.tick(dt);
       if (room.state.cluesPublished && !lastPublished) { log('系统公布了坏人线索：上衣砖红、头发银白。', 'systemClue'); lastPublished = true; }
       lastView = view; observe(view);
@@ -368,11 +401,11 @@
       if (step === 0 && hint.dataset.viewport !== hintViewport) {
         const width = Math.min(210, innerWidth - 24);
         hint.style.width = width + 'px';
-        hint.style.left = Math.max(12, Math.min(innerWidth - width - 12, innerWidth * .3 + 28)) + 'px';
+        hint.style.left = Math.max(12, Math.min(innerWidth - width - 12, innerWidth * .3 + 54)) + 'px';
         hint.style.top = Math.max(12, Math.min(innerHeight - hint.offsetHeight - 64, innerHeight * .62 - 90)) + 'px';
         hint.dataset.viewport = hintViewport;
       }
-      if (step !== 1) return;
+      if (room.state.phase !== 'explore') return;
       ctx.save(); ctx.strokeStyle = '#ffe09a'; ctx.lineWidth = 2; ctx.fillStyle = '#f5d488';
       ctx.font = 'bold 11px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif'; ctx.textAlign = 'center';
       ctx.strokeRect(desk.x - 5, desk.y - 24, desk.w + 10, desk.h + 30);
@@ -396,6 +429,6 @@
     if (event.origin !== location.origin || event.source !== parent) return;
     if (event.data?.type === 'sid-tutorial:init' && bridge) start(event.data.progress);
     if (event.data?.type === 'sid-tutorial:escape' && active) escapePanel();
-    if (event.data?.type === 'sid-tutorial:pause') { active = false; input = {}; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); }
+    if (event.data?.type === 'sid-tutorial:pause') { active = false; input = { x: 0, y: 0 }; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); }
   });
 })();

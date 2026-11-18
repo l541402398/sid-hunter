@@ -27,7 +27,9 @@ body.practice-game,.practice-game .shell,.practice-game .game-layout,.practice-g
 #tutorial-spotlight[hidden]{display:none}
 #spotlight-svg{position:absolute;inset:0;display:block;width:100%;height:100%;pointer-events:none}
 #spotlight-shade{fill:rgba(9,6,3,.72);pointer-events:fill}
-.spotlight-ring{position:absolute;box-sizing:border-box;border:2px solid #ffe1a0;box-shadow:0 0 18px #ffc65f88,inset 0 0 9px #ffe1a033;border-radius:4px;pointer-events:none}
+.spotlight-ring{position:absolute;box-sizing:border-box;border:2px solid #ffe1a0;box-shadow:0 0 18px #ffc65f88,inset 0 0 9px #ffe1a033;border-radius:4px;pointer-events:none;animation:spotlight-ring-enter 240ms ease-out}
+@keyframes spotlight-ring-enter{from{transform:scale(1.45)}to{transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.spotlight-ring{animation:none}}
 #spotlight-note{position:absolute;box-sizing:border-box;width:270px;padding:13px 15px;border:1px solid #d8ae68;background:linear-gradient(#46301e,#291a10);color:#fbe5c0;box-shadow:0 8px 24px #0005;pointer-events:auto}
 #spotlight-title{font-size:17px;color:#ffe3a2}#spotlight-detail{font-size:12px;line-height:1.7;margin-top:6px}#spotlight-tip{margin-top:10px}
 #spotlight-note{max-height:calc(100dvh - 24px);overflow:auto}

@@ -137,7 +137,7 @@ try{
   await ev('window.gameplayCalls=[]');await room("document.getElementById('office').focus()");
   assert.equal(await room("document.getElementById('movement-hint').hidden"),false);
   assert.equal(await room("[...document.querySelectorAll('#movement-hint kbd')].map(k=>k.textContent).join('')"),'WASD');
-  const hint=await room("document.getElementById('movement-hint').getBoundingClientRect().toJSON()");assert.ok(hint.x>=1440*.3+20);await capture('02-movement-wasd.png');
+  const hint=await room("document.getElementById('movement-hint').getBoundingClientRect().toJSON()");assert.ok(hint.x>=1440*.3+50);await capture('02-movement-wasd.png');
   await room(`window.movementFrames=[];window.originalPracticeOverlay=SID_PRACTICE.drawOverlay;SID_PRACTICE.drawOverlay=function(ctx,view){
    originalPracticeOverlay.call(this,ctx,view);
    const phase=SID_PRACTICE.inspect().step;if(phase>1)return;
@@ -166,10 +166,46 @@ try{
   await room("document.getElementById('office').focus()");await key('ArrowUp','keyDown');
   await waitRoom("(()=>{const q=SID_PRACTICE.inspect();return WORLD.distanceToEntity(q.position,WORLD.roomById(q.sceneId).furniture.find(f=>f.id===q.deskId))<=60})()");await key('ArrowUp','keyUp');
  });
- await check('J不写公告；个人信息按阵营、外观、隐藏属性、关闭按钮逐项讲解',async()=>{
-  const logCount=await room("document.getElementById('log-count').textContent");await room("document.getElementById('office').focus()");await key('KeyJ');await delay(120);
+ await check('J 随方向挥锤，冷却与正式对局相同，且不写公告',async()=>{
+  const combatState=()=>room("SID_PRACTICE.request('/api/state').then(s=>({combat:s.me.combat,player:s.players[0]}))");
+  const logCount=await room("document.getElementById('log-count').textContent");
+  await room("document.getElementById('office').focus()");
+  await key('KeyA');await key('KeyJ');
+  const first=await until('向左挥锤',async()=>{const s=await combatState();return s.combat.lastAttackAt>0?s:false;});
+  assert.equal(first.player.lastAttackDirection,'left');
+  assert.deepEqual(first.combat.lastAttackFacing,{x:-1,y:0});
+  assert.equal(first.combat.attackUntil-first.combat.lastAttackAt,W.PLAY_CONFIG.attackCooldownMs);
+  await key('KeyD');await key('KeyJ');
+  const cooling=await combatState();
+  assert.ok(cooling.combat.attackUntil>Date.now());
+  assert.equal(cooling.combat.lastAttackAt,first.combat.lastAttackAt);
+  assert.deepEqual(cooling.combat.facing,{x:1,y:0});
+  assert.equal(cooling.player.lastAttackDirection,'left');
+  await until('冷却结束',()=>Date.now()>first.combat.attackUntil+60);
+  await key('KeyJ');
+  const second=await until('再次挥锤',async()=>{const s=await combatState();return s.combat.lastAttackAt>first.combat.lastAttackAt?s:false;});
+  assert.equal(second.player.lastAttackDirection,'right');
+  assert.equal(second.combat.attackUntil-second.combat.lastAttackAt,W.PLAY_CONFIG.attackCooldownMs);
   assert.equal(await room("document.getElementById('log-count').textContent"),logCount);
-  await key('KeyK');await until('searched',async()=>await step()===2);await clickRoom('#loot-close');await phase('mine-open');
+ });
+ await check('书桌探索结算后高亮关闭按钮，进入时收缩一次，再进入个人信息教学',async()=>{
+  await room(`window.lootRingAnimations=[];document.addEventListener('animationstart',e=>{
+   if(e.animationName==='spotlight-ring-enter'&&document.getElementById('tutorial-spotlight').dataset.target==='loot-close'){
+    lootRingAnimations.push(e.target.getAnimations()[0].effect.getKeyframes().map(frame=>frame.transform));
+   }
+  });`);
+  await key('KeyK');await phase('explore-close');assert.equal(await step(),1);
+  assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'loot-close');
+  assert.match(await room("document.getElementById('loot-summary').textContent"),/直接获得 2 积分/);
+  await waitRoom('lootRingAnimations.length===1');
+  assert.deepEqual(await room('lootRingAnimations[0]'),['scale(1.45)','scale(1)']);
+  await delay(320);
+  assert.equal(await room('lootRingAnimations.length'),1);
+  assert.equal(await room("document.getElementById('loot').hidden"),false);
+  await capture('02b-desk-result.png');
+  await clickRoom('#loot-close');await phase('mine-open');assert.equal(await step(),2);
+ });
+ await check('个人信息按阵营、外观、隐藏属性、关闭按钮逐项讲解',async()=>{
   await capture('03a-mine-entry.png');await clickRoom('#my-info');await phase('mine-faction');
   assert.match(await room("document.getElementById('mine-value-identity').textContent"),/调查员/);
   assert.equal(await room("document.querySelectorAll('#mine .eye-toggle').length"),0);
@@ -177,7 +213,7 @@ try{
   for(const [phaseName,target] of [['mine-faction','mine-faction'],['mine-colors','mine-colors'],['mine-traits','mine-traits']]){
    await phase(phaseName);assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),target);await capture(`03-${phaseName}.png`);await clickRoom('#spotlight-next');
   }
-  await phase('mine-close');await clickRoom('#mine-close');await phase('clues-open');assert.equal(await step(),3);assert.deepEqual(raw(),baseline);
+  await phase('mine-close');await clickRoom('#mine-close');await phase('clues-countdown');assert.equal(await step(),3);assert.deepEqual(raw(),baseline);
  });
  await check('正式角色被真实技能命中并进入休战，不切回、不关闭或重置教程',async()=>{
   for(const actor of bads.slice(0,3)){
@@ -189,7 +225,12 @@ try{
   assert.equal(await ev("document.getElementById('tutorial-overlay').open"),true);assert.equal(await step(),3);assert.equal(await room("document.getElementById('score-value').textContent"),'2');
   assert.equal(self.x,baseline.x);assert.equal(self.y,baseline.y);assert.equal(ROOM.streams.has(self.id),true);
  });
- await check('线索卡片上方的遮罩可操作，明确提示按系统信息推理',async()=>{
+ await check('先讲解倒计时，再引导打开线索卡片按系统信息推理',async()=>{
+  assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'clue-countdown');
+  assert.match(await room("document.getElementById('spotlight-detail').textContent"),/归零时，系统会公开新的线索/);
+  await clickRoom('#clue-next-left');
+  assert.equal(await room("document.getElementById('bad-pool-dialog').open"),false);
+  await capture('04a-clue-countdown.png');await clickRoom('#spotlight-next');await phase('clues-open');
   await clickRoom('#bad-toggle');await phase('clues-card');
   assert.equal(await room("document.getElementById('bad-pool-dialog').open"),true);
   assert.equal(await room("document.getElementById('spotlight-detail').textContent"),'根据系统公布的信息，推理出坏人是谁。');
@@ -287,7 +328,7 @@ try{
    await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
    await initPractice(2);await phase('mine-open');await clickRoom('#my-info');
    for(const p of ['mine-faction','mine-colors','mine-traits']){await phase(p);await noteVisible();await capture(`09-${p}-${width}.png`);await clickRoom('#spotlight-next');}
-   await phase('mine-close');await clickRoom('#mine-close');await phase('clues-open');await clickRoom('#bad-toggle');await phase('clues-card');await noteVisible();await capture(`09-clues-${width}.png`);await clickRoom('#spotlight-next');await phase('clues-close');await clickRoom('#bad-pool-close');
+   await phase('mine-close');await clickRoom('#mine-close');await phase('clues-countdown');await noteVisible();await clickRoom('#spotlight-next');await phase('clues-open');await clickRoom('#bad-toggle');await phase('clues-card');await noteVisible();await capture(`09-clues-${width}.png`);await clickRoom('#spotlight-next');await phase('clues-close');await clickRoom('#bad-pool-close');
    await phase('roster-open');await clickRoom('#roster-toggle');await phase('roster-search');await room("document.getElementById('search').focus()");await call('Input.insertText',{text:'砖红'});await waitRoom("!document.getElementById('spotlight-next').disabled");await clickRoom('#spotlight-next');await phase('roster-alpha');await clickRoom('#roster-items [data-player="2"]');await phase('target-colors');await comparisonVisible();await capture(`09-comparison-${width}.png`);await clickRoom('#spotlight-next');await phase('accuse');await noteVisible();await capture(`09-warning-${width}.png`);await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');await clickRoom('#target-close');await phase('health');await delay(200);
    await noteVisible();const m=await room('SID_PRACTICE.inspect().mapHealth');assert.ok(m.x>=0&&m.y>=0&&m.x+m.width<=width&&m.y+m.height<=height,JSON.stringify(m));await capture(`09-health-${width}.png`);
    await clickRoom('#spotlight-next');await waitRoom("document.getElementById('training-complete').open");
