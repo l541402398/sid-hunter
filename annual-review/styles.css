@@ -8,7 +8,8 @@
   inherits: true;
   initial-value: 16px;
 }
-.reader {
+.reader,
+#reader-title:focus {
   outline: 0;
 }
 .embedded-review,

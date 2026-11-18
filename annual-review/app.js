@@ -548,11 +548,11 @@
     setBusy(false);
   }
   function openReader(event) {
-    if (exitRequested) return;
+    if (exitRequested || dialog.open) return;
     opener = event?.currentTarget || document.querySelector('[data-open-review]');
-    if (!dialog.open) dialog.showModal();
+    dialog.showModal();
+    $('reader-title').focus({ preventScroll: true });
     syncCoverMotion();
-    (mode === 'cover' ? $('start-review') : $('previous-page')).focus({ preventScroll: true });
   }
   function dismiss() {
     if (exitTask || !dialog.open) return exitTask;
