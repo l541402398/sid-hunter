@@ -361,7 +361,7 @@ try {
     await waitFor('status 含无伤害', async () => /无伤害/.test(await ev(`document.querySelector('#combat-status').textContent`)));
     // J 攻击已改为纯键盘触发：按钮保留在 DOM 但不可见。冷却倒计时由按钮文案承载
     // （game.js 里 button.textContent = cooldown>0 ? 'J · 互动 · 冷却 Ns' : ...），
-    // 命中时底部提示条显示命中反馈，空挥时才显示空挥+冷却——所以两处分别断言。
+    // 命中时底部提示条显示命中反馈；空挥不提示，冷却仍由权威状态与按钮承载。
     let cooldownUi = null;
     await waitFor('按钮不可见且处于禁用态（冷却中）', async () => {
       cooldownUi = JSON.parse(await ev(`(()=>{const b=document.querySelector('#attack-button');const s=document.querySelector('#combat-status');return JSON.stringify({buttonDisabled:b.disabled,buttonHidden:b.hasAttribute('hidden'),buttonVisible:b.getBoundingClientRect().width>0,buttonText:(b.textContent||'').slice(0,40),statusVisible:s.getBoundingClientRect().width>0,statusText:(s.textContent||'').slice(0,50)})})()`));
@@ -409,15 +409,8 @@ try {
       return left > 0 && left <= sharedCooldown ? { cur, left } : false;
     }, 8000);
     const aEmpty = empty.cur;
-    let emptyText = '';
-    try {
-      emptyText = await waitFor('空挥文案', async () => {
-        const text = await ev(`document.querySelector('#combat-status').textContent`);
-        return /空挥/.test(text) ? text : false;
-      }, 4000);
-    } catch { emptyText = await ev(`document.querySelector('#combat-status').textContent`); }
-    assert.match(emptyText, /空挥|冷却/, `空挥后提示条应给出反馈，实测 ${emptyText}`);
-    return { stunMs: hit.b.stunUntil - hit.s.serverTime, freezeMinusStun: hit.b.freezeUntil - hit.b.stunUntil, hitCooldownMs: cdLeft, emptySwingCooldownLeft: empty.left, emptySwingText: emptyText };
+    await waitFor('空挥不显示底部提示', async () => ev(`document.querySelector('#combat-status').hidden&&document.querySelector('#combat-status').textContent===''`));
+    return { stunMs: hit.b.stunUntil - hit.s.serverTime, freezeMinusStun: hit.b.freezeUntil - hit.b.stunUntil, hitCooldownMs: cdLeft, emptySwingCooldownLeft: empty.left, emptySwingText: '' };
   });
 
   await test('联机 07 20Hz 快照下按钮身份稳定（#exploration-wheel）且旧互动小游戏入口已移除', async () => {

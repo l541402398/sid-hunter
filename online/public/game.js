@@ -2276,7 +2276,7 @@
       if (typeof result.score === 'number') me = { ...me, score: result.score };
       if (result.ok && result.prize) showPrizeDrop(result.prize);
       combatResult = result.ok
-        ? `${result.resultText || '已互动'}（无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营）`
+        ? (result.hitId == null ? '' : `${result.resultText || '已互动'}（无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营）`)
         : (result.error || '互动被拒绝');
     } catch {
       if (same()) combatResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
