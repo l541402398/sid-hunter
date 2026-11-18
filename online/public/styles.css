@@ -19,6 +19,7 @@
 @import url("styles/npc.css");
 @import url("styles/flowers.css");
 @import url("styles/tutorial.css");
+@import url("styles/round-tasks.css");
 
 /* 实物奖品：掉落动画（方案 §九：奖品直接锁定给触发玩家，无需捡取） */
 .prize-chip { background: #fff4d6; color: #7a4b00; }

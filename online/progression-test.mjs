@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const { createRoom, WORLD } = require('./room.js');
+const { createStore } = require('./server/store.js');
 const { RULES, SCORE, WHEEL, PLAY_CONFIG: C } = WORLD;
 const furniture = WORLD.makeFurniture();
 const npc = WORLD.NPCS[0];
@@ -121,6 +122,27 @@ await test('转盘：每日3次免费、全楼层共享、积分入账、第4次
   }
   const fail = wheel(r, p, WORLD.NPCS[1]);
   assert.equal(fail.ok, false); assert.match(fail.error, /上限/); assert.equal(p.score, score); assert.equal(p.games.wheelDailySpins, 3);
+  const progress = r.privateSnapshot(p.id).me.roundTasks.wheel;
+  assert.deepEqual(progress, { spins: 3, cap: 3, points: score, completeHistory: true });
+  assert.equal(r.publicSnapshot(0).players.find(player => player.id === p.id).roundTasks, undefined);
+  const store = createStore({ file: ':memory:' });
+  try {
+    assert.equal(store.saveSnapshot({ ...r.room, sessions: [...r.room.sessions] }), true);
+    const restored = createRoom({ restore: store.loadSnapshot() });
+    assert.deepEqual(restored.privateSnapshot(p.id).me.roundTasks.wheel, progress);
+  } finally { store.close(); }
+});
+await test('本场任务：旧存档保留转盘次数，新领奖累计得分且拒绝重复指令', () => {
+  const r = fixture(3, { randomInt: () => 0 }), p = r.find(1);
+  p.games.wheelDailySpins = 1;
+  p.games.wheelSpins[npc.id] = 1;
+  assert.deepEqual(r.privateSnapshot(p.id).me.roundTasks.wheel, { spins: 1, cap: 3, points: 0, completeHistory: false });
+  p.x = npc.x; p.y = npc.y;
+  const request = { commandId: nonce(), kind: 'wheel', entityId: npc.id, ...guard(r, p) };
+  const result = r.play(p.sessionId, request);
+  assert.equal(result.ok, true);
+  assert.equal(r.play(p.sessionId, request).ok, false);
+  assert.deepEqual(r.privateSnapshot(p.id).me.roundTasks.wheel, { spins: 2, cap: 3, points: result.prize, completeHistory: false });
 });
 await test('计分·探索与猜拳：直接积分 +1、答题答对 +2、猜拳胜 +2/负平 0', () => {
   const r = fixture(3, { randomInt: () => 10 });
@@ -130,6 +152,10 @@ await test('计分·探索与猜拳：直接积分 +1、答题答对 +2、猜拳
   const ans = r.room.searchSessions.get(quiz.sessionId).question.answer;
   assert.equal(r.interact(p.sessionId, { kind: 'quizAnswer', sessionId: quiz.sessionId, answer: ans }).correct, true);
   assert.equal(p.score, SCORE.exploreDirect + SCORE.exploreQuiz);
+  const progress = r.privateSnapshot(p.id).me.roundTasks;
+  assert.equal(progress.containers.points, SCORE.exploreDirect);
+  assert.equal(progress.quiz.points, SCORE.exploreQuiz);
+  assert.equal(progress.unallocated.points, 0);
   p.x = 500; p.y = 350; q.x = 520; q.y = 350;
   const pScore = p.score, qScore = q.score;
   // 新协议：邀请不带出拳；被邀请方接受后进入 10 秒选择阶段；双方出拳后到 deadline 才结算计分。
@@ -144,6 +170,8 @@ await test('计分·探索与猜拳：直接积分 +1、答题答对 +2、猜拳
   };
   settleRps(p, q, 'rock', 'scissors', '第一局');
   assert.equal(p.score, pScore + SCORE.rpsWin); assert.equal(q.score, qScore + SCORE.rpsLose);
+  assert.equal(r.privateSnapshot(p.id).me.roundTasks.rps.points, SCORE.rpsWin);
+  assert.equal(r.privateSnapshot(p.id).me.roundTasks.rps.cap, C.minigameDailyCap);
   r.room.clockOffset += C.rpsCooldownMs + 1; // 越过 5 秒共享冷却
   settleRps(p, q, 'paper', 'paper', '第二局');
   assert.equal(p.score, pScore + SCORE.rpsWin + SCORE.rpsDraw);
@@ -226,6 +254,7 @@ await test('reset 清空 score/finishReason/ranking/wheelSpins 与每日探索�
   assert.equal(fresh.score, 0); assert.equal(fresh.hp, 3);
   assert.deepEqual({ chips: fresh.exploration.chips, clues: fresh.exploration.clues, searched: fresh.exploration.searched, exploreCount: fresh.exploration.exploreCount }, { ...blank(), exploreCount: 0 });
   assert.deepEqual(fresh.games.wheelSpins, {}); assert.equal(fresh.games.rpsPending, null);
+  assert.deepEqual(r.privateSnapshot(fresh.id).me.roundTasks.wheel, { spins: 0, cap: 3, points: 0, completeHistory: true });
 });
 
 const freePort = () => new Promise((resolve, reject) => {

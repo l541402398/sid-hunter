@@ -297,12 +297,21 @@
     api, toast: showToast,
     changed: () => { lastTargetSig = ''; if (selected()) renderTarget(); if (mineOpen) renderMine(); }
   });
+  const roundTasks = practice ? null : SID.roundTasks?.create({
+    context: () => ({
+      progress: Number.isFinite(me?.roundTasks?.currentScore) ? me.roundTasks : null,
+      flowerRecipient: !!(directoryById.get(me?.id) ?? selfPlayer())?.flowerRecipient,
+      truce: me?.alive === false,
+      unavailable: finished ? '本场已结束' : gamePausedAt ? '本场已暂停' : gameClosed
+    }),
+    onOpen: () => { keys.clear(); sendIntent(false); }
+  });
   const tutorial = practice ? null : SID.tutorial?.create({
     context: () => ({
       joined: !!me,
       owner: me ? `${me.id}:${me.name}` : '',
       userKey: tutorialAccountKey || `guest:${me?.name || ''}`,
-      unavailable: !!$('annual-review-overlay')?.open ||
+      unavailable: !!$('annual-review-overlay')?.open || !!roundTasks?.opened() ||
         !!$('invite-dialog')?.open || !!floorFlight || !!zoneFlight || !!interactionFlight ||
         !!skillFlight || !!combatFlight || !!gamesFlight || !!wheelSpinFlight ||
         !!explorationPanel || privateOpen || wheelOpen || !!$('bad-pool-dialog')?.open || !!LOOT?.isOpen(),
@@ -342,7 +351,8 @@
     return f;
   }
   function operationModalOpen() {
-    return !!tutorial?.isBlocking() || !!$('annual-review-overlay')?.open || !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
+    return !!tutorial?.isBlocking() || !!$('annual-review-overlay')?.open || !!roundTasks?.opened() ||
+      !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
   }
   function sendIntent(force) {
     if (operationModalOpen() || elevatorPicker || gameClosed) keys.clear();
@@ -1008,6 +1018,7 @@
     clearPrivate(true); closeExploration(); closeWheel(); closeBadPool();
   }
   window.addEventListener('annual-review:open', () => {
+    roundTasks?.close();
     annualReviewDrawingPaused = true;
     if (me) clearAllInput(); else keys.clear();
   });
@@ -1892,10 +1903,13 @@
   function updateScoreDisplay() {
     const node = $('score-value');
     if (node) {
-      const text = String(selfScore());
+      const progress = me?.roundTasks;
+      const text = String(progress && Number.isFinite(progress.currentScore)
+        ? progress.historyScore + progress.currentScore : selfScore());
       if (node.textContent !== text) node.textContent = text;
     }
     updatePrizeChip();
+    roundTasks?.sync();
   }
   function formatDuration(ms) {
     const total = Math.max(0, Math.floor(ms / 1000)), hh = Math.floor(total / 3600), mm = Math.floor((total % 3600) / 60), ss = total % 60;
@@ -2071,6 +2085,7 @@
         : '<p class="panel-note">没有存活玩家。</p>');
   }
   function showFinish() {
+    roundTasks?.close();
     clearPrivate(true); closeExploration(); closeBadPool();
     const overlay = $('finish-overlay'); if (!overlay) return;
     lastFinishSig = ''; renderFinish(); overlay.hidden = false;
@@ -2347,6 +2362,7 @@
     }
     rpsAutoId = pending.id; rpsAutoPhase = pending.phase;
     if ((isNew || phaseChanged) && $("games")?.hidden && !finished) {
+      roundTasks?.close();
       keys.clear(); sendIntent(true); openGames();
     }
   }
@@ -4730,7 +4746,7 @@
     } else showToast(zoneId ? '走到门口按 K 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
   }
   document.addEventListener('keydown', e => {
-    if ($('annual-review-overlay')?.open || tutorial?.isBlocking()) return;
+    if ($('annual-review-overlay')?.open || tutorial?.isBlocking() || roundTasks?.opened()) return;
     // F1 碰撞调试层：任何时候都可开关，不改变输入/权威状态。
     if (e.key === 'F1') {
       e.preventDefault();

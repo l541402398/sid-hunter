@@ -51,6 +51,7 @@ test('发送者每次 +2、每场最多 10 分；满额仍可献花，逐对幂�
   }
   assert.equal(a.score, 27); assert.equal(a.flowerState.sentPoints, 10);
   assert.equal(r.privateSnapshot(a.id).me.flowers.sentTo.length, 8);
+  assert.deepEqual(r.privateSnapshot(a.id).me.roundTasks.flowers, { points: 10, cap: 10 });
 });
 
 test('收花人每满 5 朵 +1 分无上限，离线与休战均可收花，收花人也可献花', () => {
@@ -63,6 +64,10 @@ test('收花人每满 5 朵 +1 分无上限，离线与休战均可收花，收�
   }
   assert.equal(target.score, 33); assert.equal(target.flowerState.received, 65);
   assert.equal(send(target, peer).gainedPoints, 2); assert.equal(target.score, 35);
+  const progress = r.privateSnapshot(target.id).me.roundTasks;
+  assert.equal(progress.receivedFlowers.points, 13);
+  assert.equal(progress.flowers.points, 2);
+  assert.equal(progress.unallocated.points, 20);
   assert.equal(send(target, target).ok, false);
 });
 

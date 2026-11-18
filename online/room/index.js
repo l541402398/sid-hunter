@@ -17,7 +17,8 @@ const { createDigest } = require('./digest.js');
 const { createEvents } = require('./events.js');
 const charges = require('./charges.js');
 const { createPrizePool } = require('./prizes.js');
-const { createFlowers } = require('./flowers.js');
+const { createFlowers, SENT_POINTS_CAP, receivedFlowerPoints } = require('./flowers.js');
+const { scoreKey } = require('./score-key.js');
 const {
   SKILL_CONFIG, SEG_CHARS, NAME_POOL, TRAIT_POOL,
   pick, randChar, randomSid, randomColors, randomTraits, normalizeGender, hairIndexAllowed, pickHairColor
@@ -50,9 +51,14 @@ function createRoom(options = {}) {
   // 自测可注入随机小数源；真人阵营默认使用 crypto 随机数，不从加入序号推定。
   const random = typeof options.random === 'function' ? options.random : null;
   const playConfig = WORLD.PLAY_CONFIG;
+  const rpsRuleCfg = WORLD.RPS_RULES || {};
+  const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
+  const rpsWinPoints = Number(playConfig.minigameWinPoints) || Number(rpsRuleCfg.winPoints) || 2;
+  const hammerPointsCap = Number(WORLD.ACTION.hammerPointDailyCap) || 10;
+  const hammerTargetCap = Number(WORLD.ACTION.hammerPointPerTargetDaily) || 2;
+  const wheelSpinCap = Number(WORLD.WHEEL.maxDailySpins) || 3;
   // 结束规则默认取 WORLD.RULES；测试可通过 options.rules 覆盖（如小房间活人阈值）。
   const rules = { ...WORLD.RULES, ...(options.rules || {}) };
-  const rpsRuleCfg = WORLD.RPS_RULES || {};
   const room = {
     // 功能开关：管理页可随时开关（见 server/features.js）。未显式持久化过的旧快照自动切到新默认（仅开猜拳）。
     features: sanitizeFeatures(
@@ -85,7 +91,8 @@ function createRoom(options = {}) {
     ranking: null,
     // 截至昨日的历史累计前100榜与个人历史累计分（由 server/activity.js 同步注入）
     historicalRanking: [],
-    historicalScores: {},
+    historicalScores: new Map(),
+    pastRoundScores: new Map(),
     // 上一局结算快照：结束瞬间写入，reset 不会清掉，管理页/重开流程据此读取上局排名。
     lastResult: null,
     startedAt: Date.now(),
@@ -304,7 +311,7 @@ function createRoom(options = {}) {
     if (typeof p.firstSearchDone !== 'boolean') p.firstSearchDone = false;
     if (typeof p.firstMinigameDone !== 'boolean') p.firstMinigameDone = false;
     if (!p.scoreBreakdown || typeof p.scoreBreakdown !== 'object') {
-      p.scoreBreakdown = { participate: 0, survival: 0, combat: Number(p.score) || 0 };
+      p.scoreBreakdown = { participate: 0, survival: 0, combat: 0 };
     }
   }
   // 休战仅停止存活分与对抗分；探索/答题/J/小游戏/NPC/转盘等参与分仍可获得。
@@ -782,8 +789,9 @@ function createRoom(options = {}) {
     if (!(opts && opts.skipSync)) syncRoom(t);
     syncCharges(p, t);
     ensureScoreState(p);
-    const histMap = room.historicalScores || {};
-    const historicalScore = Number(histMap[p.empNo ? `emp:${p.empNo}` : `name:${p.name}`] ?? histMap[`name:${p.name}`] ?? 0) || 0;
+    const key = scoreKey(p, room.roundId);
+    const historicalScore = room.historicalScores.get(key) || 0;
+    const pastRoundScore = room.pastRoundScores.get(key) || 0;
     return {
       id: p.id,
       name: p.name,
@@ -813,6 +821,7 @@ function createRoom(options = {}) {
       spriteFacing: p.spriteFacing,
       exploration: explorationProjection(p),
       npcExchange: npcExchangeProjection(p),
+      roundTasks: roundTaskProgress(p, pastRoundScore),
       // 实物奖品：只发给本人（整个活动一次；name/channel/at）。
       prize: prizeProjection(p),
       achievement: { points: (p.achievements && p.achievements.points) || 0, byKind: { ...((p.achievements && p.achievements.byKind) || {}) } },
@@ -1144,15 +1153,13 @@ function createRoom(options = {}) {
     let points = 0;
     const chance = Number(A.hammerPointChance);
     const perHit = Number(A.hammerPoint) || Number(WORLD.SCORE.hammerPoint) || 1;
-    const perTargetCap = Number(A.hammerPointPerTargetDaily) || 2;
-    const dailyCap = Number(A.hammerPointDailyCap) || 10;
     const byTarget = actor.exploration.hammerPointsByTarget || (actor.exploration.hammerPointsByTarget = {});
     const tid = String(best.id);
     const targetGot = Number(byTarget[tid]) || 0;
     const todayGot = Number(actor.exploration.hammerPointsToday) || 0;
     const rollOk = !Number.isFinite(chance) || wheelRandomInt(10000) < Math.floor(chance * 10000);
-    if (rollOk && todayGot < dailyCap && targetGot < perTargetCap) {
-      const gain = Math.min(perHit, dailyCap - todayGot, perTargetCap - targetGot);
+    if (rollOk && todayGot < hammerPointsCap && targetGot < hammerTargetCap) {
+      const gain = Math.min(perHit, hammerPointsCap - todayGot, hammerTargetCap - targetGot);
       if (gain > 0) {
         ensureScoreState(actor);
         actor.score += gain;
@@ -1347,11 +1354,11 @@ function createRoom(options = {}) {
     if (!p.exploration.rpsPlayedByTarget || typeof p.exploration.rpsPlayedByTarget !== 'object') p.exploration.rpsPlayedByTarget = {};
     if (!p.games) p.games = { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null };
     if (!Number.isFinite(p.games.wheelDailySpins)) {
-      p.games.wheelDailySpins = Object.values(p.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0);
+      p.games.wheelDailySpins = wheelSpinCount(p.games);
     }
     if (!Number.isFinite(p.protectUntil)) p.protectUntil = 0;
     if (!p.dailyEconomyDay) { p.dailyEconomyDay = d; return; }
-    if (p.dailyEconomyDay !== d) {
+    if (p.dailyEconomyDay !== d && !room.finished) {
       p.dailyEconomyDay = d;
       // 积分持续累计；每日重置探索机会、福利领取、转盘、J/小游戏渠道额度
       p.exploration.exchangedToday = {};
@@ -1366,12 +1373,45 @@ function createRoom(options = {}) {
       p.exploration.rpsPlayedByTarget = {};
       p.games.wheelDailySpins = 0;
       p.games.wheelSpins = {};
+      p.games.wheelRewards = [];
     }
   }
   function exploredCount(p) {
     if (!p || !p.exploration) return 0;
     if (Number.isFinite(p.exploration.exploreCount)) return p.exploration.exploreCount;
     return (p.exploration.searched || []).length;
+  }
+  function wheelSpinCount(games) {
+    return Object.values(games.wheelSpins || {}).reduce(
+      (count, value) => Math.max(count, Number(value) || 0), Number(games.wheelDailySpins) || 0
+    );
+  }
+  function roundTaskProgress(p, historyScore) {
+    const spins = wheelSpinCount(p.games);
+    const rewards = p.games.wheelRewards || [];
+    const pack = WORLD.NPC_EXCHANGE.score;
+    const currentScore = Number(p.score) || 0;
+    const sources = {
+      exploration: {
+        count: exploredCount(p), goal: pack.unlockAt, reward: pack.points,
+        claimed: !!p.exploration.exchangedToday.score, points: p.exploration.dailyScoreRedeemed
+      },
+      flowers: { points: p.flowerState?.sentPoints || 0, cap: SENT_POINTS_CAP },
+      wheel: {
+        spins, cap: wheelSpinCap,
+        points: rewards.reduce((sum, amount) => sum + amount, 0),
+        completeHistory: rewards.length === spins
+      },
+      rps: { points: p.exploration.minigamePointsToday, cap: rpsPointCap, winPoints: rpsWinPoints, enabled: room.features.rps },
+      hammer: { points: p.exploration.hammerPointsToday, cap: hammerPointsCap, perTargetCap: hammerTargetCap },
+      containers: { points: Number(p.exploration.directPointsEarned) || 0 },
+      quiz: { points: Number(p.exploration.quizPointsEarned) || 0 },
+      receivedFlowers: { points: receivedFlowerPoints(p.flowerState?.received) },
+      combat: { points: Number(p.scoreBreakdown.combat) || 0 },
+      survival: { points: Number(p.scoreBreakdown.survival) || 0 }
+    };
+    const attributed = Object.values(sources).reduce((sum, source) => sum + source.points, 0);
+    return { ...sources, historyScore, currentScore, unallocated: { points: currentScore - attributed } };
   }
   function npcExchangeProjection(p) {
     const ex = (p && p.exploration && p.exploration.exchangedToday) || {};
@@ -1590,6 +1630,7 @@ function createRoom(options = {}) {
       ensureScoreState(actor);
       actor.score += amount;
       actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + amount;
+      actor.exploration.directPointsEarned = (Number(actor.exploration.directPointsEarned) || 0) + amount;
       actor.exploration.exploreCount = (Number(actor.exploration.exploreCount) || 0) + 1;
       const resultText = `开启「${containerName}」：直接获得 ${amount} 积分！${prizeText}`;
       return {
@@ -1801,12 +1842,7 @@ function createRoom(options = {}) {
         ownChoice: sel ? sel.choice : null, ownRevision: sel ? sel.revision : 0
       };
     }
-    const wheelDailySpins = Math.max(
-      Number(p.games.wheelDailySpins) || 0,
-      Object.values(p.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0)
-    );
-    const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
-    const rpsWinPoints = Number(playConfig.minigameWinPoints) || Number(rpsRuleCfg.winPoints) || 2;
+    const wheelDailySpins = wheelSpinCount(p.games);
     const rpsPairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
     return {
       wheelSpins: { ...p.games.wheelSpins },
@@ -1836,7 +1872,6 @@ function createRoom(options = {}) {
   function cancelChallenge(challenge, t, reason) {
     const from = find(challenge.fromId), to = find(challenge.toId);
     const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
-    const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
     room.challenges.delete(challenge.id);
     for (const p of [from, to]) {
       if (!p) continue;
@@ -1874,7 +1909,6 @@ function createRoom(options = {}) {
       else if (outcomeSign < 0) toGain = awardMinigameWin(to);
       const pairPlayed = recordRpsPairPlay(from, to);
       const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
-      const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
       gainAchievement(from, outcomeSign > 0 ? 'rpsWin' : outcomeSign < 0 ? 'rpsLose' : 'rpsDraw');
       gainAchievement(to, outcomeSign < 0 ? 'rpsWin' : outcomeSign > 0 ? 'rpsLose' : 'rpsDraw');
       const labels = { rock: '石头', paper: '布', scissors: '剪刀' };
@@ -1953,11 +1987,9 @@ function createRoom(options = {}) {
   function awardMinigameWin(p) {
     if (!p || room.finished) return 0;
     syncDailyEconomy(p, now());
-    const cap = Number(playConfig.minigameDailyCap) || 10;
-    const per = Number(playConfig.minigameWinPoints) || Number(WORLD.SCORE.rpsWin) || 2;
     const already = Number(p.exploration.minigamePointsToday) || 0;
-    if (already >= cap) return 0;
-    const gain = Math.min(per, cap - already);
+    if (already >= rpsPointCap) return 0;
+    const gain = Math.min(rpsWinPoints, rpsPointCap - already);
     ensureScoreState(p);
     p.score += gain;
     p.scoreBreakdown.participate = (Number(p.scoreBreakdown.participate) || 0) + gain;
@@ -1998,9 +2030,8 @@ function createRoom(options = {}) {
       if (WORLD.distanceToEntity(actor, entity) > WORLD.INTERACT_RANGE) return fail('距离太远，请靠近后再试');
       syncDailyEconomy(actor, t);
       // 全楼层 NPC 共享每日次数，建议每日 3 次，免费，产出随机积分
-      const recorded = Object.values(actor.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0);
-      const spins = Math.max(Number(actor.games.wheelDailySpins) || 0, recorded);
-      const maxSpins = Number(WORLD.WHEEL.maxDailySpins) || 3;
+      const spins = wheelSpinCount(actor.games);
+      const maxSpins = wheelSpinCap;
       if (spins >= maxSpins) return fail(`今日大转盘次数已达上限（每日最多${maxSpins}次）`);
       const cost = 0;
       const pool = WORLD.buildWheelPool(actor.faction);
@@ -2013,6 +2044,8 @@ function createRoom(options = {}) {
       const resultText = `转盘第${spins + 1}/${maxSpins}次：获得${amount}积分。`;
       const nextSpins = spins + 1;
       actor.games.wheelDailySpins = nextSpins;
+      // Keep the earned amounts with the player snapshot. Older saves only contain spin counts.
+      (actor.games.wheelRewards ||= []).push(amount);
       for (const n of WORLD.NPCS) {
         actor.games.wheelSpins[n.id] = nextSpins;
       }
@@ -2397,6 +2430,7 @@ function createRoom(options = {}) {
       ensureScoreState(actor);
       actor.score += gainedPoints;
       actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + gainedPoints;
+      actor.exploration.quizPointsEarned = (Number(actor.exploration.quizPointsEarned) || 0) + gainedPoints;
       resultText = `回答正确！获得 ${gainedPoints} 积分。`;
     } else {
       const ansText = Array.isArray(grade.correctAnswer)

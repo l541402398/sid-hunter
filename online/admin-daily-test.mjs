@@ -74,6 +74,36 @@ test('坏NPC三血安全点/不入积分，CAS与昵称凭证跨场累计不按�
  const {room,activity}=fixture();person(room).score=5;const b=room.join('guest1','同名').player;b.participantKey='browser1';b.score=2;const c=room.join('guest2','同名').player;c.participantKey='browser2';c.score=3;
  activity.addNpc({faction:'bad',count:1,floorId:2});const npc=room.room.players.find(p=>p.npc);assert.equal(npc.hp,3);assert.ok(Number.isFinite(npc.x));npc.score=999;activity.finishSession();activity.startManual({minutes:10});person(room,'new').score=6;const d=room.join('newguest','改名').player;d.participantKey='browser1';d.score=8;activity.finishSession();const ranks=activity.state().totalRanking;assert.equal(ranks.length,3);assert.deepEqual(ranks.map(r=>r.score),[11,10,3]);assert.equal(ranks[0].sessions,2);
 });
+test('个人积分明细按账号和浏览器累计，同日结算和重启不重复计入当前场',()=>{
+ const {room,activity,store}=fixture();
+ person(room).score=12;
+ const guest=room.join('first-guest','访客').player;
+ guest.participantKey='same-browser';guest.score=5;
+ assert.equal(activity.finishSession().ok,true);
+ assert.equal(activity.startManual({minutes:10}).ok,true);
+ const current=room.join('current',null,{empNo:'E1',name:'改名后'}).player;
+ const sameGuest=room.join('second-guest','更名访客').player;
+ sameGuest.participantKey='same-browser';
+ const differentGuest=room.join('other-guest','访客').player;
+ differentGuest.participantKey='different-browser';
+ current.score=9;current.scoreBreakdown.combat=3;current.scoreBreakdown.survival=1;
+ const progress=room.privateSnapshot(current.id).me.roundTasks;
+ assert.equal(progress.historyScore,12);
+ assert.equal(progress.currentScore,9);
+ assert.equal(progress.unallocated.points,5);
+ assert.equal(room.privateSnapshot(sameGuest.id).me.roundTasks.historyScore,5);
+ assert.equal(room.privateSnapshot(differentGuest.id).me.roundTasks.historyScore,0);
+ assert.equal(activity.finishSession().ok,true);
+ assert.deepEqual(room.privateSnapshot(current.id).me.roundTasks,progress);
+ const prior=store.loadAdmin();
+ const restored=createRoom({restore:{...prior.liveSnapshot,includeNpcs:true}});
+ const restarted=createActivity({room:restored,store,initial:prior});
+ assert.deepEqual(restored.privateSnapshot(current.id).me.roundTasks,progress);
+ assert.equal(restarted.startManual({minutes:10}).ok,true);
+ const next=person(restored,'next');
+ assert.equal(restored.privateSnapshot(next.id).me.roundTasks.historyScore,21);
+ assert.equal(restored.privateSnapshot(next.id).me.roundTasks.currentScore,0);
+});
 test('次日自动新局新资源；旧daily版在局迁移为一场而非丢失',()=>{
  const {room,activity}=fixture();person(room).score=9;activity.finishSession();clock=at('2026-10-21','09:00');activity.tick();assert.equal(room.room.players.length,0);assert.equal(person(room,'new').hp,3);assert.equal(activity.state().totalRanking[0].score,9);
  const oldRoom=createRoom();oldRoom.join('old','历史人');const old={version:2,day:'2026-10-21',active:true,settled:false,config:{...TEMPLATES.production,enabled:true}};const a=createActivity({room:oldRoom,store:memory(),initial:old});assert.equal(a.state().active,true);assert.equal(a.state().session.endsAt,at('2026-10-21','17:00'));

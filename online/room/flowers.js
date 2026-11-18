@@ -1,5 +1,8 @@
 'use strict';
 
+const SENT_POINTS_CAP = 10;
+const receivedFlowerPoints = count => Math.floor((Number(count) || 0) / 5);
+
 // 名单跨场保留；献花记录跟随玩家写入本场快照。公开投影只有资格与鲜花总数。
 function validateRecipients(input) {
   if (!Array.isArray(input) || input.length > 1000) throw Error('收花人名单需为数组，最多 1000 人');
@@ -61,9 +64,9 @@ function createFlowers({ room, find, playerBySession, ensureScoreState, initial 
       return { ok: true, alreadySent: true, gainedPoints: 0, roundId: room.roundId, targetId: target.id,
         received: target.flowerState?.received || 0, flowers: privateInfo(actor) };
     ensureScoreState(actor); ensureScoreState(target);
-    const b = state(target), gainedPoints = Math.min(2, Math.max(0, 10 - a.sentPoints));
+    const b = state(target), gainedPoints = Math.min(2, Math.max(0, SENT_POINTS_CAP - a.sentPoints));
     const nextReceived = b.received + 1;
-    const receivedPoints = Math.floor(nextReceived / 5) - Math.floor(b.received / 5);
+    const receivedPoints = receivedFlowerPoints(nextReceived) - receivedFlowerPoints(b.received);
     const before = [actor.flowerState, target.flowerState, actor.score, target.score,
       { ...actor.scoreBreakdown }, { ...target.scoreBreakdown }];
     actor.flowerState = { ...a, sentPoints: a.sentPoints + gainedPoints,
@@ -85,4 +88,4 @@ function createFlowers({ room, find, playerBySession, ensureScoreState, initial 
   return { publicInfo, privateInfo, view, configure, send, setPersistence(fn) { persist = fn; } };
 }
 
-module.exports = { createFlowers, validateRecipients };
+module.exports = { createFlowers, validateRecipients, SENT_POINTS_CAP, receivedFlowerPoints };

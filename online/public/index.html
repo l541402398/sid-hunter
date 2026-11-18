@@ -57,6 +57,7 @@
 <script src="js/search/loot-grid.js" defer></script>
 <script src="js/annual-review.js" defer></script>
 <script src="js/flowers.js" defer></script>
+<script src="js/round-tasks.js" defer></script>
 <script src="js/tutorial.js" defer></script>
 <script src="game.js" defer></script>
 </head>
@@ -101,7 +102,11 @@
             </span>
           </div>
         </div>
-        <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="prize-chip" class="score-chip prize-chip" title="我的实物奖品（整个活动最多一次，已锁定给你）" hidden>🎁 我的奖品 <b id="prize-name"></b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)"><svg class="fullscreen-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path class="fullscreen-enter" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path class="fullscreen-exit" d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="toolbar-right">
+          <span id="sso-user" class="sso-user" hidden></span><span class="private-hint" hidden>点击或快捷键开闭</span>
+          <button id="round-tasks-toggle" class="score-chip" type="button" popovertarget="round-tasks" aria-haspopup="dialog" aria-controls="round-tasks" aria-expanded="false" title="查看本场积分明细" disabled>总分 <b id="score-value">0</b><span class="round-tasks-arrow" aria-hidden="true">▾</span></button>
+          <span id="prize-chip" class="score-chip prize-chip" title="我的实物奖品（整个活动最多一次，已锁定给你）" hidden>🎁 我的奖品 <b id="prize-name"></b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)"><svg class="fullscreen-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path class="fullscreen-enter" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path class="fullscreen-exit" d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
       </div>
     </div>
     <div class="map-view" id="map-view">
@@ -183,6 +188,18 @@
     <button id="logs-scroll-bottom" class="logs-scroll-bottom" type="button" hidden aria-label="一键回到公告栏最底部">↓ 回到最新底部</button>
   </aside>
   </div>
+  <section id="round-tasks" popover="auto" role="dialog" aria-labelledby="round-tasks-title">
+    <header class="panel-heading round-tasks-heading">
+      <h2 id="round-tasks-title">本场积分明细</h2>
+      <button class="icon-button" type="button" popovertarget="round-tasks" popovertargetaction="hide" aria-label="关闭本场积分明细" autofocus>×</button>
+    </header>
+    <dl class="round-tasks-summary">
+      <div><dt>历史场次</dt><dd id="round-tasks-history">0</dd></div>
+      <div><dt>本场得分</dt><dd id="round-tasks-score">0</dd></div>
+    </dl>
+    <p id="round-tasks-status" class="round-tasks-status" role="status" hidden></p>
+    <ul id="round-tasks-list" class="round-tasks-list"></ul>
+  </section>
   <dialog id="invite-dialog" class="center-dialog invite-dialog" aria-labelledby="invite-title">
     <div class="panel-heading"><h2 id="invite-title">邀请同事</h2><button id="invite-close" type="button" class="icon-button" aria-label="关闭邀请提示">×</button></div>
     <p id="invite-message" role="status"></p>

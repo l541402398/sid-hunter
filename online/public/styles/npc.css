@@ -1,5 +1,7 @@
 /* Compact NPC panel: the wheel stays visible while the benefit list scrolls. */
-#exploration.exploration{width:min(472px,calc(100vw - 24px));max-height:calc(100dvh - 32px);padding:9px 12px;display:flex;flex-direction:column;gap:8px}
+#exploration.exploration{width:min(472px,calc(100vw - 24px));max-height:calc(100dvh - 32px);padding:9px 12px;flex-direction:column;gap:8px}
+/* Only open dialogs get a flex layout; closed dialogs must keep their native hidden state. */
+#exploration.exploration[open]{display:flex}
 #exploration[hidden]{display:none}
 #exploration>.panel-heading{margin:0;flex:none}
 #exploration .panel-heading small{font-size:9px;letter-spacing:1px}
