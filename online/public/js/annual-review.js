@@ -1,19 +1,30 @@
 (() => {
   'use strict';
-  const overlay = document.getElementById('annual-review-overlay'),
-    frame = document.getElementById('annual-review-frame');
+  const overlay = document.getElementById('annual-review-overlay');
+  let frame = document.getElementById('annual-review-frame');
   const toggle = document.getElementById('annual-review-toggle'),
-    fallback = document.getElementById('annual-review-fallback');
+    fallback = document.getElementById('annual-review-fallback'),
+    status = document.getElementById('annual-review-loading-status');
   const shell = document.querySelector('.shell');
-  let ready = false,
-    opening = false,
-    requestClose = false,
-    returnFocus = null,
+  const dayFormat = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
+  let returnFocus = null,
     loadTimer = null,
+    closeTimer = null,
     shellWasInert = false;
   const post = (type) => frame.contentWindow?.postMessage({ type }, location.origin);
+  function discardFrame() {
+    clearTimeout(loadTimer);
+    // Replacing a stalled iframe also invalidates messages from its old window.
+    const replacement = frame.cloneNode(false);
+    replacement.removeAttribute('src');
+    frame.replaceWith(replacement);
+    frame = replacement;
+    delete overlay.dataset.ready;
+  }
   function finish() {
     if (!overlay.open) return;
+    clearTimeout(closeTimer);
+    closeTimer = null;
     overlay.close();
     shell.inert = shellWasInert;
     delete overlay.dataset.exiting;
@@ -22,59 +33,75 @@
     const target = returnFocus?.isConnected ? returnFocus : toggle;
     target.focus({ preventScroll: true });
   }
+  function watchClose() {
+    if (closeTimer !== null) return;
+    closeTimer = setTimeout(() => {
+      discardFrame();
+      finish();
+    }, 800);
+  }
   function close() {
     if (!overlay.open) return;
-    if (ready) post('annual-review:close');
-    else if (overlay.dataset.failed === 'true') finish();
-    else requestClose = true;
+    if (overlay.dataset.ready === 'true') {
+      watchClose();
+      post('annual-review:close');
+    } else {
+      discardFrame();
+      finish();
+    }
   }
   function open(event) {
-    if (overlay.open || opening) return;
-    opening = true;
+    if (overlay.open) return;
     returnFocus = event?.currentTarget || toggle;
     shellWasInert = shell.inert;
     shell.inert = true;
-    requestClose = false;
-    delete overlay.dataset.exiting;
     toggle.setAttribute('aria-expanded', 'true');
+    fallback.hidden = overlay.dataset.ready === 'true';
     overlay.showModal();
     window.dispatchEvent(new Event('annual-review:open'));
-    if (ready) {
+    if (overlay.dataset.ready === 'true') {
       post('annual-review:open');
       frame.focus();
-    } else if (!frame.hasAttribute('src')) {
+    } else {
+      status.textContent = '正在打开年度纪念册…';
       frame.src = '/annual-review/?embed=game';
       loadTimer = setTimeout(() => {
-        if (!ready) {
-          overlay.dataset.failed = 'true';
-          fallback.hidden = false;
-          frame.hidden = true;
-        }
+        status.textContent = '纪念册暂时无法打开，请稍后再试。';
       }, 15000);
     }
-    opening = false;
+  }
+  function openDaily(employeeId) {
+    const day = dayFormat.format(new Date());
+    const key = 'sid-annual-review-day:' + (employeeId ? 'cas:' + employeeId : 'guest');
+    try {
+      if (localStorage.getItem(key) === day) return;
+      localStorage.setItem(key, day);
+    } catch {
+      // A manual open is still available when the browser cannot retain the day.
+      return;
+    }
+    open();
   }
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.source !== frame.contentWindow) return;
     const type = event.data?.type;
     if (type === 'annual-review:ready') {
-      ready = true;
       clearTimeout(loadTimer);
       overlay.dataset.ready = 'true';
-      delete overlay.dataset.failed;
       fallback.hidden = true;
-      frame.hidden = false;
       if (overlay.open) {
-        if (requestClose) post('annual-review:close');
-        else frame.focus();
+        post('annual-review:open');
+        frame.focus();
       }
+    } else if (type === 'annual-review:closing' && overlay.open) {
+      watchClose();
     } else if (type === 'annual-review:fading' && overlay.open) {
       overlay.dataset.exiting = 'true';
       window.dispatchEvent(new Event('annual-review:fading'));
     } else if (type === 'annual-review:closed') finish();
   });
   toggle.addEventListener('click', open);
-  document.getElementById('annual-review-fallback-close').addEventListener('click', finish);
+  document.getElementById('annual-review-fallback-close').addEventListener('click', close);
   overlay.addEventListener('cancel', (event) => {
     event.preventDefault();
     close();
@@ -93,5 +120,6 @@
       },
       true
     );
-  open();
+  window.SID = window.SID || {};
+  window.SID.annualReview = { openDaily };
 })();

@@ -124,8 +124,7 @@
   const { shade, SKIN } = SID.paint;
   const { escapeText, commandId } = SID.text;
   const canvas = $('office'), ctx = canvas.getContext('2d', { alpha: false });
-  // The host opens its startup review before this script registers lifecycle listeners.
-  let annualReviewDrawingPaused = !!$('annual-review-overlay')?.open;
+  let annualReviewDrawingPaused = false;
   ctx.imageSmoothingEnabled = false;
   // 背景：固定 512×512 分块，按相机矩形枚举相交块；每块惰性烘焙一次后复用，与视口宽度解耦。
   const glowSprite = (() => {
@@ -490,6 +489,7 @@
     ssoLoginUrl = cfg.loginUrl || '';
     ssoLogoutUrl = cfg.logoutUrl || '';
     if (!ssoRequired) {
+      SID.annualReview?.openDaily();
       sessionToken = localStorage.getItem('sid_session_token');
       const s = await api('/api/state', null, 'GET').catch(() => ({}));
       if (s && s.me && s.me.id !== undefined) { applySnapshot(s); $('join-page').hidden = true; openStream(); loadCapabilities(); }
@@ -505,6 +505,7 @@
     const user = await ensureLogin();
     if (!user) { requestAnimationFrame(frame); return; }
     showUser(user);
+    SID.annualReview?.openDaily(user.emp_no);
     sessionToken = localStorage.getItem('sid_session_token');
     const s = await api('/api/state', null, 'GET').catch(() => ({}));
     if (s && s.auth === false) { requestAnimationFrame(frame); return; }
@@ -1200,8 +1201,7 @@
     flowerUI?.synchronize();
     badSlots = []; badPoolAvailable = false; lastBadPoolSig = '';
     $('bad-slots').hidden = true; $('bad-toggle').setAttribute('aria-expanded', 'false');
-    $('bad-toggle').setAttribute('aria-label', '展开坏人线索');
-    $('bad-toggle-label').textContent = '展开坏人线索'; renderBadPool();
+    renderBadPool();
     renderMap.clear(); offlineEvents.clear(); confirmedDigests.clear(); lastRosterSig = lastTargetSig = lastLogSig = lastOccludersKey = '';
     document.body.classList.remove('player-walking');
     prevLogCount = 0; unreadLogCount = 0; logsStickToBottom = true; lastHudSelfX = NaN; lastHudSelfY = NaN;
@@ -1814,12 +1814,12 @@
   }
   // 下一次系统公布线索的时间：相对倒计时（mm:ss）+ 绝对钟点（HH:MM）。
   // 服务端只下发时间戳，抽到谁/哪一项都不在这里出现，所以公开显示不构成泄露。
-  // 系统真的公布一批线索时，新条目会进 logs；这里顺便让胶囊闪一下，避免玩家没注意到「刚刚公布」。
+  // 线索公布时用倒计时高亮提示。
   let lastClueBatchSig = '';
   function syncNextClue() {
     const chip = $('clue-next'), label = $('clue-next-left'), at = $('clue-next-at');
     if (!chip || !label) return;
-    // 中央倒计时兼作坏人线索入口；未开启/已结束时仍可查看已公布线索。
+    // 未开启或已结束时，显示状态文字。
     setProp(chip, 'hidden', false);
     label.classList.toggle('is-counting', !!nextClueAt && !finished);
     if (finished) {
@@ -1841,7 +1841,7 @@
       setText(label, `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`);
     }
     if (at) setText(at, '');
-    // 系统线索条目变化 = 刚刚公布过一轮；给胶囊一次高亮，让玩家知道倒计时被重置了。
+    // 系统线索条目变化时高亮倒计时。
     const batchSig = String(logs.filter(l => l.type === 'systemClue').length) + '|' + (logs.find(l => l.type === 'systemClue')?.time || '');
     if (lastClueBatchSig && batchSig !== lastClueBatchSig) {
       chip.classList.remove('clue-flash');
@@ -4373,8 +4373,6 @@
     if ($('bad-pool-dialog').open) $('bad-pool-dialog').close();
     $('bad-slots').hidden = true;
     $('bad-toggle').setAttribute('aria-expanded', 'false');
-    $('bad-toggle').setAttribute('aria-label', '展开坏人线索');
-    $('bad-toggle-label').textContent = '展开坏人线索';
   }
   $('bad-toggle').onclick = () => {
     if ($('bad-pool-dialog').open) { closeBadPool(); return; }
@@ -4382,8 +4380,6 @@
     $('bad-slots').hidden = false; renderBadPool();
     $('bad-pool-dialog').showModal();
     $('bad-toggle').setAttribute('aria-expanded', 'true');
-    $('bad-toggle').setAttribute('aria-label', '收起坏人线索');
-    $('bad-toggle-label').textContent = '收起坏人线索';
   };
   $('bad-pool-close').onclick = closeBadPool;
   $('bad-pool-dialog').addEventListener('cancel', e => { e.preventDefault(); closeBadPool(); });

@@ -261,7 +261,7 @@
     clearCoverAnimations();
     setBusy(false);
   }
-  async function moveCover(open) {
+  async function moveCover(open, duration = 1050) {
     if (busy || mode !== (open ? 'cover' : 'open')) return;
     const own = ++token;
     if (open) commit(0);
@@ -297,7 +297,7 @@
         const contact = Math.max(0, 2 * progress - 1);
         gutterFrames.push({ offset, opacity: contact * contact * (3 - 2 * contact) });
       }
-      const timing = { duration: 1050, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' };
+      const timing = { duration, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'both' };
       coverAnimations = [
         $('hard-cover').animate(coverFrames, timing),
         $('volume').animate(volumeFrames, timing),
@@ -318,8 +318,8 @@
     if (busy || exitRequested || mode !== 'cover') return;
     return trackMotion(moveCover(true));
   }
-  function closeBook() {
-    return trackMotion(moveCover(false));
+  function closeBook(duration) {
+    return trackMotion(moveCover(false, duration));
   }
   function turnTo(n) {
     if (busy || exitRequested || mode !== 'open') return;
@@ -557,14 +557,16 @@
   function dismiss() {
     if (exitTask || !dialog.open) return exitTask;
     exitRequested = true;
+    notifyHost('annual-review:closing');
     stopCurlWarmup();
     updateControls();
     const task = (async () => {
       try {
-        // Keep the current spread visible until its motion finishes, then close the book in place.
-        if (activeMotion) await activeMotion;
+        // The game reader settles an in-flight turn before the short exit animation.
+        if (embedded) settleMotion();
+        else if (activeMotion) await activeMotion;
         if (!dialog.open) return;
-        if (mode === 'open') await closeBook();
+        if (mode === 'open') await closeBook(embedded ? 220 : undefined);
         if (!dialog.open) return;
         if (!reducedMotion.matches && !document.hidden) {
           dialog.dataset.exiting = 'true';
@@ -684,7 +686,6 @@
   });
   dialog.addEventListener('close', () => {
     if (dialog.open) return;
-    resetReader();
     syncCoverMotion();
     opener?.focus({ preventScroll: true });
   });
@@ -763,6 +764,6 @@
   setMode(mode);
   $('spread').hidden = mode === 'cover';
   updateControls();
-  openReader();
+  if (!embedded) openReader();
   notifyHost('annual-review:ready');
 })();

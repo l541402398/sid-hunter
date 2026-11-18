@@ -95,7 +95,7 @@
       'mine-colors': ['mine-colors', '外观属性', '头发、上衣、裤子和鞋子的颜色默认公开，其他玩家也能看到，可以与系统线索核对。', '#mine-colors', true],
       'mine-traits': ['mine-traits', '隐藏属性', '口头禅、爱吃的食物和喜欢的运动只有自己能直接看到。其他玩家要等属性公开后才能查看或搜索。', '#mine-traits', true],
       'mine-close': ['mine-close', '关闭个人信息', '点击这里关闭面板，接下来查看系统公布的坏人线索。', '#mine-close'],
-      'clues-open': ['clue-next', '点击「线索公布」', '展开坏人线索，观察系统公布的属性。', '#clue-next'],
+      'clues-open': ['bad-toggle', '点击「线索」', '展开坏人线索，观察系统公布的属性。', '#bad-toggle'],
       'clues-card': ['clues-card', '推理坏人身份', '根据系统公布的信息，推理出坏人是谁。', '#bad-slots .bad-slot', true],
       'clues-close': ['clues-close', '关闭线索窗口', '记住砖红上衣、银白头发，接下来去玩家名单中搜索。', '#bad-pool-close'],
       'roster-open': ['roster-toggle', '打开玩家名单', '点击这里查看人物的公开信息，并用关键字筛选。', '#roster-toggle'],
@@ -112,7 +112,7 @@
     if (phase === 'mine-open' && (!$('loot').hidden || view.mineOpen)) return null;
     if (phase.startsWith('mine-') && phase !== 'mine-open' && !view.mineOpen) def = ['my-info', '继续查看个人信息', '点击「我的信息」继续当前讲解。', '#my-info'];
     if (phase === 'clues-open' && view.cluesOpen) def = ['clues-wait', '等待线索公布', '练习倒计时已经加速，稍等片刻就会公布属性。', '#bad-slots .bad-slot'];
-    if (['clues-card','clues-close'].includes(phase) && !view.cluesOpen) def = ['clue-next', '重新打开线索', '点击继续阅读坏人信息。', '#clue-next'];
+    if (['clues-card','clues-close'].includes(phase) && !view.cluesOpen) def = ['bad-toggle', '重新打开线索', '点击继续阅读坏人信息。', '#bad-toggle'];
     if (phase.startsWith('roster-') && phase !== 'roster-open' && !view.rosterOpen) def = ['roster-toggle', '继续查看名单', '打开玩家名单继续搜索练习人物甲。', '#roster-toggle'];
     if (['target-colors','accuse','confirm','target-close'].includes(phase) && (!view.targetOpen || view.selectedId !== 2)) {
       def = view.rosterOpen

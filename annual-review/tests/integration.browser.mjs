@@ -488,9 +488,8 @@ try {
     await capture('integration-01-cover-1440.png');
   });
 
-  await check('The startup review suppresses game Canvas drawing before lifecycle listeners attach', async () => {
+  await check('The startup review pauses game Canvas drawing while open', async () => {
     await assertCanvasPaused('Automatic startup review');
-    assert.deepEqual(await evaluate('window.__integrationCanvas'), { fillRect: 0, drawImage: 0 });
   });
 
   await check('Forged close messages from the host window do not dismiss the review', async () => {
@@ -552,7 +551,7 @@ try {
     'J works with restored button focus after initial and later closes, and reading blocks game actions',
     async () => {
       await evaluate(
-        'document.getElementById("nickname").value="预览检查";document.getElementById("join-form").requestSubmit()'
+        'localStorage.setItem("sid-tutorial-v3:guest:预览检查", JSON.stringify({dismissed:true}));document.getElementById("nickname").value="预览检查";document.getElementById("join-form").requestSubmit()'
       );
       await wait('document.getElementById("join-page").hidden');
       await evaluate(`window.__integrationStateUpdates=0;window.__integrationStateObserver=new MutationObserver(records=>{window.__integrationStateUpdates+=records.length;});window.__integrationStateObserver.observe(document.getElementById('player-count'),{childList:true,characterData:true,subtree:true});`);
@@ -704,6 +703,54 @@ try {
       assert.deepEqual(failedResources, []);
     }
   );
+  await check('A single close click exits even if the current page turn cannot finish', async () => {
+    await reopen();
+    await openBook();
+    await child(`(() => {
+      document.getElementById('next-page').click();
+      const motions = document.getAnimations().filter(animation =>
+        animation.effect?.target?.closest('#turning-leaf') && animation.playState === 'running');
+      for (const motion of motions) motion.pause();
+      if (!motions.length) throw new Error('No page-turn animation to pause');
+    })()`);
+    await realChildClick('#close-review');
+    await wait('!document.getElementById("annual-review-overlay").open');
+    assert.equal(await child('document.getElementById("book-stage").dataset.mode'), 'cover');
+    assert.equal(await child('document.getElementById("book-stage").dataset.busy'), 'false');
+    assert.equal(await evaluate('document.querySelector(".shell").inert'), false);
+  });
+
+  await check('Reloading on the same Shanghai day skips the review and the button still opens it', async () => {
+    const timeOrigin = await evaluate('performance.timeOrigin');
+    await call('Page.reload');
+    await wait(`performance.timeOrigin !== ${timeOrigin} &&
+      document.readyState === 'complete' &&
+      Number.parseInt(document.getElementById('player-count').textContent, 10) > 0`);
+    assert.equal(await hostOpen(), false);
+    assert.equal(await evaluate('document.getElementById("annual-review-frame").hasAttribute("src")'), false);
+    await reopen();
+    await realChildClick('#close-review');
+    await wait('!document.getElementById("annual-review-overlay").open');
+  });
+
+  await check('A new Shanghai day auto-opens and the loading screen can be closed immediately', async () => {
+    await evaluate('localStorage.setItem("sid-annual-review-day:guest", "2000-01-01")');
+    await call('Network.setCacheDisabled', { cacheDisabled: true });
+    await call('Network.setBlockedURLs', { urls: ['*/annual-review/?embed=game'] });
+    const timeOrigin = await evaluate('performance.timeOrigin');
+    await call('Page.reload');
+    await wait(`performance.timeOrigin !== ${timeOrigin} &&
+      document.getElementById('annual-review-overlay')?.open &&
+      !document.getElementById('annual-review-fallback').hidden`);
+    await rootClick('#annual-review-fallback-close');
+    assert.equal(await hostOpen(), false);
+    assert.equal(await evaluate('document.querySelector(".shell").inert'), false);
+    await call('Network.setBlockedURLs', { urls: [] });
+    await reopen();
+    assert.equal(await hostOpen(), true);
+    await realChildClick('#close-review');
+    await wait('!document.getElementById("annual-review-overlay").open');
+  });
   writeFileSync(
     join(out, 'verification-integration.json'),
     JSON.stringify(

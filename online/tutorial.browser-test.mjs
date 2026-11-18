@@ -155,8 +155,12 @@ try{
  });
  await check('退出保存进度，随时重进从当前步骤继续',async()=>{
   await clickRoom('#room-exit');await wait("document.getElementById('tutorial-return').open");await click('#tutorial-return-ok');
-  await call('Page.reload');await wait("document.getElementById('annual-review-overlay')?.dataset.ready==='true'");await key('Escape');
-  await wait("document.getElementById('join-page').hidden&&!document.getElementById('annual-review-overlay').open");
+  const previousPage = await ev('performance.timeOrigin');
+  await call('Page.reload');
+  await wait(`performance.timeOrigin !== ${previousPage} && document.readyState === 'complete' &&
+    document.getElementById('join-page').hidden &&
+    Number.parseInt(document.getElementById('player-count').textContent, 10) > 0`);
+  assert.equal(await ev("document.getElementById('annual-review-overlay').open"), false);
   assert.equal(await ev("document.getElementById('tutorial-offer').open"),false);
   await manualEntry();await until('resumed step',async()=>await step()===1);
   await room("document.getElementById('office').focus()");await key('ArrowUp','keyDown');
