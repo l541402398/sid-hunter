@@ -50,6 +50,9 @@ const initPractice=step=>ev(`document.getElementById('tutorial-frame').contentWi
 async function noteVisible(){const r=await room("({rect:document.getElementById('spotlight-note').getBoundingClientRect().toJSON(),w:innerWidth,h:innerHeight})");assert.ok(r.rect.x>=0&&r.rect.right<=r.w&&r.rect.y>=0&&r.rect.bottom<=r.h,JSON.stringify(r));}
 async function comparisonVisible(){
  await noteVisible();
+ assert.equal(await room("document.querySelector('#spotlight-reference .bad-slot').outerHTML===document.querySelector('#bad-slots .bad-slot').outerHTML"),true,'Comparison must retain the entire published card, including hidden fields');
+ const styles=await room(`(()=>{const selectors=['.bad-slot','header strong','.bad-clue-heading','.bad-clue','.bad-clue span','.bad-clue strong'];const read=root=>selectors.map(s=>{const n=s==='.bad-slot'?root:root.querySelector(s),c=getComputedStyle(n);return Object.fromEntries(['color','backgroundImage','fontSize','fontWeight','lineHeight','marginTop','marginBottom','paddingTop','paddingLeft','display','flexDirection'].map(k=>[k,c[k]]));});return{original:read(document.querySelector('#bad-slots .bad-slot')),reference:read(document.querySelector('#spotlight-reference .bad-slot'))}})()`);
+ assert.deepEqual(styles.reference,styles.original,'Use the same card styles as the clues panel');
  const r=await room(`({note:document.getElementById('spotlight-note').getBoundingClientRect().toJSON(),fields:[...document.querySelectorAll('#target [data-color="hair"],#target [data-color="top"]')].map(n=>n.getBoundingClientRect().toJSON()),w:innerWidth,h:innerHeight})`);
  for(const f of r.fields){
   assert.ok(f.x>=0&&f.y>=0&&f.right<=r.w&&f.bottom<=r.h,JSON.stringify(r));
@@ -193,6 +196,8 @@ try{
   await capture('05-roster-entry.png');await clickRoom('#roster-toggle');await phase('roster-search');assert.equal(await room("document.getElementById('spotlight-next').disabled"),true);
   await room("document.getElementById('search').focus()");await call('Input.insertText',{text:'砖红'});
   assert.doesNotMatch(await room("document.getElementById('spotlight-detail').textContent"),/练习人物甲/);
+  const keyword=await room("(()=>{const e=document.querySelector('#spotlight-detail .tutorial-emphasis'),c=getComputedStyle(e);return{text:e.textContent,color:c.color,weight:c.fontWeight,display:c.display}})()");
+  assert.equal(keyword.text,'砖红');assert.equal(keyword.color,'rgb(255, 243, 107)');assert.ok(Number(keyword.weight)>=800);assert.equal(keyword.display,'inline');
   await waitRoom("!document.getElementById('spotlight-next').disabled");await capture('05-roster-search.png');
   assert.equal(await room("document.querySelectorAll('#roster-items [data-player]').length"),1);
   await clickRoom('#spotlight-next');await phase('roster-alpha');await clickRoom('#roster-items [data-player="2"]');await phase('target-colors');
@@ -200,7 +205,7 @@ try{
   assert.match(await room("document.querySelector('#target [data-color=hair]').textContent"),/银白/);
   assert.match(await room("document.querySelector('#target [data-color=top]').textContent"),/砖红/);
   assert.match(await room("document.getElementById('spotlight-reference').textContent"),/坏人01/);
-  assert.deepEqual(await room("[...document.querySelectorAll('#spotlight-reference .bad-clue strong')].map(n=>n.textContent)"),['银白','砖红']);
+  assert.deepEqual(await room("[...document.querySelectorAll('#spotlight-reference .bad-clue strong')].map(n=>n.textContent)"),['银白','砖红','***','***','***','***','***']);
   await comparisonVisible();await capture('06-color-comparison.png');
   await clickRoom('#spotlight-next');await phase('accuse');
   assert.equal(await room("!!document.getElementById('private-gate')"),false);assert.equal(await room("document.getElementById('accuse').closest('#target')!==null"),true);await capture('06-direct-skill.png');
@@ -227,7 +232,10 @@ try{
   }finally{await call('Target.closeTarget',{targetId:other.targetId});await call('Page.bringToFront');}
   await room("document.getElementById('office').click()");await assertAccuse();
   await room("document.getElementById('spotlight-shade').dispatchEvent(new MouseEvent('click',{bubbles:true}))");await assertAccuse();
-  const emphasis=await room("(()=>{const e=document.querySelector('#spotlight-detail .tutorial-emphasis'),c=getComputedStyle(e);return{text:e.textContent,color:c.color,weight:c.fontWeight,background:c.backgroundColor}})()");
+  const emphasis=await room("(()=>{const e=document.querySelector('#spotlight-tip .tutorial-emphasis'),c=getComputedStyle(e);return{text:e.textContent,color:c.color,weight:c.fontWeight,background:c.backgroundColor}})()");
+  assert.match(await room("document.getElementById('spotlight-detail').textContent"),/成功指认坏人后，将会减少该坏人1格生命。/);
+  assert.doesNotMatch(await room("document.getElementById('spotlight-detail').textContent"),/误指/);
+  assert.equal(await room("document.getElementById('spotlight-tip').hidden"),false);
   assert.equal(emphasis.text,'误指好人会扣除自己 1 格生命。');assert.equal(emphasis.color,'rgb(255, 243, 107)');assert.ok(Number(emphasis.weight)>=800);assert.notEqual(emphasis.background,'rgba(0, 0, 0, 0)');
   await noteVisible();await capture('06-accuse-warning.png');
   for(const action of ['close','escape','parent-escape']){

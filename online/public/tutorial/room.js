@@ -99,11 +99,11 @@
       'clues-card': ['clues-card', '推理坏人身份', '根据系统公布的信息，推理出坏人是谁。', '#bad-slots .bad-slot', true],
       'clues-close': ['clues-close', '关闭线索窗口', '记住砖红上衣、银白头发，接下来去玩家名单中搜索。', '#bad-pool-close'],
       'roster-open': ['roster-toggle', '打开玩家名单', '点击这里查看人物的公开信息，并用关键字筛选。', '#roster-toggle'],
-      'roster-search': ['roster-search', '输入关键字搜索', '输入系统线索中的上衣颜色「砖红」，找到匹配的人物后点下一步。', '#search', true],
+      'roster-search': ['roster-search', '输入关键字搜索', '输入系统线索中的上衣颜色「砖红」，找到匹配的人物后点下一步。', '#search', true, ['砖红']],
       'roster-alpha': ['roster-alpha', '查看练习人物甲', '这位人物的公开属性符合刚才的线索，点击打开档案。', '#roster-items [data-player="2"]'],
-      'target-colors': ['target-colors', '对照系统线索', '他的头发是银白色，上衣是砖红色，与系统线索「坏人01」一致。对照下方线索卡，确认后点下一步。', '#target [data-color="hair"], #target [data-color="top"]', true],
-      'accuse': ['accuse', '使用技能：指认', '核对线索后，点击「指认」，然后确认。误指好人会扣除自己 1 格生命。', '#accuse', false, ['误指好人会扣除自己 1 格生命。']],
-      'confirm': ['confirm', '确认指认', '核对目标是练习人物甲。指认潜伏者会扣除对方 1 格生命。误指好人会扣除自己 1 格生命。', '#confirm', false, ['误指好人会扣除自己 1 格生命。']],
+      'target-colors': ['target-colors', '对照系统线索', '头发银白、上衣砖红，与系统线索「坏人01」一致。请对照完整线索卡，确认后点下一步。', '#target [data-color="hair"], #target [data-color="top"]', true],
+      'accuse': ['accuse', '使用技能：指认', '成功指认坏人后，将会减少该坏人1格生命。点击「指认」，然后确认。', '#accuse', false, [], '误指好人会扣除自己 1 格生命。'],
+      'confirm': ['confirm', '确认指认', '核对目标是练习人物甲。成功指认坏人后，将会减少该坏人1格生命。', '#confirm', false, [], '误指好人会扣除自己 1 格生命。'],
       'target-close': ['target-close', '关闭人物档案', '指认成功！关闭窗口，看看地图和名单中的血量变化。', '#target-close'],
       'health': ['health', '生命减少了 1 点', '练习人物甲在地图和玩家名单中的血量都已从 3/3 变为 2/3。', '#roster-items [data-player="2"] .combat-health', true]
     };
@@ -119,7 +119,7 @@
         ? ['roster-alpha', '打开练习人物甲', '点击名单中的练习人物甲，继续核对线索和使用技能。', '#roster-items [data-player="2"]']
         : ['roster-toggle', '继续查看名单', '打开玩家名单，继续核对人物线索。', '#roster-toggle'];
     }
-    return { id: def[0], title: def[1], detail: def[2], selector: def[3], next: !!def[4], emphasis: def[5] || [] };
+    return { id: def[0], title: def[1], detail: def[2], selector: def[3], next: !!def[4], emphasis: def[5] || [], tip: def[6] || '' };
   }
   function panelCloseButton() {
     return document.querySelector('#rules-view[open] #rules-close, #bad-pool-dialog[open] #bad-pool-close, #exploration[open] #exploration-close')
@@ -136,10 +136,12 @@
     if (overlay.matches(':popover-open')) overlay.hidePopover();
     overlay.hidden = true; spotlightKey = '';
     document.body.classList.remove('tutorial-spotlighting');
+    $('target').classList.remove('tutorial-comparing');
   }
   function updateSpotlight(view) {
     const def = spotlightDefinition(view), overlay = $('tutorial-spotlight');
     if (!def || !active) { hideSpotlight(); return; }
+    $('target').classList.toggle('tutorial-comparing', def.id === 'target-colors');
     const node = document.querySelector(def.selector);
     if (!node || node.getBoundingClientRect().width === 0) { hideSpotlight(); return; }
     const changed = overlay.dataset.target !== def.id || overlay.hidden;
@@ -194,6 +196,8 @@
       } else detail.textContent = def.detail;
       detail.dataset.content = detailKey;
     }
+    $('spotlight-tip').hidden = !def.tip;
+    if ($('spotlight-tip-text').textContent !== def.tip) $('spotlight-tip-text').textContent = def.tip;
     const next = $('spotlight-next'); next.hidden = !def.next;
     next.textContent = room.state.phase === 'health' ? '完成训练' : '下一步';
     next.disabled = room.state.phase === 'roster-search' && !($('search').value.trim() && document.querySelector('#roster-items [data-player="2"]'));
@@ -202,11 +206,7 @@
     if (!reference.hidden && !reference.firstChild) {
       // Keep a copy of the actual published card so the comparison uses identical content and styling.
       const card = document.querySelector('#bad-slots .bad-slot')?.cloneNode(true);
-      if (card) {
-        card.querySelectorAll('.bad-clue').forEach(row => { if (row.querySelector('strong').textContent === W.MASK) row.remove(); });
-        card.querySelectorAll('.bad-clue-heading').forEach(heading => heading.remove());
-        reference.append(card);
-      }
+      if (card) reference.append(card);
     }
     const placementRects = room.state.phase === 'confirm' && $('cancel')
       ? [...rects, paddedRect($('cancel').getBoundingClientRect())] : rects;
@@ -217,6 +217,18 @@
       def.id === 'target-colors' && sideSpace >= 200 ? sideSpace : 270);
     note.style.width = nw + 'px';
     const nh = note.offsetHeight;
+    if (def.id === 'target-colors' && sideSpace < nw) {
+      // Make room below the highlighted colors for the complete card on narrow screens.
+      // Scroll the profile's contents while keeping both color fields visible.
+      const panel = $('target'), panelTop = panel.getBoundingClientRect().top + panel.clientTop + 8;
+      const desiredBottom = innerHeight - nh - 38;
+      const shift = Math.min(r.bottom - desiredBottom, r.y - Math.max(12, panelTop));
+      if (shift > 1) {
+        const before = panel.scrollTop;
+        panel.scrollTop += Math.ceil(shift);
+        if (panel.scrollTop !== before) { updateSpotlight(view); return; }
+      }
+    }
     let x, y;
     if (r.right + gap + nw <= innerWidth - 12) { x = r.right + gap; y = Math.max(12, Math.min(innerHeight - nh - 12, (r.y + r.bottom - nh)/2)); }
     else if (r.x - gap - nw >= 12) { x = r.x - gap - nw; y = Math.max(12, Math.min(innerHeight - nh - 12, (r.y + r.bottom - nh)/2)); }
@@ -278,7 +290,7 @@
       bridge = callbacks;
       document.body.classList.add('practice-game');
       $('stage').insertAdjacentHTML('beforeend', `<div class="tutorial-context"><strong>新手训练室</strong><small>独立练习角色</small><small class="context-copy">正式角色留在原位置，正常受击与计分</small><button id="room-exit" type="button">退出教程</button></div><aside id="training-guide" class="training-guide" aria-label="新手教程任务"><div class="lesson-heading"><span id="lesson-number"></span><small>仅练习数据</small><button id="tutorial-lesson-collapse" type="button" aria-label="折叠或展开教程提示">−</button></div><ol id="lesson-progress" aria-label="教程进度"></ol><div id="lesson-copy"><div aria-live="polite"><h2 id="lesson-title"></h2><p id="lesson-task"></p><p id="lesson-detail"></p></div><p id="lesson-tip" class="lesson-tip"></p><div class="lesson-actions"><button id="lesson-next" type="button" hidden>返回办公室</button><button id="lesson-restart" type="button">从头练习</button></div></div></aside>`);
-      document.body.insertAdjacentHTML('beforeend', `<div id="tutorial-spotlight" popover="manual" hidden aria-label="教程操作引导"><svg id="spotlight-svg" aria-hidden="true"><path id="spotlight-shade" fill-rule="evenodd"/></svg><div id="spotlight-rings"></div><div id="spotlight-note" role="status"><strong id="spotlight-title"></strong><p id="spotlight-detail"></p><div id="spotlight-reference" aria-label="系统公布的坏人01线索对照" hidden></div><button id="spotlight-next" type="button" hidden>下一步</button></div><button id="spotlight-exit" type="button">退出教程</button></div><dialog id="training-complete" class="center-dialog" aria-labelledby="training-complete-title"><div class="panel-heading"><h2 id="training-complete-title">恭喜您完成了新手训练营</h2></div><p>你已经学会移动、交互、查看信息、推理线索、搜索名单和使用技能。</p><p>正式角色的最新状态将在返回办公室时显示。</p><button id="training-complete-exit" type="button">返回办公室</button><button id="training-complete-restart" type="button">重新练习</button></dialog>`);
+      document.body.insertAdjacentHTML('beforeend', `<div id="tutorial-spotlight" popover="manual" hidden aria-label="教程操作引导"><svg id="spotlight-svg" aria-hidden="true"><path id="spotlight-shade" fill-rule="evenodd"/></svg><div id="spotlight-rings"></div><div id="spotlight-note" role="status"><strong id="spotlight-title"></strong><p id="spotlight-detail"></p><p id="spotlight-tip" hidden><span class="tutorial-tip-label">提示</span><strong id="spotlight-tip-text" class="tutorial-emphasis"></strong></p><div id="spotlight-reference" aria-label="系统公布的坏人01线索对照" hidden></div><button id="spotlight-next" type="button" hidden>下一步</button></div><button id="spotlight-exit" type="button">退出教程</button></div><dialog id="training-complete" class="center-dialog" aria-labelledby="training-complete-title"><div class="panel-heading"><h2 id="training-complete-title">恭喜您完成了新手训练营</h2></div><p>你已经学会移动、交互、查看信息、推理线索、搜索名单和使用技能。</p><p>正式角色的最新状态将在返回办公室时显示。</p><button id="training-complete-exit" type="button">返回办公室</button><button id="training-complete-restart" type="button">重新练习</button></dialog>`);
       $('stage').insertAdjacentHTML('beforeend', '<div id="movement-hint" hidden><strong>试着移动</strong><div class="movement-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><span>这几个按键可以移动人物</span></div>');
       $('spotlight-exit').onclick = exit; $('training-complete-exit').onclick = exit;
       $('training-complete-restart').onclick = () => start({ step: 0 });
