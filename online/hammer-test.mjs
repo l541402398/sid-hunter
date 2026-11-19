@@ -30,7 +30,7 @@ async function call(pathname, { method, token, body } = {}) {
 }
 const join = () => call('/api/join', { body: { nickname: '' } });
 // 合并适配：合并后的地图是七层，自测用可选的 floorId 把角色放到指定楼层。
-const place = (playerId, x, y, floorId) => call('/api/test/place', { body: { playerId, x, y, ...(floorId === undefined ? {} : { floorId }) } });
+const place = (playerId, x, y, floorId = 1) => call('/api/test/place', { body: { playerId, x, y, floorId } });
 const advance = ms => call('/api/test/advance', { body: { ms } });
 const action = (token, kind) => call('/api/action', { token, body: { kind } });
 const input = (token, dir) => call('/api/input', { token, body: dir });

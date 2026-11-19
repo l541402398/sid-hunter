@@ -2729,7 +2729,7 @@
       cameraY = cam.y;
       drawCamX = cameraX; drawCamY = cameraY;
     }
-    labels = []; updateScoreDisplay(); updateExplorationHUD();
+    labels = []; setText($('floor-indicator'), `${floorId}F`); syncZoneInfo(); updateScoreDisplay(); updateExplorationHUD();
     draw();
   }
   // 电梯选层：K / 点击门打开，WASD / 方向键移动蓝框，K 确认；当前层禁选。

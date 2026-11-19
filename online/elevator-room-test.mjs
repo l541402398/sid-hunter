@@ -13,7 +13,7 @@ for(let from=1;from<=7;from++)for(let to=1;to<=7;to++)if(from!==to)for(const sid
   assert.equal(r.floorChange(a.sessionId,{...req,targetFloorId:from}).ok,false);
 }
 {
-  const r=fixture(),a=r.room.players[0],p=W.floorPortal(1,'right');a.x=p.x;a.y=p.y+14;a.spriteFacing='front';
+  const r=fixture(),a=r.room.players[0],p=W.floorPortal(1,'right');a.floorId=1;a.x=p.x;a.y=p.y+14;a.spriteFacing='front';
   assert.equal(r.floorChange(a.sessionId,body(r,a,p,5)).ok,false,'server must reject facing away');
   a.spriteFacing='back';for(const target of [0,8,1.5,1])assert.equal(r.floorChange(a.sessionId,body(r,a,p,target)).ok,false);
   a.x=1400;a.y=W.floorById(1).halls.find(h=>h.side==='right').entryY;

@@ -32,7 +32,7 @@ function fixture(count = 3, options = {}) {
 // dev 新增 floorGuard：交互/小游戏指令须带 roundId 与本人 floorRevision。
 const guard = (r, p) => ({ roundId: r.room.roundId, expectedFloorRevision: p.floorRevision });
 const search = (r, p, c, extra = {}) => { p.x = c.x; p.y = c.y; return r.interact(p.sessionId, { commandId: nonce(), kind: 'search', entityId: c.id, ...guard(r, p), ...extra }); };
-const wheel = (r, p, entity = npc) => { p.x = entity.x; p.y = entity.y; return r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: entity.id, ...guard(r, p) }); };
+const wheel = (r, p, entity = npc) => { p.floorId = entity.floorId; p.x = entity.x; p.y = entity.y; return r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: entity.id, ...guard(r, p) }); };
 const wheelAmounts = [2, 4, 6, 8, 2, 4, 6, 8];
 function assertWheelPool(pool) {
   assert.equal(pool.length, 8);
@@ -130,7 +130,7 @@ await test('计分·探索与猜拳：直接积分 +1、答题答对 +2、猜拳
   const ans = r.room.searchSessions.get(quiz.sessionId).question.answer;
   assert.equal(r.interact(p.sessionId, { kind: 'quizAnswer', sessionId: quiz.sessionId, answer: ans }).correct, true);
   assert.equal(p.score, SCORE.exploreDirect + SCORE.exploreQuiz);
-  p.x = 500; p.y = 350; q.x = 520; q.y = 350;
+  q.floorId = p.floorId; p.x = 500; p.y = 350; q.x = 520; q.y = 350;
   const pScore = p.score, qScore = q.score;
   // 新协议：邀请不带出拳；被邀请方接受后进入 10 秒选择阶段；双方出拳后到 deadline 才结算计分。
   const settleRps = (from, to, aChoice, bChoice, label) => {
@@ -153,7 +153,7 @@ await test('计分·攻击与技能：J命中按J渠道随机积分（概率命�
   // J 积分为随机触发（WORLD.ACTION.hammerPointChance，建议值）：注入确定的 randomInt 分别验证命中/未命中。
   for (const [roll, gain] of [[0, WORLD.ACTION.hammerPoint], [9999, 0]]) {
     const r = fixture(3, { randomInt: () => roll });
-    for (const x of r.room.players) { x.x = 1500 + x.id * 100; x.y = 350; }
+    for (const x of r.room.players) { x.floorId = 1; x.x = 1500 + x.id * 100; x.y = 350; }
     const a = r.find(1), b = r.find(2); a.x = 500; b.x = 530;
     const aScore = a.score;
     assert.equal(r.attack(a.sessionId, { commandId: nonce(), ...guard(r, a) }).hitId, b.id);

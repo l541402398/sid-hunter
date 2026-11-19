@@ -49,6 +49,14 @@ function createRoom(options = {}) {
   const prizes = options.prizes || createPrizePool({ randomInt: n => wheelRandomInt(n), now: () => now() });
   // 自测可注入随机小数源；真人阵营默认使用 crypto 随机数，不从加入序号推定。
   const random = typeof options.random === 'function' ? options.random : null;
+  // 出生楼层/出生点随机源：默认使用 crypto.randomInt，自测可单独注入 options.spawnRandomInt（不干扰 options.random 阵营序列）。
+  const spawnRandomInt = typeof options.spawnRandomInt === 'function'
+    ? n => {
+        if (n <= 1) return 0;
+        const v = Math.floor(Number(options.spawnRandomInt(n)));
+        return Number.isFinite(v) ? ((v % n) + n) % n : 0;
+      }
+    : n => (n <= 1 ? 0 : randomInt(n));
   const playConfig = WORLD.PLAY_CONFIG;
   // 结束规则默认取 WORLD.RULES；测试可通过 options.rules 覆盖（如小房间活人阈值）。
   const rules = { ...WORLD.RULES, ...(options.rules || {}) };
@@ -279,6 +287,80 @@ function createRoom(options = {}) {
     }
     return { x: pool[i].x, y: pool[i].y };
   }
+  const SPAWN_CROWD_RADIUS = 48;
+  function spawnFloorIds() {
+    const ids = Object.values(WORLD.FLOORS)
+      .map(f => Number(f && f.id))
+      .filter(id => Number.isSafeInteger(id) && WORLD.floorSpawns(id).length > 0)
+      .sort((a, b) => a - b);
+    return ids.length ? ids : [1];
+  }
+  // 统计各楼层当前在线真实人数（含休战、含该层房间内玩家；不计 NPC 与离线占位）。
+  function floorPopulationCounts(floorIds) {
+    const counts = new Map(floorIds.map(id => [id, 0]));
+    for (const p of room.players) {
+      if (!p || p.npc || p.online === false) continue;
+      if (counts.has(p.floorId)) counts.set(p.floorId, counts.get(p.floorId) + 1);
+    }
+    return counts;
+  }
+  // 按各楼层当前在线人数分流出生：从当前人数最少的楼层集合中随机选一层，避免全员挤在 1F。
+  function chooseSpawnFloor() {
+    const floorIds = spawnFloorIds();
+    const counts = floorPopulationCounts(floorIds);
+    let minCount = Infinity;
+    for (const count of counts.values()) if (count < minCount) minCount = count;
+    const candidates = floorIds.filter(id => counts.get(id) === minCount);
+    return candidates[spawnRandomInt(candidates.length)];
+  }
+  // 在目标楼层安全出生池内随机选点：优先选择周围玩家最少的安全点（无碰撞、无遮挡、远离电梯触发范围），同档随机。
+  function pickSpawnPoint(floorId) {
+    const pool = WORLD.floorSpawns(floorId);
+    if (!pool.length) return { x: 0, y: 0 };
+    const occupied = room.players.filter(p => p && p.online !== false && p.floorId === floorId && !p.zoneId);
+    const crowdAt = pt => {
+      let n = 0;
+      for (const p of occupied) {
+        if (Math.hypot(p.x - pt.x, p.y - pt.y) < SPAWN_CROWD_RADIUS) n++;
+      }
+      return n;
+    };
+    let candidates;
+    if (pool.length <= 64) {
+      candidates = pool.filter(p => pointSafe(floorId, p.x, p.y));
+    } else {
+      const sampleCount = Math.min(32, pool.length);
+      const seen = new Set();
+      candidates = [];
+      for (let attempts = 0; attempts < sampleCount * 3 && candidates.length < sampleCount; attempts++) {
+        const idx = spawnRandomInt(pool.length);
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        const p = pool[idx];
+        if (pointSafe(floorId, p.x, p.y)) candidates.push(p);
+      }
+      if (!candidates.length) {
+        const start = spawnRandomInt(pool.length);
+        for (let k = 0; k < pool.length; k++) {
+          const p = pool[(start + k) % pool.length];
+          if (pointSafe(floorId, p.x, p.y)) { candidates.push(p); break; }
+        }
+      }
+    }
+    if (!candidates.length) {
+      const fallback = pool[spawnRandomInt(pool.length)];
+      return { x: fallback.x, y: fallback.y };
+    }
+    let minCrowd = Infinity;
+    const scored = candidates.map(p => {
+      const c = crowdAt(p);
+      if (c < minCrowd) minCrowd = c;
+      return { p, c };
+    });
+    const best = scored.filter(item => item.c === minCrowd);
+    const chosen = best[spawnRandomInt(best.length)].p;
+    return { x: chosen.x, y: chosen.y };
+  }
   function safeLanding(floorId) {
     for (const p of WORLD.floorSpawns(floorId)) if (pointSafe(floorId, p.x, p.y)) return { x: p.x, y: p.y };
     return null;
@@ -482,8 +564,9 @@ function createRoom(options = {}) {
     const id = room.players.reduce((m, q) => Math.max(m, Number(q.id) || 0), -1) + 1;
     const rawName = typeof nickname === 'string' ? nickname.trim().slice(0, 8) : '';
     const name = empNo ? uniqueName(displayName(identity.name, empNo)) : uniqueName(rawName || pick(NAME_POOL));
-    // 新玩家统一在 1F 安全出生池（按 id 轮转）；每个点都已校验无碰撞、无遮挡、不在入口触发范围内。
-    const spawn = spawnPointFor(1, id);
+    // 新玩家按各楼层当前在线人数分流至人数最少的楼层（同少随机），再在该层安全出生池内随机选点。
+    const floorId = chooseSpawnFloor();
+    const spawn = pickSpawnPoint(floorId);
     const player = {
       id,
       name,
@@ -509,7 +592,7 @@ function createRoom(options = {}) {
       scoreBreakdown: { participate: 0, survival: 0, combat: 0 },
       x: spawn.x,
       y: spawn.y,
-      floorId: 1,
+      floorId,
       floorRevision: 0,
       // 需求①：当前所处空间。null = 楼层公共空间；房间 ID = 独立空间内（由 enterZone 设置）。
       zoneId: null,
