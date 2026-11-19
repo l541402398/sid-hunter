@@ -1,9 +1,11 @@
 'use strict';
 // 统一音频引擎（零外部依赖）：
-//   · 背景音乐（BGM）：游戏大厅（爵士轻音）与年度纪念册（暖光竖琴）双轨平滑淡入淡出，切页自动暂停/恢复；
+//   · 背景音乐（BGM）：5 首舒缓纯音乐组成歌单，默认列表循环（播完自动平滑切换下一首），
+//     支持右上角声音面板随时点选曲目、上一首/下一首、切换列表循环/单曲循环；
+//     游戏大厅与年度纪念册自动平滑淡入淡出衔接并默认区分曲目，切页自动暂停/恢复；
 //   · 动效音效（SFX）：优先 Web Audio 解码 Kenney CC0 音效池（支持高频重叠，如大转盘哒哒刻度与连敲），
 //     遇到不支持 OGG Vorbis 的浏览器（如部分 Safari/iOS）自动降级为柔和的 Web Audio 合成音效；
-//   · 静音与音量偏好持久化于 localStorage，游戏主页、年度纪念册与新手训练室共享同一份配置。
+//   · 静音、音量、曲目与循环模式持久化于 localStorage，游戏主页、年度纪念册与新手训练室共享配置。
 (function (root, factory) {
   const api = factory(root);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -14,18 +16,52 @@
   const SFX_BASE = '/assets/vendor/audio-kenney-sfx/';
   const FADE_MS = 650;
 
-  const BGM_TRACKS = Object.freeze({
-    game: Object.freeze({
-      url: BGM_BASE + 'bgm-game.mp3',
-      gain: 0.82,
-      label: '办公大厅 · 爵士轻音'
+  const BGM_PLAYLIST = Object.freeze([
+    Object.freeze({
+      id: 'chill-lofi',
+      url: BGM_BASE + 'bgm-chill-lofi.mp3',
+      gain: 0.88,
+      title: '午后电钢 · 暖阳微风',
+      tag: '电钢 Lo-Fi',
+      credit: 'omfgdude · CC0'
     }),
-    annual: Object.freeze({
-      url: BGM_BASE + 'bgm-annual.mp3',
+    Object.freeze({
+      id: 'warm-fireplace',
+      url: BGM_BASE + 'bgm-warm-fireplace.mp3',
       gain: 1.0,
-      label: '年度纪念册 · 暖光竖琴'
+      title: '暖意壁炉 · 木吉他',
+      tag: '原声吉他',
+      credit: 'MouthlessGames · CC-BY 3.0'
+    }),
+    Object.freeze({
+      id: 'calm-bgm',
+      url: BGM_BASE + 'bgm-calm-bgm.mp3',
+      gain: 0.94,
+      title: '微光日常 · 吉他钢琴',
+      tag: '吉他钢琴',
+      credit: 'syncopika · CC-BY 3.0'
+    }),
+    Object.freeze({
+      id: 'first-light',
+      url: BGM_BASE + 'bgm-first-light.mp3',
+      gain: 0.94,
+      title: '晨光微粒 · 清澈钢琴',
+      tag: '钢琴独奏',
+      credit: 'Yoiyami · CC0'
+    }),
+    Object.freeze({
+      id: 'bluebonnet',
+      url: BGM_BASE + 'bgm-bluebonnet.mp3',
+      gain: 1.0,
+      title: '矢车菊 · 治愈慢钢琴',
+      tag: '舒缓钢琴',
+      credit: 'Kistol · CC0'
     })
-  });
+  ]);
+
+  const BGM_TRACKS = Object.freeze(
+    Object.fromEntries(BGM_PLAYLIST.map((item) => [item.id, item]))
+  );
 
   const SFX_CATALOG = Object.freeze({
     bonkSwing:       { files: ['cloth1.ogg'], gain: 0.58, minGap: 80, synth: 'whoosh' },
@@ -69,8 +105,10 @@
     muted: false,
     bgmEnabled: true,
     sfxEnabled: true,
-    bgmVolume: 0.34,
-    sfxVolume: 0.78
+    bgmVolume: 0.24,
+    sfxVolume: 0.62,
+    trackId: 'chill-lofi',
+    playMode: 'list' // 'list' 列表循环（播完切下一首） | 'single' 单曲循环
   });
 
   function clamp01(v, fallback) {
@@ -86,7 +124,9 @@
       bgmEnabled: typeof src.bgmEnabled === 'boolean' ? src.bgmEnabled : DEFAULTS.bgmEnabled,
       sfxEnabled: typeof src.sfxEnabled === 'boolean' ? src.sfxEnabled : DEFAULTS.sfxEnabled,
       bgmVolume: clamp01(src.bgmVolume, DEFAULTS.bgmVolume),
-      sfxVolume: clamp01(src.sfxVolume, DEFAULTS.sfxVolume)
+      sfxVolume: clamp01(src.sfxVolume, DEFAULTS.sfxVolume),
+      trackId: typeof src.trackId === 'string' && BGM_TRACKS[src.trackId] ? src.trackId : DEFAULTS.trackId,
+      playMode: src.playMode === 'single' ? 'single' : 'list'
     };
   }
 
@@ -106,6 +146,13 @@
     } catch { /* ignore quota / private mode */ }
   }
 
+  function nextIdInPlaylist(currentId, step = 1) {
+    const len = BGM_PLAYLIST.length;
+    const idx = BGM_PLAYLIST.findIndex((t) => t.id === currentId);
+    const base = idx >= 0 ? idx : 0;
+    return BGM_PLAYLIST[((base + step) % len + len) % len].id;
+  }
+
   function createEngine(env = root) {
     const doc = env?.document || null;
     const storage = (() => { try { return env?.localStorage || null; } catch { return null; } })();
@@ -119,14 +166,15 @@
     const bgmDisabledByFrame = isSubframe && /\/tutorial\//.test(String(env?.location?.pathname || ''));
 
     let prefs = loadPrefs(storage);
-    let desiredTrack = null; // 'game' | 'annual' | null
+    let scene = null; // 'game' | 'annual' | null
+    let annualTrackId = 'first-light';
     let unlocked = false;
     let hiddenPaused = false;
     let ctx = null;
     let fadeRaf = 0;
-    let listeners = new Set();
+    const listeners = new Set();
 
-    const tracks = {}; // name -> { el, vol, target, from, startAt, dur, fadingOut }
+    const tracks = {}; // trackId -> { el, vol, target, from, startAt, dur }
     const bufferCache = new Map(); // file -> AudioBuffer | null
     const bufferPending = new Map(); // file -> Promise
     const lastPlayAt = new Map(); // sfxName -> ms
@@ -155,22 +203,46 @@
       return !prefs.muted && prefs.sfxEnabled && prefs.sfxVolume > 0.001;
     }
 
-    function targetVolumeFor(name) {
-      const def = BGM_TRACKS[name];
-      if (!def || !isBgmAudible() || hiddenPaused || desiredTrack !== name) return 0;
+    function activeTrackId() {
+      if (!scene) return null;
+      return scene === 'annual' ? annualTrackId : prefs.trackId;
+    }
+
+    function targetVolumeFor(id) {
+      const def = BGM_TRACKS[id];
+      if (!def || !isBgmAudible() || hiddenPaused || activeTrackId() !== id) return 0;
       return Math.max(0, Math.min(1, prefs.bgmVolume * def.gain));
     }
 
-    function ensureTrack(name) {
-      if (!BGM_TRACKS[name] || !hasAudio || bgmDisabledByFrame) return null;
-      if (!tracks[name]) {
-        const el = new env.Audio(BGM_TRACKS[name].url);
-        el.loop = true;
+    function handleTrackEnded(endedId) {
+      if (activeTrackId() !== endedId) return;
+      if (prefs.playMode === 'single') return;
+      const nextId = nextIdInPlaylist(endedId, 1);
+      if (scene === 'annual') {
+        annualTrackId = nextId;
+      } else if (scene === 'game') {
+        prefs = sanitizePrefs({ ...prefs, trackId: nextId });
+        savePrefs(storage, prefs);
+      } else {
+        return;
+      }
+      syncBgm({ fadeMs: 450, restart: true });
+      emit();
+    }
+
+    function ensureTrack(id) {
+      if (!BGM_TRACKS[id] || !hasAudio || bgmDisabledByFrame) return null;
+      if (!tracks[id]) {
+        const el = new env.Audio(BGM_TRACKS[id].url);
+        el.loop = prefs.playMode === 'single';
         el.preload = 'none';
         el.volume = 0;
-        tracks[name] = { el, vol: 0, target: 0, from: 0, startAt: 0, dur: 0 };
+        if (typeof el.addEventListener === 'function') {
+          el.addEventListener('ended', () => handleTrackEnded(id));
+        }
+        tracks[id] = { el, vol: 0, target: 0, from: 0, startAt: 0, dur: 0 };
       }
-      return tracks[name];
+      return tracks[id];
     }
 
     function stopFadeLoop() {
@@ -184,8 +256,8 @@
       fadeRaf = 0;
       const now = nowMs();
       let active = false;
-      for (const name of Object.keys(tracks)) {
-        const t = tracks[name];
+      for (const id of Object.keys(tracks)) {
+        const t = tracks[id];
         if (!t) continue;
         const p = t.dur > 0 ? Math.min(1, (now - t.startAt) / t.dur) : 1;
         // 余弦缓入缓出，听感更自然。
@@ -204,8 +276,8 @@
       }
     }
 
-    function scheduleFade(name, target, dur = FADE_MS) {
-      const t = tracks[name];
+    function scheduleFade(id, target, dur = FADE_MS) {
+      const t = tracks[id];
       if (!t) return;
       const now = nowMs();
       t.from = t.vol;
@@ -224,13 +296,20 @@
     function syncBgm(opts = {}) {
       const dur = typeof opts.fadeMs === 'number' ? opts.fadeMs : FADE_MS;
       const resetTarget = !!opts.restart;
-      for (const name of Object.keys(BGM_TRACKS)) {
-        const isDesired = name === desiredTrack;
-        const wanted = targetVolumeFor(name);
-        if (!isDesired && !tracks[name]) continue;
+      const current = activeTrackId();
+      const singleLoop = prefs.playMode === 'single';
+
+      for (const id of Object.keys(BGM_TRACKS)) {
+        const isDesired = id === current;
+        const wanted = targetVolumeFor(id);
+        if (!isDesired && !tracks[id]) continue;
+        if (tracks[id]) {
+          try { tracks[id].el.loop = singleLoop; } catch {}
+        }
         if (wanted > 0 && unlocked) {
-          const t = ensureTrack(name);
+          const t = ensureTrack(id);
           if (!t) continue;
+          try { t.el.loop = singleLoop; } catch {}
           if (resetTarget) {
             try { t.el.currentTime = 0; } catch {}
           }
@@ -239,9 +318,8 @@
               const p = t.el.play();
               if (p && typeof p.then === 'function') {
                 p.then(() => {
-                  scheduleFade(name, targetVolumeFor(name), dur);
+                  scheduleFade(id, targetVolumeFor(id), dur);
                 }).catch(() => {
-                  // 浏览器尚未解锁自动播放：静默等待下一次用户手势，不抛异常。
                   unlocked = false;
                 });
               }
@@ -249,22 +327,64 @@
               unlocked = false;
             }
           }
-          scheduleFade(name, wanted, dur);
-        } else if (tracks[name]) {
-          scheduleFade(name, 0, isDesired && !isBgmAudible() ? 180 : Math.min(dur, 480));
+          scheduleFade(id, wanted, dur);
+        } else if (tracks[id]) {
+          scheduleFade(id, 0, isDesired && !isBgmAudible() ? 180 : Math.min(dur, 480));
         }
       }
     }
 
-    function setBgm(trackName, opts = {}) {
-      const next = trackName && BGM_TRACKS[trackName] ? trackName : null;
-      const changed = next !== desiredTrack;
-      desiredTrack = next;
-      // 切到年度纪念册时总是从温暖前奏开始；切回游戏大厅时续播上次进度，衔接更自然。
-      const restart = typeof opts.restart === 'boolean' ? opts.restart : (changed && next === 'annual');
+    function setBgm(nextScene, opts = {}) {
+      const normalized = nextScene === 'annual' ? 'annual' : nextScene === 'game' ? 'game' : null;
+      const changed = normalized !== scene;
+      scene = normalized;
+      if (changed && scene === 'annual') {
+        // 年度纪念册优先使用晨光清澈钢琴；若大厅正在播同一首则切换至矢车菊慢钢琴，保证两者风格衔接且曲目不同。
+        annualTrackId = prefs.trackId === 'first-light' ? 'bluebonnet' : 'first-light';
+      }
+      const restart = typeof opts.restart === 'boolean' ? opts.restart : (changed && scene === 'annual');
       syncBgm({ fadeMs: opts.fadeMs, restart });
       if (changed) emit();
-      return desiredTrack;
+      return scene;
+    }
+
+    function selectTrack(trackId, opts = {}) {
+      if (!BGM_TRACKS[trackId]) return getState();
+      unlocked = true;
+      if (!scene) scene = 'game';
+      const sameTrack = activeTrackId() === trackId;
+      if (scene === 'annual') {
+        annualTrackId = trackId;
+      } else {
+        prefs = sanitizePrefs({
+          ...prefs,
+          trackId,
+          ...(opts.unmute !== false ? { muted: false, bgmEnabled: true } : {})
+        });
+        savePrefs(storage, prefs);
+      }
+      if (scene === 'annual' && opts.unmute !== false && (prefs.muted || !prefs.bgmEnabled)) {
+        prefs = sanitizePrefs({ ...prefs, muted: false, bgmEnabled: true });
+        savePrefs(storage, prefs);
+      }
+      syncBgm({ fadeMs: 420, restart: !sameTrack || !!opts.restart });
+      emit();
+      return getState();
+    }
+
+    function nextTrack() {
+      const cur = activeTrackId() || prefs.trackId;
+      return selectTrack(nextIdInPlaylist(cur, 1), { restart: true });
+    }
+
+    function prevTrack() {
+      const cur = activeTrackId() || prefs.trackId;
+      return selectTrack(nextIdInPlaylist(cur, -1), { restart: true });
+    }
+
+    function togglePlayMode() {
+      const nextMode = prefs.playMode === 'list' ? 'single' : 'list';
+      return updatePrefs({ playMode: nextMode });
     }
 
     function ensureContext() {
@@ -282,7 +402,8 @@
       const wasUnlocked = unlocked;
       unlocked = true;
       ensureContext();
-      if (!wasUnlocked || (desiredTrack && isBgmAudible() && (!tracks[desiredTrack] || tracks[desiredTrack].el.paused))) {
+      const cur = activeTrackId();
+      if (!wasUnlocked || (cur && isBgmAudible() && (!tracks[cur] || tracks[cur].el.paused))) {
         syncBgm({ fadeMs: wasUnlocked ? 350 : 750 });
       }
       if (!wasUnlocked) emit();
@@ -513,10 +634,16 @@
     }
 
     function getState() {
+      const activeId = activeTrackId();
+      const def = activeId ? BGM_TRACKS[activeId] : BGM_TRACKS[prefs.trackId];
       return {
         ...prefs,
-        track: desiredTrack,
-        trackLabel: desiredTrack && BGM_TRACKS[desiredTrack] ? BGM_TRACKS[desiredTrack].label : '',
+        scene,
+        track: scene,
+        activeTrackId: activeId || prefs.trackId,
+        trackLabel: def ? def.title : '',
+        trackCredit: def ? def.credit : '',
+        playlist: BGM_PLAYLIST,
         unlocked,
         bgmAudible: isBgmAudible(),
         sfxAudible: isSfxAudible()
@@ -549,15 +676,45 @@
       const sfxSlider = doc.getElementById('audio-sfx-volume');
       const sfxVal = doc.getElementById('audio-sfx-val');
       const trackLabel = doc.getElementById('audio-track-label');
+      const prevBtn = doc.getElementById('audio-prev');
+      const nextBtn = doc.getElementById('audio-next');
+      const loopBtn = doc.getElementById('audio-loop-mode');
+      const listHost = doc.getElementById('audio-playlist');
+
+      if (listHost && !listHost.children.length) {
+        for (let i = 0; i < BGM_PLAYLIST.length; i++) {
+          const item = BGM_PLAYLIST[i];
+          const btn = doc.createElement('button');
+          btn.type = 'button';
+          btn.className = 'audio-track-item';
+          btn.dataset.trackId = item.id;
+          btn.title = `${item.title}（${item.credit}）`;
+          const idxSpan = doc.createElement('span');
+          idxSpan.className = 'audio-track-idx';
+          idxSpan.textContent = String(i + 1).padStart(2, '0');
+          const titleSpan = doc.createElement('span');
+          titleSpan.className = 'audio-track-name';
+          titleSpan.textContent = item.title;
+          const tagSpan = doc.createElement('small');
+          tagSpan.className = 'audio-track-tag';
+          tagSpan.textContent = item.tag;
+          btn.append(idxSpan, titleSpan, tagSpan);
+          btn.addEventListener('click', () => {
+            selectTrack(item.id, { restart: true });
+            play('uiClick');
+          });
+          listHost.append(btn);
+        }
+      }
 
       const syncUI = (st) => {
         const silent = st.muted || (!st.bgmEnabled && !st.sfxEnabled);
         toggle.dataset.muted = String(silent);
         toggle.setAttribute('aria-pressed', String(!popover.hidden));
         toggle.setAttribute('aria-label', silent ? '声音设置（当前已静音）' : '声音设置（背景音乐与音效）');
-        toggle.title = silent ? '声音设置 · 当前已静音' : '声音设置 · 背景音乐与音效';
+        toggle.title = silent ? '声音设置 · 当前已静音' : `正在播放：${st.trackLabel || '舒缓背景音'}`;
         if (muteBtn) {
-          muteBtn.textContent = st.muted ? '🔊 恢复全部声音' : '🔇 一键静音';
+          muteBtn.textContent = st.muted ? '🔊 恢复声音' : '🔇 一键静音';
           muteBtn.setAttribute('aria-pressed', String(st.muted));
         }
         if (bgmToggle) bgmToggle.checked = st.bgmEnabled && !st.muted;
@@ -572,7 +729,26 @@
           sfxSlider.disabled = st.muted || !st.sfxEnabled;
         }
         if (sfxVal) sfxVal.textContent = `${Math.round(st.sfxVolume * 100)}%`;
-        if (trackLabel) trackLabel.textContent = st.trackLabel || '待播放';
+        if (trackLabel) {
+          trackLabel.textContent = st.trackLabel || '舒缓歌单';
+          trackLabel.title = st.trackCredit ? `${st.trackLabel}（${st.trackCredit}）` : '';
+        }
+        if (loopBtn) {
+          const isSingle = st.playMode === 'single';
+          loopBtn.textContent = isSingle ? '🔂 单曲' : '🔁 循环';
+          loopBtn.setAttribute('aria-pressed', String(isSingle));
+          loopBtn.title = isSingle ? '当前：单曲循环（点击切回列表循环）' : '当前：列表循环，播完自动下一首（点击切换单曲循环）';
+        }
+        if (listHost) {
+          const buttons = listHost.querySelectorAll('.audio-track-item');
+          buttons.forEach((btn, idx) => {
+            const active = btn.dataset.trackId === st.activeTrackId;
+            btn.classList.toggle('is-active', active);
+            btn.setAttribute('aria-current', active ? 'true' : 'false');
+            const idxEl = btn.querySelector('.audio-track-idx');
+            if (idxEl) idxEl.textContent = active ? '▶' : String(idx + 1).padStart(2, '0');
+          });
+        }
       };
 
       const closePopover = (returnFocus = false) => {
@@ -596,6 +772,18 @@
       if (muteBtn) muteBtn.addEventListener('click', () => {
         const st = toggleMute();
         if (!st.muted) play('uiClick');
+      });
+      if (prevBtn) prevBtn.addEventListener('click', () => {
+        prevTrack();
+        play('uiClick');
+      });
+      if (nextBtn) nextBtn.addEventListener('click', () => {
+        nextTrack();
+        play('uiClick');
+      });
+      if (loopBtn) loopBtn.addEventListener('click', () => {
+        togglePlayMode();
+        play('uiClick');
       });
       if (bgmToggle) bgmToggle.addEventListener('change', () => {
         unlock();
@@ -662,10 +850,15 @@
     }
 
     return {
+      BGM_PLAYLIST,
       BGM_TRACKS,
       SFX_CATALOG,
       STORAGE_KEY,
       setBgm,
+      selectTrack,
+      nextTrack,
+      prevTrack,
+      togglePlayMode,
       play,
       unlock,
       updatePrefs,

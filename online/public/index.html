@@ -111,19 +111,28 @@
       </div>
       <div id="audio-popover" class="audio-popover" role="region" aria-label="背景音乐与音效控制" hidden>
         <div class="audio-pop-head">
-          <div><small>SOUND &amp; BGM</small><strong id="audio-track-label">办公大厅 · 爵士轻音</strong></div>
+          <div><small>SOUND &amp; BGM</small><strong id="audio-track-label">午后电钢 · 暖阳微风</strong></div>
           <button id="audio-mute-btn" type="button" class="audio-mute-btn" aria-pressed="false">🔇 一键静音</button>
         </div>
         <label class="audio-row">
           <span class="audio-row-label"><input id="audio-bgm-toggle" type="checkbox" checked>背景音乐</span>
-          <input id="audio-bgm-volume" type="range" min="0" max="100" value="34" aria-label="背景音乐音量">
-          <b id="audio-bgm-val">34%</b>
+          <input id="audio-bgm-volume" type="range" min="0" max="100" value="24" aria-label="背景音乐音量">
+          <b id="audio-bgm-val">24%</b>
         </label>
         <label class="audio-row">
           <span class="audio-row-label"><input id="audio-sfx-toggle" type="checkbox" checked>交互音效</span>
-          <input id="audio-sfx-volume" type="range" min="0" max="100" value="78" aria-label="交互音效音量">
-          <b id="audio-sfx-val">78%</b>
+          <input id="audio-sfx-volume" type="range" min="0" max="100" value="62" aria-label="交互音效音量">
+          <b id="audio-sfx-val">62%</b>
         </label>
+        <div class="audio-list-bar">
+          <span class="audio-list-title">舒缓歌单 · 播完自动切歌</span>
+          <div class="audio-list-controls">
+            <button id="audio-prev" type="button" class="audio-mini-btn" aria-label="上一首" title="上一首">⏮</button>
+            <button id="audio-next" type="button" class="audio-mini-btn" aria-label="下一首" title="下一首">⏭</button>
+            <button id="audio-loop-mode" type="button" class="audio-mini-btn audio-loop-btn" aria-pressed="false" title="当前：列表循环，播完自动下一首（点击切换单曲循环）">🔁 循环</button>
+          </div>
+        </div>
+        <div id="audio-playlist" class="audio-playlist" role="list" aria-label="背景音乐播放列表"></div>
       </div>
     </div>
     <div class="map-view" id="map-view">

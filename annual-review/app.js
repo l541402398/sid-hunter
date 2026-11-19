@@ -22,17 +22,26 @@
           muted: !!raw.muted,
           bgmEnabled: raw.bgmEnabled !== false,
           sfxEnabled: raw.sfxEnabled !== false,
-          bgmVolume: typeof raw.bgmVolume === 'number' ? Math.max(0, Math.min(1, raw.bgmVolume)) : 0.34,
-          sfxVolume: typeof raw.sfxVolume === 'number' ? Math.max(0, Math.min(1, raw.sfxVolume)) : 0.78
+          bgmVolume: typeof raw.bgmVolume === 'number' ? Math.max(0, Math.min(1, raw.bgmVolume)) : 0.24,
+          sfxVolume: typeof raw.sfxVolume === 'number' ? Math.max(0, Math.min(1, raw.sfxVolume)) : 0.62,
+          playMode: raw.playMode === 'single' ? 'single' : 'list'
         };
       } catch {
-        return { muted: false, bgmEnabled: true, sfxEnabled: true, bgmVolume: 0.34, sfxVolume: 0.78 };
+        return { muted: false, bgmEnabled: true, sfxEnabled: true, bgmVolume: 0.24, sfxVolume: 0.62, playMode: 'list' };
       }
     };
     const writePrefs = (p) => {
       try { localStorage.setItem(AUDIO_KEY, JSON.stringify(p)); } catch {}
     };
+    const STANDALONE_PLAYLIST = [
+      '/assets/vendor/audio-oga-bgm/bgm-first-light.mp3',
+      '/assets/vendor/audio-oga-bgm/bgm-bluebonnet.mp3',
+      '/assets/vendor/audio-oga-bgm/bgm-calm-bgm.mp3',
+      '/assets/vendor/audio-oga-bgm/bgm-warm-fireplace.mp3',
+      '/assets/vendor/audio-oga-bgm/bgm-chill-lofi.mp3'
+    ];
     let bgmEl = null,
+      bgmIndex = 0,
       unlocked = false,
       lastFlip = -1;
     const syncButton = (muted) => {
@@ -45,9 +54,20 @@
     const ensureStandaloneBgm = () => {
       if (embedded || typeof Audio !== 'function') return null;
       if (!bgmEl) {
-        bgmEl = new Audio('/assets/vendor/audio-oga-bgm/bgm-annual.mp3');
-        bgmEl.loop = true;
+        bgmEl = new Audio(STANDALONE_PLAYLIST[bgmIndex]);
+        bgmEl.loop = false;
         bgmEl.preload = 'none';
+        bgmEl.addEventListener('ended', () => {
+          const p = readPrefs();
+          if (p.muted || !p.bgmEnabled || document.hidden || !dialog.open) return;
+          if (p.playMode === 'single') {
+            bgmEl.currentTime = 0;
+          } else {
+            bgmIndex = (bgmIndex + 1) % STANDALONE_PLAYLIST.length;
+            bgmEl.src = STANDALONE_PLAYLIST[bgmIndex];
+          }
+          try { bgmEl.play().catch(() => {}); } catch {}
+        });
       }
       return bgmEl;
     };

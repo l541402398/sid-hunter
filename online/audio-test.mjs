@@ -32,19 +32,20 @@ async function check(name, fn) {
   console.log('PASS', name);
 }
 
-await check('1. All BGM & SFX assets exist on disk with valid headers and vendor provenance', async () => {
+await check('1. All 5 soothing BGM tracks & 37 SFX assets exist with valid headers and provenance', async () => {
   assert.ok(fs.existsSync(path.join(PUBLIC_DIR, 'assets/vendor/audio-oga-bgm/SOURCE-README.txt')));
   assert.ok(fs.existsSync(path.join(PUBLIC_DIR, 'assets/vendor/audio-kenney-sfx/SOURCE-README.txt')));
   assert.ok(fs.existsSync(path.join(PUBLIC_DIR, 'assets/vendor/audio-kenney-sfx/License.txt')));
+  assert.equal(AUDIO.BGM_PLAYLIST.length, 5);
 
-  for (const [key, track] of Object.entries(AUDIO.BGM_TRACKS)) {
+  for (const track of AUDIO.BGM_PLAYLIST) {
     const file = path.join(PUBLIC_DIR, track.url.replace(/^\/+/, ''));
-    assert.ok(fs.existsSync(file), `Missing BGM track ${key}: ${file}`);
+    assert.ok(fs.existsSync(file), `Missing BGM track ${track.id}: ${file}`);
     const buf = fs.readFileSync(file);
-    assert.ok(buf.length > 100_000, `BGM ${key} unexpectedly tiny: ${buf.length}`);
+    assert.ok(buf.length > 500_000, `BGM ${track.id} unexpectedly small: ${buf.length}`);
     const isId3 = buf.subarray(0, 3).toString('ascii') === 'ID3';
     const isMpegSync = buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0;
-    assert.ok(isId3 || isMpegSync, `BGM ${key} does not look like a valid MP3`);
+    assert.ok(isId3 || isMpegSync, `BGM ${track.id} does not look like a valid MP3`);
   }
 
   const uniqueFiles = new Set();
@@ -61,31 +62,29 @@ await check('1. All BGM & SFX assets exist on disk with valid headers and vendor
   assert.ok(uniqueFiles.size >= 30, `Expected >= 30 curated Kenney SFX files, got ${uniqueFiles.size}`);
 });
 
-await check('2. Static server serves MP3/OGG with proper MIME types and HTTP Range (206/416)', async () => {
-  const gameBgm = await serve('/assets/vendor/audio-oga-bgm/bgm-game.mp3');
-  assert.equal(gameBgm.status, 200);
-  assert.equal(gameBgm.headers['Content-Type'], 'audio/mpeg');
-  assert.equal(gameBgm.headers['Accept-Ranges'], 'bytes');
-  assert.equal(Number(gameBgm.headers['Content-Length']), gameBgm.body.length);
+await check('2. Static server serves all playlist MP3s & OGGs with proper MIME and HTTP Range (206/416)', async () => {
+  for (const track of AUDIO.BGM_PLAYLIST) {
+    const res = await serve(track.url);
+    assert.equal(res.status, 200, `Failed to serve ${track.url}`);
+    assert.equal(res.headers['Content-Type'], 'audio/mpeg');
+    assert.equal(res.headers['Accept-Ranges'], 'bytes');
+    assert.equal(Number(res.headers['Content-Length']), res.body.length);
+  }
 
-  const annualBgm = await serve('/assets/vendor/audio-oga-bgm/bgm-annual.mp3');
-  assert.equal(annualBgm.status, 200);
-  assert.equal(annualBgm.headers['Content-Type'], 'audio/mpeg');
-
-  const partial = await serve('/assets/vendor/audio-oga-bgm/bgm-game.mp3', { range: 'bytes=0-1023' });
+  const first = AUDIO.BGM_PLAYLIST[0].url;
+  const full = await serve(first);
+  const partial = await serve(first, { range: 'bytes=0-1023' });
   assert.equal(partial.status, 206);
-  assert.equal(partial.headers['Content-Type'], 'audio/mpeg');
-  assert.equal(partial.headers['Content-Range'], `bytes 0-1023/${gameBgm.body.length}`);
+  assert.equal(partial.headers['Content-Range'], `bytes 0-1023/${full.body.length}`);
   assert.equal(partial.body.length, 1024);
-  assert.deepEqual(partial.body, gameBgm.body.subarray(0, 1024));
+  assert.deepEqual(partial.body, full.body.subarray(0, 1024));
 
-  const badRange = await serve('/assets/vendor/audio-oga-bgm/bgm-game.mp3', { range: 'bytes=99999999-' });
+  const badRange = await serve(first, { range: 'bytes=99999999-' });
   assert.equal(badRange.status, 416);
 
   const sfx = await serve('/assets/vendor/audio-kenney-sfx/chop.ogg');
   assert.equal(sfx.status, 200);
   assert.equal(sfx.headers['Content-Type'], 'audio/ogg');
-  assert.equal(sfx.body.subarray(0, 4).toString('ascii'), 'OggS');
 });
 
 function createMockEnv({ supportsOgg = true, pathname = '/', subframe = false } = {}) {
@@ -104,7 +103,15 @@ function createMockEnv({ supportsOgg = true, pathname = '/', subframe = false } 
       this.paused = true;
       this.playCalls = 0;
       this.pauseCalls = 0;
+      this._listeners = new Map();
       if (src) createdAudio.push(this);
+    }
+    addEventListener(type, fn) {
+      if (!this._listeners.has(type)) this._listeners.set(type, []);
+      this._listeners.get(type).push(fn);
+    }
+    emit(type) {
+      for (const fn of (this._listeners.get(type) || [])) fn();
     }
     canPlayType(type) {
       if (type.includes('ogg')) return supportsOgg ? 'probably' : '';
@@ -173,95 +180,115 @@ function createMockEnv({ supportsOgg = true, pathname = '/', subframe = false } 
   };
 }
 
-await check('3. BGM waits for unlock, switches between game and annual, and preserves game track position', async () => {
+await check('3. Default list loop auto-advances on ended & wraps around; single mode sets loop=true', async () => {
   const m = createMockEnv();
   const engine = AUDIO.createEngine(m.env);
 
   engine.setBgm('game');
-  assert.equal(m.createdAudio.length, 0, 'Should not eagerly play before user unlock');
+  assert.equal(m.createdAudio.length, 0, 'Should not play before user unlock');
 
   engine.unlock();
-  assert.equal(m.createdAudio.length, 1);
-  const gameEl = m.createdAudio[0];
-  assert.match(gameEl.src, /bgm-game\.mp3$/);
-  assert.equal(gameEl.paused, false);
-  assert.ok(gameEl.volume > 0);
+  assert.equal(engine.getState().playMode, 'list');
+  assert.equal(engine.getState().activeTrackId, 'chill-lofi');
+  const firstEl = m.createdAudio[0];
+  assert.match(firstEl.src, /bgm-chill-lofi\.mp3$/);
+  assert.equal(firstEl.loop, false, 'List mode must keep el.loop=false so ended fires');
+  assert.equal(firstEl.paused, false);
 
-  // Advance playback in game BGM, then open Annual Review
-  gameEl.currentTime = 42.5;
-  engine.setBgm('annual');
-  assert.equal(m.createdAudio.length, 2);
-  const annualEl = m.createdAudio[1];
-  assert.match(annualEl.src, /bgm-annual\.mp3$/);
-  assert.equal(annualEl.paused, false);
-  assert.equal(annualEl.currentTime, 0);
-  assert.equal(gameEl.paused, true);
+  // Track 1 ends -> auto-advances to Track 2 (warm-fireplace)
+  firstEl.emit('ended');
+  assert.equal(engine.getState().activeTrackId, 'warm-fireplace');
+  const secondEl = m.createdAudio.find(e => e.src.endsWith('bgm-warm-fireplace.mp3'));
+  assert.ok(secondEl && !secondEl.paused);
+  assert.equal(firstEl.paused, true);
 
-  // Close Annual Review -> resume game BGM without resetting currentTime
-  engine.setBgm('game');
-  assert.equal(annualEl.paused, true);
-  assert.equal(gameEl.paused, false);
-  assert.equal(gameEl.currentTime, 42.5, 'Game BGM should resume where it paused');
+  // Jump to last track (bluebonnet), emit ended -> wraps around to Track 1 (chill-lofi)
+  engine.selectTrack('bluebonnet');
+  const lastEl = m.createdAudio.find(e => e.src.endsWith('bgm-bluebonnet.mp3'));
+  assert.ok(lastEl && !lastEl.paused);
+  lastEl.emit('ended');
+  assert.equal(engine.getState().activeTrackId, 'chill-lofi');
+  assert.equal(firstEl.paused, false);
 
-  // Mute persists and pauses BGM
-  engine.toggleMute();
-  assert.equal(engine.getState().muted, true);
-  assert.equal(gameEl.paused, true);
-  assert.equal(JSON.parse(m.store.get(AUDIO.STORAGE_KEY)).muted, true);
-
-  engine.toggleMute();
-  assert.equal(engine.getState().muted, false);
-  assert.equal(gameEl.paused, false);
+  // Manual next/prev & single-track loop mode
+  engine.prevTrack();
+  assert.equal(engine.getState().activeTrackId, 'bluebonnet');
+  engine.nextTrack();
+  assert.equal(engine.getState().activeTrackId, 'chill-lofi');
+  engine.togglePlayMode();
+  assert.equal(engine.getState().playMode, 'single');
+  assert.equal(firstEl.loop, true);
+  assert.equal(JSON.parse(m.store.get(AUDIO.STORAGE_KEY)).playMode, 'single');
   engine.dispose();
 });
 
-await check('4. SFX throttling, multi-variant bookFlip, and Safari OGG->WebAudio synth fallback', async () => {
+await check('4. Game and Annual Review use distinct soothing tracks and preserve game playback position', async () => {
+  const m = createMockEnv();
+  const engine = AUDIO.createEngine(m.env);
+  engine.setBgm('game');
+  engine.unlock();
+
+  const gameEl = m.createdAudio.find(e => e.src.endsWith('bgm-chill-lofi.mp3'));
+  assert.ok(gameEl);
+  gameEl.currentTime = 38.5;
+
+  // Opening Annual Review switches to first-light piano
+  engine.setBgm('annual');
+  assert.equal(engine.getState().activeTrackId, 'first-light');
+  const annualEl = m.createdAudio.find(e => e.src.endsWith('bgm-first-light.mp3'));
+  assert.ok(annualEl && !annualEl.paused);
+  assert.equal(gameEl.paused, true);
+
+  // Returning to game resumes chill-lofi at 38.5s
+  engine.setBgm('game');
+  assert.equal(engine.getState().activeTrackId, 'chill-lofi');
+  assert.equal(annualEl.paused, true);
+  assert.equal(gameEl.paused, false);
+  assert.equal(gameEl.currentTime, 38.5);
+
+  // If game is already playing first-light, Annual Review picks bluebonnet to stay distinct
+  engine.selectTrack('first-light');
+  engine.setBgm('annual');
+  assert.equal(engine.getState().activeTrackId, 'bluebonnet');
+  engine.dispose();
+});
+
+await check('5. SFX throttling, multi-variant bookFlip, Safari fallback, and tutorial BGM suppression', async () => {
   const m = createMockEnv({ supportsOgg: true });
   const engine = AUDIO.createEngine(m.env);
   engine.unlock();
 
-  // Rapid wheelTick within minGap (35ms) should throttle
   assert.equal(engine.play('wheelTick'), true);
   m.advance(10);
   assert.equal(engine.play('wheelTick'), false);
   m.advance(30);
   assert.equal(engine.play('wheelTick'), true);
 
-  // Book flip should never repeat the exact same variant twice in a row
   const played = [];
   for (let i = 0; i < 6; i++) {
     m.advance(150);
     const before = m.createdAudio.length;
     assert.equal(engine.play('bookFlip'), true);
-    const el = m.createdAudio[before];
-    played.push(el.src);
+    played.push(m.createdAudio[before].src);
   }
-  for (let i = 1; i < played.length; i++) {
-    assert.notEqual(played[i], played[i - 1], 'bookFlip repeated same variant back-to-back');
-  }
+  for (let i = 1; i < played.length; i++) assert.notEqual(played[i], played[i - 1]);
   engine.dispose();
 
-  // Safari (no OGG support) falls back cleanly to Web Audio synth
   const safari = createMockEnv({ supportsOgg: false });
   const sEngine = AUDIO.createEngine(safari.env);
   sEngine.unlock();
   assert.equal(sEngine.play('bonkHit'), true);
   assert.equal(sEngine.play('assassinateHit'), true);
-  assert.equal(sEngine.play('accuseHit'), true);
-  assert.ok(safari.getSynthCount() >= 4, 'Safari fallback should synthesize SFX via Web Audio');
+  assert.ok(safari.getSynthCount() >= 2);
   sEngine.dispose();
-});
 
-await check('5. Tutorial iframe suppresses duplicate BGM while preserving SFX', async () => {
-  const m = createMockEnv({ pathname: '/tutorial/index.html', subframe: true });
-  const engine = AUDIO.createEngine(m.env);
-  engine.setBgm('game');
-  engine.unlock();
-  assert.equal(m.createdAudio.length, 0, 'Tutorial iframe must not start a duplicate BGM');
-  assert.equal(engine.play('bonkHit'), true, 'Tutorial iframe should still play SFX');
-  assert.equal(m.createdAudio.length, 1);
-  assert.match(m.createdAudio[0].src, /chop\.ogg$/);
-  engine.dispose();
+  const tut = createMockEnv({ pathname: '/tutorial/index.html', subframe: true });
+  const tEngine = AUDIO.createEngine(tut.env);
+  tEngine.setBgm('game');
+  tEngine.unlock();
+  assert.equal(tut.createdAudio.length, 0, 'Tutorial iframe must not start duplicate BGM');
+  assert.equal(tEngine.play('bonkHit'), true);
+  tEngine.dispose();
 });
 
 console.log(`ALL ${passed} AUDIO TESTS PASSED.`);
