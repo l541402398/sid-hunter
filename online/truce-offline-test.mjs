@@ -46,7 +46,7 @@ await test('休战者移动与活人走同一碰撞路径（不再穿家具）�
   const r = fixture(), g = r.find(1), alive = r.find(2);
   truce(r, g);
   const c = WORLD.zoneContainers(g.floorId, g.zoneId || null)[0];
-  for (const p of [g, alive]) { p.x = c.x - 80; p.y = c.y; p.input = { up: false, down: false, left: false, right: true }; p.combat.stunUntil = 0; p.combat.freezeUntil = 0; p.stunUntil = 0; }
+  for (const p of [g, alive]) { p.floorId = g.floorId; p.x = c.x - 80; p.y = c.y; p.input = { up: false, down: false, left: false, right: true }; p.combat.stunUntil = 0; p.combat.freezeUntil = 0; p.stunUntil = 0; }
   for (let i = 0; i < 40; i++) r.step(0.05);
   assert.equal(g.x, alive.x, '休战者与活人同起点同输入应停在同一位置'); assert.equal(g.y, alive.y);
   // 一直向左走到楼层边界：两者被同样钳住。
@@ -58,7 +58,7 @@ await test('休战者移动与活人走同一碰撞路径（不再穿家具）�
 await test('休战者可J挥锤（积分规则同活人），任何人都不能scare；锤子可命中休战者且不扣生命', () => {
   const r = fixture(), g = r.find(1), a = r.find(2);
   truce(r, g);
-  for (const p of r.room.players) { p.x = 3000 + p.id * 200; p.y = 350; }
+  for (const p of r.room.players) { p.floorId = g.floorId; p.x = 3000 + p.id * 200; p.y = 350; }
   g.x = 500; g.y = 350; a.x = 520; a.y = 350;
   const swing = r.performAction(g.id, 'hammer');
   assert.equal(swing.ok, true); assert.equal(swing.hit, true); assert.equal(swing.targetId, a.id); assert.equal(a.hp, 3);

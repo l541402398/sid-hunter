@@ -8,7 +8,7 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 // TMJ 地图源目录（仓库根 tiled/）：只读托管给客户端，供 F1 调试层和 TMJ 运行模式加载。
 const TILED_DIR = path.join(__dirname, '..', '..', 'tiled');
 const TICK_MS = 50;
-const ALLOWED_EXT = new Set(['.html', '.css', '.js', '.ico', '.png', '.jpg', '.jpeg', '.webp', '.tmj', '.tsj', '.json']);
+const ALLOWED_EXT = new Set(['.html', '.css', '.js', '.ico', '.png', '.jpg', '.jpeg', '.webp', '.tmj', '.tsj', '.json', '.mp3', '.ogg', '.wav']);
 const DEV_ENABLED = process.env.SID_DEV === '1';
 // dev 分支并入的 CAS 单点登录开关：默认正式模式要求登录；SID_TEST=1 保持自测的昵称加入；
 // SID_SSO=0 供局域网试玩/回归显式关闭门禁（不改变任何玩法与权限判定以外的行为）。

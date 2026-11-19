@@ -7,9 +7,125 @@
   const embedded =
     window.parent !== window && new URLSearchParams(location.search).get('embed') === 'game';
   if (embedded) document.documentElement.classList.add('embedded-review');
-  const notifyHost = (type) => {
-    if (embedded) window.parent.postMessage({ type }, location.origin);
+  const notifyHost = (type, extra) => {
+    if (embedded) window.parent.postMessage(extra ? { type, ...extra } : { type }, location.origin);
   };
+  // 纪念册音频桥接：嵌入主游戏时复用宿主统一音频引擎（与大厅 BGM 淡入淡出衔接）；
+  // 独立打开 /annual-review/ 时直接播放年度纪念册 BGM 与翻书音效，共用 localStorage 静音偏好。
+  const AUDIO_KEY = 'sid-audio-prefs-v1';
+  const audioToggleBtn = $('annual-audio-toggle');
+  const reviewAudio = (() => {
+    const readPrefs = () => {
+      try {
+        const raw = JSON.parse(localStorage.getItem(AUDIO_KEY) || '{}');
+        return {
+          muted: !!raw.muted,
+          bgmEnabled: raw.bgmEnabled !== false,
+          sfxEnabled: raw.sfxEnabled !== false,
+          bgmVolume: typeof raw.bgmVolume === 'number' ? Math.max(0, Math.min(1, raw.bgmVolume)) : 0.34,
+          sfxVolume: typeof raw.sfxVolume === 'number' ? Math.max(0, Math.min(1, raw.sfxVolume)) : 0.78
+        };
+      } catch {
+        return { muted: false, bgmEnabled: true, sfxEnabled: true, bgmVolume: 0.34, sfxVolume: 0.78 };
+      }
+    };
+    const writePrefs = (p) => {
+      try { localStorage.setItem(AUDIO_KEY, JSON.stringify(p)); } catch {}
+    };
+    let bgmEl = null,
+      unlocked = false,
+      lastFlip = -1;
+    const syncButton = (muted) => {
+      if (!audioToggleBtn) return;
+      audioToggleBtn.dataset.muted = String(!!muted);
+      audioToggleBtn.setAttribute('aria-pressed', String(!!muted));
+      audioToggleBtn.setAttribute('aria-label', muted ? '开启纪念册背景音乐与音效' : '静音纪念册背景音乐与音效');
+      audioToggleBtn.title = muted ? '当前已静音 · 点击开启音乐' : '背景音乐与翻书音效 · 点击静音';
+    };
+    const ensureStandaloneBgm = () => {
+      if (embedded || typeof Audio !== 'function') return null;
+      if (!bgmEl) {
+        bgmEl = new Audio('/assets/vendor/audio-oga-bgm/bgm-annual.mp3');
+        bgmEl.loop = true;
+        bgmEl.preload = 'none';
+      }
+      return bgmEl;
+    };
+    const syncStandalone = () => {
+      if (embedded) return;
+      const p = readPrefs();
+      const silent = p.muted || !p.bgmEnabled;
+      syncButton(silent);
+      const el = ensureStandaloneBgm();
+      if (!el) return;
+      if (silent || document.hidden || !dialog.open) {
+        try { el.pause(); } catch {}
+      } else if (unlocked) {
+        el.volume = Math.max(0, Math.min(1, p.bgmVolume));
+        try { el.play().catch(() => { unlocked = false; }); } catch {}
+      }
+    };
+    const gesture = () => {
+      if (embedded) {
+        notifyHost('annual-review:audio-gesture');
+        return;
+      }
+      unlocked = true;
+      syncStandalone();
+    };
+    const playSfx = (name) => {
+      if (embedded) {
+        notifyHost('annual-review:audio-sfx', { name });
+        return;
+      }
+      unlocked = true;
+      syncStandalone();
+      const p = readPrefs();
+      if (p.muted || !p.sfxEnabled || typeof Audio !== 'function') return;
+      let file = name === 'bookOpen' ? 'bookOpen.ogg' : name === 'bookClose' ? 'bookClose.ogg' : '';
+      if (name === 'bookFlip') {
+        const list = ['bookFlip1.ogg', 'bookFlip2.ogg', 'bookFlip3.ogg'];
+        let i = Math.floor(Math.random() * list.length);
+        if (i === lastFlip) i = (i + 1) % list.length;
+        lastFlip = i;
+        file = list[i];
+      }
+      if (!file) return;
+      try {
+        const el = new Audio('/assets/vendor/audio-kenney-sfx/' + file);
+        if (el.canPlayType && el.canPlayType('audio/ogg; codecs="vorbis"') === '') return;
+        el.volume = Math.max(0, Math.min(1, p.sfxVolume * 0.72));
+        el.play().catch(() => {});
+      } catch {}
+    };
+    const toggle = () => {
+      if (embedded) {
+        notifyHost('annual-review:audio-toggle');
+        return;
+      }
+      unlocked = true;
+      const p = readPrefs();
+      const silent = p.muted || !p.bgmEnabled;
+      const next = silent ? { ...p, muted: false, bgmEnabled: true } : { ...p, muted: true };
+      writePrefs(next);
+      syncStandalone();
+    };
+    if (audioToggleBtn) {
+      audioToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggle();
+      });
+    }
+    for (const ev of ['pointerdown', 'keydown']) {
+      window.addEventListener(ev, gesture, { capture: true, passive: true });
+    }
+    if (!embedded) {
+      document.addEventListener('visibilitychange', syncStandalone);
+      const init = readPrefs();
+      syncButton(init.muted || !init.bgmEnabled);
+    }
+    return { playSfx, syncButton, syncStandalone };
+  })();
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const escape = (value) =>
     String(value ?? '').replace(
@@ -264,6 +380,7 @@
   async function moveCover(open, duration = 1050) {
     if (busy || mode !== (open ? 'cover' : 'open')) return;
     const own = ++token;
+    reviewAudio.playSfx(open ? 'bookOpen' : 'bookClose');
     if (open) commit(0);
     fill($('cover-inside'), render('left', index));
     $('spread').hidden = false;
@@ -458,6 +575,7 @@
     const own = ++token,
       forward = n > index,
       old = index;
+    reviewAudio.playSfx('bookFlip');
     intendedIndex = n;
     setBusy(true);
     if (!reducedMotion.matches && !document.hidden) {
@@ -550,8 +668,9 @@
   function openReader(event) {
     if (exitRequested || dialog.open) return;
     opener = event?.currentTarget || document.querySelector('[data-open-review]');
-    dialog.showModal();
+    if (!dialog.open) dialog.showModal();
     $('reader-title').focus({ preventScroll: true });
+    reviewAudio.syncStandalone();
     syncCoverMotion();
   }
   function dismiss() {
@@ -686,6 +805,7 @@
   });
   dialog.addEventListener('close', () => {
     if (dialog.open) return;
+    reviewAudio.syncStandalone();
     syncCoverMotion();
     opener?.focus({ preventScroll: true });
   });
@@ -759,6 +879,7 @@
       if (event.origin !== location.origin || event.source !== window.parent) return;
       if (event.data?.type === 'annual-review:open') openReader();
       else if (event.data?.type === 'annual-review:close') dismiss();
+      else if (event.data?.type === 'annual-review:audio-state') reviewAudio.syncButton(!!event.data.muted);
     });
   commit(index);
   setMode(mode);

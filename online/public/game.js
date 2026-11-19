@@ -30,6 +30,7 @@
   const TMJ_VISUAL = SID.tmjVisual;
   // 搜打撤物品格面板（需求③）由 js/search/loot-grid.js 提供，这里只做别名与开关。
   const LOOT = SID.lootGrid;
+  const AUDIO = SID.audio;
   function closeLoot() { if (LOOT && LOOT.isOpen()) LOOT.close(true); }
   let furniture = [], walls = [], containers = [], occluders = [], npcs = [], portals = [];
   const furnitureSprites = new Map();
@@ -255,6 +256,7 @@
   }
   function showPrizeDrop(prize) {
     if (!prize || !prize.name) return;
+    AUDIO?.play('prizeDrop');
     if (me) me = { ...me, prize: { name: prize.name, channel: prize.channel, at: Date.now() } };
     updatePrizeChip();
     const drop = document.createElement('div');
@@ -529,8 +531,9 @@
   // ---------- 快照消费 ----------
   function applySnapshot(s) {
     if (!s || s.type !== 'snapshot') return;
-    const priorFlowerCount = !awaitingFirst && s.roundId === roundId && s.me?.id === me?.id
-      ? Number(me?.flowers?.received) || 0 : null;
+    const sameLivePlayer = !awaitingFirst && s.roundId === roundId && s.me?.id === me?.id;
+    const priorFlowerCount = sameLivePlayer ? Number(me?.flowers?.received) || 0 : null;
+    const priorStunUntil = sameLivePlayer ? Number(me?.combat?.stunUntil) || 0 : null;
     snapshotGen++;
     if (s.me && me && (s.me.id !== me.id || s.me.sid !== me.sid || s.me.faction !== me.faction)) {
       notifiedCombatEvents.clear();
@@ -610,7 +613,12 @@
       me = s.me;
       if (priorFlowerCount !== null && me.flowers?.received > priorFlowerCount) {
         const points = Math.floor(me.flowers.received / 5) - Math.floor(priorFlowerCount / 5);
+        AUDIO?.play('flowerCelebrate');
         showToast(`本场已收到 ${me.flowers.received} 朵鲜花${points > 0 ? `，参与积分 +${points}` : ''}`);
+      }
+      if (priorStunUntil !== null) {
+        const nextStun = Number(me.combat?.stunUntil) || 0;
+        if (nextStun > priorStunUntil && nextStun > serverNow()) AUDIO?.play('bonkStunned');
       }
       // 已确认过的摘要不再重复提示（失败/重连时保持同一摘要可用）。
       if (me.interactionSummary && confirmedDigests.has(`${me.interactionSummary.epoch}:${me.interactionSummary.id}`)) {
@@ -1171,7 +1179,7 @@
     const factionLabel = me.faction === 'good' ? '调查员（好人）专属技能' : '潜伏者（坏人）专属技能';
     const targetHealth = healthHTML(p, true);
     host.innerHTML = `<div class="private-block"><div class="private-banner-row"><p class="private-title">${factionLabel} · 仅本人可见</p><span id="private-target-health">${targetHealth}</span></div><div class="skill-row">${ids.map(id => `<div class="private-skill" id="skill-card-${id}"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能次数与恢复计时</summary><p id="skill-info" class="skill-info"></p></details></div>`;
-    for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; pending = { kind: id, target: p.id }; renderConfirmation(); };
+    for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; AUDIO?.play('skillConfirm'); pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
   function updateSkillStatus() {
@@ -1237,6 +1245,23 @@
     privateResult = !result.ok && /冷却中/.test(result.error || '')
       ? '当前后台仍在执行旧版技能冷却规则，需要手动重启服务后生效（仅刷新页面无效）。本次未自动重试。'
       : result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
+    if (!result.ok) {
+      AUDIO?.play('quizWrong');
+    } else if (requested === 'assassinate') {
+      if (result.noEffect) AUDIO?.play('assassinateMiss');
+      else {
+        AUDIO?.play('assassinateHit');
+        if (result.truce) AUDIO?.play('truce', { delayMs: 220 });
+      }
+    } else if (requested === 'accuse') {
+      if (result.selfDamage) {
+        AUDIO?.play('accuseWrong');
+        if (result.truce) AUDIO?.play('truce', { delayMs: 220 });
+      } else {
+        AUDIO?.play('accuseHit');
+        if (result.truce) AUDIO?.play('truce', { delayMs: 260 });
+      }
+    }
     if (privateResult && typeof showToast === 'function') showToast(privateResult);
     pending = null;
     renderConfirmation(); renderResult(); updateSkillStatus();
@@ -1405,6 +1430,7 @@
       me = { ...me, zoneId: nextZone };
       if (typeof r.exploration === 'object' && r.exploration) me = { ...me, exploration: r.exploration };
       adoptZone(nextZone, r.position || null);
+      AUDIO?.play(nextZone ? 'roomDoor' : 'elevatorClose');
       showToast(okText || r.resultText || '已完成');
     } catch {
       showToast('网络异常，操作未确认。');
@@ -1744,6 +1770,7 @@
       if (Array.isArray(result.sidRevealed)) me = { ...me, sidRevealed: result.sidRevealed };
       if (typeof result.score === 'number') me = { ...me, score: result.score };
       explorationResult = result.resultText || result.error || (result.ok ? '兑换成功' : '兑换被拒绝');
+      AUDIO?.play(result.ok ? 'lootPoints' : 'quizWrong');
       if (explorationResult) showToast(explorationResult);
       updateScoreDisplay();
       updateExplorationHUD();
@@ -1842,12 +1869,15 @@
     const delta = ((endMod - startMod) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
     const end = start + 4 * Math.PI * 2 + delta, duration = 1200, t0 = performance.now();
     const ease = t => 1 - Math.pow(1 - t, 3);
+    let lastSector = Math.floor(start / slice);
     const tick = now => {
       const t = Math.min(1, (now - t0) / duration);
       wheelAngle = start + (end - start) * ease(t);
+      const sector = Math.floor(wheelAngle / slice);
+      if (sector !== lastSector) { lastSector = sector; AUDIO?.play('wheelTick'); }
       drawWheel(slots, wheelAngle);
       if (t < 1) wheelAnim = requestAnimationFrame(tick);
-      else { wheelAnim = 0; wheelAngle = endMod; drawWheel(slots, wheelAngle); if (done) done(); }
+      else { wheelAnim = 0; wheelAngle = endMod; drawWheel(slots, wheelAngle); AUDIO?.play('wheelWin'); if (done) done(); }
     };
     wheelAnim = requestAnimationFrame(tick);
   }
@@ -1960,6 +1990,7 @@
       chip.classList.remove('clue-flash');
       void chip.offsetWidth;
       chip.classList.add('clue-flash');
+      AUDIO?.play('cluePublish');
       setTimeout(() => chip.classList.remove('clue-flash'), 1800);
     }
     lastClueBatchSig = batchSig;
@@ -2303,6 +2334,7 @@
     rpsRevision++;
     rpsChoosePending = { revision: rpsRevision, choice };
     rpsUnconfirmed = false;
+    AUDIO?.play('rpsChoose');
     syncGames();
     pumpRpsChoose();
   }
@@ -2361,6 +2393,7 @@
       rpsUnconfirmed = false;
     }
     rpsAutoId = pending.id; rpsAutoPhase = pending.phase;
+    if (isNew && pending.phase === 'invited') AUDIO?.play('rpsInvite');
     if ((isNew || phaseChanged) && $("games")?.hidden && !finished) {
       roundTasks?.close();
       keys.clear(); sendIntent(true); openGames();
@@ -2411,7 +2444,11 @@
     const perfNow = performance.now();
     let selfDx = 0, selfDy = 0, oppDx = 0, oppDy = 0, spark = 0, badgeSprite = '';
     if (result?.status === 'resolved') {
-      if (rpsRevealSeenId !== result.id) { rpsRevealSeenId = result.id; rpsRevealStartAt = perfNow; }
+      if (rpsRevealSeenId !== result.id) {
+        rpsRevealSeenId = result.id;
+        rpsRevealStartAt = perfNow;
+        AUDIO?.play(result.outcome === 'win' ? 'rpsWin' : result.outcome === 'lose' ? 'rpsLose' : 'rpsDraw');
+      }
       const animSelf = SID.rpsArt?.revealAnim(perfNow - rpsRevealStartAt, 'self') || { dx: 0, dy: 0, spark: 0 };
       const animOpp = SID.rpsArt?.revealAnim(perfNow - rpsRevealStartAt, 'opp') || { dx: 0, dy: 0, spark: 0 };
       selfDx = animSelf.dx; selfDy = animSelf.dy; oppDx = animOpp.dx; oppDy = animOpp.dy;
@@ -2567,6 +2604,7 @@
         if (result.games) me = { ...me, games: result.games };
       }
       if (typeof result.score === 'number') me = { ...me, score: result.score };
+      if (result.ok) AUDIO?.play(result.hitId != null ? 'bonkHit' : 'bonkSwing');
       if (result.ok && result.prize) showPrizeDrop(result.prize);
       combatResult = result.ok
         ? (result.hitId == null ? '' : `${result.resultText || '已互动'}（无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营）`)
@@ -2619,7 +2657,13 @@
       const current = new Set(list.map(event => event.eventId));
       for (const id of notifiedCombatEvents) if (!current.has(id)) notifiedCombatEvents.delete(id);
     }
-    if (latest) showToast(latest.text);
+    if (latest) {
+      showToast(latest.text);
+      if (!offlineEvents.has(latest.eventId)) {
+        if (latest.type === 'truce') AUDIO?.play('truce');
+        else if (latest.type === 'hit') AUDIO?.play('accuseWrong');
+      }
+    }
   }
   function updateOfflineUI() {
     const banner = $('offline-banner'), list = pendingList();
@@ -2745,7 +2789,7 @@
       cameraY = cam.y;
       drawCamX = cameraX; drawCamY = cameraY;
     }
-    labels = []; updateScoreDisplay(); updateExplorationHUD();
+    labels = []; setText($('floor-indicator'), `${floorId}F`); syncZoneInfo(); updateScoreDisplay(); updateExplorationHUD();
     draw();
   }
   // 电梯选层：K / 点击门打开，WASD / 方向键移动蓝框，K 确认；当前层禁选。
@@ -2861,6 +2905,7 @@
       roundId, expectedFloorRevision: me.floorRevision, submitted: false
     };
     floorState = 'PREPARING';
+    AUDIO?.play('elevatorClose');
     showFloorOverlay(floorArrowText(floorId, target), '正在准备目标楼层…', '保留当前画面 · 准备目标楼层资源');
     floorDoorsClosed(true);
     floorStartedAt = performance.now();
@@ -2896,6 +2941,7 @@
     const pos = res.position || (selfPlayer() ? { x: selfPlayer().x, y: selfPlayer().y } : null);
     floorState = 'TARGET_READY';
     adoptFloor(res.floor.id, pos);
+    AUDIO?.play('elevatorArrive');
     showFloorOverlay(floorArrowText(flight.fromFloorId, res.floor.id), `已到达 ${res.floor.name}`, '正在开门 · 即将恢复操作');
     floorState = 'OPENING';
     floorDoorsClosed(false);
@@ -4703,6 +4749,7 @@
   async function sendAction(kind) {
     if (!me || finished || gameClosed || operationModalOpen()) return;
     const r = await api('/api/action', { kind }).catch(() => ({ ok: false, status: 0 }));
+    if (r.ok && kind === 'hammer') AUDIO?.play(r.hit ? 'bonkHit' : 'bonkSwing');
     if (r.ok && r.prize) showPrizeDrop(r.prize);
     if (r.ok || r.auth === false) { actionToast.text = ''; return; }
     if (r.status !== 401 && r.status !== 0) return; // 冷却 / 空中 / 硬控 / 已结束：静默
@@ -4896,6 +4943,8 @@
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   });
+  AUDIO?.bindControls();
+  AUDIO?.setBgm($('annual-review-overlay')?.open ? 'annual' : 'game');
   boot();
 })();
 

@@ -11,7 +11,14 @@
     loadTimer = null,
     closeTimer = null,
     shellWasInert = false;
-  const post = (type) => frame.contentWindow?.postMessage({ type }, location.origin);
+  const post = (type, extra) => frame.contentWindow?.postMessage(extra ? { type, ...extra } : { type }, location.origin);
+  function syncAudioState() {
+    if (overlay.dataset.ready !== 'true') return;
+    const st = window.SID?.audio?.getState?.();
+    if (!st) return;
+    post('annual-review:audio-state', { muted: !!(st.muted || !st.bgmEnabled) });
+  }
+  window.SID?.audio?.subscribe?.(() => syncAudioState());
   function discardFrame() {
     clearTimeout(loadTimer);
     // Replacing a stalled iframe also invalidates messages from its old window.
@@ -29,6 +36,7 @@
     shell.inert = shellWasInert;
     delete overlay.dataset.exiting;
     toggle.setAttribute('aria-expanded', 'false');
+    window.SID?.audio?.setBgm('game');
     window.dispatchEvent(new Event('annual-review:close'));
     const target = returnFocus?.isConnected ? returnFocus : toggle;
     target.focus({ preventScroll: true });
@@ -58,9 +66,11 @@
     toggle.setAttribute('aria-expanded', 'true');
     fallback.hidden = overlay.dataset.ready === 'true';
     overlay.showModal();
+    window.SID?.audio?.setBgm('annual');
     window.dispatchEvent(new Event('annual-review:open'));
     if (overlay.dataset.ready === 'true') {
       post('annual-review:open');
+      syncAudioState();
       frame.focus();
     } else {
       status.textContent = '正在打开年度纪念册…';
@@ -89,6 +99,7 @@
       clearTimeout(loadTimer);
       overlay.dataset.ready = 'true';
       fallback.hidden = true;
+      syncAudioState();
       if (overlay.open) {
         post('annual-review:open');
         frame.focus();
@@ -97,8 +108,26 @@
       watchClose();
     } else if (type === 'annual-review:fading' && overlay.open) {
       overlay.dataset.exiting = 'true';
+      window.SID?.audio?.setBgm('game');
       window.dispatchEvent(new Event('annual-review:fading'));
-    } else if (type === 'annual-review:closed') finish();
+    } else if (type === 'annual-review:closed') {
+      finish();
+    } else if (type === 'annual-review:audio-gesture') {
+      window.SID?.audio?.unlock();
+    } else if (type === 'annual-review:audio-sfx') {
+      window.SID?.audio?.unlock();
+      if (typeof event.data?.name === 'string') window.SID?.audio?.play(event.data.name);
+    } else if (type === 'annual-review:audio-toggle') {
+      const audio = window.SID?.audio;
+      if (audio) {
+        audio.unlock();
+        const st = audio.getState();
+        // 如果当前无背景音（总静音或 BGM 关闭），点击纪念册右上角图标一键恢复；否则静音。
+        if (st.muted || !st.bgmEnabled) audio.updatePrefs({ muted: false, bgmEnabled: true });
+        else audio.updatePrefs({ muted: true });
+        syncAudioState();
+      }
+    }
   });
   toggle.addEventListener('click', open);
   document.getElementById('annual-review-fallback-close').addEventListener('click', close);

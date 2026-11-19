@@ -153,6 +153,7 @@ try {
       assert.ok(!JSON.stringify(third.room.privateSnapshot(stable.id)).includes('submittedAnswer'));
       third.room.reset(); assert.equal(third.room.room.searchSessions.size, 0);
       const fresh = third.room.join('fresh', null, { empNo: 'Q002', name: '新场答题者' }).player;
+      fresh.floorId = player.floorId;
       assert.equal(search(third.room, fresh, container).mode, 'quiz');
     } finally {
       store?.close();

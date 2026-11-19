@@ -33,7 +33,7 @@ function fixture(count = 3, options = {}) {
 // dev 新增 floorGuard：交互/小游戏指令须带 roundId 与本人 floorRevision。
 const guard = (r, p) => ({ roundId: r.room.roundId, expectedFloorRevision: p.floorRevision });
 const search = (r, p, c, extra = {}) => { p.x = c.x; p.y = c.y; return r.interact(p.sessionId, { commandId: nonce(), kind: 'search', entityId: c.id, ...guard(r, p), ...extra }); };
-const wheel = (r, p, entity = npc) => { p.x = entity.x; p.y = entity.y; return r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: entity.id, ...guard(r, p) }); };
+const wheel = (r, p, entity = npc) => { p.floorId = entity.floorId; p.x = entity.x; p.y = entity.y; return r.play(p.sessionId, { commandId: nonce(), kind: 'wheel', entityId: entity.id, ...guard(r, p) }); };
 const wheelAmounts = [2, 4, 6, 8, 2, 4, 6, 8];
 function assertWheelPool(pool) {
   assert.equal(pool.length, 8);
@@ -124,7 +124,8 @@ await test('转盘：每日3次免费、全楼层共享、积分入账、第4次
   assert.equal(fail.ok, false); assert.match(fail.error, /上限/); assert.equal(p.score, score); assert.equal(p.games.wheelDailySpins, 3);
   const progress = r.privateSnapshot(p.id).me.roundTasks.wheel;
   assert.deepEqual(progress, { spins: 3, cap: 3, points: score, completeHistory: true });
-  assert.equal(r.publicSnapshot(0).players.find(player => player.id === p.id).roundTasks, undefined);
+  // 合并适配：随机出生楼层下按 viewer 取快照会受 5F 战争迷雾裁剪，公开形状检查改用不带 viewer 的快照。
+  assert.equal(r.publicSnapshot().players.find(player => player.id === p.id).roundTasks, undefined);
   const store = createStore({ file: ':memory:' });
   try {
     assert.equal(store.saveSnapshot({ ...r.room, sessions: [...r.room.sessions] }), true);
@@ -137,7 +138,7 @@ await test('本场任务：旧存档保留转盘次数，新领奖累计得分�
   p.games.wheelDailySpins = 1;
   p.games.wheelSpins[npc.id] = 1;
   assert.deepEqual(r.privateSnapshot(p.id).me.roundTasks.wheel, { spins: 1, cap: 3, points: 0, completeHistory: false });
-  p.x = npc.x; p.y = npc.y;
+  p.floorId = npc.floorId; p.x = npc.x; p.y = npc.y;
   const request = { commandId: nonce(), kind: 'wheel', entityId: npc.id, ...guard(r, p) };
   const result = r.play(p.sessionId, request);
   assert.equal(result.ok, true);
@@ -156,7 +157,8 @@ await test('计分·探索与猜拳：直接积分 +1、答题答对 +2、猜拳
   assert.equal(progress.containers.points, SCORE.exploreDirect);
   assert.equal(progress.quiz.points, SCORE.exploreQuiz);
   assert.equal(progress.unallocated.points, 0);
-  p.x = 500; p.y = 350; q.x = 520; q.y = 350;
+  // 合并适配：随机出生楼层后，猜拳用例统一在 1F 固定坐标验证，避免落点/视线随机。
+  p.floorId = 1; q.floorId = 1; p.x = 500; p.y = 350; q.x = 520; q.y = 350;
   const pScore = p.score, qScore = q.score;
   // 新协议：邀请不带出拳；被邀请方接受后进入 10 秒选择阶段；双方出拳后到 deadline 才结算计分。
   const settleRps = (from, to, aChoice, bChoice, label) => {
@@ -181,7 +183,7 @@ await test('计分·攻击与技能：J命中按J渠道随机积分（概率命�
   // J 积分为随机触发（WORLD.ACTION.hammerPointChance，建议值）：注入确定的 randomInt 分别验证命中/未命中。
   for (const [roll, gain] of [[0, WORLD.ACTION.hammerPoint], [9999, 0]]) {
     const r = fixture(3, { randomInt: () => roll });
-    for (const x of r.room.players) { x.x = 1500 + x.id * 100; x.y = 350; }
+    for (const x of r.room.players) { x.floorId = 1; x.x = 1500 + x.id * 100; x.y = 350; }
     const a = r.find(1), b = r.find(2); a.x = 500; b.x = 530;
     const aScore = a.score;
     assert.equal(r.attack(a.sessionId, { commandId: nonce(), ...guard(r, a) }).hitId, b.id);

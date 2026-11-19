@@ -57,7 +57,7 @@ function fixture(count = 5) {
   ROOMS.push(r);
   for (let i = 0; i < count; i++) {
     const p = r.join(`session-${i}`, `玩家${i}`).player;
-    p.x = 500 + i * 20; p.y = 350; p.exploration.chips = 3;
+    p.floorId = 1; p.x = 500 + i * 20; p.y = 350; p.exploration.chips = 3;
   }
   return r;
 }
@@ -475,6 +475,7 @@ await test('新规：默认只开猜拳；features.rps=false 拦截；同人限2
   r.reset();
   const a2 = r.join('s-new-a', '新甲').player;
   const b2 = r.join('s-new-b', '新乙').player;
+  a2.floorId = 1; b2.floorId = 1;
   a2.x = 500; a2.y = 350; b2.x = 520; b2.y = 350;
   assert.equal(r.play(a2.sessionId, { roundId: r.room.roundId, expectedFloorRevision: a2.floorRevision, commandId: nonce(), kind: 'rpsInvite', targetId: b2.id }).ok, true);
 });
