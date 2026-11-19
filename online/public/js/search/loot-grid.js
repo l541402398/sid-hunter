@@ -178,6 +178,7 @@
         } else {
           state.selected = [opt.key];
         }
+        SID.audio?.play('quizSelect');
         syncSelectionUI();
       };
       optList.append(btn);
@@ -193,6 +194,7 @@
     state.busy = true;
     els.start.disabled = true;
     setStatus('正在开启容器…');
+    SID.audio?.play('containerOpen');
     try {
       const payload = {
         containerId: state.containerId,
@@ -217,6 +219,7 @@
         els.bar.style.width = '100%';
         setStatus(r.resultText || '开启完成：箱子里空空如也，未获得积分。');
         renderSummaryBox('0 积分', '空空如也 · 本次未获得积分');
+        SID.audio?.play('lootEmpty');
         state.done = true;
         return;
       }
@@ -225,6 +228,7 @@
         els.bar.style.width = '100%';
         setStatus(r.resultText || `开启完成：直接获得 ${chips} 积分！`);
         renderSummaryBox(`+${chips} 积分`, `直接获得 ${chips} 积分`);
+        SID.audio?.play('lootPoints');
         state.done = true;
         return;
       }
@@ -234,6 +238,7 @@
         state.selected = [];
         els.bar.style.width = '50%';
         setStatus(r.resultText || `触发答题：答对可得 ${r.quiz.rewardCoins} 积分！`);
+        SID.audio?.play('quizStart');
         buildQuizView(r.quiz);
         els.take.hidden = false;
         els.take.disabled = false;
@@ -286,6 +291,7 @@
         btn.disabled = true;
       }
       const chips = gainedPoints(r);
+      SID.audio?.play(r.correct ? 'quizCorrect' : 'quizWrong');
       setStatus(r.resultText || (r.correct ? `回答正确！获得 ${chips} 积分。` : '回答错误，未获得积分。'));
       renderSummaryBox(
         r.correct ? `+${chips} 积分` : '0 积分',

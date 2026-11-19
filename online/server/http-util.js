@@ -116,11 +116,42 @@ function staticServe(req, res, pathname) {
   if (!ALLOWED_EXT.has(extension) && !(isAnnualReview && extension === '.svg')) return send(res, 404, { error: 'not found' });
   fs.readFile(target, (error, data) => {
     if (error) return send(res, 404, { error: 'not found' });
-    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.tmj': 'application/json; charset=utf-8', '.tsj': 'application/json; charset=utf-8', '.json': 'application/json; charset=utf-8' }[extension] || 'application/octet-stream';
+    const type = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.ico': 'image/x-icon', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.tmj': 'application/json; charset=utf-8', '.tsj': 'application/json; charset=utf-8', '.json': 'application/json; charset=utf-8', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav' }[extension] || 'application/octet-stream';
+    const isAudio = extension === '.mp3' || extension === '.ogg' || extension === '.wav';
     // 与浏览器共享地图倍数（见文件头注释）；只改这一份响应，磁盘源码保持原样。
     const body = relative === 'shared/world/config.js'
       ? Buffer.from(`window.__SID_FLOOR_SCALE__=${FLOOR_SCALE};\n` + data.toString('utf8'), 'utf8')
       : data;
+    if (isAudio) {
+      const total = body.length;
+      const range = req.headers && typeof req.headers.range === 'string' ? req.headers.range : '';
+      if (range.startsWith('bytes=')) {
+        const [startRaw, endRaw] = range.slice(6).split(',')[0].trim().split('-');
+        let start = startRaw === '' ? total - Number(endRaw) : Number(startRaw);
+        let end = endRaw === '' || endRaw === undefined ? total - 1 : Number(endRaw);
+        if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || start > end || start >= total) {
+          res.writeHead(416, { 'Content-Range': `bytes */${total}`, 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-cache' });
+          return res.end();
+        }
+        end = Math.min(end, total - 1);
+        const chunk = body.subarray(start, end + 1);
+        res.writeHead(206, {
+          'Content-Type': type,
+          'Content-Range': `bytes ${start}-${end}/${total}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(chunk.length),
+          'Cache-Control': 'public, max-age=3600'
+        });
+        return res.end(chunk);
+      }
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': String(total),
+        'Cache-Control': 'public, max-age=3600'
+      });
+      return res.end(body);
+    }
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache' });
     res.end(body);
   });

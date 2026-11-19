@@ -72,8 +72,12 @@
   }
   async function act(payload) {
     const res = await call('/api/minigame/act', payload);
-    if (!res.ok) { say(res.error || '操作失败'); return; }
-    view = res.spire; render();
+    if (!res.ok) { say(res.error || '操作失败'); SID.audio?.play('quizWrong'); return; }
+    const prevFinished = !!view?.finished;
+    view = res.spire;
+    if (view?.finished && !prevFinished) SID.audio?.play(view.won ? 'rpsWin' : 'rpsLose');
+    else SID.audio?.play(payload?.action === 'play' ? 'cardSlide' : 'uiClick');
+    render();
   }
 
   function render() {
