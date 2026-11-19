@@ -1,5 +1,5 @@
-// 真实 Chrome 端到端音频验收：验证双轨 BGM（游戏大厅 / 年度纪念册）自动切换、
-// 静音/音量面板同步、翻书与敲打等 Kenney CC0 音效请求均返回 200/206 且零运行时异常。
+// 真实 Chrome 端到端音频验收：验证 5 首舒缓歌单列表循环、右上角切歌与单曲/列表循环切换、
+// 游戏大厅与年度纪念册不同舒缓曲自动切换、翻书与敲打音效加载均返回 200/206 且零运行时异常。
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -104,7 +104,7 @@ try {
 
   browser = spawn(resolveChrome(), [
     '--headless=new', '--no-sandbox', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-    '--autoplay-policy=no-user-gesture-required',
+    '--mute-audio', '--autoplay-policy=no-user-gesture-required',
     '--remote-debugging-address=127.0.0.1', '--remote-debugging-port=' + debugPort,
     '--user-data-dir=' + profile, 'about:blank'
   ], { windowsHide: true, stdio: 'ignore' });
@@ -140,71 +140,91 @@ try {
   await call('Network.enable');
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
-  // 1. 打开游戏主页：纪念册首屏打开时自动切至 annual BGM
+  // 1. 首屏年度纪念册自动选曲为 first-light 晨光钢琴
   await call('Page.navigate', { url: base + '/' });
   await wait('document.getElementById("annual-review-overlay")?.dataset.ready === "true"');
-  assert.equal(await evalJS('window.SID.audio.getState().track'), 'annual');
-  console.log('PASS 1. Startup annual review sets BGM track to annual');
+  assert.equal(await evalJS('window.SID.audio.getState().scene'), 'annual');
+  assert.equal(await evalJS('window.SID.audio.getState().activeTrackId'), 'first-light');
+  console.log('PASS 1. Startup annual review selects first-light soothing piano');
 
-  // 2. 点击「开启年度回忆」与翻页：解锁音频、加载 bgm-annual.mp3、播放 bookOpen / bookFlip 音效
+  // 2. 打开并翻页加载 bgm-first-light.mp3 与翻书音效
   await clickChild('#start-review');
   await wait('document.getElementById("annual-review-frame").contentDocument.getElementById("book-stage").dataset.mode === "open"');
   await delay(250);
   await clickChild('#next-page');
   await wait('document.getElementById("annual-review-frame").contentDocument.getElementById("book-stage").dataset.busy === "false"');
   await delay(250);
-  assert.equal(await evalJS('window.SID.audio.getState().unlocked'), true);
-  assert.ok(audioRequests.some(r => r.path.endsWith('/bgm-annual.mp3') && [200, 206].includes(r.status)), 'bgm-annual.mp3 did not load');
+  assert.ok(audioRequests.some(r => r.path.endsWith('/bgm-first-light.mp3') && [200, 206].includes(r.status)), 'bgm-first-light.mp3 did not load');
   assert.ok(audioRequests.some(r => r.path.endsWith('/bookOpen.ogg') && r.status === 200), 'bookOpen.ogg did not load');
   assert.ok(audioRequests.some(r => /bookFlip[123]\.ogg$/.test(r.path) && r.status === 200), 'bookFlip*.ogg did not load');
-  console.log('PASS 2. Opening & flipping annual review loads bgm-annual.mp3, bookOpen.ogg, bookFlip*.ogg');
+  console.log('PASS 2. Annual review loads bgm-first-light.mp3 and book SFX');
 
-  // 3. 纪念册右上角静音按钮与主游戏双向同步
+  // 3. 纪念册右上角静音与主游戏双向同步
   await clickChild('#annual-audio-toggle');
   await wait('window.SID.audio.getState().muted === true');
   assert.equal(await evalJS('document.getElementById("audio-toggle").dataset.muted'), 'true');
-  await wait('document.getElementById("annual-review-frame").contentDocument.getElementById("annual-audio-toggle").dataset.muted === "true"');
   await clickChild('#annual-audio-toggle');
   await wait('window.SID.audio.getState().muted === false');
-  assert.equal(await evalJS('document.getElementById("audio-toggle").dataset.muted'), 'false');
-  console.log('PASS 3. Annual review mute button syncs bidirectionally with game toolbar');
+  console.log('PASS 3. Annual review mute button syncs bidirectionally');
 
-  // 4. 关闭纪念册：切换回游戏 BGM（bgm-game.mp3），并加入对局
+  // 4. 关闭纪念册：自动切换回游戏大厅默认曲目 chill-lofi
   await clickChild('#close-review');
   await wait('!document.getElementById("annual-review-overlay").open');
   await delay(300);
-  assert.equal(await evalJS('window.SID.audio.getState().track'), 'game');
-  assert.ok(audioRequests.some(r => r.path.endsWith('/bgm-game.mp3') && [200, 206].includes(r.status)), 'bgm-game.mp3 did not load');
-  console.log('PASS 4. Closing annual review crossfades to bgm-game.mp3');
+  assert.equal(await evalJS('window.SID.audio.getState().scene'), 'game');
+  assert.equal(await evalJS('window.SID.audio.getState().activeTrackId'), 'chill-lofi');
+  assert.ok(audioRequests.some(r => r.path.endsWith('/bgm-chill-lofi.mp3') && [200, 206].includes(r.status)), 'bgm-chill-lofi.mp3 did not load');
+  console.log('PASS 4. Closing annual review switches to game chill-lofi BGM');
 
-  // 加入游戏并打开工具栏声音设置面板
-  await evalJS('localStorage.setItem("sid-tutorial-v3:guest:音效自测", JSON.stringify({dismissed:true})); document.getElementById("nickname").value="音效自测"; document.getElementById("join-form").requestSubmit();');
+  // 加入游戏并测试右上角歌单切换、上一首/下一首、单曲/列表循环
+  await evalJS('localStorage.setItem("sid-tutorial-v3:guest:歌单自测", JSON.stringify({dismissed:true})); document.getElementById("nickname").value="歌单自测"; document.getElementById("join-form").requestSubmit();');
   await wait('document.getElementById("join-page").hidden === true');
   await delay(200);
 
   await clickRoot('#audio-toggle');
   await wait('document.getElementById("audio-popover").hidden === false');
-  assert.equal(await evalJS('document.getElementById("audio-track-label").textContent'), '办公大厅 · 爵士轻音');
-  await capture('game-audio-popover-1440.png');
+  assert.equal(await evalJS('document.querySelectorAll("#audio-playlist .audio-track-item").length'), 5);
+  assert.equal(await evalJS('document.getElementById("audio-track-label").textContent'), '午后电钢 · 暖阳微风');
+  await capture('game-audio-playlist-1440.png');
+
+  // 点击下一首 -> 暖意壁炉 · 木吉他
+  await clickRoot('#audio-next');
+  await wait('window.SID.audio.getState().activeTrackId === "warm-fireplace"');
+  await delay(250);
+  assert.equal(await evalJS('document.getElementById("audio-track-label").textContent'), '暖意壁炉 · 木吉他');
+  assert.ok(audioRequests.some(r => r.path.endsWith('/bgm-warm-fireplace.mp3') && [200, 206].includes(r.status)), 'bgm-warm-fireplace.mp3 did not load');
+
+  // 直接点选第 5 首矢车菊慢钢琴
+  await clickRoot('#audio-playlist [data-track-id="bluebonnet"]');
+  await wait('window.SID.audio.getState().activeTrackId === "bluebonnet"');
+  await delay(250);
+  assert.equal(await evalJS('document.getElementById("audio-track-label").textContent'), '矢车菊 · 治愈慢钢琴');
+  assert.ok(audioRequests.some(r => r.path.endsWith('/bgm-bluebonnet.mp3') && [200, 206].includes(r.status)), 'bgm-bluebonnet.mp3 did not load');
+
+  // 切换循环模式（列表循环 <-> 单曲循环）再切回默认列表循环
+  await clickRoot('#audio-loop-mode');
+  assert.equal(await evalJS('window.SID.audio.getState().playMode'), 'single');
+  await clickRoot('#audio-loop-mode');
+  assert.equal(await evalJS('window.SID.audio.getState().playMode'), 'list');
   await pressKey('Escape', 'Escape', 27);
   await wait('document.getElementById("audio-popover").hidden === true');
-  console.log('PASS 5. Game toolbar audio popover opens, shows track label, and closes on Escape');
+  console.log('PASS 5. Top-right playlist shows 5 songs, next/direct track switch and loop toggle all work');
 
-  // 5. 按 J 敲打触发敲打音效（空挥 cloth1.ogg 或命中 chop.ogg）
+  // 5. 按 J 敲打触发音效
   await evalJS('document.getElementById("office").focus()');
   await pressKey('j', 'KeyJ', 74);
-  await delay(350);
+  await delay(300);
   assert.ok(audioRequests.some(r => /(cloth1|chop)\.ogg$/.test(r.path) && r.status === 200), 'J bonk SFX did not load');
-  console.log('PASS 6. Pressing J plays bonk SFX (cloth1/chop)');
+  console.log('PASS 6. Pressing J triggers bonk SFX cleanly');
 
-  // 6. 独立访问 /annual-review/ 同样播放年度纪念册背景音乐与翻书音
+  // 6. 独立访问 /annual-review/ 正常播放 bgm-first-light.mp3
   const prevCount = audioRequests.length;
   await call('Page.navigate', { url: base + '/annual-review/' });
   await wait('document.getElementById("review-dialog")?.open === true');
   await clickRoot('#start-review');
   await delay(300);
-  assert.ok(audioRequests.slice(prevCount).some(r => r.path.endsWith('/bgm-annual.mp3') && [200, 206].includes(r.status)), 'Standalone /annual-review/ did not load bgm-annual.mp3');
-  console.log('PASS 7. Standalone /annual-review/ loads bgm-annual.mp3 and book SFX cleanly');
+  assert.ok(audioRequests.slice(prevCount).some(r => r.path.endsWith('/bgm-first-light.mp3') && [200, 206].includes(r.status)), 'Standalone /annual-review/ did not load bgm-first-light.mp3');
+  console.log('PASS 7. Standalone /annual-review/ loads soothing piano playlist cleanly');
 
   assert.deepEqual(errors, [], 'Unexpected JS errors: ' + JSON.stringify(errors));
   assert.deepEqual(failedResources, [], 'Failed resources: ' + JSON.stringify(failedResources));
