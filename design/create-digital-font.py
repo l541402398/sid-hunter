@@ -21,21 +21,28 @@ segments = {
 }
 patterns = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgecd', 'abc', 'abcdefg', 'abfgcd']
 order = ['.notdef', 'space'] + [f'digit{n}' for n in range(10)] + ['colon']
+colon_advance = 384
+colon_width = 88
+colon_left = (colon_advance - colon_width) // 2
+colon_right = colon_left + colon_width
 glyphs, metrics = {}, {}
 for name in order:
     pen = TTGlyphPen(None)
     paths = []
     if name.startswith('digit'):
-        paths = [segments[s] for s in patterns[int(name[5:])]]
+        paths = [[(x + 28, y) for x, y in segments[s]] for s in patterns[int(name[5:])]]
     elif name == 'colon':
-        paths = [[(52, y), (140, y), (140, y + 88), (52, y + 88)] for y in (300, 612)]
+        paths = [[(colon_left, y), (colon_right, y), (colon_right, y + 88), (colon_left, y + 88)]
+                 for y in (300, 612)]
     for points in paths:
         pen.moveTo(points[0])
         for point in points[1:]:
             pen.lineTo(point)
         pen.closePath()
     glyphs[name] = pen.glyph()
-    metrics[name] = (224 if name == 'colon' else 660, 32 if name == 'colon' else 30)
+    # Use the actual left edge so every digit stays aligned with the segment grid.
+    left_bearing = min((x for points in paths for x, _ in points), default=0)
+    metrics[name] = (colon_advance if name == 'colon' else 660, left_bearing)
 font = FontBuilder(1000, isTTF=True)
 font.setupGlyphOrder(order)
 font.setupCharacterMap({32: 'space', 58: 'colon', **{48 + n: f'digit{n}' for n in range(10)}})

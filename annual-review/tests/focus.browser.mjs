@@ -146,7 +146,17 @@ try {
   });
   await call('Page.navigate', { url: baseURL });
   await call('Page.bringToFront');
-  await wait('document.getElementById("annual-review-overlay")?.dataset.ready==="true"');
+  await wait(`document.getElementById('annual-review-frame')?.contentDocument?.activeElement?.id === 'reader-title'`);
+  const initialButtonOutline = await child(`getComputedStyle(document.getElementById('start-review')).outlineStyle`);
+  assert.equal(initialButtonOutline, 'none', 'Initial focus must not outline the cover button');
+  await key('Tab');
+  await key('Tab');
+  const startFocus = await child(`(() => {
+    const start = document.getElementById('start-review');
+    return { focused: document.activeElement === start, outline: getComputedStyle(start).outlineStyle };
+  })()`);
+  assert.equal(startFocus.focused, true);
+  assert.notEqual(startFocus.outline, 'none', 'Tab navigation must outline the cover button');
   await clickChild('#start-review');
   await idle();
   results.push(await snapshot('mouse-open'));

@@ -42,8 +42,10 @@
 <script src="js/core/chunks.js" defer></script>
 <script src="js/core/wheel.js" defer></script>
 <script src="js/core/text.js" defer></script>
+<script src="js/core/audio.js" defer></script>
 <script src="js/render/paint.js" defer></script>
 <script src="js/render/wheel.js" defer></script>
+<script src="js/render/rps-art.js" defer></script>
 <!-- 新人物透明层与四色预烘焙，加载失败时保留旧角色。仅前端外观，不改变身份/碰撞规则。 -->
 <script src="js/render/characters.js" defer></script>
 <script src="js/render/combat.js" defer></script>
@@ -56,6 +58,7 @@
 <script src="js/search/loot-grid.js" defer></script>
 <script src="js/annual-review.js" defer></script>
 <script src="js/flowers.js" defer></script>
+<script src="js/round-tasks.js" defer></script>
 <script src="js/tutorial.js" defer></script>
 <script src="game.js" defer></script>
 </head>
@@ -100,7 +103,36 @@
             </span>
           </div>
         </div>
-        <div class="toolbar-right"><span id="sso-user" class="sso-user" hidden></span><span class="private-hint" hidden>点击或快捷键开闭</span><span class="score-chip" title="我的累计积分（持续累计）">分数 <b id="score-value">0</b></span><span id="prize-chip" class="score-chip prize-chip" title="我的实物奖品（整个活动最多一次，已锁定给你）" hidden>🎁 我的奖品 <b id="prize-name"></b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)"><svg class="fullscreen-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path class="fullscreen-enter" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path class="fullscreen-exit" d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="toolbar-right">
+          <span id="sso-user" class="sso-user" hidden></span><span class="private-hint" hidden>点击或快捷键开闭</span>
+          <button id="round-tasks-toggle" class="score-chip" type="button" popovertarget="round-tasks" aria-haspopup="dialog" aria-controls="round-tasks" aria-expanded="false" title="查看本场积分明细" disabled>总分 <b id="score-value">0</b><span class="round-tasks-arrow" aria-hidden="true">▾</span></button>
+          <span id="prize-chip" class="score-chip prize-chip" title="我的实物奖品（整个活动最多一次，已锁定给你）" hidden>🎁 我的奖品 <b id="prize-name"></b></span><button id="my-info" class="my-button" aria-label="打开或关闭我的信息" aria-controls="mine" aria-expanded="false" title="快捷键 M">🪪 我的信息</button><button id="audio-toggle" type="button" aria-label="声音设置（背景音乐与音效）" aria-controls="audio-popover" aria-expanded="false" aria-pressed="false" data-muted="false" title="声音设置 · 背景音乐与音效"><svg class="audio-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M11 5L6 9H3v6h3l5 4V5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path class="audio-waves" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.8a8.5 8.5 0 0 1 0 12.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path class="audio-mute-x" d="M16 9l5 6m0-6l-5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button><button id="fullscreen-toggle" type="button" aria-label="切换全屏模式（按 ESC 退出全屏）" title="切换全屏 (按 ESC 退出全屏)"><svg class="fullscreen-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path class="fullscreen-enter" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path class="fullscreen-exit" d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+      <div id="audio-popover" class="audio-popover" role="region" aria-label="背景音乐与音效控制" hidden>
+        <div class="audio-pop-head">
+          <div><small>SOUND &amp; BGM</small><strong id="audio-track-label">午后电钢 · 暖阳微风</strong></div>
+          <button id="audio-mute-btn" type="button" class="audio-mute-btn" aria-pressed="false">🔇 一键静音</button>
+        </div>
+        <label class="audio-row">
+          <span class="audio-row-label"><input id="audio-bgm-toggle" type="checkbox" checked>背景音乐</span>
+          <input id="audio-bgm-volume" type="range" min="0" max="100" value="24" aria-label="背景音乐音量">
+          <b id="audio-bgm-val">24%</b>
+        </label>
+        <label class="audio-row">
+          <span class="audio-row-label"><input id="audio-sfx-toggle" type="checkbox" checked>交互音效</span>
+          <input id="audio-sfx-volume" type="range" min="0" max="100" value="62" aria-label="交互音效音量">
+          <b id="audio-sfx-val">62%</b>
+        </label>
+        <div class="audio-list-bar">
+          <span class="audio-list-title">舒缓歌单 · 播完自动切歌</span>
+          <div class="audio-list-controls">
+            <button id="audio-prev" type="button" class="audio-mini-btn" aria-label="上一首" title="上一首">⏮</button>
+            <button id="audio-next" type="button" class="audio-mini-btn" aria-label="下一首" title="下一首">⏭</button>
+            <button id="audio-loop-mode" type="button" class="audio-mini-btn audio-loop-btn" aria-pressed="false" title="当前：列表循环，播完自动下一首（点击切换单曲循环）">🔁 循环</button>
+          </div>
+        </div>
+        <div id="audio-playlist" class="audio-playlist" role="list" aria-label="背景音乐播放列表"></div>
       </div>
     </div>
     <div class="map-view" id="map-view">
@@ -182,6 +214,18 @@
     <button id="logs-scroll-bottom" class="logs-scroll-bottom" type="button" hidden aria-label="一键回到公告栏最底部">↓ 回到最新底部</button>
   </aside>
   </div>
+  <section id="round-tasks" popover="auto" role="dialog" aria-labelledby="round-tasks-title">
+    <header class="panel-heading round-tasks-heading">
+      <h2 id="round-tasks-title">本场积分明细</h2>
+      <button class="icon-button" type="button" popovertarget="round-tasks" popovertargetaction="hide" aria-label="关闭本场积分明细" autofocus>×</button>
+    </header>
+    <dl class="round-tasks-summary">
+      <div><dt>历史场次</dt><dd id="round-tasks-history">0</dd></div>
+      <div><dt>本场得分</dt><dd id="round-tasks-score">0</dd></div>
+    </dl>
+    <p id="round-tasks-status" class="round-tasks-status" role="status" hidden></p>
+    <ul id="round-tasks-list" class="round-tasks-list"></ul>
+  </section>
   <dialog id="invite-dialog" class="center-dialog invite-dialog" aria-labelledby="invite-title">
     <div class="panel-heading"><h2 id="invite-title">邀请同事</h2><button id="invite-close" type="button" class="icon-button" aria-label="关闭邀请提示">×</button></div>
     <p id="invite-message" role="status"></p>

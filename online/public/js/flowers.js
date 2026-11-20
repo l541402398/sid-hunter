@@ -49,6 +49,7 @@
     }
     function celebrate(name) {
       clearEffect();
+      globalThis.SID?.audio?.play('flowerCelebrate');
       effect = doc.createElement('div'); effect.className = 'flower-celebration';
       effect.setAttribute('aria-hidden', 'true');
       effect.style.setProperty('--dedication-duration', `${DEDICATION_MS}ms`);

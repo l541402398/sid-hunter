@@ -1,0 +1,304 @@
+{
+  "name": "sid-rps-duel",
+  "version": 2,
+  "artSource": "host_image (generate_image 1024x1024 master -> OKLab 24-color palette + box-area downscale)",
+  "license": "Project Original (CC0-1.0)",
+  "lightDirection": "upper-left",
+  "padding": 1,
+  "palette": [
+    "#231419",
+    "#fffdf5",
+    "#f3ece1",
+    "#ced4e6",
+    "#9ea8c7",
+    "#78b3f0",
+    "#4172b3",
+    "#264373",
+    "#fff3a6",
+    "#f2b840",
+    "#bf7526",
+    "#7d4318",
+    "#d99e6a",
+    "#9e6236",
+    "#663922",
+    "#ff857a",
+    "#d93b3b",
+    "#8c1f30",
+    "#6ee084",
+    "#329e52",
+    "#1b6135",
+    "#e6edf5",
+    "#acb9cf",
+    "#6d7d99"
+  ],
+  "sheet": {
+    "file": "rps-sheet.png",
+    "width": 521,
+    "height": 115
+  },
+  "timingsMs": {
+    "charge": [
+      280,
+      120,
+      190,
+      110
+    ],
+    "reveal": [
+      90,
+      70,
+      260,
+      160
+    ]
+  },
+  "frames": {
+    "hand-rock": {
+      "x": 1,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "052f39d8e2b182ab"
+    },
+    "hand-scissors": {
+      "x": 66,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "dc2800c95edcc9b8"
+    },
+    "hand-paper": {
+      "x": 131,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "7067b4ea5a39177f"
+    },
+    "opp-rock": {
+      "x": 196,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "2a2f5571f6742d60"
+    },
+    "opp-scissors": {
+      "x": 261,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "e3495d7b57ed809e"
+    },
+    "opp-paper": {
+      "x": 326,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "1882eadff90967b6"
+    },
+    "hand-ready": {
+      "x": 391,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "b1ee0992346d6e48"
+    },
+    "hand-mystery": {
+      "x": 456,
+      "y": 1,
+      "w": 64,
+      "h": 64,
+      "sha256": "eee18a4cbf904551"
+    },
+    "vs-crest": {
+      "x": 1,
+      "y": 66,
+      "w": 48,
+      "h": 48,
+      "sha256": "4ed01bee6cceb080"
+    },
+    "badge-win": {
+      "x": 50,
+      "y": 66,
+      "w": 48,
+      "h": 48,
+      "sha256": "3df2773a27bf7af3"
+    },
+    "badge-draw": {
+      "x": 99,
+      "y": 66,
+      "w": 48,
+      "h": 48,
+      "sha256": "1bb04769604ed02d"
+    },
+    "badge-lose": {
+      "x": 148,
+      "y": 66,
+      "w": 48,
+      "h": 48,
+      "sha256": "61bd46170039e84d"
+    },
+    "btn-rock": {
+      "x": 197,
+      "y": 66,
+      "w": 32,
+      "h": 32,
+      "sha256": "3679e73d2b97255a"
+    },
+    "btn-scissors": {
+      "x": 230,
+      "y": 66,
+      "w": 32,
+      "h": 32,
+      "sha256": "62e2252f56d5b5f6"
+    },
+    "btn-paper": {
+      "x": 263,
+      "y": 66,
+      "w": 32,
+      "h": 32,
+      "sha256": "ead892d8ab17a129"
+    }
+  },
+  "qa": {
+    "silhouetteIoU": {
+      "rockScissors": 0.687,
+      "rockPaper": 0.779,
+      "scissorsPaper": 0.77
+    },
+    "sprites": [
+      {
+        "name": "hand-rock",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 208.3,
+        "drMean": 171.4
+      },
+      {
+        "name": "hand-scissors",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 220.5,
+        "drMean": 162.4
+      },
+      {
+        "name": "hand-paper",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 229.3,
+        "drMean": 180.1
+      },
+      {
+        "name": "opp-rock",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 214.5,
+        "drMean": 170.3
+      },
+      {
+        "name": "opp-scissors",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 221.8,
+        "drMean": 174.5
+      },
+      {
+        "name": "opp-paper",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 226.5,
+        "drMean": 179.3
+      },
+      {
+        "name": "hand-ready",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 212.1,
+        "drMean": 117.4
+      },
+      {
+        "name": "hand-mystery",
+        "size": "64x64",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 112.7,
+        "drMean": 107.3
+      },
+      {
+        "name": "vs-crest",
+        "size": "48x48",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 173.1,
+        "drMean": 114.7
+      },
+      {
+        "name": "badge-win",
+        "size": "48x48",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 188.8,
+        "drMean": 153.4
+      },
+      {
+        "name": "badge-draw",
+        "size": "48x48",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 146.8,
+        "drMean": 164.8
+      },
+      {
+        "name": "badge-lose",
+        "size": "48x48",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 190.1,
+        "drMean": 154.2
+      },
+      {
+        "name": "btn-rock",
+        "size": "32x32",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 210.7,
+        "drMean": 170.2
+      },
+      {
+        "name": "btn-scissors",
+        "size": "32x32",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 220,
+        "drMean": 159.6
+      },
+      {
+        "name": "btn-paper",
+        "size": "32x32",
+        "offPalette": 0,
+        "semiTransparent": 0,
+        "floatingOrphans": 0,
+        "ulMean": 232,
+        "drMean": 185.3
+      }
+    ]
+  }
+}

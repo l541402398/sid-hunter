@@ -150,8 +150,15 @@
   async function act(action) {
     if (!match || match.finished) return;
     const res = await call('/api/minigame/act', { action });
-    if (!res.ok) { say(res.error || '出招失败'); return; }
-    match = res.match; renderBoard();
+    if (!res.ok) { say(res.error || '出招失败'); SID.audio?.play('quizWrong'); return; }
+    const prevFinished = !!match?.finished;
+    match = res.match;
+    if (match?.finished && !prevFinished) {
+      SID.audio?.play(match.winnerId === match.self.id ? 'rpsWin' : match.winnerId === null ? 'rpsDraw' : 'rpsLose');
+    } else {
+      SID.audio?.play(action === 'fire' ? 'bonkHit' : action === 'load' ? 'containerOpen' : 'bonkSwing');
+    }
+    renderBoard();
   }
 
   // 需求1：本期不开放小游戏入口，不自动向页面挂载悬浮按钮。

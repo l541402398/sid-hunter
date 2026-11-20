@@ -45,9 +45,26 @@
       <header class="reader-header">
         <div>
           <span class="tiny-star">✦</span>
-          <h2 id="reader-title">2026 年度纪念册</h2>
+          <h2 id="reader-title" tabindex="-1">2026 年度纪念册</h2>
         </div>
-        <button id="close-review" class="close-reader" aria-label="关闭年度纪念册">×</button>
+        <div class="reader-header-actions">
+          <button
+            id="annual-audio-toggle"
+            class="close-reader audio-reader-toggle"
+            type="button"
+            aria-label="切换纪念册背景音乐与音效"
+            aria-pressed="false"
+            data-muted="false"
+            title="背景音乐与翻书音效"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M11 5L6 9H3v6h3l5 4V5Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+              <path class="audio-waves" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.8a8.5 8.5 0 0 1 0 12.4" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              <path class="audio-mute-x" d="M16 9l5 6m0-6l-5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+          <button id="close-review" class="close-reader" aria-label="关闭年度纪念册">×</button>
+        </div>
       </header>
       <p class="sr-only" id="reader-description">
         翻开纪念册，阅读开篇寄语、榜样人物与个人回顾。点击左页向前翻、右页向后翻，也可使用左右方向键和章节书签；开篇继续向前翻可合上封面。关闭或按Esc将合书退出，下次从头开启。

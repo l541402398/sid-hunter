@@ -17,7 +17,8 @@ const { createDigest } = require('./digest.js');
 const { createEvents } = require('./events.js');
 const charges = require('./charges.js');
 const { createPrizePool } = require('./prizes.js');
-const { createFlowers } = require('./flowers.js');
+const { createFlowers, SENT_POINTS_CAP, receivedFlowerPoints } = require('./flowers.js');
+const { scoreKey } = require('./score-key.js');
 const {
   SKILL_CONFIG, SEG_CHARS, NAME_POOL, TRAIT_POOL,
   pick, randChar, randomSid, randomColors, randomTraits, normalizeGender, hairIndexAllowed, pickHairColor
@@ -49,12 +50,35 @@ function createRoom(options = {}) {
   const prizes = options.prizes || createPrizePool({ randomInt: n => wheelRandomInt(n), now: () => now() });
   // 自测可注入随机小数源；真人阵营默认使用 crypto 随机数，不从加入序号推定。
   const random = typeof options.random === 'function' ? options.random : null;
+  // 出生楼层/出生点随机源：默认使用 crypto.randomInt，自测可单独注入 options.spawnRandomInt（不干扰 options.random 阵营序列）。
+  const spawnRandomInt = typeof options.spawnRandomInt === 'function'
+    ? n => {
+        if (n <= 1) return 0;
+        const v = Math.floor(Number(options.spawnRandomInt(n)));
+        return Number.isFinite(v) ? ((v % n) + n) % n : 0;
+      }
+    : n => (n <= 1 ? 0 : randomInt(n));
   const playConfig = WORLD.PLAY_CONFIG;
+  const rpsRuleCfg = WORLD.RPS_RULES || {};
+  const rpsPointCap = Number(playConfig.minigameDailyCap) || Number(rpsRuleCfg.sessionPointCap) || 10;
+  const rpsWinPoints = Number(playConfig.minigameWinPoints) || Number(rpsRuleCfg.winPoints) || 2;
+  const hammerPointsCap = Number(WORLD.ACTION.hammerPointDailyCap) || 10;
+  const hammerTargetCap = Number(WORLD.ACTION.hammerPointPerTargetDaily) || 2;
+  const wheelSpinCap = Number(WORLD.WHEEL.maxDailySpins) || 3;
   // 结束规则默认取 WORLD.RULES；测试可通过 options.rules 覆盖（如小房间活人阈值）。
   const rules = { ...WORLD.RULES, ...(options.rules || {}) };
   const room = {
-    // 功能开关：管理页可随时开关（见 server/features.js）。默认全开，未配置时行为与以前一致。
-    features: sanitizeFeatures(options && options.features, defaultFeatures()),
+    // 功能开关：管理页可随时开关（见 server/features.js）。未显式持久化过的旧快照自动切到新默认（仅开猜拳）。
+    features: sanitizeFeatures(
+      (options && options.features && (!options.restore || options.restore.featuresConfigured))
+        ? options.features
+        : (options && options.restore && options.restore.featuresConfigured ? options.restore.features : undefined),
+      defaultFeatures()
+    ),
+    featuresConfigured: Boolean(
+      (options && options.features && (!options.restore || options.restore.featuresConfigured)) ||
+      (options && options.restore && options.restore.featuresConfigured)
+    ),
     players: [],
     chargeIntervalMs: SKILL_CONFIG.chargeIntervalMs,
     // 试玩默认读 SKILL_CONFIG（90s）；正式场由 activity/管理页覆盖为 COMBAT 建议值（好30/坏20分钟）
@@ -75,7 +99,8 @@ function createRoom(options = {}) {
     ranking: null,
     // 截至昨日的历史累计前100榜与个人历史累计分（由 server/activity.js 同步注入）
     historicalRanking: [],
-    historicalScores: {},
+    historicalScores: new Map(),
+    pastRoundScores: new Map(),
     // 上一局结算快照：结束瞬间写入，reset 不会清掉，管理页/重开流程据此读取上局排名。
     lastResult: null,
     startedAt: Date.now(),
@@ -269,6 +294,80 @@ function createRoom(options = {}) {
     }
     return { x: pool[i].x, y: pool[i].y };
   }
+  const SPAWN_CROWD_RADIUS = 48;
+  function spawnFloorIds() {
+    const ids = Object.values(WORLD.FLOORS)
+      .map(f => Number(f && f.id))
+      .filter(id => Number.isSafeInteger(id) && WORLD.floorSpawns(id).length > 0)
+      .sort((a, b) => a - b);
+    return ids.length ? ids : [1];
+  }
+  // 统计各楼层当前在线真实人数（含休战、含该层房间内玩家；不计 NPC 与离线占位）。
+  function floorPopulationCounts(floorIds) {
+    const counts = new Map(floorIds.map(id => [id, 0]));
+    for (const p of room.players) {
+      if (!p || p.npc || p.online === false) continue;
+      if (counts.has(p.floorId)) counts.set(p.floorId, counts.get(p.floorId) + 1);
+    }
+    return counts;
+  }
+  // 按各楼层当前在线人数分流出生：从当前人数最少的楼层集合中随机选一层，避免全员挤在 1F。
+  function chooseSpawnFloor() {
+    const floorIds = spawnFloorIds();
+    const counts = floorPopulationCounts(floorIds);
+    let minCount = Infinity;
+    for (const count of counts.values()) if (count < minCount) minCount = count;
+    const candidates = floorIds.filter(id => counts.get(id) === minCount);
+    return candidates[spawnRandomInt(candidates.length)];
+  }
+  // 在目标楼层安全出生池内随机选点：优先选择周围玩家最少的安全点（无碰撞、无遮挡、远离电梯触发范围），同档随机。
+  function pickSpawnPoint(floorId) {
+    const pool = WORLD.floorSpawns(floorId);
+    if (!pool.length) return { x: 0, y: 0 };
+    const occupied = room.players.filter(p => p && p.online !== false && p.floorId === floorId && !p.zoneId);
+    const crowdAt = pt => {
+      let n = 0;
+      for (const p of occupied) {
+        if (Math.hypot(p.x - pt.x, p.y - pt.y) < SPAWN_CROWD_RADIUS) n++;
+      }
+      return n;
+    };
+    let candidates;
+    if (pool.length <= 64) {
+      candidates = pool.filter(p => pointSafe(floorId, p.x, p.y));
+    } else {
+      const sampleCount = Math.min(32, pool.length);
+      const seen = new Set();
+      candidates = [];
+      for (let attempts = 0; attempts < sampleCount * 3 && candidates.length < sampleCount; attempts++) {
+        const idx = spawnRandomInt(pool.length);
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        const p = pool[idx];
+        if (pointSafe(floorId, p.x, p.y)) candidates.push(p);
+      }
+      if (!candidates.length) {
+        const start = spawnRandomInt(pool.length);
+        for (let k = 0; k < pool.length; k++) {
+          const p = pool[(start + k) % pool.length];
+          if (pointSafe(floorId, p.x, p.y)) { candidates.push(p); break; }
+        }
+      }
+    }
+    if (!candidates.length) {
+      const fallback = pool[spawnRandomInt(pool.length)];
+      return { x: fallback.x, y: fallback.y };
+    }
+    let minCrowd = Infinity;
+    const scored = candidates.map(p => {
+      const c = crowdAt(p);
+      if (c < minCrowd) minCrowd = c;
+      return { p, c };
+    });
+    const best = scored.filter(item => item.c === minCrowd);
+    const chosen = best[spawnRandomInt(best.length)].p;
+    return { x: chosen.x, y: chosen.y };
+  }
   function safeLanding(floorId) {
     for (const p of WORLD.floorSpawns(floorId)) if (pointSafe(floorId, p.x, p.y)) return { x: p.x, y: p.y };
     return null;
@@ -294,7 +393,7 @@ function createRoom(options = {}) {
     if (typeof p.firstSearchDone !== 'boolean') p.firstSearchDone = false;
     if (typeof p.firstMinigameDone !== 'boolean') p.firstMinigameDone = false;
     if (!p.scoreBreakdown || typeof p.scoreBreakdown !== 'object') {
-      p.scoreBreakdown = { participate: 0, survival: 0, combat: Number(p.score) || 0 };
+      p.scoreBreakdown = { participate: 0, survival: 0, combat: 0 };
     }
   }
   // 休战仅停止存活分与对抗分；探索/答题/J/小游戏/NPC/转盘等参与分仍可获得。
@@ -472,8 +571,9 @@ function createRoom(options = {}) {
     const id = room.players.reduce((m, q) => Math.max(m, Number(q.id) || 0), -1) + 1;
     const rawName = typeof nickname === 'string' ? nickname.trim().slice(0, 8) : '';
     const name = empNo ? uniqueName(displayName(identity.name, empNo)) : uniqueName(rawName || pick(NAME_POOL));
-    // 新玩家统一在 1F 安全出生池（按 id 轮转）；每个点都已校验无碰撞、无遮挡、不在入口触发范围内。
-    const spawn = spawnPointFor(1, id);
+    // 新玩家按各楼层当前在线人数分流至人数最少的楼层（同少随机），再在该层安全出生池内随机选点。
+    const floorId = chooseSpawnFloor();
+    const spawn = pickSpawnPoint(floorId);
     const player = {
       id,
       name,
@@ -499,7 +599,7 @@ function createRoom(options = {}) {
       scoreBreakdown: { participate: 0, survival: 0, combat: 0 },
       x: spawn.x,
       y: spawn.y,
-      floorId: 1,
+      floorId,
       floorRevision: 0,
       // 需求①：当前所处空间。null = 楼层公共空间；房间 ID = 独立空间内（由 enterZone 设置）。
       zoneId: null,
@@ -512,7 +612,7 @@ function createRoom(options = {}) {
       input: { up: false, down: false, left: false, right: false },
       walk: 0,
       spriteFacing: 'front',
-      exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
+      exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0, rpsPlayedByTarget: {} },
       achievements: { points: 0, byKind: {} },
       games: { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
       combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
@@ -601,7 +701,7 @@ function createRoom(options = {}) {
         input: { up: false, down: false, left: false, right: false },
         walk: 0,
         spriteFacing: 'front',
-        exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 },
+        exploration: { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0, rpsPlayedByTarget: {} },
         achievements: { points: 0, byKind: {} },
         games: { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null },
         combat: { facing: { x: 1, y: 0 }, lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', attackUntil: 0, lastAttackAt: 0, stunUntil: 0, freezeUntil: 0 },
@@ -772,8 +872,9 @@ function createRoom(options = {}) {
     if (!(opts && opts.skipSync)) syncRoom(t);
     syncCharges(p, t);
     ensureScoreState(p);
-    const histMap = room.historicalScores || {};
-    const historicalScore = Number(histMap[p.empNo ? `emp:${p.empNo}` : `name:${p.name}`] ?? histMap[`name:${p.name}`] ?? 0) || 0;
+    const key = scoreKey(p, room.roundId);
+    const historicalScore = room.historicalScores.get(key) || 0;
+    const pastRoundScore = room.pastRoundScores.get(key) || 0;
     return {
       id: p.id,
       name: p.name,
@@ -803,6 +904,7 @@ function createRoom(options = {}) {
       spriteFacing: p.spriteFacing,
       exploration: explorationProjection(p),
       npcExchange: npcExchangeProjection(p),
+      roundTasks: roundTaskProgress(p, pastRoundScore),
       // 实物奖品：只发给本人（整个活动一次；name/channel/at）。
       prize: prizeProjection(p),
       achievement: { points: (p.achievements && p.achievements.points) || 0, byKind: { ...((p.achievements && p.achievements.byKind) || {}) } },
@@ -1134,15 +1236,13 @@ function createRoom(options = {}) {
     let points = 0;
     const chance = Number(A.hammerPointChance);
     const perHit = Number(A.hammerPoint) || Number(WORLD.SCORE.hammerPoint) || 1;
-    const perTargetCap = Number(A.hammerPointPerTargetDaily) || 2;
-    const dailyCap = Number(A.hammerPointDailyCap) || 10;
     const byTarget = actor.exploration.hammerPointsByTarget || (actor.exploration.hammerPointsByTarget = {});
     const tid = String(best.id);
     const targetGot = Number(byTarget[tid]) || 0;
     const todayGot = Number(actor.exploration.hammerPointsToday) || 0;
     const rollOk = !Number.isFinite(chance) || wheelRandomInt(10000) < Math.floor(chance * 10000);
-    if (rollOk && todayGot < dailyCap && targetGot < perTargetCap) {
-      const gain = Math.min(perHit, dailyCap - todayGot, perTargetCap - targetGot);
+    if (rollOk && todayGot < hammerPointsCap && targetGot < hammerTargetCap) {
+      const gain = Math.min(perHit, hammerPointsCap - todayGot, hammerTargetCap - targetGot);
       if (gain > 0) {
         ensureScoreState(actor);
         actor.score += gain;
@@ -1327,20 +1427,21 @@ function createRoom(options = {}) {
   function syncDailyEconomy(p, t) {
     if (!p) return;
     const d = accuseDayKey(t);
-    if (!p.exploration) p.exploration = { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0 };
+    if (!p.exploration) p.exploration = { clues: [], searched: [], exchangedToday: {}, dailyScoreRedeemed: 0, exploreCount: 0, hammerPointsToday: 0, hammerPointsByTarget: {}, minigamePointsToday: 0, rpsPlayedByTarget: {} };
     if (!p.exploration.exchangedToday || typeof p.exploration.exchangedToday !== 'object') p.exploration.exchangedToday = {};
     if (!Number.isFinite(p.exploration.dailyScoreRedeemed)) p.exploration.dailyScoreRedeemed = 0;
     if (!Number.isFinite(p.exploration.exploreCount)) p.exploration.exploreCount = (p.exploration.searched || []).length;
     if (!Number.isFinite(p.exploration.hammerPointsToday)) p.exploration.hammerPointsToday = 0;
     if (!p.exploration.hammerPointsByTarget || typeof p.exploration.hammerPointsByTarget !== 'object') p.exploration.hammerPointsByTarget = {};
     if (!Number.isFinite(p.exploration.minigamePointsToday)) p.exploration.minigamePointsToday = 0;
+    if (!p.exploration.rpsPlayedByTarget || typeof p.exploration.rpsPlayedByTarget !== 'object') p.exploration.rpsPlayedByTarget = {};
     if (!p.games) p.games = { wheelSpins: {}, wheelDailySpins: 0, rpsPending: null, rpsUntil: 0, lastResult: '', rpsResult: null };
     if (!Number.isFinite(p.games.wheelDailySpins)) {
-      p.games.wheelDailySpins = Object.values(p.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0);
+      p.games.wheelDailySpins = wheelSpinCount(p.games);
     }
     if (!Number.isFinite(p.protectUntil)) p.protectUntil = 0;
     if (!p.dailyEconomyDay) { p.dailyEconomyDay = d; return; }
-    if (p.dailyEconomyDay !== d) {
+    if (p.dailyEconomyDay !== d && !room.finished) {
       p.dailyEconomyDay = d;
       // 积分持续累计；每日重置探索机会、福利领取、转盘、J/小游戏渠道额度
       p.exploration.exchangedToday = {};
@@ -1352,14 +1453,48 @@ function createRoom(options = {}) {
       p.exploration.hammerPointsToday = 0;
       p.exploration.hammerPointsByTarget = {};
       p.exploration.minigamePointsToday = 0;
+      p.exploration.rpsPlayedByTarget = {};
       p.games.wheelDailySpins = 0;
       p.games.wheelSpins = {};
+      p.games.wheelRewards = [];
     }
   }
   function exploredCount(p) {
     if (!p || !p.exploration) return 0;
     if (Number.isFinite(p.exploration.exploreCount)) return p.exploration.exploreCount;
     return (p.exploration.searched || []).length;
+  }
+  function wheelSpinCount(games) {
+    return Object.values(games.wheelSpins || {}).reduce(
+      (count, value) => Math.max(count, Number(value) || 0), Number(games.wheelDailySpins) || 0
+    );
+  }
+  function roundTaskProgress(p, historyScore) {
+    const spins = wheelSpinCount(p.games);
+    const rewards = p.games.wheelRewards || [];
+    const pack = WORLD.NPC_EXCHANGE.score;
+    const currentScore = Number(p.score) || 0;
+    const sources = {
+      exploration: {
+        count: exploredCount(p), goal: pack.unlockAt, reward: pack.points,
+        claimed: !!p.exploration.exchangedToday.score, points: p.exploration.dailyScoreRedeemed
+      },
+      flowers: { points: p.flowerState?.sentPoints || 0, cap: SENT_POINTS_CAP },
+      wheel: {
+        spins, cap: wheelSpinCap,
+        points: rewards.reduce((sum, amount) => sum + amount, 0),
+        completeHistory: rewards.length === spins
+      },
+      rps: { points: p.exploration.minigamePointsToday, cap: rpsPointCap, winPoints: rpsWinPoints, enabled: room.features.rps },
+      hammer: { points: p.exploration.hammerPointsToday, cap: hammerPointsCap, perTargetCap: hammerTargetCap },
+      containers: { points: Number(p.exploration.directPointsEarned) || 0 },
+      quiz: { points: Number(p.exploration.quizPointsEarned) || 0 },
+      receivedFlowers: { points: receivedFlowerPoints(p.flowerState?.received) },
+      combat: { points: Number(p.scoreBreakdown.combat) || 0 },
+      survival: { points: Number(p.scoreBreakdown.survival) || 0 }
+    };
+    const attributed = Object.values(sources).reduce((sum, source) => sum + source.points, 0);
+    return { ...sources, historyScore, currentScore, unallocated: { points: currentScore - attributed } };
   }
   function npcExchangeProjection(p) {
     const ex = (p && p.exploration && p.exploration.exchangedToday) || {};
@@ -1578,6 +1713,7 @@ function createRoom(options = {}) {
       ensureScoreState(actor);
       actor.score += amount;
       actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + amount;
+      actor.exploration.directPointsEarned = (Number(actor.exploration.directPointsEarned) || 0) + amount;
       actor.exploration.exploreCount = (Number(actor.exploration.exploreCount) || 0) + 1;
       const resultText = `开启「${containerName}」：直接获得 ${amount} 积分！${prizeText}`;
       return {
@@ -1757,6 +1893,23 @@ function createRoom(options = {}) {
     };
   }
 
+  function rpsPairCount(a, b) {
+    if (!a || !b) return 0;
+    const countA = Number(a.exploration?.rpsPlayedByTarget?.[String(b.id)]) || 0;
+    const countB = Number(b.exploration?.rpsPlayedByTarget?.[String(a.id)]) || 0;
+    return Math.max(countA, countB);
+  }
+  function recordRpsPairPlay(a, b) {
+    if (!a || !b) return 0;
+    if (!a.exploration) a.exploration = {};
+    if (!b.exploration) b.exploration = {};
+    if (!a.exploration.rpsPlayedByTarget || typeof a.exploration.rpsPlayedByTarget !== 'object') a.exploration.rpsPlayedByTarget = {};
+    if (!b.exploration.rpsPlayedByTarget || typeof b.exploration.rpsPlayedByTarget !== 'object') b.exploration.rpsPlayedByTarget = {};
+    const next = rpsPairCount(a, b) + 1;
+    a.exploration.rpsPlayedByTarget[String(b.id)] = next;
+    b.exploration.rpsPlayedByTarget[String(a.id)] = next;
+    return next;
+  }
   function gamesProjection(p) {
     // rpsPending 投影：仅展示本人 ownChoice/ownRevision，绝不泄露对手出拳或是否已选。
     const pending = p.games.rpsPending;
@@ -1772,16 +1925,19 @@ function createRoom(options = {}) {
         ownChoice: sel ? sel.choice : null, ownRevision: sel ? sel.revision : 0
       };
     }
-    const wheelDailySpins = Math.max(
-      Number(p.games.wheelDailySpins) || 0,
-      Object.values(p.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0)
-    );
+    const wheelDailySpins = wheelSpinCount(p.games);
+    const rpsPairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
     return {
       wheelSpins: { ...p.games.wheelSpins },
       wheelDailySpins,
       rpsPending, rpsUntil: p.games.rpsUntil,
       lastResult: p.games.lastResult,
-      rpsResult: p.games.rpsResult ? { ...p.games.rpsResult } : null
+      rpsResult: p.games.rpsResult ? { ...p.games.rpsResult } : null,
+      rpsPoints: Number(p.exploration?.minigamePointsToday) || 0,
+      rpsPointCap,
+      rpsWinPoints,
+      rpsPairCap,
+      rpsPairCounts: { ...(p.exploration?.rpsPlayedByTarget || {}) }
     };
   }
   function combatProjection(p) {
@@ -1798,11 +1954,13 @@ function createRoom(options = {}) {
   // reason 可为字符串或 (player)=>string，用于按本人视角反馈“谁未选”。
   function cancelChallenge(challenge, t, reason) {
     const from = find(challenge.fromId), to = find(challenge.toId);
+    const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
     room.challenges.delete(challenge.id);
     for (const p of [from, to]) {
       if (!p) continue;
       const text = typeof reason === 'function' ? reason(p) : reason;
       const mySel = challenge.selections[p.id];
+      const opp = p.id === challenge.fromId ? to : from;
       p.games.rpsPending = null;
       p.games.rpsUntil = t + playConfig.rpsCooldownMs;
       p.games.lastResult = `猜拳已取消：${text}，不计分。`;
@@ -1810,12 +1968,17 @@ function createRoom(options = {}) {
         id: challenge.id, status: 'cancelled',
         ownChoice: mySel ? mySel.choice : null,
         opponentChoice: null,
-        opponentName: p.id === challenge.fromId ? (to && to.name) : (from && from.name),
+        opponentId: opp ? opp.id : null,
+        opponentName: opp ? opp.name : null,
+        pairPlayed: opp ? rpsPairCount(p, opp) : 0,
+        pairCap,
+        rpsPoints: Number(p.exploration?.minigamePointsToday) || 0,
+        rpsPointCap,
         outcome: null, delta: 0, reason: text, completedAt: t
       };
     }
   }
-  // 截止结算：仅当双方都已选且仍存活/在线/金币足够才结算；否则取消（未选齐则反馈谁未选）。
+  // 截止结算：仅当双方都已选且仍在线才结算；否则取消（未选齐则反馈谁未选）。
   // 进入选择阶段后锁定双方，不重新限制距离与视线。
   function settleChallenge(challenge, t) {
     const from = find(challenge.fromId), to = find(challenge.toId);
@@ -1827,22 +1990,31 @@ function createRoom(options = {}) {
       let fromGain = 0, toGain = 0;
       if (outcomeSign > 0) fromGain = awardMinigameWin(from);
       else if (outcomeSign < 0) toGain = awardMinigameWin(to);
+      const pairPlayed = recordRpsPairPlay(from, to);
+      const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
       gainAchievement(from, outcomeSign > 0 ? 'rpsWin' : outcomeSign < 0 ? 'rpsLose' : 'rpsDraw');
       gainAchievement(to, outcomeSign < 0 ? 'rpsWin' : outcomeSign > 0 ? 'rpsLose' : 'rpsDraw');
       const labels = { rock: '石头', paper: '布', scissors: '剪刀' };
       room.challenges.delete(challenge.id);
       for (const p of [from, to]) {
         const mine = p.id === challenge.fromId ? fromSel : toSel, opp = p.id === challenge.fromId ? toSel : fromSel;
+        const oppPlayer = p.id === challenge.fromId ? to : from;
         const outcome = outcomeSign === 0 ? 'draw' : (p.id === challenge.fromId ? (outcomeSign > 0 ? 'win' : 'lose') : (outcomeSign > 0 ? 'lose' : 'win'));
         const gain = p.id === challenge.fromId ? fromGain : toGain;
+        const capped = outcome === 'win' && gain === 0;
         p.games.rpsPending = null;
         p.games.rpsUntil = t + playConfig.rpsCooldownMs;
-        p.games.lastResult = `猜拳结算：你出${labels[mine.choice]}，${p.id === challenge.fromId ? to.name : from.name}出${labels[opp.choice]}；${outcome === 'draw' ? '平局' : outcome === 'win' ? '你获胜' : '你落败'}${gain > 0 ? `，积分+${gain}` : '，不计分'}。`;
+        p.games.lastResult = `猜拳结算：你出${labels[mine.choice]}，${oppPlayer.name}出${labels[opp.choice]}；${outcome === 'draw' ? '平局，不扣积分' : outcome === 'win' ? (capped ? `你获胜（本场猜拳积分已满 ${rpsPointCap} 分）` : `你获胜，积分+${gain}`) : '你落败，不扣积分'}。`;
         p.games.rpsResult = {
           id: challenge.id, status: 'resolved',
           ownChoice: mine.choice, opponentChoice: opp.choice,
-          opponentName: p.id === challenge.fromId ? to.name : from.name,
+          opponentId: oppPlayer.id,
+          opponentName: oppPlayer.name,
           outcome, delta: gain, points: gain,
+          pairPlayed, pairCap,
+          rpsPoints: Number(p.exploration?.minigamePointsToday) || 0,
+          rpsPointCap,
+          capped,
           reason: 'settled', completedAt: t
         };
       }
@@ -1885,21 +2057,22 @@ function createRoom(options = {}) {
   }
   function rpsValidation(from, to) {
     if (!from || !to || from.id === to.id) return '猜拳目标无效';
+    if (from.npc || to.npc) return '测试 NPC 无法回应猜拳，请邀请真人玩家互动';
     // 休战可参与；不再要求金币押注
     if (!from.online || !to.online) return '参与者不在线';
-    if (from.floorId !== to.floorId) return '双方不在同一楼层';
+    if (!sameZone(from, to)) return from.floorId !== to.floorId ? '双方不在同一楼层' : '双方不在同一房间';
     if (WORLD.distanceToEntity(from, to) > WORLD.INTERACT_RANGE) return '距离太远，请靠近后再试';
-    if (!WORLD.lineClear(from, to, floorBlockers(from.floorId))) return '家具挡住了猜拳双方';
+    if (!WORLD.lineClear(from, to, zoneBlockersOf(from))) return '家具挡住了猜拳双方';
+    const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
+    if (rpsPairCount(from, to) >= pairCap) return `本场与该玩家已猜拳满 ${pairCap} 次，去和其他同事互动吧`;
     return '';
   }
   function awardMinigameWin(p) {
     if (!p || room.finished) return 0;
     syncDailyEconomy(p, now());
-    const cap = Number(playConfig.minigameDailyCap) || 10;
-    const per = Number(playConfig.minigameWinPoints) || Number(WORLD.SCORE.rpsWin) || 2;
     const already = Number(p.exploration.minigamePointsToday) || 0;
-    if (already >= cap) return 0;
-    const gain = Math.min(per, cap - already);
+    if (already >= rpsPointCap) return 0;
+    const gain = Math.min(rpsWinPoints, rpsPointCap - already);
     ensureScoreState(p);
     p.score += gain;
     p.scoreBreakdown.participate = (Number(p.scoreBreakdown.participate) || 0) + gain;
@@ -1924,6 +2097,9 @@ function createRoom(options = {}) {
     if (movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能参与小游戏');
     if (!actor.online && (!body || !['rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(body.kind))) return fail('你不在线，不能参与小游戏');
     if (!body || typeof body !== 'object') return fail('小游戏指令无效');
+    if (['rpsInvite', 'rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(body.kind) && !room.features.rps) {
+      return fail('猜拳小游戏暂未开放');
+    }
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
     if (!commandId.trim()) return fail('缺少 commandId');
     if (room.processed.has(commandId)) return fail('该指令已结算过');
@@ -1937,9 +2113,8 @@ function createRoom(options = {}) {
       if (WORLD.distanceToEntity(actor, entity) > WORLD.INTERACT_RANGE) return fail('距离太远，请靠近后再试');
       syncDailyEconomy(actor, t);
       // 全楼层 NPC 共享每日次数，建议每日 3 次，免费，产出随机积分
-      const recorded = Object.values(actor.games.wheelSpins || {}).reduce((m, v) => Math.max(m, Number(v) || 0), 0);
-      const spins = Math.max(Number(actor.games.wheelDailySpins) || 0, recorded);
-      const maxSpins = Number(WORLD.WHEEL.maxDailySpins) || 3;
+      const spins = wheelSpinCount(actor.games);
+      const maxSpins = wheelSpinCap;
       if (spins >= maxSpins) return fail(`今日大转盘次数已达上限（每日最多${maxSpins}次）`);
       const cost = 0;
       const pool = WORLD.buildWheelPool(actor.faction);
@@ -1952,6 +2127,8 @@ function createRoom(options = {}) {
       const resultText = `转盘第${spins + 1}/${maxSpins}次：获得${amount}积分。`;
       const nextSpins = spins + 1;
       actor.games.wheelDailySpins = nextSpins;
+      // Keep the earned amounts with the player snapshot. Older saves only contain spin counts.
+      (actor.games.wheelRewards ||= []).push(amount);
       for (const n of WORLD.NPCS) {
         actor.games.wheelSpins[n.id] = nextSpins;
       }
@@ -2153,6 +2330,9 @@ function createRoom(options = {}) {
     actor.x = landing.x;
     actor.y = landing.y;
     // 换层一定回到楼层公共空间：房间是楼层的子空间，跨层后旧的 zone 不再成立。
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === actor.id || ch.toId === actor.id) cancelChallenge(ch, t, '参与者进出房间');
+    }
     actor.zoneId = null;
     actor.zoneReturn = null;
     actor.floorRevision += 1;
@@ -2223,6 +2403,9 @@ function createRoom(options = {}) {
     const access = zoneDoorAccess(actor, [roomId], WORLD.ROOM_ENTER_PAD);
     if (!access.ok) return reject(access.reason);
     // 进入：先记下楼层位置，再把玩家放进房间内部落点。
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === actor.id || ch.toId === actor.id) cancelChallenge(ch, t, '参与者进出房间');
+    }
     actor.zoneReturn = { x: actor.x, y: actor.y, floorId: actor.floorId };
     actor.zoneId = target.id;
     actor.x = target.entry.x;
@@ -2254,6 +2437,9 @@ function createRoom(options = {}) {
     let landing = { x: back.x, y: back.y };
     if (WORLD.floorCollides(actor.floorId, landing.x, landing.y, floorBlockers(actor.floorId))) {
       landing = { x: zone.door.x, y: zone.door.y };
+    }
+    for (const ch of [...room.challenges.values()]) {
+      if (ch.fromId === actor.id || ch.toId === actor.id) cancelChallenge(ch, t, '参与者进出房间');
     }
     actor.zoneId = null;
     actor.zoneReturn = null;
@@ -2327,6 +2513,7 @@ function createRoom(options = {}) {
       ensureScoreState(actor);
       actor.score += gainedPoints;
       actor.scoreBreakdown.participate = (Number(actor.scoreBreakdown.participate) || 0) + gainedPoints;
+      actor.exploration.quizPointsEarned = (Number(actor.exploration.quizPointsEarned) || 0) + gainedPoints;
       resultText = `回答正确！获得 ${gainedPoints} 积分。`;
     } else {
       const ansText = Array.isArray(grade.correctAnswer)

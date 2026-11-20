@@ -8,7 +8,8 @@
   inherits: true;
   initial-value: 16px;
 }
-.reader {
+.reader,
+#reader-title:focus {
   outline: 0;
 }
 .embedded-review,
@@ -231,6 +232,24 @@ a {
 .close-reader:hover {
   background: #774223;
   color: #fff1d5;
+}
+.reader-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.audio-reader-toggle .audio-mute-x {
+  display: none;
+}
+.audio-reader-toggle[data-muted='true'] {
+  color: #b79b73;
+  opacity: 0.78;
+}
+.audio-reader-toggle[data-muted='true'] .audio-waves {
+  display: none;
+}
+.audio-reader-toggle[data-muted='true'] .audio-mute-x {
+  display: block;
 }
 .book-stage {
   height: var(--book-h);

@@ -1,6 +1,6 @@
 'use strict';
 // 场次是存档/计分唯一单位；日期只用于分组。无额外后台进程或计时器。
-const { createHash } = require('node:crypto');
+const { scoreKey } = require('../room/score-key.js');
 const DEFAULT_SLOTS = [{ id:'daily',label:'每日场',startTime:'09:00',endTime:'17:00' }];
 const TEMPLATES = Object.freeze({
   development: Object.freeze({template:'development',startTime:'09:00',endTime:'17:00',slots:DEFAULT_SLOTS,chargeIntervalMs:90000,goodChargeIntervalMs:90000,badChargeIntervalMs:90000,initialHp:3,protectMs:5*60*1000,clueIntervalMs:120000,cluePercent:20,clueMin:1,clueMax:5}),
@@ -65,7 +65,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
   if(session&&!session.settled)room.rules.timeLimitMs=session.endsAt-room.room.startedAt;
   room.setChargeInterval(config.chargeIntervalMs);
   if(typeof room.setCombatConfig==='function')room.setCombatConfig({initialHp:config.initialHp,protectMs:config.protectMs,goodChargeIntervalMs:config.goodChargeIntervalMs,badChargeIntervalMs:config.badChargeIntervalMs});
-  function snapshot(){const r=room.room;return{roundId:r.roundId,startedAt:r.startedAt,initialHp:r.initialHp,players:r.players,sessions:[...r.sessions],features:r.features,
+  function snapshot(){const r=room.room;return{roundId:r.roundId,startedAt:r.startedAt,initialHp:r.initialHp,players:r.players,sessions:[...r.sessions],features:r.features,featuresConfigured:!!r.featuresConfigured,
     searchSessions:[...r.searchSessions],searchSeq:r.searchSeq,
     finished:r.finished,finishReason:r.finishReason,lastResult:r.lastResult,ranking:r.ranking,logs:r.logs,eliminateEvents:r.eliminateEvents,pausedAt:r.pausedAt||0};}
   function record(){return{version:3,config,session,planDay,plan,consumed,revision,clueSchedule:{...clueSchedule},liveSnapshot:snapshot()};}
@@ -80,18 +80,23 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     room.room.nextClueAt=isActive()&&!paused&&!error&&clueSchedule.nextAt&&clueSchedule.nextAt<session.endsAt
       ?clueSchedule.nextAt:0;
   }
+  let historicalResults, historicalDay, historyRound;
   function syncHistorical(){
     const today=dayOf(now());
-    const priorList=results.filter(r=>r&&r.day&&r.day<today);
+    const roundId=room.room.roundId;
+    if(historicalResults===results&&historicalDay===today&&historyRound===roundId)return;
+    const priorList=results.filter(r=>r?.day&&r.day<today);
     const ranked=sumRanking(priorList);
     room.room.historicalRanking=ranked.slice(0,100).map(r=>({rank:r.rank,name:r.name,score:r.score,days:r.days}));
-    const scoreMap={};
-    for(const r of ranked)scoreMap[`name:${r.name}`]=r.score;
-    room.room.historicalScores=scoreMap;
+    room.room.historicalScores=new Map(ranked.map(r=>[r.key,r.score]));
+    // The displayed round stays in the current column even after it has been archived.
+    const pastRounds=results.filter(r=>r&&r.roundId!==roundId);
+    room.room.pastRoundScores=new Map(sumRanking(pastRounds).map(r=>[r.key,r.score]));
+    historicalResults=results;historicalDay=today;historyRound=roundId;
   }
   function resultForSession(reason){
     const ranking=room.room.players.filter(p=>!p.npc).map(p=>({
-      key:createHash('sha256').update(p.empNo?'employee:'+p.empNo:'guest:'+(p.participantKey||p.sessionId||room.room.roundId+':'+p.id)).digest('hex'),
+      key:scoreKey(p,room.room.roundId),
       name:p.name,score:Number(p.score)||0,alive:!!p.alive,faction:p.faction,points:Number(p.achievements?.points)||0
     })).sort((a,b)=>b.score-a.score||a.key.localeCompare(b.key)).map((p,i)=>({...p,rank:i+1}));
     return{...session,pausedAt:0,settled:true,finishedAt:Math.min(now(),session.endsAt),reason,ranking,

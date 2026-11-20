@@ -78,10 +78,12 @@ await test('NPC 福利按探索数量解锁（5/10/15/20/25）、免费、每类
   for (let i = 0; i < 4; i++) assert.equal(open(r, p, cs[i]).mode, 'points');
   const locked = claim(r, p, 'score'); assert.equal(locked.ok, false); assert.match(locked.error, /需探索 5/);
   assert.equal(locked.npcExchange.effects.find(e => e.key === 'score').unlocked, false);
+  assert.deepEqual(r.privateSnapshot(p.id).me.roundTasks.exploration, { count: 4, goal: 5, reward: 10, claimed: false, points: 0 });
   open(r, p, cs[4]); assert.equal(p.exploration.exploreCount, 5);
   const before = p.score, ok = claim(r, p, 'score');
   assert.equal(ok.ok, true); assert.equal(ok.cost, 0); assert.equal(p.score, before + 10);
   const twice = claim(r, p, 'score'); assert.equal(twice.ok, false); assert.match(twice.error, /今日已领取/);
+  assert.deepEqual(r.privateSnapshot(p.id).me.roundTasks.exploration, { count: 5, goal: 5, reward: 10, claimed: true, points: 10 });
   assert.equal(claim(r, p, 'revealRandomTrait').ok, false, '10 档未解锁');
 });
 
@@ -103,7 +105,7 @@ await test('跨日：探索次数/已开容器/福利/转盘/J与小游戏额度
 
 await test('J 挥锤：命中按概率得积分，同一目标每日≤2，渠道每日≤10，不扣对抗生命', () => {
   const r = fixture({ rolls: Array(200).fill(0), n: 8 }), a = r.find(1);
-  for (const q of r.room.players) { q.x = a.x + 2000; q.y = a.y; }
+  for (const q of r.room.players) { q.floorId = a.floorId; q.x = a.x + 2000; q.y = a.y; }
   const others = r.room.players.filter(q => q.id !== a.id);
   const swing = () => { r.room.clockOffset += WORLD.ACTION.hammerCooldownMs + 1; return r.performAction(a.id, 'hammer'); };
   const t1 = others[0]; t1.x = a.x + 10; t1.y = a.y;
@@ -112,8 +114,9 @@ await test('J 挥锤：命中按概率得积分，同一目标每日≤2，渠�
   t1.x = a.x + 2000;
   for (const q of others.slice(1)) { q.x = a.x + 10; swing(); swing(); swing(); q.x = a.x + 2000; }
   assert.equal(a.exploration.hammerPointsToday, 10, '渠道日上限10'); assert.equal(a.score, 10);
+  assert.deepEqual(r.privateSnapshot(a.id).me.roundTasks.hammer, { points: 10, cap: 10, perTargetCap: 2 });
   const miss = fixture({ rolls: Array(10).fill(9999) }), m = miss.find(1), mt = miss.find(2);
-  for (const q of miss.room.players) { q.x = m.x + 2000; } mt.x = m.x + 10; mt.y = m.y;
+  for (const q of miss.room.players) { q.floorId = m.floorId; q.x = m.x + 2000; } mt.x = m.x + 10; mt.y = m.y;
   const res = miss.performAction(m.id, 'hammer');
   assert.equal(res.hit, true); assert.equal(res.points, 0, '概率未命中不得分');
   assert.equal(miss.performAction(m.id, 'scare').ok, false, '吓人已移除');
@@ -126,7 +129,7 @@ await test('休战玩家：可探索、答题、领福利、J挥锤、转盘；�
   assert.equal(bad.alive, false);
   for (let i = 0; i < 5; i++) assert.equal(open(r, bad, cs[i]).ok, true);
   assert.equal(claim(r, bad, 'score').ok, true);
-  good.x = bad.x + 10; good.y = bad.y;
+  good.floorId = bad.floorId; good.x = bad.x + 10; good.y = bad.y;
   assert.equal(r.performAction(bad.id, 'hammer').hit, true);
   const npc = WORLD.NPCS.find(n => n.floorId === bad.floorId); bad.x = npc.x; bad.y = npc.y;
   assert.equal(r.play(bad.sessionId, { commandId: nid(), kind: 'wheel', entityId: npc.id, roundId: r.room.roundId, expectedFloorRevision: bad.floorRevision }).ok, true);

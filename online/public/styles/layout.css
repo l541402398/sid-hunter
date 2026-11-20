@@ -41,7 +41,40 @@ p{margin:0}
 .toolbar button[aria-expanded=true],.toolbar button[aria-pressed=true]{border-color:#f0b24a;background:linear-gradient(180deg,#7a4419,#542d0e);color:#fff3cf;box-shadow:inset 0 0 0 1px #ffd27866}
 .toolbar .score-chip,.toolbar .sso-user{font-size:calc(11px * var(--toolbar-text-scale))}
 .toolbar .score-chip b{font-size:calc(12.5px * var(--toolbar-text-scale))}
-#fullscreen-toggle{justify-content:center;min-width:34px;min-height:30px}
+#fullscreen-toggle,#audio-toggle{justify-content:center;min-width:34px;min-height:30px}
+#audio-toggle .audio-mute-x{display:none}
+#audio-toggle[data-muted=true]{color:#bfa584;opacity:.85}
+#audio-toggle[data-muted=true] .audio-waves{display:none}
+#audio-toggle[data-muted=true] .audio-mute-x{display:block}
+.audio-popover{pointer-events:auto;position:absolute;top:calc(100% + 6px);right:0;z-index:50;width:306px;max-width:calc(100vw - 24px);padding:10px 12px;background:linear-gradient(180deg,#382213f7,#23140af7);border:1.5px solid #c99650;clip-path:var(--clip-card);box-shadow:inset 0 1px 0 #ffdf9e30,0 10px 26px rgba(10,5,1,.65);color:#f7e6c4;display:flex;flex-direction:column;gap:8px;font-size:12px}
+.audio-popover[hidden]{display:none!important}
+.audio-pop-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:6px;border-bottom:1px solid #6e4d2d}
+.audio-pop-head small{display:block;font:700 9px ui-monospace,monospace;letter-spacing:1.2px;color:#cfa76f}
+.audio-pop-head strong{display:block;font-size:12.5px;color:#fff2cf;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:176px}
+.audio-mute-btn{font-size:11px;padding:4px 8px;background:linear-gradient(180deg,#5b3920,#3d2513);border:1px solid #be8d56;clip-path:var(--clip-card);color:#ffe9bf;white-space:nowrap;cursor:pointer}
+.audio-mute-btn:hover{background:linear-gradient(180deg,#704728,#4d2f18);border-color:#e2b274}
+.audio-mute-btn[aria-pressed=true]{background:linear-gradient(180deg,#7a4419,#542d0e);border-color:#f0b24a;color:#fff4d2}
+.audio-row{display:grid;grid-template-columns:86px 1fr 34px;align-items:center;gap:6px;font-size:12px;color:#f3dfc0}
+.audio-row-label{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;cursor:pointer}
+.audio-row-label input[type=checkbox]{accent-color:#e5a942;width:14px;height:14px;margin:0;cursor:pointer}
+.audio-row input[type=range]{width:100%;accent-color:#e8b14c;cursor:pointer}
+.audio-row input[type=range]:disabled{opacity:.4;cursor:default}
+.audio-row b{text-align:right;font:700 11px ui-monospace,monospace;color:#ffd878}
+.audio-list-bar{display:flex;align-items:center;justify-content:space-between;gap:6px;padding-top:6px;border-top:1px solid #6e4d2d}
+.audio-list-title{font-size:11px;color:#cfa76f;white-space:nowrap}
+.audio-list-controls{display:flex;align-items:center;gap:4px}
+.audio-mini-btn{font-size:11px;line-height:1;padding:3px 6px;min-height:22px;background:linear-gradient(180deg,#4e311b,#331e0f);border:1px solid #9f7546;clip-path:var(--clip-card);color:#f7e4be;cursor:pointer;white-space:nowrap}
+.audio-mini-btn:hover{background:linear-gradient(180deg,#674124,#472a15);border-color:#d4a367;color:#fff8e6}
+.audio-loop-btn[aria-pressed=true]{background:linear-gradient(180deg,#7a4419,#542d0e);border-color:#f0b24a;color:#fff3cf}
+.audio-playlist{display:flex;flex-direction:column;gap:4px;max-height:178px;overflow-y:auto;padding-right:2px}
+.audio-track-item{width:100%;display:grid;grid-template-columns:18px 1fr auto;align-items:center;gap:6px;padding:5px 7px;text-align:left;background:#2b1a0eb8;border:1px solid #6e4e2e;clip-path:var(--clip-card);color:#ecd6b3;font-size:11.5px;cursor:pointer}
+.audio-track-item:hover{background:#472c18e6;border-color:#b88952;color:#fff5dc}
+.audio-track-item.is-active{background:linear-gradient(90deg,#6e4019f0,#4a2a12f0);border-color:#f0b24a;color:#fff4d0;box-shadow:inset 0 0 0 1px #ffd2784d}
+.audio-track-idx{font:700 10px ui-monospace,monospace;color:#c9a16b;text-align:center}
+.audio-track-item.is-active .audio-track-idx{color:#ffd878}
+.audio-track-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.audio-track-tag{font-size:10px;color:#bfa076;white-space:nowrap}
+.audio-track-item.is-active .audio-track-tag{color:#ffe1a0}
 #fullscreen-toggle .fullscreen-exit{display:none}
 #fullscreen-toggle[aria-pressed=true] .fullscreen-enter{display:none}
 #fullscreen-toggle[aria-pressed=true] .fullscreen-exit{display:block}

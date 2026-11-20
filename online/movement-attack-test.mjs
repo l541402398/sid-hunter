@@ -23,7 +23,7 @@ function fixture() {
   const r = createRoom();
   for (let i = 0; i < 4; i++) {
     const p = r.join(`movement-${i}`, `专项${i}`).player;
-    p.x = i ? 1500 + i * 100 : 500; p.y = 350;
+    p.floorId = 1; p.x = i ? 1500 + i * 100 : 500; p.y = 350;
   }
   return r;
 }

@@ -13,6 +13,7 @@ function check(name, cond, detail) {
 function fixture() {
   const r = createRoom();
   r.join('s1', '甲'); r.join('s2', '乙');
+  for (const p of r.room.players) p.floorId = 1;
   return r;
 }
 
