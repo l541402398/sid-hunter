@@ -9,18 +9,11 @@ body.practice-game,.practice-game .shell,.practice-game .game-layout,.practice-g
 .practice-game .target{top:50%;right:auto}
 /* Reserve the lower screen for the complete clues card during comparison. */
 @media(max-width:620px){.practice-game .target.tutorial-comparing{top:12px;transform:translateX(-50%);max-height:min(280px,33dvh)}}
-.training-guide{position:absolute;left:14px;bottom:64px;z-index:19;width:254px;max-height:calc(100dvh - 210px);overflow:auto;padding:14px;background:linear-gradient(160deg,#3b2919f5,#22160ff5);border:1.5px solid #c49a59;color:#f5e5c9;box-shadow:inset 0 1px 0 #ffdf9e33,0 8px 24px #130a0677;pointer-events:auto}
-.lesson-heading{display:flex;justify-content:space-between;align-items:center;color:#f2cb7f;font:11px ui-monospace,monospace;gap:6px}.lesson-heading small{font:10px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:#c7af87}.training-guide h2{font-size:19px;margin:10px 0 6px;color:#fff0ce}.training-guide p{font-size:12px;line-height:1.7}.training-guide #lesson-task{font-weight:750;color:#f2cb7f;margin-bottom:7px}.training-guide #lesson-detail{color:#e1cbab}.training-guide .lesson-tip{border-top:1px solid #8a663c;padding-top:9px;margin-top:10px;color:#c9b08a;font-size:11px}.training-guide .lesson-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}.training-guide .lesson-actions button{font-size:11px;padding:6px 9px}.training-guide #lesson-next{background:linear-gradient(#f1d69c,#bd8b4b);color:#38200a}.training-guide #lesson-restart{color:#d7bf98;background:#382616}.training-guide #lesson-progress{display:flex;gap:4px;list-style:none;padding:0;margin:10px 0}.training-guide #lesson-progress li{height:3px;flex:1;background:#695137}.training-guide #lesson-progress .done{background:#83c397}.training-guide #lesson-progress .current{background:#f2cb7f}
 .tutorial-context{position:absolute;left:14px;top:110px;z-index:17;display:flex;align-items:center;gap:12px;padding:7px 10px;background:#2b1a0ff2;border:1px solid #b38a51;color:#f5dab0;font-size:11px;max-width:calc(100vw - 28px)}.tutorial-context small{font-size:10px;color:#cbb18a}.tutorial-context button{font-size:11px;padding:4px 9px}.tutorial-context strong{white-space:nowrap;color:#ffdc8c}.tutorial-context .context-copy{max-width:300px}
 .tutorial-focus{filter:drop-shadow(0 0 5px #ffcf59);outline:2px solid #ffe196;outline-offset:2px}
-#tutorial-lesson-collapse{font:700 17px/1 ui-monospace,monospace;padding:2px 6px;color:#ffe2a0;background:transparent;border:0;box-shadow:none}.training-guide.is-collapsed #lesson-copy,.training-guide.is-collapsed #lesson-progress{display:none}.training-guide.is-collapsed{width:180px;padding:8px 12px}.training-guide.is-collapsed .lesson-heading small{display:none}
-/* Keep the real panels unobstructed while retaining the current instruction. */
-.training-guide.panel-active{left:14px;bottom:55px;width:254px;max-width:calc(100vw - 28px);max-height:180px;padding:9px 13px}
-.training-guide.panel-active #lesson-progress,.training-guide.panel-active #lesson-detail,.training-guide.panel-active .lesson-tip,.training-guide.panel-active .lesson-actions{display:none}
-.training-guide.panel-active h2{font-size:14px;margin:5px 0}.training-guide.panel-active #lesson-task{font-size:11px;margin:0}
-@media(max-width:1200px){.tutorial-context{top:150px}.training-guide{width:230px}}
-@media(max-width:620px){.tutorial-context{top:170px;left:8px;max-width:calc(100vw - 16px);gap:6px;padding:5px 8px;flex-wrap:wrap}.tutorial-context .context-copy{display:none}.training-guide{left:8px;bottom:54px;width:min(254px,calc(100vw - 16px));max-height:42dvh;padding:10px}.training-guide h2{font-size:16px;margin:6px 0}.training-guide p{font-size:11px}.training-guide .lesson-tip{font-size:10px}.training-guide .lesson-actions{margin-top:7px}.training-guide.is-collapsed{width:175px}}
-@media(max-height:600px){.training-guide{max-height:calc(100dvh - 200px);bottom:44px}.training-guide #lesson-detail,.training-guide .lesson-tip{display:none}.tutorial-context .context-copy{display:none}}
+
+@media(max-width:620px){.tutorial-context{left:8px;max-width:calc(100vw - 16px);gap:6px;padding:5px 8px;flex-wrap:wrap}}
+@media(max-width:620px),(max-height:600px){.tutorial-context .context-copy{display:none}}
 
 /* The manual popover also sits above real modal dialogs without replacing them. */
 #tutorial-spotlight{position:fixed;inset:0;margin:0;padding:0;width:100vw;height:100dvh;max-width:none;max-height:none;border:0;background:transparent;color:#fbe5c0;pointer-events:none;overflow:hidden;clip-path:none;box-shadow:none}
@@ -36,9 +29,10 @@ body.practice-game,.practice-game .shell,.practice-game .game-layout,.practice-g
 #spotlight-reference{margin-top:10px}
 #movement-hint{position:absolute;z-index:18;box-sizing:border-box;padding:12px 14px;background:linear-gradient(#46301ef5,#291a10f5);border:1px solid #d8ae68;color:#fbe5c0;box-shadow:0 6px 18px #0005;pointer-events:none;font-size:11px}
 #movement-hint strong{font-size:14px;color:#ffe3a2}.movement-keys{display:flex;gap:6px;margin:9px 0}.movement-keys kbd{display:grid;place-items:center;width:28px;height:28px;border:1px solid #d8ae68;border-bottom-width:3px;background:#634628;color:#fff0ce;font:bold 14px ui-monospace,monospace}
+#desk-hint{position:absolute;z-index:15;transform:translate(-50%,-100%);pointer-events:none;white-space:nowrap;padding:8px 12px;border:2px solid #ffe196;background:#372313;color:#fff0bd;box-shadow:0 0 14px #ffc65f66,0 4px 12px #0008;font-size:clamp(14px,2vw,18px);font-weight:800}
+#desk-hint kbd{display:inline-block;padding:1px 6px;border:1px solid #ffe196;border-bottom-width:2px;background:#705026;color:#fff6d8;font:bold 1em ui-monospace,monospace}
 #spotlight-next{margin-top:10px;font-size:12px;background:linear-gradient(#efd194,#bd8b4b);color:#35220e}
 #spotlight-exit{position:absolute;right:16px;bottom:15px;pointer-events:auto;font-size:12px}
-.tutorial-spotlighting .training-guide{visibility:hidden}
 #training-complete{text-align:center;width:min(470px,calc(100vw - 24px))}
 #training-complete .panel-heading{justify-content:center}
 #training-complete h2{font-size:22px;line-height:1.5;white-space:normal}

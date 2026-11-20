@@ -37,8 +37,14 @@ const wait=expression=>until(expression,()=>ev(expression));
 const waitRoom=expression=>until(expression,()=>room(expression));
 const click=selector=>ev(`document.querySelector(${JSON.stringify(selector)}).click()`);
 const clickRoom=async selector=>{
- await room('new Promise(ok=>requestAnimationFrame(()=>requestAnimationFrame(ok)))');
- const bounds=await room(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Missing '+${JSON.stringify(selector)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+ const target=JSON.stringify(selector);
+ await room(`document.querySelector(${target})?.scrollIntoView({block:'nearest'})`);
+ const bounds=await waitRoom(`(()=>{
+  const element=document.querySelector(${target});
+  if(!element)return false;
+  const rect=element.getBoundingClientRect(),x=rect.x+rect.width/2,y=rect.y+rect.height/2;
+  return element.contains(document.elementFromPoint(x,y))?{x,y}:false;
+ })()`);
  const frame=await ev("document.getElementById('tutorial-frame').getBoundingClientRect().toJSON()");
  for(const type of ['mousePressed','mouseReleased'])await call('Input.dispatchMouseEvent',{type,button:'left',clickCount:1,x:frame.x+bounds.x,y:frame.y+bounds.y});
 };
@@ -72,8 +78,8 @@ try{
  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
  await call('Page.addScriptToEvaluateOnNewDocument',{source:`if(window===top&&location.origin===${JSON.stringify(base)}){localStorage.setItem('sid_session_token',${JSON.stringify(self.sessionId)});window.gameplayCalls=[];const raw=fetch;window.fetch=async function(url,options){const path=new URL(typeof url==='string'?url:url.url,location.href).pathname;if(options?.method==='POST')gameplayCalls.push({path,body:options.body});return raw.apply(this,arguments);};}`});
  await call('Page.navigate',{url:base+'/'});await call('Page.bringToFront');
- await wait("document.readyState==='complete'&&document.getElementById('annual-review-overlay')?.dataset.ready==='true'");
- await key('Escape');
+ await wait("document.readyState==='complete'&&document.getElementById('annual-review-overlay')?.dataset.ready==='true'&&document.getElementById('annual-review-frame').contentDocument?.getElementById('close-review')");
+ await ev("document.getElementById('annual-review-frame').contentDocument.getElementById('close-review').click()");
  await check('纪念册关闭且加入后首次展示可跳过的训练邀请',async()=>{
   await wait("document.getElementById('tutorial-offer').open");assert.equal(await ev("document.getElementById('join-page').hidden"),true);
   await capture('01-invitation.png');await click('#tutorial-skip');assert.equal(await ev("document.getElementById('tutorial-offer').open"),false);await delay(200);assert.equal(await ev("document.querySelector('.shell').inert"),false);
@@ -136,6 +142,8 @@ try{
   assert.equal(await room("document.body.innerText.includes('正式角色留在原位置')"),true);
   await ev('window.gameplayCalls=[]');await room("document.getElementById('office').focus()");
   assert.equal(await room("document.getElementById('movement-hint').hidden"),false);
+  assert.equal(await room("document.querySelector('#training-guide, #lesson-number') === null"),true);
+  assert.equal(await room("document.getElementById('desk-hint').hidden"),true);
   assert.equal(await room("[...document.querySelectorAll('#movement-hint kbd')].map(k=>k.textContent).join('')"),'WASD');
   const hint=await room("document.getElementById('movement-hint').getBoundingClientRect().toJSON()");assert.ok(hint.x>=1440*.3+50);await capture('02-movement-wasd.png');
   await room(`window.movementFrames=[];window.originalPracticeOverlay=SID_PRACTICE.drawOverlay;SID_PRACTICE.drawOverlay=function(ctx,view){
@@ -151,6 +159,12 @@ try{
   for(const frame of frames)assert.deepEqual(frame.camera,frames[0].camera,'The map must stay fixed while walking and entering exploration');
   for(const frame of frames.filter(f=>f.phase===0))assert.deepEqual(frame.hint,{x:hint.x,y:hint.y},'WASD must stay at its initial screen position');
   assert.ok(frames.at(-1).player.x>frames[0].player.x+20,'The character must move across the stationary map');
+  const deskPrompt=await room(`(() => {
+   const hint=document.getElementById('desk-hint');
+   const bounds=hint.getBoundingClientRect();
+   return {text:hint.textContent, key:hint.querySelector('kbd').textContent, visible:!hint.hidden && bounds.width>0 && bounds.top>=0 && bounds.right<=innerWidth};
+  })()`);
+  assert.deepEqual(deskPrompt,{text:'靠近书桌按 K',key:'K',visible:true});
   assert.deepEqual(raw(),baseline);await capture('02-room-movement.png');
  });
  await check('退出保存进度，随时重进从当前步骤继续',async()=>{
@@ -195,6 +209,7 @@ try{
    }
   });`);
   await key('KeyK');await phase('explore-close');assert.equal(await step(),1);
+  assert.equal(await room("document.getElementById('desk-hint').hidden"),true);
   assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'loot-close');
   assert.match(await room("document.getElementById('loot-summary').textContent"),/直接获得 2 积分/);
   await waitRoom('lootRingAnimations.length===1');

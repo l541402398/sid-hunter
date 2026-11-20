@@ -5,15 +5,6 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.TutorialRoom = api;
 })(typeof window !== 'undefined' ? window : globalThis, function() {
-  const STEPS = [
-    { title: '移动', task: '试着用 W、A、S、D 移动', detail: 'W 向上、A 向左、S 向下、D 向右，走动一小段即可。', tip: '墙壁和家具会挡路，也可以用方向键移动。' },
-    { title: '交互', task: '靠近身边的书桌，按 K 探索', detail: '走近高亮的书桌，再按 K 完成一次探索。', tip: '探索可能为空、获得积分或遇到题目。J 是敲击互动，不扣对抗生命。' },
-    { title: '查看自己', task: '了解阵营、外观属性和隐藏属性', detail: '跟随高亮依次查看个人信息，最后关闭面板。', tip: '个人信息只向自己展示，公开属性仍遵循正式对局规则。' },
-    { title: '查看线索', task: '根据系统公布的信息推理目标', detail: '展开线索，查看当前坏人信息卡片。', tip: '匿名编号不对应玩家顺序，未公布的字段为 ***。' },
-    { title: '玩家名单', task: '用线索中的颜色搜索人物', detail: '在名单输入「砖红」，找到符合线索的人物并打开档案。', tip: '搜索只匹配公开信息，不会搜索出他人的隐藏属性。' },
-    { title: '使用技能', task: '核对颜色线索，再使用「指认」', detail: '对照坏人01的线索，确认头发和上衣颜色一致，再指认。', tip: '指认潜伏者让对方扣 1 格生命；误指好人会让自己扣 1 格生命。' },
-    { title: '观察结果', task: '查看地图和名单中的血量变化', detail: '两处血条同步由 3/3 变为 2/3。', tip: '生命归零后进入休战，已有积分保留，仍可参与非对抗玩法。' }
-  ];
   const PHASES = [
     ['move'], ['explore','explore-close'], ['mine-open','mine-faction','mine-colors','mine-traits','mine-close'],
     ['clues-countdown','clues-open','clues-card','clues-close'], ['roster-open','roster-search','roster-alpha'],
@@ -27,8 +18,9 @@
   ]);
   const CLUE_COLORS = Object.freeze({ hair: PEOPLE[0].hair[0], top: PEOPLE[0].top[0] });
   function normalizeProgress(value) {
-    const step = Number.isInteger(value?.step) ? Math.max(0, Math.min(STEPS.length, value.step)) : 0;
-    return { step, completed: step === STEPS.length, dismissed: !!value?.dismissed };
+    const finalStep = PHASES.length - 1;
+    const step = Number.isInteger(value?.step) ? Math.max(0, Math.min(finalStep, value.step)) : 0;
+    return { step, completed: step === finalStep, dismissed: !!value?.dismissed };
   }
   function create(saved, layout = {}) {
     const initial = normalizeProgress(saved);
@@ -112,5 +104,5 @@
     }
     return { state, move, tick, nearDesk, explore, event, viewProfile, readClues, accuse, progress: () => ({ step: state.step }) };
   }
-  return { STEPS, DESK, PEOPLE, CLUE_COLORS, create, normalizeProgress, PHASES };
+  return { DESK, PEOPLE, CLUE_COLORS, create, normalizeProgress, PHASES };
 });

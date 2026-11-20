@@ -69,22 +69,11 @@
       rules: { endsAt: 0 }, historicalRanking: [], ranking: null, glassDoors: [] };
   }
   function push() { if (bridge && active) bridge.applySnapshot(clone(snapshot())); }
-  // Retain only an instruction card; every functional control below it belongs to game.js.
-  function renderGuide() {
+  function reportProgress() {
     const step = room.state.step;
     if (step === lastStep) return;
-    lastStep = step; document.body.dataset.tutorialStep = String(step);
-    const done = step === T.STEPS.length, lesson = T.STEPS[Math.min(step, T.STEPS.length - 1)];
-    $('lesson-number').textContent = done ? '07 / 07 · 完成' : `${String(step + 1).padStart(2, '0')} / 07`;
-    $('lesson-title').textContent = done ? '训练完成' : `${step + 1}. ${lesson.title}`;
-    $('lesson-task').textContent = done ? '你已掌握基础操作，可以返回办公室。' : lesson.task;
-    $('lesson-detail').textContent = done ? '正式对局继续进行，返回时将显示最新状态与期间事件。' : lesson.detail;
-    $('lesson-tip').textContent = done ? '在「游戏规则 → 新手训练室」可随时再来。' : lesson.tip;
-    $('lesson-progress').replaceChildren(...T.STEPS.map((p, i) => {
-      const item = document.createElement('li'); item.className = i < step ? 'done' : i === step ? 'current' : '';
-      item.setAttribute('aria-label', p.title + (i < step ? '：已完成' : i === step ? '：当前' : '：未开始')); return item;
-    }));
-    $('lesson-next').hidden = !done;
+    lastStep = step;
+    document.body.dataset.tutorialStep = String(step);
     for (const [id, on] of [['my-info', step === 2], ['bad-toggle', step === 3]]) $(id).classList.toggle('tutorial-focus', on);
     post('progress', { progress: room.progress() });
   }
@@ -286,8 +275,7 @@
     lastPublished = room.state.cluesPublished;
     active = true; bridge.reset();
     log('欢迎进入新手训练室，当前操作仅影响练习角色。');
-    $('training-guide').classList.remove('is-collapsed'); $('tutorial-lesson-collapse').textContent = '−';
-    push(); renderGuide(); $('office').focus({ preventScroll: true });
+    push(); reportProgress(); $('office').focus({ preventScroll: true });
   }
   function exit() { input = { x: 0, y: 0 }; active = false; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); post('exit'); }
   function completeSearch(id) {
@@ -301,21 +289,22 @@
     log(`探索书桌，获得 ${points} 分练习积分。`);
     const result = { ok: true, status: 200, mode: 'points', gained: { points }, score,
       exploration: exploration(), resultText: `获得 ${points} 积分（练习）` };
-    push(); renderGuide(); return result;
+    push(); reportProgress(); return result;
   }
   window.SID_PRACTICE = {
     boot(callbacks) {
       bridge = callbacks;
       document.body.classList.add('practice-game');
-      $('stage').insertAdjacentHTML('beforeend', `<div class="tutorial-context"><strong>新手训练室</strong><small>独立练习角色</small><small class="context-copy">正式角色留在原位置，正常受击与计分</small><button id="room-exit" type="button">退出教程</button></div><aside id="training-guide" class="training-guide" aria-label="新手教程任务"><div class="lesson-heading"><span id="lesson-number"></span><small>仅练习数据</small><button id="tutorial-lesson-collapse" type="button" aria-label="折叠或展开教程提示">−</button></div><ol id="lesson-progress" aria-label="教程进度"></ol><div id="lesson-copy"><div aria-live="polite"><h2 id="lesson-title"></h2><p id="lesson-task"></p><p id="lesson-detail"></p></div><p id="lesson-tip" class="lesson-tip"></p><div class="lesson-actions"><button id="lesson-next" type="button" hidden>返回办公室</button><button id="lesson-restart" type="button">从头练习</button></div></div></aside>`);
+      $('stage').insertAdjacentHTML('beforeend', `<div class="tutorial-context"><strong>新手训练室</strong><small>独立练习角色</small><small class="context-copy">正式角色留在原位置，正常受击与计分</small><button id="room-exit" type="button">退出教程</button></div>`);
       document.body.insertAdjacentHTML('beforeend', `<div id="tutorial-spotlight" popover="manual" hidden aria-label="教程操作引导"><svg id="spotlight-svg" aria-hidden="true"><path id="spotlight-shade" fill-rule="evenodd"/></svg><div id="spotlight-rings"></div><div id="spotlight-note" role="status"><strong id="spotlight-title"></strong><p id="spotlight-detail"></p><p id="spotlight-tip" hidden><span class="tutorial-tip-label">提示</span><strong id="spotlight-tip-text" class="tutorial-emphasis"></strong></p><div id="spotlight-reference" aria-label="系统公布的坏人01线索对照" hidden></div><button id="spotlight-next" type="button" hidden>下一步</button></div><button id="spotlight-exit" type="button">退出教程</button></div><dialog id="training-complete" class="center-dialog" aria-labelledby="training-complete-title"><div class="panel-heading"><h2 id="training-complete-title">恭喜您完成了新手训练营</h2></div><p>你已经学会移动、交互、查看信息、推理线索、搜索名单和使用技能。</p><p>正式角色的最新状态将在返回办公室时显示。</p><button id="training-complete-exit" type="button">返回办公室</button><button id="training-complete-restart" type="button">重新练习</button></dialog>`);
       $('stage').insertAdjacentHTML('beforeend', '<div id="movement-hint" hidden><strong>试着移动</strong><div class="movement-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><span>这几个按键可以移动人物</span></div>');
+      $('stage').insertAdjacentHTML('beforeend', '<div id="desk-hint" hidden>靠近书桌按 <kbd>K</kbd></div>');
       $('spotlight-exit').onclick = exit; $('training-complete-exit').onclick = exit;
       $('training-complete-restart').onclick = () => start({ step: 0 });
       $('training-complete').addEventListener('cancel', event => { event.preventDefault(); exit(); });
       $('spotlight-next').onclick = () => {
         if (room.state.phase === 'roster-search') room.event('search'); else room.event('next');
-        renderGuide(); updateSpotlight(lastView);
+        reportProgress(); updateSpotlight(lastView);
       };
       window.addEventListener('keydown', event => {
         if (active && event.key === 'Escape') {
@@ -334,12 +323,7 @@
         const allowed = { 'mine-open': 'KeyM', 'clues-open': 'KeyC', 'roster-open': 'KeyR' }[room.state.phase];
         if (!['Enter','Space',allowed].includes(event.code)) { event.preventDefault(); event.stopImmediatePropagation(); }
       }, true);
-      $('room-exit').onclick = exit; $('lesson-next').onclick = exit;
-      $('lesson-restart').onclick = () => { start({ step: 0 }); post('restart'); };
-      $('tutorial-lesson-collapse').onclick = () => {
-        const collapsed = $('training-guide').classList.toggle('is-collapsed'); $('tutorial-lesson-collapse').textContent = collapsed ? '+' : '−';
-        $('tutorial-lesson-collapse').setAttribute('aria-expanded', String(!collapsed));
-      };
+      $('room-exit').onclick = exit;
       $('annual-review-toggle').onclick = () => { log('退出教程后可查看年度纪念册。'); push(); };
       $('tutorial-entry').disabled = true;
       if (parent === window) start({ step: 0 }); else post('ready');
@@ -358,7 +342,7 @@
       if (path === '/api/search/start') return completeSearch(body.containerId);
       if (path === '/api/skill') {
         if (body.skill !== 'accuse' || ![2, 3].includes(body.targetId) || room.state.step !== 5 || room.state.phase !== 'confirm') return { status: 400, ok: false, error: '先查看身份与线索，再核对练习人物。' };
-        room.accuse(people[body.targetId - 2].id); log(room.state.result); renderGuide();
+        room.accuse(people[body.targetId - 2].id); log(room.state.result); reportProgress();
         // Let the real confirmation UI finish before updating the shared snapshot.
         setTimeout(push, 0);
         return { ok: true, status: 200, serverTime: Date.now(), resultText: room.state.result, hp: room.state.player.hp, alive: true, score: room.state.player.score, skills: me().skills, accusedToday: [] };
@@ -385,9 +369,7 @@
       room.tick(dt);
       if (room.state.cluesPublished && !lastPublished) { log('系统公布了坏人线索：上衣砖红、头发银白。', 'systemClue'); lastPublished = true; }
       lastView = view; observe(view);
-      renderGuide(); updateSpotlight(view);
-      const panelOpen = ['mine', 'target', 'roster', 'loot'].some(id => !$(id).hidden) || $('bad-pool-dialog').open;
-      $('training-guide').classList.toggle('panel-active', panelOpen);
+      reportProgress(); updateSpotlight(view);
       if (elapsed - lastPush >= .05) { lastPush = elapsed; push(); }
     },
     drawOverlay(ctx, view) {
@@ -405,11 +387,20 @@
         hint.style.top = Math.max(12, Math.min(innerHeight - hint.offsetHeight - 64, innerHeight * .62 - 90)) + 'px';
         hint.dataset.viewport = hintViewport;
       }
-      if (room.state.phase !== 'explore') return;
-      ctx.save(); ctx.strokeStyle = '#ffe09a'; ctx.lineWidth = 2; ctx.fillStyle = '#f5d488';
-      ctx.font = 'bold 11px -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif'; ctx.textAlign = 'center';
+      const deskHint = $('desk-hint');
+      deskHint.hidden = room.state.phase !== 'explore';
+      if (deskHint.hidden) return;
+
+      const transform = ctx.getTransform();
+      const canvas = ctx.canvas;
+      const x = (transform.a * (desk.x + desk.w / 2) + transform.e) * canvas.clientWidth / canvas.width;
+      const y = (transform.d * (desk.y - 30) + transform.f) * canvas.clientHeight / canvas.height;
+      deskHint.style.left = Math.round(x) + 'px';
+      deskHint.style.top = Math.round(y) + 'px';
+      ctx.save();
+      ctx.strokeStyle = '#ffe09a';
+      ctx.lineWidth = 3;
       ctx.strokeRect(desk.x - 5, desk.y - 24, desk.w + 10, desk.h + 30);
-      ctx.fillText('K 探索书桌', desk.x + desk.w / 2, desk.y - 34);
       ctx.restore();
     },
     cameraFor(viewW, viewH, scale, width, height) {

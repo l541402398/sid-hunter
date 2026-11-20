@@ -114,7 +114,6 @@
       if (e.data?.type === 'sid-tutorial:ready') { loaded = true; initializeFrame(); return; }
       if (!overlay.open || owner !== context().owner) return;
       if (e.data?.type === 'sid-tutorial:exit') exit();
-      if (e.data?.type === 'sid-tutorial:restart') { progress.step = 0; save(); }
       if (e.data?.type === 'sid-tutorial:progress') {
         const step = e.data.progress?.step;
         if (Number.isInteger(step) && step >= 0 && step <= 7) { progress.step = step; save(); }
