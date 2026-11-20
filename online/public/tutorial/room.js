@@ -46,7 +46,9 @@
       spriteFacing: position.facing || 'front', facing: swing?.facing, lastAttackDirection: swing?.lastAttackDirection,
       lastAttackFacing: swing?.lastAttackFacing, lastAttackAt: swing?.lastAttackAt ?? 0 };
   }
-  function exploration() { return { clues: [], searched: [...searched], pendingQuizContainerIds: [] }; }
+  function exploration() {
+    return { clues: [], searched: [...searched], pendingQuizContainerIds: room.state.phase === 'explore-quiz' ? [desk.id] : [] };
+  }
   function me() {
     const s = room.state;
     return { id: 1, name: '练习角色', faction: 'good', sid: 'PRA-CTI-CE1', hp: s.player.hp, maxHp: 3, alive: true, truce: false, protected: false, protectUntil: 0,
@@ -80,6 +82,7 @@
   function spotlightDefinition(view) {
     const phase = room.state.phase;
     const definitions = {
+      'explore-quiz': ['loot-quiz', '回答练习题', '选一个答案，再点「提交答案」或按 K。', '#loot'],
       'explore-close': ['loot-close', '关闭探索结果', '查看这次探索获得的积分，然后点击关闭，继续下一步。', '#loot-close'],
       'mine-open': ['my-info', '点击「我的信息」', '先了解自己的阵营、外观属性和隐藏属性。', '#my-info'],
       'mine-faction': ['mine-faction', '我的阵营', '你是调查员（好人），可以使用「指认」。正式对局每场会重新分配阵营。', '.mine-identity', true],
@@ -99,6 +102,7 @@
       'target-close': ['target-close', '关闭人物档案', '指认成功！关闭窗口，看看地图和名单中的血量变化。', '#target-close'],
       'health': ['health', '生命减少了 1 点', '练习人物甲在地图和玩家名单中的血量都已从 3/3 变为 2/3。', '#roster-items [data-player="2"] .combat-health', true]
     };
+    if (phase === 'explore-quiz' && $('loot-take').hidden) return null;
     let def = definitions[phase];
     if (!def) return null;
     if (phase === 'mine-open' && (!$('loot').hidden || view.mineOpen)) return null;
@@ -169,7 +173,7 @@
       right: Math.min(innerWidth - 2, r.x + r.width + 5), bottom: Math.min(innerHeight - 2, r.y + r.height + 5) });
     const rects = raw.map(paddedRect);
     const controls = [panelCloseButton(), room.state.phase === 'confirm' ? $('cancel') : null]
-      .filter(n => n && !nodes.includes(n)).map(n => paddedRect(n.getBoundingClientRect()));
+      .filter(n => n && !nodes.some(node => node.contains(n))).map(n => paddedRect(n.getBoundingClientRect()));
     const pathRect = r => `M${r.x} ${r.y}H${r.right}V${r.bottom}H${r.x}Z`;
     $('spotlight-shade').setAttribute('d', `M0 0H${innerWidth}V${innerHeight}H0Z ` + [...rects, ...controls].map(pathRect).join(' '));
     $('spotlight-svg').setAttribute('viewBox', `0 0 ${innerWidth} ${innerHeight}`);
@@ -214,8 +218,9 @@
     const r = { x: Math.min(...placementRects.map(r => r.x)), y: Math.min(...placementRects.map(r => r.y)),
       right: Math.max(...placementRects.map(r => r.right)), bottom: Math.max(...placementRects.map(r => r.bottom)) }, gap = 16;
     const sideSpace = Math.max(r.x - gap - 12, innerWidth - r.right - gap - 12);
+    const fitBesideTarget = def.id === 'target-colors' || def.id === 'loot-quiz';
     const note = $('spotlight-note'), nw = Math.min(270, innerWidth - 24,
-      def.id === 'target-colors' && sideSpace >= 200 ? sideSpace : 270);
+      fitBesideTarget && sideSpace >= 200 ? sideSpace : 270);
     note.style.width = nw + 'px';
     const nh = note.offsetHeight;
     if (def.id === 'target-colors' && sideSpace < nw) {
@@ -244,13 +249,15 @@
     const key = def.id + '|' + room.state.phase;
     if (spotlightKey !== key) {
       spotlightKey = key;
-      const focus = def.next ? (next.disabled ? node : next) : node.matches('button,input') ? node : node.querySelector('button');
+      const focus = def.next ? (next.disabled ? node : next)
+        : def.id === 'loot-quiz' ? node.querySelector('.quiz-option')
+        : node.matches('button,input') ? node : node.querySelector('button');
       focus?.focus({ preventScroll: true });
     }
   }
   function observe(view) {
     const phase = room.state.phase;
-    if (phase === 'explore-close' && $('loot').hidden) room.event('loot-close');
+    if (phase.startsWith('explore-') && $('loot').hidden) room.event('loot-close');
     if (phase === 'mine-open' && view.mineOpen) room.event('mine-open');
     if (phase === 'mine-close' && !view.mineOpen) room.event('mine-close');
     if (phase === 'clues-open' && view.cluesOpen) room.readClues();
@@ -278,18 +285,29 @@
     push(); reportProgress(); $('office').focus({ preventScroll: true });
   }
   function exit() { input = { x: 0, y: 0 }; active = false; hideSpotlight(); if ($('training-complete').open) $('training-complete').close(); post('exit'); }
-  function completeSearch(id) {
-    if (!active || id !== desk.id) return { ok: false, status: 400, error: '请靠近身边高亮的书桌。' };
-    const item = scene.furniture.find(f => f.id === id);
-    if (W.distanceToEntity(room.state.player, item) > W.INTERACT_RANGE) return { ok: false, status: 400, error: '距离太远，请靠近后再搜索。' };
+  function deskQuizSessionId() { return `desk-quiz-${generation}`; }
+  function startDeskQuiz(id) {
+    if (id !== desk.id) return { ok: false, status: 400, error: '请靠近身边高亮的书桌。' };
+    if (W.distanceToEntity(room.state.player, desk) > W.INTERACT_RANGE) return { ok: false, status: 400, error: '距离太远，请靠近后再搜索。' };
+    if (room.state.phase !== 'explore-quiz' && !room.explore()) {
+      return { ok: false, status: 400, error: '先完成移动，再靠近身边高亮的书桌探索。' };
+    }
+    input = { x: 0, y: 0 };
+    return { ok: true, status: 200, mode: 'quiz', sessionId: deskQuizSessionId(), quiz: clone(T.DESK_QUIZ),
+      score: room.state.player.score, exploration: exploration() };
+  }
+  function submitDeskQuiz({ sessionId, answer }) {
+    if (room.state.phase !== 'explore-quiz' || sessionId !== deskQuizSessionId()) {
+      return { ok: false, status: 400, error: '请重新打开书桌上的练习题。' };
+    }
     const previousScore = room.state.player.score;
-    if (!room.explore()) return { ok: false, status: 400, error: '先完成移动，再靠近身边高亮的书桌探索。' };
-    searched = [id];
+    if (!room.answerDeskQuiz(answer)) return { ok: false, status: 400, error: '回答错误，请回想走近书桌时的按键提示，再选一次。' };
+    searched = [desk.id];
     const score = room.state.player.score, points = score - previousScore;
     log(`探索书桌，获得 ${points} 分练习积分。`);
-    const result = { ok: true, status: 200, mode: 'points', gained: { points }, score,
-      exploration: exploration(), resultText: `获得 ${points} 积分（练习）` };
-    push(); reportProgress(); return result;
+    push();
+    return { ok: true, status: 200, correct: true, gained: { points }, score, exploration: exploration(),
+      explanation: '靠近可探索的书桌后，按 K 开始探索。' };
   }
   window.SID_PRACTICE = {
     boot(callbacks) {
@@ -315,12 +333,13 @@
         if ($('tutorial-spotlight').hidden) return;
         const def = spotlightDefinition(lastView), node = def && document.querySelector(def.selector);
         if (event.code === 'Tab') {
-          const controls = [...new Set([node, panelCloseButton(), room.state.phase === 'confirm' ? $('cancel') : null, $('spotlight-next'), $('spotlight-exit')])].filter(n => n && !n.hidden && !n.disabled && n.matches('button,input'));
+          const quizControls = def?.id === 'loot-quiz' ? document.querySelectorAll('#loot .quiz-option, #loot-take') : [];
+          const controls = [...new Set([node, ...quizControls, panelCloseButton(), room.state.phase === 'confirm' ? $('cancel') : null, $('spotlight-next'), $('spotlight-exit')])].filter(n => n && !n.hidden && !n.disabled && n.matches('button,input'));
           const i = controls.indexOf(document.activeElement), offset = event.shiftKey ? -1 : 1;
           event.preventDefault(); event.stopImmediatePropagation(); controls[(i+offset+controls.length)%controls.length]?.focus({preventScroll:true}); return;
         }
         if (document.activeElement === $('search') && room.state.phase === 'roster-search') return;
-        const allowed = { 'mine-open': 'KeyM', 'clues-open': 'KeyC', 'roster-open': 'KeyR' }[room.state.phase];
+        const allowed = { 'explore-quiz': 'KeyK', 'mine-open': 'KeyM', 'clues-open': 'KeyC', 'roster-open': 'KeyR' }[room.state.phase];
         if (!['Enter','Space',allowed].includes(event.code)) { event.preventDefault(); event.stopImmediatePropagation(); }
       }, true);
       $('room-exit').onclick = exit;
@@ -339,7 +358,8 @@
       }
       if (path === '/api/state') return { ...snapshot(), status: 200 };
       if (path === '/api/pending-players') return { ok: true, status: 200, groups: [], players: [], count: 0, roundId: 'tutorial-' + generation };
-      if (path === '/api/search/start') return completeSearch(body.containerId);
+      if (path === '/api/search/start') return startDeskQuiz(body.containerId);
+      if (path === '/api/search/take') return submitDeskQuiz(body);
       if (path === '/api/skill') {
         if (body.skill !== 'accuse' || ![2, 3].includes(body.targetId) || room.state.step !== 5 || room.state.phase !== 'confirm') return { status: 400, ok: false, error: '先查看身份与线索，再核对练习人物。' };
         room.accuse(people[body.targetId - 2].id); log(room.state.result); reportProgress();

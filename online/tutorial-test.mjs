@@ -30,8 +30,12 @@ test('七步教程按顺序完成：逐项讲解、搜索指认、确认两处�
   const room=T.create();assert.equal(room.explore(),false);
   for(let i=0;i<18;i++)room.move(1,0,.05);assert.equal(room.state.step,1);
   for(let i=0;i<18;i++)room.move(1,-1,.05);assert.ok(room.nearDesk());
-  assert.equal(room.explore(),true);assert.equal(room.state.phase,'explore-close');assert.equal(room.state.step,1);
-  assert.equal(room.explore(),false);assert.equal(room.state.player.score,2);assert.equal(room.event('loot-close'),true);
+  assert.equal(room.explore(),true);assert.equal(room.state.phase,'explore-quiz');assert.equal(room.state.step,1);
+  assert.equal(room.answerDeskQuiz('A'),false);assert.equal(room.state.player.score,0);
+  assert.equal(room.event('loot-close'),true);assert.equal(room.state.phase,'explore');assert.equal(room.state.step,1);
+  assert.equal(room.explore(),true);assert.equal(room.answerDeskQuiz('B'),true);
+  assert.equal(room.state.phase,'explore-close');assert.equal(room.answerDeskQuiz('B'),false);
+  assert.equal(room.state.player.score,2);assert.equal(room.event('loot-close'),true);
   profile(room);clues(room);roster(room);assert.equal(room.accuse('alpha'),true);
   assert.equal(room.state.npcHp,2);assert.equal(room.state.step,5);assert.equal(room.state.phase,'target-close');assert.equal(room.state.player.score,12);
   assert.equal(room.accuse('alpha'),false);room.event('target-close');assert.equal(room.state.step,6);

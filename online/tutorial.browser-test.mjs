@@ -216,16 +216,26 @@ try{
   assert.equal(second.combat.attackUntil-second.combat.lastAttackAt,W.PLAY_CONFIG.attackCooldownMs);
   assert.equal(await room("document.getElementById('log-count').textContent"),logCount);
  });
- await check('书桌探索结算后高亮关闭按钮，进入时收缩一次，再进入个人信息教学',async()=>{
+ await check('探索书桌先答题，答对获得积分后再高亮关闭按钮',async()=>{
   await room(`window.lootRingAnimations=[];document.addEventListener('animationstart',e=>{
    if(e.animationName==='spotlight-ring-enter'&&document.getElementById('tutorial-spotlight').dataset.target==='loot-close'){
     lootRingAnimations.push(e.target.getAnimations()[0].effect.getKeyframes().map(frame=>frame.transform));
    }
   });`);
-  await key('KeyK');await phase('explore-close');assert.equal(await step(),1);
+  await key('KeyK');await phase('explore-quiz');assert.equal(await step(),1);
+  assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'loot-quiz');
+  assert.match(await room("document.querySelector('#loot .quiz-stem').textContent"),/按哪个键开始探索/);
+  await clickRoom('#loot-close');await waitRoom("SID_PRACTICE.inspect().phase==='explore'");
+  await key('KeyK');await phase('explore-quiz');
+  await capture('02a-desk-quiz.png');
+  await clickRoom('#loot [data-option-key="A"]');await clickRoom('#loot-take');
+  await waitRoom("document.getElementById('loot-status').textContent.includes('回答错误')");
+  assert.equal(await room("document.getElementById('score-value').textContent"),'0');
+  await clickRoom('#loot [data-option-key="B"]');await key('KeyK');
+  await phase('explore-close');assert.equal(await step(),1);
   assert.equal(await room("document.getElementById('desk-hint').hidden"),true);
   assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'loot-close');
-  assert.match(await room("document.getElementById('loot-summary').textContent"),/直接获得 2 积分/);
+  assert.match(await room("document.getElementById('loot-summary').textContent"),/回答正确，获得 2 积分/);
   await waitRoom('lootRingAnimations.length===1');
   assert.deepEqual(await room('lootRingAnimations[0]'),['scale(1.45)','scale(1)']);
   await delay(320);
@@ -355,7 +365,14 @@ try{
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await manualEntry();
   for(const [width,height] of [[390,844],[853,480]]){
    await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
-   await initPractice(2);await phase('mine-open');await clickRoom('#my-info');
+   await initPractice(1);await waitRoom("SID_PRACTICE.inspect().phase==='explore'");
+   await room("document.getElementById('office').focus()");await key('ArrowUp','keyDown');
+   await waitRoom("(()=>{const q=SID_PRACTICE.inspect();return WORLD.distanceToEntity(q.position,WORLD.roomById(q.sceneId).furniture.find(f=>f.id===q.deskId))<=60})()");
+   await key('ArrowUp','keyUp');
+   await room("document.getElementById('office').focus()");
+   await key('KeyK');await phase('explore-quiz');await noteVisible();
+   await capture(`09-quiz-${width}.png`);await clickRoom('#loot [data-option-key="B"]');await clickRoom('#loot-take');
+   await phase('explore-close');await clickRoom('#loot-close');await phase('mine-open');await clickRoom('#my-info');
    for(const p of ['mine-faction','mine-colors','mine-traits']){await phase(p);await noteVisible();await capture(`09-${p}-${width}.png`);await clickRoom('#spotlight-next');}
    await phase('mine-close');await clickRoom('#mine-close');await phase('clues-countdown');await noteVisible();await clickRoom('#spotlight-next');await phase('clues-open');await clickRoom('#bad-toggle');await phase('clues-card');await noteVisible();await capture(`09-clues-${width}.png`);await clickRoom('#spotlight-next');await phase('clues-close');await clickRoom('#bad-pool-close');
    await phase('roster-open');await clickRoom('#roster-toggle');await phase('roster-search');await room("document.getElementById('search').focus()");await call('Input.insertText',{text:'砖红'});await waitRoom("!document.getElementById('spotlight-next').disabled");await clickRoom('#spotlight-next');await phase('roster-alpha');await clickRoom('#roster-items [data-player="2"]');await phase('target-colors');await comparisonVisible();await capture(`09-comparison-${width}.png`);await clickRoom('#spotlight-next');await phase('accuse');await noteVisible();await capture(`09-warning-${width}.png`);await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');await clickRoom('#target-close');await phase('health');await delay(200);

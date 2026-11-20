@@ -6,11 +6,16 @@
   else root.TutorialRoom = api;
 })(typeof window !== 'undefined' ? window : globalThis, function() {
   const PHASES = [
-    ['move'], ['explore','explore-close'], ['mine-open','mine-faction','mine-colors','mine-traits','mine-close'],
+    ['move'], ['explore','explore-quiz','explore-close'], ['mine-open','mine-faction','mine-colors','mine-traits','mine-close'],
     ['clues-countdown','clues-open','clues-card','clues-close'], ['roster-open','roster-search','roster-alpha'],
     ['target-colors','accuse','confirm','target-close'], ['health'], ['complete']
   ];
   const DESK = { x: 430, y: 215, w: 90, h: 68 };
+  const DESK_QUIZ = {
+    type: 'single', stem: '靠近可探索的书桌后，按哪个键开始探索？',
+    options: [{ key: 'A', text: 'J' }, { key: 'B', text: 'K' }, { key: 'C', text: 'M' }],
+    rewardCoins: 2
+  };
   // Every visit uses this immutable cast; published clues come from the same data.
   const PEOPLE = Object.freeze([
     Object.freeze({ id: 'alpha', name: '练习人物甲', x: 650, y: 365, hair: Object.freeze(['银白', '#d3dce9']), top: Object.freeze(['砖红', '#b86a64']), bad: true }),
@@ -35,7 +40,7 @@
     function advance(step) { if (state.step === step) { state.step++; state.phase = PHASES[state.step][0]; return true; } return false; }
     function event(name) {
       const p = state.phase;
-      const transitions = { 'mine-open:mine-open': 'mine-faction', 'mine-faction:next': 'mine-colors',
+      const transitions = { 'explore-quiz:loot-close': 'explore', 'mine-open:mine-open': 'mine-faction', 'mine-faction:next': 'mine-colors',
         'mine-colors:next': 'mine-traits', 'mine-traits:next': 'mine-close',
         'clues-countdown:next': 'clues-open', 'clues-card:next': 'clues-close',
         'roster-open:roster-open': 'roster-search', 'roster-search:search': 'roster-alpha',
@@ -72,8 +77,13 @@
     }
     function explore() {
       if (state.phase !== 'explore' || !nearDesk()) return false;
+      state.phase = 'explore-quiz';
+      return true;
+    }
+    function answerDeskQuiz(answer) {
+      if (state.phase !== 'explore-quiz' || answer !== 'B') return false;
       state.explored = true;
-      state.player.score += 2;
+      state.player.score += DESK_QUIZ.rewardCoins;
       state.phase = 'explore-close';
       return true;
     }
@@ -102,7 +112,7 @@
       state.result = '线索匹配成功！对方扣 1 格练习生命，你获得 10 分练习积分。正式对局还会有技能次数、冷却与受击保护。';
       state.phase = 'target-close'; return true;
     }
-    return { state, move, tick, nearDesk, explore, event, viewProfile, readClues, accuse, progress: () => ({ step: state.step }) };
+    return { state, move, tick, nearDesk, explore, answerDeskQuiz, event, viewProfile, readClues, accuse, progress: () => ({ step: state.step }) };
   }
-  return { DESK, PEOPLE, CLUE_COLORS, create, normalizeProgress, PHASES };
+  return { DESK, DESK_QUIZ, PEOPLE, CLUE_COLORS, create, normalizeProgress, PHASES };
 });
