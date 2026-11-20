@@ -16,6 +16,10 @@ h2{font-size:16px;letter-spacing:.5px;font-weight:800;margin:2px 0 0;color:var(-
 .icon-button:hover:not(:disabled){color:#ffffff;background:linear-gradient(180deg,#b53a2c,#7d2218);border-color:#ffae96}
 /* 左上角玩家名单面板：在单行顶栏下方游戏画面内展开 */
 .roster{left:10px;top:50px;bottom:46px;width:282px;padding:8px 10px;z-index:18}
+#roster>.panel-heading{gap:8px}
+#roster>.panel-heading>div{min-width:0}
+#roster>.panel-heading small{white-space:normal}
+#roster-close{flex:none}
 @media(max-height:600px){.roster{top:46px;bottom:10px}}
 /* 右侧游戏内公共日志浮层：同款藤蔓雕花异形羊皮卷 */
 .logs{display:flex;flex-direction:column;min-width:0;padding:8px 10px;background:var(--surface);background-clip:padding-box;border:24px solid transparent;border-image:var(--rpg-frame-svg) 36 fill / 30px / 0 stretch;border-radius:0;box-shadow:none;filter:var(--sh-3);overflow:hidden}

@@ -94,6 +94,20 @@ try{
    assert.equal(await ev("document.querySelectorAll('#mine .eye-toggle').length"),0);await click('#mine-close');
   }
   assert.deepEqual(ROOM.publicSnapshot(self.id).players.map(p=>({id:p.id,traits:p.traits})),publicBefore);
+  await click('#roster-toggle');
+  for(const [width,height] of [[1440,900],[390,844],[853,480]]){
+   await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
+   await wait(`innerWidth===${width}&&innerHeight===${height}`);
+   const close=await ev(`(()=>{
+    const button=document.getElementById('roster-close'), rect=button.getBoundingClientRect();
+    const heading=button.parentElement.getBoundingClientRect(), y=rect.top+rect.height/2;
+    return {width:rect.width,height:rect.height,inset:heading.right-rect.right,
+     clickable:[rect.left+2,rect.right-2].every(x=>button.contains(document.elementFromPoint(x,y)))};
+   })()`);
+   assert.ok(close.width>=30&&close.height>=30&&close.inset>=10&&close.clickable,JSON.stringify({width,height,close}));
+  }
+  await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+  await click('#roster-close');assert.equal(await ev("document.getElementById('roster').hidden"),true);
   await click('#roster-toggle');await click(`#roster-items [data-player="${bads[0].id}"]`);
   assert.equal(await ev("!!document.getElementById('private-gate')"),false);assert.equal(await ev("!!document.querySelector('#target #accuse')"),true);
   await click('#accuse');assert.ok(await ev("!!document.querySelector('#target #confirm')"));await click('#cancel');
@@ -141,7 +155,7 @@ try{
   await manualEntry();await key('ArrowRight','keyUp');await waitRoom("document.body.dataset.tutorialStep==='0'");baseline=raw();
   assert.equal(await room("document.body.innerText.includes('正式角色留在原位置')"),true);
   await ev('window.gameplayCalls=[]');await room("document.getElementById('office').focus()");
-  assert.equal(await room("document.getElementById('movement-hint').hidden"),false);
+  await waitRoom("!document.getElementById('movement-hint').hidden");
   assert.equal(await room("document.querySelector('#training-guide, #lesson-number') === null"),true);
   assert.equal(await room("document.getElementById('desk-hint').hidden"),true);
   assert.equal(await room("[...document.querySelectorAll('#movement-hint kbd')].map(k=>k.textContent).join('')"),'WASD');
