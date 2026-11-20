@@ -10,8 +10,10 @@ function profile(room) {
 }
 function clues(room) {
   assert.equal(room.state.phase,'clues-countdown');
-  assert.equal(room.state.cluesLeft,5);
-  for(let i=0;i<51;i++)room.tick(.1);
+  assert.equal(room.state.cluesLeft,3);
+  for(let i=0;i<29;i++)room.tick(.1);
+  assert.equal(room.state.cluesPublished,false);
+  room.tick(.1);
   assert.equal(room.state.cluesPublished,true);assert.equal(room.readClues(),false);
   room.event('next');assert.equal(room.state.phase,'clues-open');
   assert.equal(room.state.cluesPublished,true);room.readClues();assert.equal(room.state.phase,'clues-card');

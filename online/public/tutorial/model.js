@@ -26,7 +26,7 @@
     const initial = normalizeProgress(saved);
     const state = { step: initial.step, phase: PHASES[initial.step][0], player: { x: 140, y: 390, hp: 3, score: initial.step >= 6 ? 12 : initial.step > 1 ? 2 : 0, walk: 0, moving: false, facing: 'front' },
       explored: initial.step > 1, profileViewed: initial.step > 2, cluesPublished: initial.step > 3,
-      cluesLeft: 5, cluesRead: initial.step > 3, selected: null, result: '', npcHp: initial.step >= 6 ? 2 : 3 };
+      cluesLeft: 3, cluesRead: initial.step > 3, selected: null, result: '', npcHp: initial.step >= 6 ? 2 : 3 };
     const desk = layout.desk || DESK, people = layout.people || PEOPLE;
     // Resume near the current objective rather than requiring completed movement again.
     if (initial.step === 1) Object.assign(state.player, { x: 380, y: 330 });

@@ -86,7 +86,7 @@
       'mine-colors': ['mine-colors', '外观属性', '头发、上衣、裤子和鞋子的颜色默认公开，其他玩家也能看到，可以与系统线索核对。', '#mine-colors', true],
       'mine-traits': ['mine-traits', '隐藏属性', '口头禅、爱吃的食物和喜欢的运动只有自己能直接看到。其他玩家要等属性公开后才能查看或搜索。', '#mine-traits', true],
       'mine-close': ['mine-close', '关闭个人信息', '点击这里关闭面板，接下来查看系统公布的坏人线索。', '#mine-close'],
-      'clues-countdown': ['clue-countdown', '线索公布倒计时', '这里显示距离下次公布坏人线索还有多久。归零时，系统会公开新的线索。训练室的倒计时只有几秒。', '#clue-next-left', true],
+      'clues-countdown': ['clue-countdown', '线索公布倒计时', '这里显示距离下次公布坏人线索还有多久。归零时，系统会公开新的线索。训练室的倒计时为 3 秒。', '#clue-next-left', true],
       'clues-open': ['bad-toggle', '点击「线索」', '展开坏人线索，观察系统公布的属性。', '#bad-toggle'],
       'clues-card': ['clues-card', '推理坏人身份', '根据系统公布的信息，推理出坏人是谁。', '#bad-slots .bad-slot', true],
       'clues-close': ['clues-close', '关闭线索窗口', '记住砖红上衣、银白头发，接下来去玩家名单中搜索。', '#bad-pool-close'],
