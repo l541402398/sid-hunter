@@ -247,6 +247,10 @@ try{
  await check('个人信息按阵营、外观、隐藏属性、关闭按钮逐项讲解',async()=>{
   await capture('03a-mine-entry.png');await clickRoom('#my-info');await phase('mine-faction');
   assert.match(await room("document.getElementById('mine-value-identity').textContent"),/调查员/);
+  const factionGuide=await room("document.getElementById('spotlight-detail').textContent");
+  assert.match(factionGuide,/调查员（好人）根据线索找出并指认坏人/);
+  assert.match(factionGuide,/潜伏者（坏人）隐藏身份，找机会刺杀调查员/);
+  assert.match(factionGuide,/这次训练，你是调查员（好人）。去揪出所有坏人吧/);
   assert.equal(await room("document.querySelectorAll('#mine .eye-toggle').length"),0);
   const domOrder=await room("!!(document.querySelector('.mine-identity').compareDocumentPosition(document.getElementById('mine-colors'))&Node.DOCUMENT_POSITION_FOLLOWING)");assert.ok(domOrder);
   for(const [phaseName,target] of [['mine-faction','mine-faction'],['mine-colors','mine-colors'],['mine-traits','mine-traits']]){

@@ -85,7 +85,7 @@
       'explore-quiz': ['loot-quiz', '回答练习题', '选一个答案，再点「提交答案」或按 K。', '#loot'],
       'explore-close': ['loot-close', '关闭探索结果', '查看这次探索获得的积分，然后点击关闭，继续下一步。', '#loot-close'],
       'mine-open': ['my-info', '点击「我的信息」', '先了解自己的阵营、外观属性和隐藏属性。', '#my-info'],
-      'mine-faction': ['mine-faction', '我的阵营', '你是调查员（好人），可以使用「指认」。正式对局每场会重新分配阵营。', '.mine-identity', true],
+      'mine-faction': ['mine-faction', '我的阵营', '调查员（好人）根据线索找出并指认坏人。潜伏者（坏人）隐藏身份，找机会刺杀调查员。这次训练，你是调查员（好人）。去揪出所有坏人吧！', '.mine-identity', true],
       'mine-colors': ['mine-colors', '外观属性', '头发、上衣、裤子和鞋子的颜色默认公开，其他玩家也能看到，可以与系统线索核对。', '#mine-colors', true],
       'mine-traits': ['mine-traits', '隐藏属性', '口头禅、爱吃的食物和喜欢的运动只有自己能直接看到。其他玩家要等属性公开后才能查看或搜索。', '#mine-traits', true],
       'mine-close': ['mine-close', '关闭个人信息', '点击这里关闭面板，接下来查看系统公布的坏人线索。', '#mine-close'],
