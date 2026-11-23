@@ -142,8 +142,13 @@ try {
     assert.equal(sender.flowerState.sentTo.length, 7);
     assert.match(await evaluate(`document.getElementById('copy-toast').textContent`), /已达 10 分/);
     await click('#my-info');
-    assert.match(await evaluate(`document.getElementById('mine-flowers').innerText`), /10 \/ 10/);
-    await capture('03-sender-cap.png'); await click('#mine-close');
+    assert.equal(await evaluate(`document.getElementById('mine-flowers').hidden`), true);
+    await click('#mine-close');
+    await click('#round-tasks-toggle');
+    await waitPage(`document.getElementById('round-tasks').matches(':popover-open')`);
+    assert.match(await evaluate(`document.querySelector('[data-task="flowers"]').innerText`), /10 \/ 10/);
+    await capture('03-sender-cap.png');
+    await evaluate(`document.getElementById('round-tasks').hidePopover()`);
   });
   await check('手机档案无横向溢出，触摸献花，减少动态效果时不播放满屏飞花', async () => {
     await openAs(actors[0]);
@@ -169,7 +174,7 @@ try {
     assert.equal(target.flowerState.received, 15); assert.equal(target.score, 3);
     await openAs(target); await click('#my-info');
     const text = await evaluate(`document.getElementById('mine-flowers').innerText`);
-    assert.match(text, /15 朵/); assert(!/献花体验者|致敬同事|送花名单/.test(text));
+    assert.match(text, /15 朵/); assert(!/本场献花积分|献花体验者|致敬同事|送花名单/.test(text));
     assert.equal(await evaluate(`document.querySelectorAll('#mine [data-sender]').length`), 0);
     await capture('05-receiver-private-count.png'); await click('#mine-close');
     for (let i = 0; i < 5; i++) {

@@ -76,7 +76,7 @@
         $('tutorial-progress-note').textContent = completed
           ? `已完成全部 ${totalSteps} 步，可重新开始。`
           : progress.step > 0 ? `已完成 ${progress.step} / ${totalSteps} 步，将从上次的位置继续。`
-          : `大约 3 分钟 · ${totalSteps} 步亲手练习 · 可随时退出`;
+          : `${totalSteps} 步练习，可随时退出`;
         $('tutorial-start').textContent = completed ? '重新练习' : progress.step > 0 ? '继续练习' : '进入训练室';
         $('tutorial-reset').hidden = progress.step === 0 || completed;
         $('tutorial-skip').textContent = manual ? '暂不进入' : '跳过，直接玩';

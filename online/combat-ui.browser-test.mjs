@@ -296,12 +296,23 @@ try {
     assert((await evaluate('__combatQA.frames')).some(f => f.p.moving), 'Actual rendered player never moved');
   });
   await check('Rules describe random factions, public health, neutral shields and continued truce play', async () => {
+    const config = (await state()).rules;
     await click('#rules-toggle');
     const rules = await evaluate(`document.getElementById('rules-view').innerText`);
-    for (const pattern of [/20%/, /首位.*随机/, /血条.*公开|公开.*血条/, /阵营与技能仅本人/, /保护罩/, /休战/])
+    for (const pattern of [/独立随机分配/, /血条.*公开|公开.*血条/, /阵营与技能仅本人/, /保护罩/, /休战/])
       assert(pattern.test(rules), 'Missing rules contract ' + pattern);
+    assert.doesNotMatch(rules, /阅读规则时游戏仍在继续|坏人概率|首位玩家同样随机|以场务配置为准|额外击杀奖励|已取消金币|名单由场务独立维护|休战玩家以轻度半透明|专项测试场/);
     assert(!/对抗生命仅本人|公开身份码|三段身份码|S-ID已公开/.test(rules), 'Rules retained removed identity-code combat');
+    assert.match(rules, new RegExp(`每场入场时拥有 ${config.initialHp} 格对抗生命`));
+    assert.equal(await evaluate(`document.getElementById('rules-good-recovery').textContent`), '使用后 1 分钟 30 秒 恢复');
+    assert.equal(await evaluate(`document.getElementById('rules-clue-interval').textContent.trim()`), '每隔 2 分钟');
     await click('#rules-close');
+  });
+  await check('F1 opens and closes collision diagnostics when development mode is enabled', async () => {
+    await key('F1', 'F1', 112);
+    assert.equal(await evaluate('SID.tmjDebug.isVisible()'), true);
+    await key('F1', 'F1', 112);
+    assert.equal(await evaluate('SID.tmjDebug.isVisible()'), false);
   });
   await check('A pending quiz survives close, real K reopen, 61 seconds and browser reload, then awards only once', async () => {
     observations.combatNotifications = await evaluate('__combatQA.toast');
@@ -340,12 +351,21 @@ try {
     await waitPage(`__combatQA.frames.length>2`);
     await openWithK();
     await capture('09-resumed-quiz.png');
+    const ownRankingScore = `(() => {
+      const row = [...document.querySelectorAll('#ranking-items .ranking-row')].find(row =>
+        row.querySelector('.ranking-name').textContent === ${JSON.stringify(self.name)});
+      return row ? Number(row.querySelector('.ranking-score').textContent) : null;
+    })()`;
+    await click('#ranking-toggle');
     const scoreBefore = (await state()).me.score;
+    await waitPage(`${ownRankingScore} === ${scoreBefore}`);
     await click(`#loot [data-option-key="${question.answer}"]`);
     await click('#loot-take');
     await waitPage(`__combatQA.search.some(s=>s.path==='/api/search/take'&&s.ok&&s.correct)`);
     const after = await state();
     assert.equal(after.me.score, scoreBefore + W.EXPLORE.quizPoints);
+    await waitPage(`${ownRankingScore} === ${after.me.score}`);
+    await click('#ranking-close');
     assert(!after.me.exploration.pendingQuizContainerIds.includes(container.id));
     const duplicate = await api('/api/search/take', { sessionId: opened.data.sessionId, answer: question.answer }, ownToken);
     assert.equal(duplicate.data.ok, false, 'Duplicate answer was accepted');
@@ -396,6 +416,21 @@ try {
   });
   await check('Health and protection UI load without script or static-resource errors', async () => {
     assert.deepEqual(errors, []); assert.deepEqual(failedResources, []);
+  });
+  await check('Connection status stays visible offline and clears after snapshots resume', async () => {
+    const connectionState = `document.getElementById('connection-status').dataset.state`;
+    const network = { latency: 0, downloadThroughput: -1, uploadThroughput: -1 };
+    try {
+      await call('Network.emulateNetworkConditions', { ...network, offline: true });
+      await waitPage(`${connectionState} === 'offline'`);
+      await delay(3200);
+      assert.equal(await evaluate(connectionState), 'offline');
+      assert.ok(await evaluate(`document.getElementById('connection-status').getBoundingClientRect().height > 0`));
+    } finally {
+      await call('Network.emulateNetworkConditions', { ...network, offline: false });
+    }
+    await waitPage(`${connectionState} === 'recovered'`);
+    await waitPage(`${connectionState} === ''`);
   });
 } catch (error) {
   results.push({ name: activeCheck, passed: false, error: error.stack });

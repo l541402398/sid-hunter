@@ -1,6 +1,7 @@
 'use strict';
 // 场次是存档/计分唯一单位；日期只用于分组。无额外后台进程或计时器。
 const { scoreKey } = require('../room/score-key.js');
+const REST_MESSAGE = '当前休场，请等待下一场开放';
 const DEFAULT_SLOTS = [{ id:'daily',label:'每日场',startTime:'09:00',endTime:'17:00' }];
 const TEMPLATES = Object.freeze({
   development: Object.freeze({template:'development',startTime:'09:00',endTime:'17:00',slots:DEFAULT_SLOTS,chargeIntervalMs:90000,goodChargeIntervalMs:90000,badChargeIntervalMs:90000,initialHp:3,protectMs:5*60*1000,clueIntervalMs:120000,cluePercent:20,clueMin:1,clueMax:5}),
@@ -49,6 +50,7 @@ function validateConfig(input,current) {
 function createActivity({room,store,now=Date.now,initial=null}) {
   const prior=initial||store.loadAdmin();
   let config=validateConfig(prior?.config||{},{...clone(TEMPLATES[prior?.config?.template]||TEMPLATES.development),enabled:false});
+  room.room.clueIntervalMs=config.clueIntervalMs;
   const readResults=()=>store.loadSessions();
   let results=readResults();
   let session=prior?.session?clone(prior.session):null;
@@ -91,7 +93,11 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     room.room.historicalScores=new Map(ranked.map(r=>[r.key,r.score]));
     // The displayed round stays in the current column even after it has been archived.
     const pastRounds=results.filter(r=>r&&r.roundId!==roundId);
-    room.room.pastRoundScores=new Map(sumRanking(pastRounds).map(r=>[r.key,r.score]));
+    room.room.scoreHistory={
+      totals:collectScores(pastRounds),
+      day:session?.day,
+      archived:results.find(r=>r?.roundId===roundId)
+    };
     historicalResults=results;historicalDay=today;historyRound=roundId;
   }
   function resultForSession(reason){
@@ -172,7 +178,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     // 不同定时场只在各自窗口自动开一次；过期场不补开、不捏造分数。
     const slot=plan.enabled&&plan.slots.find(s=>t>=at(today,s.startTime)&&t<at(today,s.endTime)&&!consumed.includes(`${today}:${s.id}`));
     if(slot){const result=openSession({label:slot.label,source:'scheduled',slotId:slot.id,startedAt:at(today,slot.startTime),endsAt:at(today,slot.endTime)});if(result.ok){room.room.accessClosed='';room.room.daily={day:today,startAt:session.startedAt,endAt:session.endsAt,enabled:true};}return;}
-    block(plan.enabled?'当前休场，等待下一场；测试可手动开新场':'未开启自动开局；可安排场次或手动开新场');
+    block(REST_MESSAGE);
   }
   function saveConfig(input){
     let next;try{next=validateConfig(input,config);}catch(e){return{ok:false,error:e.message};}
@@ -185,6 +191,7 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     if(!startedToday){planDay=today;plan={enabled:next.enabled,slots:clone(next.slots)};}
     if(isActive()&&next.clueIntervalMs!==old.clueIntervalMs){clueSchedule.nextAt=(session.pausedAt||now())+next.clueIntervalMs;}
     if(!persist()){config=old;clueSchedule=oldClue;plan=oldPlan;planDay=oldPlanDay;return{ok:false,error};}
+    room.room.clueIntervalMs=config.clueIntervalMs;
     room.setChargeInterval(config.chargeIntervalMs);
     if(typeof room.setCombatConfig==='function')room.setCombatConfig({initialHp:config.initialHp,protectMs:config.protectMs,goodChargeIntervalMs:config.goodChargeIntervalMs,badChargeIntervalMs:config.badChargeIntervalMs});
     tick();
@@ -259,7 +266,21 @@ function createActivity({room,store,now=Date.now,initial=null}) {
     const made=room.spawnNpc(count,{floorId},faction);if(!persist())return{ok:false,error:'NPC已生成但存档失败，已冻结，请勿重复添加'};
     return{ok:true,players:made.map(p=>({id:p.id,name:p.name})),faction};
   }
-  function sumRanking(list){const totals=new Map();for(const r of [...list].sort((a,b)=>a.startedAt-b.startedAt))for(const p of r.ranking||[]){const v=totals.get(p.key)||{key:p.key,name:p.name,score:0,sessions:0,daysSet:new Set()};v.name=p.name;v.score+=p.score;v.sessions++;v.daysSet.add(r.day);totals.set(p.key,v);}
+  function collectScores(list) {
+    const totals = new Map();
+    for (const round of [...list].sort((a, b) => a.startedAt - b.startedAt)) {
+      for (const player of round.ranking || []) {
+        const total = totals.get(player.key) || { key: player.key, score: 0, sessions: 0, daysSet: new Set() };
+        total.name = player.name;
+        total.score += Number(player.score) || 0;
+        total.sessions++;
+        total.daysSet.add(round.day);
+        totals.set(player.key, total);
+      }
+    }
+    return totals;
+  }
+  function sumRanking(list){const totals=collectScores(list);
     return[...totals.values()].sort((a,b)=>b.score-a.score||a.key.localeCompare(b.key)).map((v,i)=>{const{daysSet,...rest}=v;return{...rest,rank:i+1,days:daysSet.size};});}
   syncHistorical();
   function state(){

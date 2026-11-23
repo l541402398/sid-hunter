@@ -294,14 +294,15 @@ try {
   await key('KeyK', 'k');   // 已在门口，直接退出
   await wait(() => ev("document.querySelector('#zone-banner').hidden"));
 
-  // ---------- 5.5 截至昨日累计排行榜 ----------
+  // ---------- 5.5 实时累计积分榜 ----------
   await click('#ranking-toggle');
   await wait(() => ev("!document.querySelector('#ranking').hidden"));
   const title = await ev("document.querySelector('#ranking-title').textContent");
-  assert.match(title, /截至昨日累计排行榜/);
-  assert.equal(await ev("document.querySelectorAll('#ranking-self-summary, #ranking-tabs, #ranking-items .ranking-row').length"), 0);
-  assert.match(await ev("document.querySelector('#ranking-items').textContent"), /暂无截至昨日的排名/);
-  await shot('ranking-history.png');
+  assert.match(title, /实时累计积分榜/);
+  const score = (await state()).players.find(p => p.id === meId).score;
+  const ranking = await ev("[...document.querySelectorAll('#ranking-items .ranking-row')].map(row => ({ name: row.querySelector('.ranking-name').textContent, score: Number(row.querySelector('.ranking-score').textContent) }))");
+  assert.ok(ranking.some(row => row.name === '验收员' && row.score === score));
+  await shot('ranking-live.png');
   await click('#ranking-close');
   evidence.push({ rankingTitle: title });
   // ---------- 6. 七层主题外观证据 ----------

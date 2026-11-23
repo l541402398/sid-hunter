@@ -73,7 +73,7 @@
       badSlots: s.player.faction === 'good'
         ? [{ key: 'tutorial-bad', label: '坏人01', alive: true, systemClues: { colors: s.cluesPublished ? T.CLUE_COLORS : {}, traits: {} } }]
         : [],
-      rules: { endsAt: 0 }, historicalRanking: [], ranking: null, glassDoors: [] };
+      rules: { endsAt: 0 }, cumulativeRanking: [], ranking: null, glassDoors: [] };
   }
   function push() { if (bridge && active) bridge.applySnapshot(clone(snapshot())); }
   function reportProgress() {

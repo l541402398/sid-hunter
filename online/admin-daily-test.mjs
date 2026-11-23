@@ -28,6 +28,22 @@ test('同日上下午独立新场与存档，单场/当日/总分准确且不重
  // 两个三小时场各获得6个半小时存活分，连同显式设置的12+8共32分。
  clock=at('2026-10-20','17:00');activity.tick();assert.equal(activity.state().history.length,2);const total=activity.state().totalRanking.find(p=>p.score===32);assert.ok(total);assert.equal(total.sessions,2);assert.equal(total.days,1);assert.equal(activity.state().dailyRanking.find(p=>p.key===total.key).score,32);activity.tick();assert.equal(activity.state().history.length,2);
 });
+test('休场统一提示，规则快照随当前配置更新',()=>{
+ const {room,activity}=fixture('08:59');
+ const rest='当前休场，请等待下一场开放';
+ assert.equal(room.join('early','提前入场').error,rest);
+ assert.equal(room.publicSnapshot().availability,rest);
+ assert.ok(activity.saveConfig({enabled:false}).ok);
+ assert.equal(activity.guard(),rest);
+ assert.ok(activity.startManual({minutes:10}).ok);
+ const player=person(room);
+ const config={initialHp:6,protectMs:0,goodChargeIntervalMs:91000,badChargeIntervalMs:125000,clueIntervalMs:180000};
+ assert.ok(activity.saveConfig(config).ok);
+ for(const rules of [room.publicSnapshot().rules,room.streamSnapshot(player.id,{}).rules])
+   for(const [key,value] of Object.entries(config))assert.equal(rules[key],value,key);
+ assert.equal(activity.pause().ok,true);
+ assert.match(room.publicSnapshot().availability,/本场已暂停/);
+});
 test('同日可手动多场，每场独立积分，结束不关闭自动安排',()=>{
  const {room,activity}=fixture();person(room).score=7;activity.finishSession();assert.equal(activity.state().config.enabled,true);
  for(const score of [11,3]){assert.equal(activity.startManual({minutes:20,label:'测试'}).ok,true);assert.equal(room.room.players.length,0);person(room).score=score;activity.finishSession();}
@@ -73,6 +89,42 @@ test('手动开场请求去重、迟到旧场结算不得误伤新场',()=>{
 test('坏NPC三血安全点/不入积分，CAS与昵称凭证跨场累计不按重名合并',()=>{
  const {room,activity}=fixture();person(room).score=5;const b=room.join('guest1','同名').player;b.participantKey='browser1';b.score=2;const c=room.join('guest2','同名').player;c.participantKey='browser2';c.score=3;
  activity.addNpc({faction:'bad',count:1,floorId:2});const npc=room.room.players.find(p=>p.npc);assert.equal(npc.hp,3);assert.ok(Number.isFinite(npc.x));npc.score=999;activity.finishSession();activity.startManual({minutes:10});person(room,'new').score=6;const d=room.join('newguest','改名').player;d.participantKey='browser1';d.score=8;activity.finishSession();const ranks=activity.state().totalRanking;assert.equal(ranks.length,3);assert.deepEqual(ranks.map(r=>r.score),[11,10,3]);assert.equal(ranks[0].sessions,2);
+});
+test('累计积分榜合并历史及实时得分，按账号归集且同日结算不重复',()=>{
+ const {room,activity,store}=fixture();
+ for(let i=0;i<101;i++)person(room,`first-${i}`,`R${i}`).score=12;
+ const sameGuest=room.join('first-guest','同名').player;
+ sameGuest.participantKey='browser-one';sameGuest.score=3;
+ const otherGuest=room.join('other-guest','同名').player;
+ otherGuest.participantKey='browser-two';otherGuest.score=4;
+ assert.equal(activity.finishSession().ok,true);
+ assert.equal(activity.startManual({minutes:5}).ok,true);
+ const returningGuest=room.join('returning-guest','已改名').player;
+ returningGuest.participantKey='browser-one';returningGuest.score=10;
+ const returningOtherGuest=room.join('returning-other','同名').player;
+ returningOtherGuest.participantKey='browser-two';returningOtherGuest.score=10;
+ const [npc]=room.spawnNpc(1,{floorId:1},'bad');npc.score=999;
+ const board=()=>room.publicSnapshot().cumulativeRanking;
+ assert.equal(board().length,103);
+ assert.equal(room.streamSnapshot(returningGuest.id, {}).cumulativeRanking.at(-1).rank,103);
+ assert.deepEqual(board().slice(0,2),[
+   {rank:1,name:'同名',score:14,days:1},
+   {rank:2,name:'已改名',score:13,days:1}
+ ]);
+ returningGuest.score=15;
+ assert.equal(board()[0].score,18);
+ assert.deepEqual(board()[0],{rank:1,name:'已改名',score:18,days:1});
+ assert.equal(activity.finishSession().ok,true);
+ assert.equal(board()[0].score,18);
+ assert.equal(activity.finishSession().ok,true);
+ const prior=store.loadAdmin(),restored=createRoom({restore:prior.liveSnapshot});
+ const restoredActivity=createActivity({room:restored,store,initial:prior});
+ assert.deepEqual(restored.publicSnapshot().cumulativeRanking,board());
+ clock=at('2026-10-21','08:00');
+ assert.equal(restoredActivity.startManual({minutes:5}).ok,true);
+ const nextDayGuest=restored.join('next-day-guest','已改名').player;
+ nextDayGuest.participantKey='browser-one';nextDayGuest.score=5;
+ assert.deepEqual(restored.publicSnapshot().cumulativeRanking[0],{rank:1,name:'已改名',score:23,days:2});
 });
 test('个人积分明细按账号和浏览器累计，同日结算和重启不重复计入当前场',()=>{
  const {room,activity,store}=fixture();

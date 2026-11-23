@@ -1,12 +1,11 @@
 'use strict';
 // 游戏规则展示；保留现有 dialog ID、关闭按钮与快捷键绑定，对齐《年会对抗游戏业务方案》。
 (function () {
-  const html = `<dialog id="rules-view" class="rules-view" aria-labelledby="rules-title" aria-describedby="rules-live">
+  const html = `<dialog id="rules-view" class="rules-view" aria-labelledby="rules-title">
     <header class="rules-head">
       <div>
-        <span class="eyebrow">SID HUNTER · 五日累计积分对抗赛</span>
+        <span class="eyebrow">SID HUNTER · 累计积分对抗赛</span>
         <h2 id="rules-title">年会对抗游戏 · 核心规则与计分手册</h2>
-        <p id="rules-live">阅读规则时游戏仍在继续 · 连续 5 天每场独立开局 · 按累计总积分排名获奖</p>
       </div>
       <button id="rules-close" type="button">返回游戏 <kbd>Esc</kbd></button>
     </header>
@@ -17,9 +16,9 @@
       </section>
       <section class="rule-section">
         <span class="rule-number">01 / 活动赛制与对抗生命</span>
-        <h3>两大阵营博弈 · 3 格对抗生命 · 积分为唯一成绩</h3>
-        <p>本次年会对抗赛连续举办 <strong>5 天</strong>，最终按累计总积分排名发放奖励。每场入场独立随机分配为<strong>调查员（好人）</strong>或<strong>潜伏者（坏人）</strong>，坏人概率约 20%，首位玩家同样随机。每人每场拥有 <strong>3 格对抗生命</strong>，通过名牌与角色档案的血条公开展示；阵营与技能仅本人可见。被对方阵营有效命中扣 1 格，归零后进入<strong>休战状态</strong>，已得积分全部保留，仍可继续参加非对抗玩法。探索、福利与渠道额度按场次重置。</p>
-        <div class="mini-flow"><span>每场独立开局</span><b>→</b><span>3 格对抗生命</span><b>→</b><span>5天累计积分排名</span></div>
+        <h3>两大阵营博弈 · 积分为唯一成绩</h3>
+        <p>本次年会对抗赛最终按累计总积分排名发放奖励。每场入场独立随机分配为<strong>调查员（好人）</strong>或<strong>潜伏者（坏人）</strong>。<strong id="rules-initial-hp">每场入场时获得对抗生命</strong>，通过名牌与角色档案的血条公开展示；阵营与技能仅本人可见。被对方阵营有效命中扣 1 格，归零后进入<strong>休战状态</strong>，已得积分全部保留，仍可继续参加非对抗玩法。探索、福利与渠道额度按场次重置。</p>
+        <div class="mini-flow"><span>每场独立开局</span><b>→</b><span>按累计总积分排名</span></div>
       </section>
 
       <section class="rule-section">
@@ -29,19 +28,19 @@
           <article>
             <span class="rule-badge">调查员（好人） · 指认</span>
             <h4>指认 <small>命中坏人 +10 分 · 对方扣 1 格生命</small></h4>
-            <p><strong>目标为潜伏者（坏人）</strong>：对方扣 1 格对抗生命并进入受击保护，你获得 <strong>+10 对抗分</strong>。</p>
+            <p><strong>目标为潜伏者（坏人）</strong>：对方扣 1 格对抗生命，你获得 <strong>+10 对抗分</strong>。</p>
             <p><strong>目标为调查员（好人）</strong>：误指认，<strong>你自己扣 1 格对抗生命</strong>，不加分，也不获得受击保护。</p>
-            <p>技能 1 次，使用后约 <strong>30 分钟</strong>冷却恢复（建议值，以场务配置为准）。</p>
+            <p>技能 1 次，<span id="rules-good-recovery">使用后进入冷却</span>。</p>
           </article>
           <article>
             <span class="rule-badge bad">潜伏者（坏人） · 刺杀</span>
             <h4>刺杀 <small>命中好人 +3 分 · 对方扣 1 格生命</small></h4>
-            <p><strong>目标为调查员（好人）</strong>：对方扣 1 格对抗生命并进入受击保护，你获得 <strong>+3 对抗分</strong>。</p>
+            <p><strong>目标为调查员（好人）</strong>：对方扣 1 格对抗生命，你获得 <strong>+3 对抗分</strong>。</p>
             <p><strong>目标为潜伏者（坏人）</strong>：双方生命不变，0 分，正常消耗本次机会并进入冷却。</p>
-            <p>技能 1 次，使用后约 <strong>20 分钟</strong>冷却恢复（建议值，以场务配置为准）。</p>
+            <p>技能 1 次，<span id="rules-bad-recovery">使用后进入冷却</span>。</p>
           </article>
         </div>
-        <p>无效操作（选自己、目标休战中、目标受击保护中、当天已对该目标有效操作过）<strong>不扣生命、不加分、不消耗次数、不进入冷却</strong>。被有效命中后获得约 <strong>5 分钟受击保护</strong>，角色周围显示统一保护罩；保护不区分阵营，误指认自损及 J 互动不触发保护。同一目标每场只能被你有效操作 1 次，新场重新计算。最后一击只发本次正常分值，没有额外击杀奖励。</p>
+        <p>无效操作（选自己、目标休战中、目标受击保护中、本场已对该目标有效操作过）<strong>不扣生命、不加分、不消耗次数、不进入冷却</strong>。<span id="rules-hit-protection">受击保护期间，角色周围显示统一保护罩。</span>保护不区分阵营，误指认自损及 J 互动不触发保护。同一目标每场只能被你有效操作 1 次，新场重新计算。</p>
         <div class="mini-flow"><span>系统线索锁定嫌疑</span><b>→</b><span>指认 / 刺杀扣 1 格生命</span><b>→</b><span>生命归零进入休战</span></div>
       </section>
 
@@ -76,11 +75,11 @@
         <div class="rule-split">
           <div class="rule-note formal">
             <h4>系统定时公布坏人线索</h4>
-            <p>系统每隔固定周期自动从<strong>当前对抗中的潜伏者（坏人）</strong>中抽取并公布真实属性线索，汇总在右侧【坏人线索】面板，不点名具体玩家。</p>
+            <p>系统<span id="rules-clue-interval">定时</span>从<strong>当前对抗中的潜伏者（坏人）</strong>中抽取并公布真实属性线索。点击顶部【线索】查看已公布的属性。</p>
           </div>
           <div class="rule-note playtest">
             <h4>容器翻找与 NPC 大转盘</h4>
-            <p>在 1F–7F 靠近文件柜、储物箱或独立房间容器按 <kbd>K</kbd> 探索：可能为空、直接获得积分，或触发答题（答对得分）。每个容器每场只能探索 1 次。当天探索满 <strong>5 / 10 / 15 / 20 / 25</strong> 个容器，可在任意楼层 NPC 处<strong>免费领取</strong>对应福利（积分礼包、公开/隐藏属性、隐藏坏人线索等，每类每场 1 次）。NPC 大转盘每场 <strong>3 次全部免费</strong>，抽取随机积分。</p>
+            <p>在 1F–7F 靠近文件柜、储物箱或独立房间容器按 <kbd>K</kbd> 探索：可能为空、直接获得积分，或触发答题（答对得分）。每个容器每场只能探索 1 次。本场探索满 <strong>5 / 10 / 15 / 20 / 25</strong> 个容器，可在任意楼层 NPC 处<strong>免费领取</strong>对应福利（积分礼包、公开/隐藏属性、隐藏坏人线索等，每类每场 1 次）。NPC 大转盘每场 <strong>3 次全部免费</strong>，抽取随机积分。</p>
           </div>
         </div>
         <div class="mini-flow"><span>靠近容器/房间按K</span><b>→</b><span>开箱得积分或答题</span><b>→</b><span>按探索数领福利 · 免费转盘</span></div>
@@ -88,37 +87,36 @@
 
       <section class="rule-section">
         <span class="rule-number">05 / 每场积分构成（三大类积分）</span>
-        <h3>统一积分累计；休战仅停止对抗时长分与对抗分</h3>
+        <h3>统一积分累计；休战仅停止对战时长分与对抗分</h3>
         <div class="rule-flow" aria-label="三大积分来源">
           <div><small>参与分（各渠道按场次计）</small><strong>探索 · 答题 · J · 小游戏 · NPC · 转盘 · 献花</strong><em>休战后照常可得</em></div>
           <b>+</b>
-          <div><small>对抗时长分（自动结算）</small><strong>对抗中每满 30 分钟 +1 分</strong><em>休战后停止</em></div>
+          <div><small>对战时长分（自动结算）</small><strong>对抗中每满 30 分钟 +1 分</strong><em>休战后停止</em></div>
           <b>+</b>
           <div><small>对抗分（核心拉开差距）</small><strong>指认 +10 / 刺杀 +3</strong><em>休战后停止</em></div>
         </div>
-        <p>已取消金币与首次搜索/首次小游戏加分，所有收益统一为积分。探索直接积分或答题答对得分；J 互动命中在线真人随机得分（同一目标每场最多 2 分、每场最多 10 分）；猜拳获胜每局 <strong>+2 分</strong>（本场最多 <strong>10 分</strong>，猜错不扣分；与同一玩家本场最多完成 <strong>2 次</strong>）；NPC 积分礼包与免费转盘；对抗中每满 30 分钟 +1；正确指认 +10、正确刺杀 +3。具体分值为建议值，以活动公告为准。</p>
         <div class="rule-note"><h4>✊ 猜拳切磋互动</h4><p>靠近其他玩家（含休战玩家）点击角色或按 K 打开公开档案，即可发起 10 秒同步猜拳（截止前可改，支持数字键 1/2/3）。赢一局 <strong>+2 分</strong>，平局或猜错均<strong>不扣分</strong>；本场猜拳积分上限为 <strong>10 分</strong>（满 10 分后仍可继续游玩，胜出记 +0 分）。为鼓励大家与不同同事互动，本场与同一位玩家最多完成 <strong>2 次</strong>有效对局；拒绝、主动取消或超时未完成均不计入次数。</p></div>
-        <div class="rule-note"><h4>🌷 向收花人献花</h4><p>在玩家名单或地图打开带「收花人」标识的个人档案，点击「为 TA 献花」。同一对象每场限送一次，不能送给自己；每次献花 <strong>+2 分</strong>，发送者每场最多 <strong>10 分</strong>，满额后仍可给其他人献花。接收者每收到 <strong>5 朵鲜花 +1 分，无上限</strong>，仅展示本场鲜花总数。收花人也可向其他收花人献花；离线、休战仍可收花，休战也可献花。名单由场务独立维护，年度榜样勋章不自动代表收花资格；新场重置鲜花和献花额度，已结算积分正常累计。</p></div>
+        <div class="rule-note"><h4>🌷 向收花人献花</h4><p>在玩家名单或地图打开带「收花人」标识的个人档案，点击「为 TA 献花」。同一对象每场限送一次，不能送给自己；每次献花 <strong>+2 分</strong>，发送者每场最多 <strong>10 分</strong>，满额后仍可给其他人献花。接收者每收到 <strong>5 朵鲜花 +1 分，无上限</strong>，仅展示本场鲜花总数。收花人也可向其他收花人献花；离线、休战仍可收花，休战也可献花。</p></div>
         <div class="mini-flow"><span>多渠道参与得分</span><b>→</b><span>对抗中每30分钟+1分</span><b>→</b><span>阵营对抗冲击高分</span></div>
       </section>
 
       <section class="rule-section">
         <span class="rule-number">06 / 休战状态</span>
         <h3>对抗生命归零进入休战 · 仍可探索与趣味玩法</h3>
-        <p>对抗生命扣到 0 时立即进入<strong>休战</strong>，当天不再参与对抗，也不会自动复活。<strong>已得积分完整保留</strong>；只停止对抗时长分与指认/刺杀，仍可正常移动、进入房间、探索、答题、J 互动、小游戏、领取 NPC 福利与转盘积分，各项每场额度沿用休战前的记录。休战玩家以幽灵形态和「休战」标记显示，碰撞与房间进入条件与对抗中玩家相同。</p>
-        <div class="mini-flow"><span>进入休战</span><b>→</b><span>今日已得积分保留</span><b>→</b><span>休战继续非对抗玩法</span></div>
+        <p>对抗生命扣到 0 时立即进入<strong>休战</strong>，角色以幽灵形态显示，本场不再参与对抗，也不会自动复活。<strong>已得积分完整保留</strong>；只停止对战时长分与指认/刺杀，仍可正常移动、进入房间、探索、答题、J 互动、小游戏、领取 NPC 福利与转盘积分，各项每场额度沿用休战前的记录。</p>
+        <div class="mini-flow"><span>进入休战</span><b>→</b><span>本场已得积分保留</span><b>→</b><span>休战继续非对抗玩法</span></div>
       </section>
 
       <section class="rule-section">
-        <span class="rule-number">07 / 排行榜与防泄密机制</span>
-        <h3>截至昨日累计排行榜</h3>
-        <p>打开【排行榜】可查看截至昨日的累计积分前 100 名。点击右上角【总分】可查看自己的本场得分明细。今日已结算的积分将于次日计入排行榜。</p>
+        <span class="rule-number">07 / 排行榜</span>
+        <h3>实时累计积分榜</h3>
+        <p>【排行榜】实时展示所有玩家的累计积分。总分包含所有已结算场次的积分和本场实时得分。点击右上角【总分】可查看自己的积分明细。</p>
       </section>
 
       <section class="rule-section pending-rule">
         <span class="rule-number">08 / 每场结束条件与场务说明</span>
-        <h3>每场按活动结束时间统一结算 · 按分数排名</h3>
-        <p>正式活动每场仅在<strong>到达本场结束时间</strong>（或管理员手动结算）时结束本场；坏人全部休战或对抗中人数减少不会提前终止当日活动（专项测试场可由管理员配置“对抗中人数降至指定人数 / 坏人全部休战 / 时间到”等提前结束条件，以现场主持公告为准）。</p>
+        <h3>每场结束后统一结算 · 按分数排名</h3>
+        <p>每场在<strong>到达本场结束时间</strong>或管理员手动结算时结束。坏人全部休战或对抗中人数减少时，本场照常进行。</p>
       </section>
     </div>
   </dialog>`;

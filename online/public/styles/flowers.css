@@ -14,8 +14,9 @@
 .send-flower:focus-visible { outline: 2px solid #f2d7a2; outline-offset: 3px; }
 .send-flower:disabled { opacity: .6; cursor: default; }
 .flower-panel .flower-note { grid-column: 1/-1; margin: 0; color: #c8b18b; font-size: 11px; line-height: 1.6; }
-.mine-flowers { margin: 10px 0; color: #ecd1a2; font-size: 12px; line-height: 1.8; }
+.mine-flowers { margin: 10px 0; color: var(--ink-2); font-size: 13px; line-height: 1.7; }
 .mine-flowers p { margin: 4px 0; }
+.mine-flowers strong { color: var(--ink); }
 .flower-celebration { position: fixed; inset: 0; z-index: 10050; overflow: hidden; pointer-events: none; contain: strict; }
 .flower-celebration * { pointer-events: none; }
 .flower-particle { position: absolute; left: var(--x); bottom: -70px; width: var(--size); color: var(--petal); opacity: 0; animation: flower-flight 1.65s var(--delay) ease-out both; }

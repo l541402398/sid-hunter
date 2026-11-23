@@ -87,7 +87,7 @@
             </button>
             <span class="intel-divider" aria-hidden="true"></span>
             <span class="intel-countdown" id="clue-next">
-              <b id="clue-next-left">待开启</b><em id="clue-next-at" hidden></em>
+              <b id="clue-next-left">等待系统公布</b><em id="clue-next-at" hidden></em>
             </span>
             <span class="intel-divider" aria-hidden="true"></span>
             <span class="intel-status">
@@ -133,7 +133,10 @@
         </div>
         <div id="audio-playlist" class="audio-playlist" role="list" aria-label="背景音乐播放列表"></div>
       </div>
-      <div id="game-availability" class="availability-banner" role="status" hidden></div>
+      <div class="game-status">
+        <div id="game-availability" class="availability-banner" role="status" hidden></div>
+        <div class="connection-status-live" role="status"><span id="connection-status" class="connection-status"></span></div>
+      </div>
     </div>
     <div class="map-view" id="map-view">
       <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，J 敲，K 与场景交互（休战中也可 J 敲与互动），点击角色或公开标签选择目标。点击容器或NPC，或按K打开近距离互动；Esc关闭私密面板。"></canvas>
@@ -189,8 +192,8 @@
       <section id="games" class="panel games" hidden aria-label="猜拳对战"></section>
       <section id="offline-summary" class="panel offline-summary" hidden aria-label="离线期间事件摘要"></section>
       <aside id="ranking" class="panel ranking" hidden aria-labelledby="ranking-title">
-        <div class="panel-heading"><h2 id="ranking-title">截至昨日累计排行榜（前 100 名）</h2><button id="ranking-close" class="icon-button" aria-label="收起排行榜">×</button></div>
-        <div id="ranking-items" class="ranking-items"></div>
+        <div class="panel-heading"><h2 id="ranking-title">实时累计积分榜</h2><button id="ranking-close" class="icon-button" aria-label="收起排行榜">×</button></div>
+        <div id="ranking-items" class="ranking-items" role="region" aria-labelledby="ranking-title" tabindex="0"></div>
       </aside>
       <script src="js/markup/overlays.js"></script>
       <div id="elevator-picker" class="elevator-picker" hidden role="dialog" aria-modal="true" aria-label="选择楼层" aria-describedby="elevator-keyboard-help">
@@ -216,7 +219,7 @@
       <button class="icon-button" type="button" popovertarget="round-tasks" popovertargetaction="hide" aria-label="关闭本场积分明细" autofocus>×</button>
     </header>
     <dl class="round-tasks-summary">
-      <div><dt>历史场次</dt><dd id="round-tasks-history">0</dd></div>
+      <div><dt>历史积分</dt><dd id="round-tasks-history">0</dd></div>
       <div><dt>本场得分</dt><dd id="round-tasks-score">0</dd></div>
     </dl>
     <p id="round-tasks-status" class="round-tasks-status" role="status" hidden></p>

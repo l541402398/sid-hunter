@@ -286,7 +286,7 @@ try {
     return { before, after, expected, clue: cluesAfter > cluesBefore };
   });
 
-  await test('联机 09 排行榜只展示截至昨日的累计排名；20Hz 下转盘按钮身份稳定', async () => {
+  await test('联机 09 排行榜展示实时累计积分；20Hz 下转盘按钮身份稳定', async () => {
     await moveTo(520, 340); await openNpcPanel(); await click('#exploration-wheel');
     await waitFor('转盘覆盖层', async () => (await overlays()).wheel);
     const wheelStable = await sampleStable('#wheel-spin', 24);
@@ -298,9 +298,11 @@ try {
     await click('#ranking-toggle');
     await waitFor('排行榜打开', async () => (await overlays()).ranking);
     const title = await ev(`document.querySelector('#ranking-title').textContent`);
-    assert.match(title, /截至昨日累计排行榜/);
-    assert.equal(await ev(`document.querySelectorAll('#ranking-self-summary, #ranking-tabs, #ranking-items .ranking-row').length`), 0);
-    assert.match(await ev(`document.querySelector('#ranking-items').textContent`), /暂无截至昨日的排名/);
+    assert.match(title, /实时累计积分榜/);
+    const rows = await ev(`[...document.querySelectorAll('#ranking-items .ranking-score')].map(row => Number(row.textContent))`);
+    assert.ok(rows.length >= 2);
+    assert.ok(rows.includes(await meScore()), '本场得分应进入累计榜');
+    assert.deepEqual(rows, rows.slice().sort((a, b) => b - a));
     await click('#ranking-close');
     return { title, wheelStable, toggleStable };
   });

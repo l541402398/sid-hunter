@@ -2,7 +2,7 @@
 // server 子模块：会话凭证解析（Cookie/Header/Query 三通道）、CAS 身份绑定与 /api/auth/* 路由。
 const { randomBytes } = require('crypto');
 const sso = require('../sso.js');
-const { SSO_REQUIRED } = require('./config.js');
+const { DEV_ENABLED, SSO_REQUIRED } = require('./config.js');
 const { send, parseCookies, readBody } = require('./http-util.js');
 
 function sessionOf(req, url) {
@@ -78,7 +78,7 @@ async function requireSso({ req, res, url, pathname, PROFILES }) {
 async function handle({ req, res, url, pathname, PROFILES }) {
   if (pathname === '/api/auth/config' && req.method === 'GET') {
     const required = SSO_REQUIRED;
-    return send(res, 200, { required, loginUrl: required ? sso.loginUrl() : '', logoutUrl: required ? sso.logoutUrl() : '' });
+    return send(res, 200, { required, loginUrl: required ? sso.loginUrl() : '', logoutUrl: required ? sso.logoutUrl() : '', debug: DEV_ENABLED });
   }
   if (pathname === '/api/auth/login' && req.method === 'POST') {
     const body = await readBody(req);

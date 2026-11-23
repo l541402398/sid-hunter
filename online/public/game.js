@@ -184,9 +184,11 @@
   let explorationDataSig = '', nearbySig = '';
   let devCsrf = null, resetBusy = false;
   let sessionToken = null, stream = null, awaitingFirst = true, lastSkillTick = -1;
+  let streamWatchdog, connectionStatusTimer;
   // dev 分支并入：单点登录状态、匿名坏人线索池、摘要确认集合与开发 NPC 忙标志。
   let tutorialAccountKey = '';
   let ssoRequired = false, ssoLoginUrl = '', ssoLogoutUrl = '', loginRedirecting = false;
+  let debugEnabled = false;
   let badSlots = [], badPoolAvailable = false, lastBadPoolSig = '';
   let npcBusy = false;
   let pendingFlight = false, pendingNextCheck = 0, pendingSignature = '', pendingInviteUrl = '', pendingData = null;
@@ -230,7 +232,7 @@
     for (const p of players) if (!known.has(p.id)) merged.push(p);
     return (everyoneCache = merged);
   }
-  let rulesInfo = null, finishReason = '', rankingList = null, historicalRanking = [], finishShown = false, lastRankingSig = '', lastFinishSig = '';
+  let rulesInfo = null, finishReason = '', rankingList = null, cumulativeRanking = [], finishShown = false, lastRankingSig = '', lastFinishSig = '';
   // 下一次「系统公布线索」的服务端时间戳（0 = 本场没有下一次）。只用来显示倒计时，
   // 不含任何线索内容，所以放在公共快照里也不构成泄露。
   let nextClueAt = 0;
@@ -371,9 +373,39 @@
   }
   // 停止意图也带楼层保护字段；换层期间只发送零移动，绝不携带换层指令。
   function stopIntent() { return api('/api/input', { up: false, down: false, left: false, right: false, ...floorFields() }); }
+  const connectionStatus = $('connection-status');
+  const connectionMessages = {
+    offline: '网络已断开，等待网络恢复…',
+    reconnecting: '游戏连接中断，正在重连…',
+    disconnected: '游戏连接已断开，请刷新页面重新进入。',
+    recovered: '连接已恢复'
+  };
+  function setConnectionStatus(state) {
+    if (connectionStatus.dataset.state === state) return;
+    clearTimeout(connectionStatusTimer);
+    connectionStatus.dataset.state = state;
+    setText(connectionStatus, connectionMessages[state] || '');
+    if (state === 'recovered') connectionStatusTimer = setTimeout(() => setConnectionStatus(''), 3000);
+  }
+  function closeStream() {
+    clearInterval(streamWatchdog);
+    stream?.close();
+    stream = null;
+  }
+  function showConnectionLoss() {
+    if (!stream) return;
+    awaitingFirst = true;
+    setConnectionStatus(!navigator.onLine ? 'offline' : stream.readyState === EventSource.CLOSED ? 'disconnected' : 'reconnecting');
+  }
+  window.addEventListener('offline', showConnectionLoss);
+  window.addEventListener('online', () => {
+    if (!stream) return;
+    if (stream.readyState === EventSource.CLOSED) openStream();
+    showConnectionLoss();
+  });
   function openStream() {
     const token = sessionToken || localStorage.getItem('sid_session_token');
-    if (stream) { try { stream.close(); } catch { } }
+    closeStream();
     awaitingFirst = true;
     // EventSource cannot set headers, so the reconnect token rides in the query string.
     // It is the same random credential as the HttpOnly cookie; identity is never derived
@@ -385,19 +417,33 @@
     if (user) query.set('user_token', user);
     const qs = query.toString();
     stream = new EventSource(qs ? `/api/stream?${qs}` : '/api/stream');
-    const activeStream = stream, generation = sessionGeneration;
+    const activeStream = stream;
+    let lastFrameAt = performance.now();
+    if (!navigator.onLine) showConnectionLoss();
     stream.addEventListener('reset', () => { if (stream === activeStream) resetToJoin(); });
     stream.onmessage = event => {
-      if (stream !== activeStream || generation !== sessionGeneration) return;
-      try { applySnapshot(JSON.parse(event.data)); } catch { }
+      if (stream !== activeStream) return;
+      try {
+        const snapshot = JSON.parse(event.data);
+        if (snapshot?.type !== 'snapshot') return;
+        applySnapshot(snapshot);
+        lastFrameAt = performance.now();
+        if (navigator.onLine && ['offline', 'reconnecting'].includes(connectionStatus.dataset.state)) setConnectionStatus('recovered');
+      } catch { }
     };
-    stream.onerror = () => { /* EventSource retries on its own with the advertised retry. */ };
+    stream.onerror = () => { if (stream === activeStream) showConnectionLoss(); };
+    streamWatchdog = setInterval(() => {
+      if (stream !== activeStream || performance.now() - lastFrameAt < 5000) return;
+      showConnectionLoss();
+      // EventSource 自己重试断开的流；连接打开但一直没有快照时主动重建。
+      if (navigator.onLine && stream.readyState === EventSource.OPEN) openStream();
+    }, 1000);
   }
   async function join(nickname) {
-    const r = await api('/api/join', ssoRequired ? {} : { nickname: String(nickname || '').slice(0, 8) });
+    const r = await api('/api/join', ssoRequired ? {} : { nickname: String(nickname || '').slice(0, 8) }).catch(() => ({ ok: false }));
     if (r.auth === false) return;
     if (r.status !== 200 || !r.ok) {
-      $('join-error').textContent = r.error || '加入失败';
+      $('join-error').textContent = '当前休场，请等待下一场开放';
       $('join-page').hidden = false;
       if (ssoRequired) { $('nickname').hidden = true; $('join-submit').hidden = false; $('join-submit').textContent = '进入办公室'; $('join-submit').dataset.mode = 'join'; }
       return;
@@ -427,7 +473,8 @@
     localStorage.removeItem('sid_user_token');
     localStorage.removeItem('sid_session_token');
     sessionToken = null;
-    if (stream) { try { stream.close(); } catch { } stream = null; }
+    closeStream();
+    setConnectionStatus('');
     const logout = ssoLogoutUrl || String(ssoLoginUrl || '').split('?')[0].replace(/\/login\/?$/, '/logout');
     if (!logout) {
       resetToJoin();
@@ -502,6 +549,7 @@
     ssoRequired = !!cfg.required;
     ssoLoginUrl = cfg.loginUrl || '';
     ssoLogoutUrl = cfg.logoutUrl || '';
+    debugEnabled = cfg.debug === true;
     if (!ssoRequired) {
       SID.annualReview?.openDaily();
       sessionToken = localStorage.getItem('sid_session_token');
@@ -564,13 +612,16 @@
     setProp($('game-availability'), 'hidden', !gameClosed);
     setText($('game-availability'), gameClosed);
     if (gameClosed && keys.size) { keys.clear(); sendIntent(false); }
-    if (s.rules) rulesInfo = s.rules;
+    if (s.rules) {
+      rulesInfo = s.rules;
+      if ($('rules-view').open) syncRulesCopy();
+    }
     nextClueAt = Number(s.nextClueAt) || 0;
     // 推流快照（scope:'floor'）对慢变字段做增量下发：字段缺省 = 与上一帧相同，必须沿用旧值；
     // 完整快照（/api/state）则总是带齐全部字段，按原语义覆盖。
     const delta = s.scope === 'floor';
     if (!delta || 'ranking' in s) rankingList = Array.isArray(s.ranking) ? s.ranking : null;
-    if (!delta || 'historicalRanking' in s) historicalRanking = Array.isArray(s.historicalRanking) ? s.historicalRanking : [];
+    if (!delta || 'cumulativeRanking' in s) cumulativeRanking = Array.isArray(s.cumulativeRanking) ? s.cumulativeRanking : [];
     if (typeof s.finishReason === 'string') finishReason = s.finishReason;
     if (Array.isArray(s.logs)) logs = s.logs;
     // 全员公开名录（无坐标）：推流只发同层玩家的实时坐标，名单/搜索/目标档案改由名录兜底。
@@ -1187,14 +1238,15 @@
     const targetHealth = healthHTML(p, true);
     if (targetHealthHost && targetHealthHost.innerHTML !== targetHealth) targetHealthHost.innerHTML = targetHealth;
     const ids = availableSkills();
-    info.textContent = (!canTarget(p) ? (finished ? '游戏已结束，技能已冻结。 ' : me.alive ? '自己或已休战目标不可操作。 ' : '你已休战，不能使用对抗技能。 ') : '')
-      + ids.map(id => skillStatus(id, me.skills[id])).join('；');
+    const unavailable = finished ? '本场已结束，技能已冻结。' : gameClosed
+      || (!me.alive ? '你已休战，暂时无法使用对抗技能。' : !canTarget(p) ? '自己或已休战目标不可操作。' : '');
+    info.textContent = [unavailable, ...ids.map(id => skillStatus(id, me.skills[id]))].filter(Boolean).join(' ');
     for (const id of ids) {
       const skill = me.skills[id], button = $(id);
       if (button) {
         const [label, recovery = ''] = skillButtonText(id, skill).split('\n');
         const allDoneHint = canTarget(p) && !hasUnknown(p, id)
-          ? (isAccusedToday(p) ? '今日已操作过' : isProtected(p) ? '目标保护中' : '暂不可用')
+          ? (isAccusedToday(p) ? '本场已操作过' : isProtected(p) ? '目标保护中' : '暂不可用')
           : '';
         const caption = skillFlight?.kind === id ? '正在提交…' : (recovery || allDoneHint);
         const nameSlot = $(`${id}-label`), timerSlot = $(`${id}-timer`);
@@ -1216,7 +1268,7 @@
     const targetName = p ? escapeText(p.name) : '该目标';
     const k = pending.kind;
     const confirmCopy = k === 'accuse'
-      ? `确认对「${targetName}」发起【指认】？若对方为潜伏者将扣其 1 格对抗生命并 +10 分；若误指好人则你自己扣 1 格（今日不可再次操作该目标）。`
+      ? `确认对「${targetName}」发起【指认】？若对方为潜伏者将扣其 1 格对抗生命并 +10 分。若误指好人则你自己扣 1 格。本场不可再次操作该目标。`
       : `确认对「${targetName}」发起【刺杀】？若对方为调查员将扣其 1 格对抗生命并 +3 分；同阵营无效但仍消耗机会。`;
     host.innerHTML = `<div class="confirm-box"><p>${confirmCopy}</p><div class="confirm-actions"><button id="confirm" class="${k === 'accuse' ? 'skill-blue' : 'skill-red'}">确认${skillNames[k]}</button><button id="cancel" type="button">取消</button></div></div>`;
     $('confirm').onclick = () => commit('');
@@ -1233,7 +1285,7 @@
     const generation = privateGeneration, session = sessionGeneration;
     const request = { kind: requested };
     skillFlight = request; updateSkillStatus();
-    const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '网络异常，结果未确认' }));
+    const result = await api('/api/skill', body).catch(() => ({ ok: false, error: '技能结果暂未确认，请查看技能次数和操作反馈。' }));
     if (skillFlight === request) skillFlight = null;
     if (session === sessionGeneration && result.skills && Number(result.serverTime) >= serverTime && me) {
       me = { ...me, skills: result.skills, hp: result.hp ?? me.hp, alive: result.alive ?? me.alive, protectUntil: result.protectUntil ?? me.protectUntil,
@@ -1241,8 +1293,8 @@
     }
     if (session !== sessionGeneration || generation !== privateGeneration || !holding()) { updateSkillStatus(); return false; }
     privateResult = !result.ok && /冷却中/.test(result.error || '')
-      ? '当前后台仍在执行旧版技能冷却规则，需要手动重启服务后生效（仅刷新页面无效）。本次未自动重试。'
-      : result.ok ? (result.resultText || '已结算') : (result.error || '结算被拒绝');
+      ? '技能正在冷却，请在恢复后再使用。'
+      : result.ok ? (result.resultText || '已结算') : (result.error || '暂时无法使用技能，请查看技能状态。');
     if (!result.ok) {
       AUDIO?.play('quizWrong');
     } else if (requested === 'assassinate') {
@@ -1279,23 +1331,25 @@
     host.hidden = false;
     // Build the panel once; snapshots update value slots without replacing controls.
     if (!host.childElementCount) {
-      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-score-card" class="mine-score-card"></div><div id="mine-flowers" class="mine-flowers"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity"></strong></div><div id="mine-identity-details"></div></div><div id="mine-colors" class="color-grid" aria-label="外观属性"></div><div id="mine-traits" aria-label="隐藏属性">${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${traitNames[id]}</span><strong id="mine-value-${id}"></strong></div>`).join('')}</div><p class="hold-note">${practice ? '教程面板可按 Esc 或点击关闭按钮收起，切换窗口不会关闭。' : '阵营与个人属性仅自己可见。关闭面板、切出页面或打开规则页后收起。'}</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
+      host.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DOSSIER · 个人机密档案</small><h2 id="mine-name"></h2></div><button id="mine-close" class="icon-button" aria-label="关闭我的信息">×</button></div><p id="mine-alive" class="status"></p><div id="mine-health" class="target-health-row"></div><div id="mine-flowers" class="mine-flowers"></div><div class="mine-identity"><div class="secret-line"><span class="identity-label">我的阵营身份</span><strong id="mine-value-identity"></strong></div><div id="mine-identity-details"></div></div><div id="mine-colors" class="color-grid" aria-label="外观属性"></div><div id="mine-traits" aria-label="隐藏属性">${Object.keys(traitNames).map(id => `<div class="secret-line mine-field"><span>${traitNames[id]}</span><strong id="mine-value-${id}"></strong></div>`).join('')}</div><p class="hold-note">${practice ? '教程面板可按 Esc 或点击关闭按钮收起，切换窗口不会关闭。' : '阵营与个人属性仅自己可见。关闭面板、切出页面或打开规则页后收起。'}</p><div class="mine-logout-footer"><span id="mine-sso-user" class="mine-sso-user" hidden></span><button id="mine-logout" type="button" class="mine-logout-btn">🚪 退出登录</button></div>`;
       $('mine-close').onclick = () => { clearPrivate(true); $('my-info').focus({ preventScroll: true }); };
       if ($('mine-logout')) $('mine-logout').onclick = logout;
 
     }
     const selfP = selfPlayer();
     $('mine-name').textContent = `我的信息 · ${me.name}`;
-    $('mine-alive').textContent = `${me.alive ? `对抗中 · 对抗生命 ${Number.isFinite(me.hp) ? me.hp : '-'}` : '休战中（积分保留，仍可探索、答题、互动与小游戏）'} · 今日总分 ${typeof me.score === 'number' ? me.score : 0}`;
+    $('mine-alive').textContent = me.alive ? `对抗中 · 对抗生命 ${Number.isFinite(me.hp) ? me.hp : '-'}`
+      : '休战中（积分保留，仍可探索、答题、互动与小游戏）';
     const health = healthHTML(me) + protectionHTML(me);
     if ($('mine-health').innerHTML !== health) $('mine-health').innerHTML = health;
-    const bd = me.scoreBreakdown || { participate: 0, survival: 0, combat: me.score || 0 };
-    const hist = Number(me.historicalScore) || 0;
-    const scoreHTML = `<div class="mine-score-item total"><span>今日总分</span><strong>${typeof me.score === 'number' ? me.score : 0}</strong></div><div class="mine-score-item hist"><span>昨日累计</span><strong>${hist}</strong></div><div class="mine-score-item"><span>参与分</span><strong>${bd.participate || 0}</strong></div><div class="mine-score-item"><span>存活分</span><strong>${bd.survival || 0}</strong></div><div class="mine-score-item"><span>对抗分</span><strong>${bd.combat || 0}</strong></div>`;
-    if ($('mine-score-card') && $('mine-score-card').innerHTML !== scoreHTML) $('mine-score-card').innerHTML = scoreHTML;
-    const flowerHTML = `<div class="honor-badges">${SID.flowers?.badgesHTML(selfP) || ''}</div><p>本场献花积分 <strong>${me.flowers?.sentPoints || 0} / 10</strong> · 同一对象每场限送一次</p>${selfP?.flowerRecipient || me.flowers?.received > 0 ? `<p>本场收到鲜花 <strong>${me.flowers?.received || 0} 朵</strong> · 每 5 朵 +1 分，无上限</p>` : ''}`;
+    const badges = SID.flowers?.badgesHTML(selfP);
+    const received = me.flowers?.received || 0;
+    const receivedHTML = selfP?.flowerRecipient || received > 0
+      ? `<p>本场收到鲜花 <strong>${received} 朵</strong> · 每 5 朵 +1 分，无上限</p>` : '';
+    const flowerHTML = (badges ? `<div class="honor-badges">${badges}</div>` : '') + receivedHTML;
     const mineFlowers = $('mine-flowers');
-    if (mineFlowers && mineFlowers.innerHTML !== flowerHTML) mineFlowers.innerHTML = flowerHTML;
+    if (mineFlowers.innerHTML !== flowerHTML) mineFlowers.innerHTML = flowerHTML;
+    mineFlowers.hidden = !flowerHTML;
     const colors = selfP ? selfP.colors : {};
     const colorHTML = Object.entries(colors).map(([k,c]) => `<div class="attribute"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${escapeText(c[0])}</div>`).join('');
     if ($('mine-colors').innerHTML !== colorHTML) $('mine-colors').innerHTML = colorHTML;
@@ -1316,7 +1370,8 @@
   function resetToJoin() {
     tutorial?.discard();
     sessionGeneration++; skillFlight = null; interactionFlight = null; combatFlight = null; gamesFlight = null; wheelSpinFlight = null;
-    if (stream) { stream.close(); stream = null; }
+    closeStream();
+    setConnectionStatus('');
     closeExploration(); closeGames(); clearPrivate(true); closeWheel(); closeRanking(); closeBadPool(); hideFinish(); keys.clear(); lastIntent = '';
     combatResult = ''; gamesResult = '';
     rpsLocalChoice = null; rpsRevision = 0; rpsAckRevision = 0; rpsRemoteRevision = 0;
@@ -1324,7 +1379,7 @@
     rpsResultDismissId = null; rpsAutoId = null; rpsAutoPhase = null; rpsLastSelfGlyph = ''; rpsLastOppGlyph = '';
     rpsRevealSeenId = null; rpsRevealStartAt = 0; rpsDrawSig = '';
     featuresState = { rps: true, spire: false, tank: false, parkour: false };
-    rulesInfo = null; finishReason = ''; rankingList = null; historicalRanking = []; finishShown = false; lastRankingSig = '';
+    rulesInfo = null; finishReason = ''; rankingList = null; cumulativeRanking = []; finishShown = false; lastRankingSig = '';
     wheelResult = ''; wheelAngle = 0; wheelAnimating = false;
     nearbySig = ''; $('nearby-items').replaceChildren();
     $('copy-toast').hidden = true; $('copy-toast').textContent = ''; clearTimeout(toastTimer);
@@ -1773,7 +1828,7 @@
       updateScoreDisplay();
       updateExplorationHUD();
     } catch {
-      if (samePanel()) explorationResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
+      if (samePanel()) explorationResult = '领取结果暂未确认，请查看 NPC 福利的领取状态。';
     } finally {
       if (interactionFlight === request) interactionFlight = null;
       if (sameSession() && explorationPanel) syncExploration();
@@ -1919,7 +1974,7 @@
         updateScoreDisplay(); showWheelResult(); updateWheelControls();
       });
     } catch {
-      if (samePanel()) { wheelResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showWheelResult(); }
+      if (samePanel()) { wheelResult = '转盘结果暂未确认，请查看剩余转盘次数和本场积分。'; showWheelResult(); }
     } finally {
       if (wheelSpinFlight === request) wheelSpinFlight = null;
       if (sameSession()) { updateWheelControls(); if (explorationPanel && explorationPanel.kind === 'npc') syncExploration(); }
@@ -1970,7 +2025,7 @@
       return;
     }
     if (!nextClueAt) {
-      setText(label, '待开启');
+      setText(label, '等待系统公布');
       if (at) setText(at, '');
       lastClueBatchSig = '';
       return;
@@ -1996,16 +2051,23 @@
   function finishReasonText(reason) {
     return reason === 'aliveFloor' ? '对抗中人数已降至剩余 100 人'
       : reason === 'badWiped' ? '潜伏者（坏人）已全部进入休战'
-        : reason === 'timeUp' ? '今日场次到点结算'
+        : reason === 'timeUp' ? '本场到点结算'
           : reason === 'host' ? '管理员结算了本场对局' : '本场对局已结束';
   }
-  function rankingRowHTML(entry, index) {
+  function rankingRowHTML(entry, index, player) {
     const rank = entry.rank != null ? entry.rank : index + 1;
-    const all = everyone(), p = entry.id != null ? all.find(pl => pl.id === entry.id) : all.find(pl => pl.name === entry.name);
-    const name = entry.name || (p ? p.name : '玩家');
+    const name = entry.name || player?.name || '玩家';
     const out = entry.alive === false ? '<span class="out-label">休战</span>' : '';
-    const daysBadge = entry.days ? `<span class="ranking-days-badge">${entry.days}天</span>` : '';
-    return `<div class="ranking-row" ${entry.id != null ? `data-player="${escapeText(entry.id)}"` : ''}><span class="ranking-rank">${rank}</span>${p ? portrait(p) : ''}<span class="ranking-name">${escapeText(name)}</span>${daysBadge}${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
+    return `<div class="ranking-row" ${entry.id != null ? `data-player="${escapeText(entry.id)}"` : ''}><span class="ranking-rank">${rank}</span>${player ? portrait(player) : ''}<span class="ranking-name">${escapeText(name)}</span>${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
+  }
+  function rankingRowsHTML(entries) {
+    const byId = new Map(), byName = new Map();
+    for (const player of everyone()) {
+      byId.set(player.id, player);
+      if (!byName.has(player.name)) byName.set(player.name, player);
+    }
+    return entries.map((entry, index) => rankingRowHTML(entry, index,
+      entry.id != null ? byId.get(entry.id) : byName.get(entry.name))).join('');
   }
   function formatSettlementReportHTML() {
     if (!finished || !me) return '';
@@ -2023,12 +2085,12 @@
   }
   function syncRanking() {
     const host = $('ranking'); if (!host || host.hidden) return;
-    const sig = JSON.stringify(historicalRanking);
+    const sig = JSON.stringify(cumulativeRanking);
     if (sig === lastRankingSig) return;
     lastRankingSig = sig;
-    $('ranking-items').innerHTML = historicalRanking.length
-      ? historicalRanking.slice(0, 100).map(rankingRowHTML).join('')
-      : '<p class="ranking-empty-card">暂无截至昨日的排名</p>';
+    $('ranking-items').innerHTML = cumulativeRanking.length
+      ? rankingRowsHTML(cumulativeRanking)
+      : '<p class="ranking-empty-card">暂无累计积分排名</p>';
   }
   function openRanking() {
     const host = $('ranking'); if (!host) return;
@@ -2049,7 +2111,7 @@
     const host = $('finish-ranking');
     const reportHTML = formatSettlementReportHTML();
     if (rankingList && rankingList.length) {
-      host.innerHTML = rankingList.map(rankingRowHTML).join('');
+      host.innerHTML = rankingRowsHTML(rankingList);
       if (reportHTML) host.insertAdjacentHTML('afterbegin', reportHTML);
       return;
     }
@@ -2180,7 +2242,7 @@
                 <div id="games-gem-bar" class="rps-gem-bar" aria-label="猜拳积分进度"><i class="rps-gem"></i><i class="rps-gem"></i><i class="rps-gem"></i><i class="rps-gem"></i><i class="rps-gem"></i></div>
                 <span id="games-rps-pair" class="rps-pair-pill">与TA 0 / 2 次</span>
               </div>
-              <p class="games-balance">今日总分 <strong id="games-score">0</strong></p>
+              <p class="games-balance">本场得分 <strong id="games-score">0</strong></p>
             </div>
             <div class="rps-top">
               <div class="rps-side rps-self">
@@ -2248,7 +2310,7 @@
     if (current) {
       if (gamesFlight) { showToast('正在处理请求，请稍后取消'); return; }
       await sendRps({ kind: 'rpsCancel', challengeId: current.id });
-      if (me?.games?.rpsPending?.id === current.id) { showToast('取消未确认，请重试或等待权威结果'); return; }
+      if (me?.games?.rpsPending?.id === current.id) { showToast('取消结果暂未确认。若对局仍在进行，可以再次取消。'); return; }
     }
     if (me?.games?.rpsResult) rpsResultDismissId = me.games.rpsResult.id;
     closeGames();
@@ -2492,7 +2554,7 @@
       for (const b of choices) { b.disabled = !canChoose; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
       accept.hidden = reject.hidden = true; cancel.hidden = false;
       unconfirmed.hidden = !rpsUnconfirmed;
-      if (rpsUnconfirmed) unconfirmed.textContent = '最近一次出拳未确认，已以权威状态为准；可继续修改。';
+      if (rpsUnconfirmed) unconfirmed.textContent = '刚才的出拳未确认，请在倒计时结束前重新选择。';
       resultEl.hidden = true; resultClose.hidden = true;
     }
   }
@@ -2519,7 +2581,7 @@
       syncRpsLifecycle();
       gamesResult = result.ok ? (result.resultText || '') : (result.error || '请求被拒绝');
       if (!result.ok && gamesResult) showToast(gamesResult);
-    } catch { if (same()) { gamesResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。'; showToast(gamesResult); } }
+    } catch { if (same()) { gamesResult = '猜拳操作暂未确认，请查看当前对局状态。'; showToast(gamesResult); } }
     finally {
       if (gamesFlight === request) gamesFlight = null;
       if (same()) {
@@ -2555,7 +2617,7 @@
         ? (result.hitId == null ? '' : `${result.resultText || '已互动'}（无伤害：命中只眩晕 0.8 秒 / 僵直 1 秒，不影响生命与阵营）`)
         : (result.error || '互动被拒绝');
     } catch {
-      if (same()) combatResult = '网络异常，结果未确认；请等待权威状态更新，未自动重试。';
+      if (same()) combatResult = '本次互动结果暂未确认，请留意游戏状态。';
     } finally {
       if (combatFlight === request) combatFlight = null;
       if (same()) { updateCombatHUD(); updateScoreDisplay(); }
@@ -2688,7 +2750,7 @@
   function floorSlowStage() {
     if (floorState !== 'PREPARING' && floorState !== 'SUBMITTING') return;
     const detail = $('floor-detail');
-    if (detail) detail.textContent = '已等待 2 秒仍未收到服务端确认 · 换层仍在进行，请勿重复操作';
+    if (detail) detail.textContent = '换层仍在进行，请稍候。';
   }
   // 10 秒门帘上限：切成可关闭的静态提示（Esc 可关），但 10 秒 ≠ 允许返回源层。
   function floorCurtainMax() {
@@ -2696,9 +2758,7 @@
     floorNoticeMode(true);
     const detail = $('floor-detail');
     if (!detail) return;
-    detail.textContent = floorState === 'UNCONFIRMED'
-      ? '换层结果仍未确认 · 可关闭此提示继续观察；未确认期间不会本地换层，请等待权威状态对账'
-      : '服务端确认已超过 10 秒 · 可关闭此提示；换层请求不会重复发送';
+    detail.textContent = '确认后会自动更新所在楼层。你可以先关闭此提示。';
   }
   // 关闭静态提示：只隐藏覆盖层，不改变换层状态（可能仍在等待权威对账）。
   function dismissFloorNotice() {
@@ -2864,7 +2924,7 @@
     flight.submitted = true; // 单次原子提交：任何情况下都不重复发送同一次换层
     floorState = 'SUBMITTING';
     if ($('floor-transition').hidden === false) {
-      $('floor-phase').textContent = '正在请求服务端裁决…';
+      $('floor-phase').textContent = '正在前往目标楼层…';
     }
     let res = null;
     try {
@@ -2875,10 +2935,10 @@
       });
     } catch { res = null; }
     if (floorFlight !== flight) return; // 已被新的过渡替换 / 已收敛
-    if (!res) { floorUnconfirmed('网络异常，换层结果未确认'); return; }
+    if (!res) { floorUnconfirmed(); return; }
     if (res.status === 200 && res.ok === true && res.floor && res.position) { floorArrived(flight, res); return; }
-    if (res.status === 400 && res.ok === false) { floorRejected(flight, res.error || '换层被拒绝'); return; }
-    floorUnconfirmed('服务端响应未能确认换层结果');
+    if ((res.status === 400 || res.closed) && res.ok === false) { floorRejected(flight, res.error || '暂时无法换层，请稍后再试。'); return; }
+    floorUnconfirmed();
   }
   function floorArrived(flight, res) {
     // 权威确认：先落 me 的权威楼层/版本，再整层原子切换（首帧就绪），最后开门。
@@ -2911,11 +2971,11 @@
       closeFloorOverlay();
     }, delay);
   }
-  function floorUnconfirmed(message) {
+  function floorUnconfirmed() {
     // 结果不明：保留门帘，不做本地换层，不重发；等待权威快照对账（applySnapshot 会收敛）。
     floorState = 'UNCONFIRMED';
     floorNoticeMode(true);
-    showFloorOverlay('换层结果未确认', '等待权威状态对账…', `${message} · 不会自动重试换层`);
+    showFloorOverlay('换层结果未确认', '正在确认到达楼层…', '确认后会自动更新所在楼层。你可以先关闭此提示。');
     const flight = floorFlight;
     // 仅 GET 对账；源层快照不能证明 POST 未执行，故不因此恢复输入或再次 POST。
     api('/api/state', null, 'GET').then(snapshot => {
@@ -4255,7 +4315,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawFogOverlay();
     // F1 碰撞调试层：在雾层之后、CSS 像素空间绘制，避免被世界缩放/暗角影响。
-    if (TMJ_DEBUG && TMJ_DEBUG.isVisible()) {
+    if (debugEnabled && TMJ_DEBUG?.isVisible()) {
       const selfP = selfPlayer();
       const selfR = selfP ? renderMap.get(selfP.id) : null;
       TMJ_DEBUG.draw(ctx, {
@@ -4524,19 +4584,19 @@
     try {
       const data = await api('/api/pending-players');
       if (requestId !== pendingRequestId || requestedRound !== roundId || requestedSession !== sessionToken) return;
-      if (!data.ok) throw new Error(data.status === 404 ? '新名单接口尚未启用，请联系管理员更新并重启服务' : data.error || '同事表读取失败，请稍后刷新');
+      if (!data.ok) throw new Error('名单加载失败');
       if (data.roundId !== roundId) { pendingNextCheck = 0; return; }
       pendingInviteUrl = gameInviteUrl(data);
       pendingData = data;
       lastRosterSig = '';
       renderPendingPlayers(data);
       renderRoster();
-    } catch (error) {
+    } catch {
       if (requestedRound !== roundId || requestedSession !== sessionToken) return;
       pendingSignature = ''; pendingInviteUrl = ''; $('pending-count').textContent = '—';
-      pendingData = { ok: false, error: error.message || '同事表读取失败，请稍后刷新', count: 0, total: 0, groups: [] };
+      pendingData = { ok: false, error: '暂时无法加载待加入名单，请稍后点击「刷新」重试。', count: 0, total: 0, groups: [] };
       lastRosterSig = '';
-      $('pending-summary').textContent = error.message || '同事表读取失败，请稍后刷新'; $('pending-items').replaceChildren();
+      $('pending-summary').textContent = pendingData.error; $('pending-items').replaceChildren();
       renderRoster();
     } finally {
       pendingFlight = false;
@@ -4639,9 +4699,9 @@
       node.textContent = content; return node;
     };
     if (!badPoolAvailable) {
-      fragment.append(text('p', '当前服务尚未提供匿名线索池；请勿把暂未提供解读为没有坏人。', 'bad-empty'));
+      fragment.append(text('p', '暂时无法加载线索，请稍后查看。', 'bad-empty'));
     } else if (!badSlots.length) {
-      fragment.append(text('p', '暂无坏人', 'bad-empty'));
+      fragment.append(text('p', '暂无线索', 'bad-empty'));
     } else {
       // 仅将匿名卡片的展示序号连续化，不按玩家id或加入顺序重新排序。
       for (const [index, slot] of badSlots.entries()) {
@@ -4753,8 +4813,8 @@
   }
   document.addEventListener('keydown', e => {
     if ($('annual-review-overlay')?.open || tutorial?.isBlocking() || roundTasks?.opened()) return;
-    // F1 碰撞调试层：任何时候都可开关，不改变输入/权威状态。
-    if (e.key === 'F1') {
+    // F1 碰撞调试层仅在服务端同时启用开发模式时开放。
+    if (e.key === 'F1' && debugEnabled) {
       e.preventDefault();
       if (!e.repeat && TMJ_DEBUG) TMJ_DEBUG.toggle();
       return;
@@ -4875,8 +4935,25 @@
   if (window.ResizeObserver) { try { new ResizeObserver(() => resizeCanvas()).observe($('map-view')); } catch { } }
   resizeCanvas();
 
-  // Rules are a static reading view in this document, not a second game/SSE session.
+  // 规则页使用当前游戏快照中的公开配置。
   const rules = $('rules-view');
+  function syncRulesCopy() {
+    const config = rulesInfo || {};
+    const hp = config.initialHp;
+    setText($('rules-initial-hp'), Number.isSafeInteger(hp) ? `每场入场时拥有 ${hp} 格对抗生命` : '每场入场时获得对抗生命');
+    function duration(ms) {
+      const minutes = Math.floor(ms / 60000), seconds = (ms % 60000) / 1000;
+      return [minutes ? `${minutes} 分钟` : '', seconds ? `${seconds} 秒` : ''].filter(Boolean).join(' ');
+    }
+    for (const [id, ms] of [['rules-good-recovery', config.goodChargeIntervalMs], ['rules-bad-recovery', config.badChargeIntervalMs]]) {
+      setText($(id), ms > 0 ? `使用后 ${duration(ms)} 恢复` : '使用后进入冷却');
+    }
+    const protection = config.protectMs;
+    setText($('rules-hit-protection'), protection === 0 ? '本场未启用受击保护。'
+      : protection > 0 ? `被有效命中后获得 ${duration(protection)} 受击保护，角色周围显示统一保护罩。`
+        : '受击保护期间，角色周围显示统一保护罩。');
+    setText($('rules-clue-interval'), config.clueIntervalMs > 0 ? `每隔 ${duration(config.clueIntervalMs)} ` : '定时');
+  }
   let rulesReturnFocus = null;
   function closeRules() {
     if (!rules.open) return;
@@ -4887,6 +4964,7 @@
     rulesReturnFocus = document.activeElement;
     clearAllInput();
     $('offline-summary').hidden = true; $('offline-summary').replaceChildren();
+    syncRulesCopy();
     rules.showModal(); rules.scrollTop = 0;
     $('rules-toggle').setAttribute('aria-expanded', 'true');
     $('rules-close').focus({ preventScroll: true });

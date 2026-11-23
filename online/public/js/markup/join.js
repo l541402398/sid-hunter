@@ -7,10 +7,10 @@
     <form id="join-form" class="join-panel">
       <div class="join-badge-row">
         <span class="eyebrow">SID HUNTER · ANNUAL TOURNAMENT</span>
-        <span class="join-tag">5天累计积分赛</span>
+        <span class="join-tag">累计积分赛</span>
       </div>
       <h2>进入年会大厦现场</h2>
-      <p id="join-hint">昵称可留空（系统将随机分配代号）。好人指认、坏人刺杀，每人 3 格对抗生命；归零后休战仍可继续赚积分，按 5 天累计总积分排名获奖。</p>
+      <p id="join-hint">昵称可留空（系统将随机分配代号）。好人指认、坏人刺杀。对抗生命归零后休战，仍可继续赚积分，活动按累计总积分排名获奖。</p>
       <div class="join-feature-strip" aria-hidden="true">
         <span><b>调查员</b> · 指认（+10）</span>
         <span><b>潜伏者</b> · 刺杀（+3）</span>

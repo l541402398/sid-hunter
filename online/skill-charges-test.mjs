@@ -128,7 +128,7 @@ await test('旧 probe/spy/kill 入口拒绝；阵营不能互用；幂等 comman
 
 const source = readFileSync(new URL('./public/game.js', import.meta.url), 'utf8');
 const healthSection = source.slice(source.indexOf('  function healthState('), source.indexOf('  function row('));
-const section = source.slice(source.indexOf('  const secondsLeft ='), source.indexOf('  // Personal privacy choices'));
+const section = source.slice(source.indexOf('  const secondsLeft ='), source.indexOf('  function closeMine('));
 function ui(faction = 'good') {
   const elements = new Map();
   function element(id) {
@@ -142,7 +142,7 @@ function ui(faction = 'good') {
   const env = { me:{id:0,alive:true,faction,skills,accusedToday:[]}, finished:false, gameClosed:'', gamePausedAt:0, now:1000, serverTime:1000,
     privateGeneration:1, sessionGeneration:1, privateOpen:true, privateResult:'', pending:null, selectedId:2,
     target:{id:2,alive:true,sid:'***-***-***',name:'目标',traits:{saying:'***',food:'***',sport:'***'},protected:false},
-    traitNames:{saying:'口头禅',food:'食物',sport:'运动'}, MASK:'***', WORLD, apiCalls:0,
+    traitNames:{saying:'口头禅',food:'食物',sport:'运动'}, MASK:'***', WORLD, AUDIO:null, apiCalls:0,
     $:element, holding:()=>env.privateOpen, selected:()=>env.target, serverNow:()=>env.now,
     escapeText:s=>String(s), commandId:()=>String(++seq), api:async()=>{ env.apiCalls++; return{ok:true}; } };
   const context = vm.createContext(env);
@@ -200,12 +200,12 @@ await test('有次即启用，旧cooldownUntil不能禁用按钮，零次显示�
   env.now=91000;api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.match(e('accuse-timer').textContent,/等待恢复确认/);
   env.me.skills.accuse.chargesRemaining=1; api.updateSkillStatus();assert.equal(e('accuse').disabled,false);assert.equal(e('accuse-label').textContent,'指认 1/1');assert.equal(e('accuse-timer').hidden,true);
 });
-await test('结束/休战不显示虚假的恢复倒计时；今日已操作或保护中的目标禁用', () => {
+await test('结束/休战不显示恢复倒计时，本场已操作或保护中的目标禁用', () => {
   const {env,api,e} = ui(); api.renderPrivate(); env.me.skills.accuse.chargesRemaining=0;env.me.skills.accuse.nextChargeAt=91000;
   env.finished=true;api.updateSkillStatus();assert.match(e('accuse-timer').textContent,/已冻结/);
   env.finished=false;env.me.alive=false;api.updateSkillStatus();assert.match(e('accuse-timer').textContent,/已冻结/);assert.equal(e('accuse').disabled,true);
   env.me.alive=true;env.me.skills.accuse.chargesRemaining=1;api.updateSkillStatus();assert.equal(e('accuse').disabled,false);
-  env.me.accusedToday=[2];api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'今日已操作过');
+  env.me.accusedToday=[2];api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'本场已操作过');
   env.me.accusedToday=[];env.target.protected=true;api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'目标保护中');
   env.target.protected=false;env.target.alive=false;api.updateSkillStatus();assert.equal(e('accuse').disabled,true,'休战目标不可操作');
 });
@@ -252,11 +252,11 @@ await test('迟到资源响应不能覆盖更新快照；关闭后的响应不�
   finish({ok:true,serverTime:1000,skills:late});assert.equal(await call,false);
   assert.equal(env.me.skills.accuse.chargesRemaining,1);assert.equal(e('private-content').innerHTML,'');
 });
-await test('旧运行后台拒绝冷却时提示需手动重启，不自动重试或伪报成功', async () => {
+await test('技能冷却时提示等待恢复且仅提交一次', async () => {
   const {env,api,e}=ui();api.renderPrivate();env.pending={kind:'accuse',target:2};
   env.api=async()=>{env.apiCalls++;return{ok:false,error:'该技能冷却中'};};
   assert.equal(await api.commit(''),false); assert.equal(env.apiCalls,1);
-  assert.match(e('result-host').innerHTML,/需要手动重启服务/);
+  assert.match(e('result-host').innerHTML,/技能正在冷却，请在恢复后再使用/);
 });
 await test('技能按钮两行层级、mm:ss补零及跨分钟、20分钟和提交状态', async () => {
   const {env,api,e}=ui('bad');api.renderPrivate();
@@ -298,8 +298,8 @@ await test('坏人面板按匿名展示顺序01递增，10/100不截断，休战
   assert.ok(rows(root.children[0].children[2]).every(r=>r.children[1].textContent==='***'),'旧后台slot.traits不能回退显示');
   env.badSlots[2].systemClues={colors:{},traits:{}};
   assert.equal(JSON.stringify(env.badSlots),original,'不改变服务端匿名卡片的顺序或属性');
-  env.badSlots=[];vm.runInNewContext('renderBadPool();',env);assert.equal(root.children[0].children[0].textContent,'暂无坏人');
-  env.badPoolAvailable=false;vm.runInNewContext('renderBadPool();',env);assert.match(root.children[0].children[0].textContent,/尚未提供匿名线索池/);
+  env.badSlots=[];vm.runInNewContext('renderBadPool();',env);assert.equal(root.children[0].children[0].textContent,'暂无线索');
+  env.badPoolAvailable=false;vm.runInNewContext('renderBadPool();',env);assert.match(root.children[0].children[0].textContent,/暂时无法加载线索/);
 });
 await test('系统公布与玩家探查完全分离，七属性只下发系统项且不能伪造', () => {
   const r=fixture(),bad=r.room.players.find(p=>p.faction==='bad'),good=r.room.players.find(p=>p.faction==='good');

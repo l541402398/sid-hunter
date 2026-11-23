@@ -86,20 +86,23 @@ await test('慢变字段增量：未变化不重发，变化后只发一次；�
   const viewer = R.room.players[0], conn = {};
   R.streamFrame(viewer.id, conn);
   const quiet = R.streamSnapshot(viewer.id, conn);
-  for (const k of ['logs', 'badSlots', 'ranking', 'historicalRanking', 'rules', 'directory', 'directoryPatch', 'me']) {
+  for (const k of ['logs', 'badSlots', 'ranking', 'historicalRanking', 'cumulativeRanking', 'rules', 'directory', 'directoryPatch', 'me']) {
     assert.ok(!(k in quiet), `无变化时不应重发 ${k}`);
   }
   R.room.logs.unshift({ time: '12:00:00', text: '测试日志' });
   const target = R.room.players[5];
   target.traitPublic.food = true;
+  target.score = 12;
   // 慢变字段按 tick 共享缓存（40ms），等下一 tick 再取。
   const until = Date.now() + 60; while (Date.now() < until) { /* 等待共享缓存过期 */ }
   const changed = R.streamSnapshot(viewer.id, conn);
   assert.equal(changed.logs[0].text, '测试日志');
+  assert.equal(changed.cumulativeRanking.length, 30);
+  assert.deepEqual(changed.cumulativeRanking[0], { rank: 1, name: target.name, score: 12, days: 0 });
   assert.deepEqual(changed.directoryPatch.map(d => d.id), [target.id]);
   assert.equal(changed.directoryPatch[0].traits.food, target.traits.food);
   const again = R.streamSnapshot(viewer.id, conn);
-  assert.ok(!('logs' in again) && !('directoryPatch' in again), '同一版本只下发一次');
+  assert.ok(!('logs' in again) && !('directoryPatch' in again) && !('cumulativeRanking' in again), '同一版本只下发一次');
 });
 
 await test('me 变化即下发、未变化约每 20 帧兜底一次；新连接重新拿全量', () => {

@@ -226,7 +226,7 @@ try {
       assert.equal(await evaluate("document.getElementById('bad-slots').hidden"), true);
       assert.ok((await evaluate("document.getElementById('bad-slots').textContent")).includes('已淘汰'));
       await evaluate(`window.poolTestStream.onmessage({data:${JSON.stringify(JSON.stringify({ ...before, badSlots: [] }))}})`);
-      assert.equal(await evaluate("document.getElementById('bad-slots').textContent"), '暂无坏人');
+      assert.equal(await evaluate("document.getElementById('bad-slots').textContent"), '暂无线索');
       const old = { ...before }; delete old.badSlots;
       await evaluate(`window.poolTestStream.onmessage({data:${JSON.stringify(JSON.stringify(old))}})`);
       assert.ok((await evaluate("document.getElementById('bad-slots').textContent")).includes('尚未提供'));

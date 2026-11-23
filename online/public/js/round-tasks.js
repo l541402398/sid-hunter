@@ -16,7 +16,7 @@
       { key: 'quiz', label: '答题得分' },
       { key: 'receivedFlowers', label: '收花得分' },
       { key: 'combat', label: '对战得分' },
-      { key: 'survival', label: '对抗时长' },
+      { key: 'survival', label: '对战时长' },
       { key: 'unallocated', label: '未细分积分' }
     ];
     const list = document.getElementById('round-tasks-list');

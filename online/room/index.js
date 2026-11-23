@@ -100,7 +100,7 @@ function createRoom(options = {}) {
     // 截至昨日的历史累计前100榜与个人历史累计分（由 server/activity.js 同步注入）
     historicalRanking: [],
     historicalScores: new Map(),
-    pastRoundScores: new Map(),
+    scoreHistory: { totals: new Map(), day: null, archived: null },
     // 上一局结算快照：结束瞬间写入，reset 不会清掉，管理页/重开流程据此读取上局排名。
     lastResult: null,
     startedAt: Date.now(),
@@ -874,7 +874,7 @@ function createRoom(options = {}) {
     ensureScoreState(p);
     const key = scoreKey(p, room.roundId);
     const historicalScore = room.historicalScores.get(key) || 0;
-    const pastRoundScore = room.pastRoundScores.get(key) || 0;
+    const pastRoundScore = room.scoreHistory.totals.get(key)?.score || 0;
     return {
       id: p.id,
       name: p.name,
@@ -920,6 +920,55 @@ function createRoom(options = {}) {
       settlementReport: settlementReportFor(p)
     };
   }
+  let cumulativeRankingCache = null;
+  function cumulativeRanking() {
+    const { totals, day, archived } = room.scoreHistory;
+    // 已归档的本场取存档成绩，进行中的本场取权威实时分。历史汇总已排除本场。
+    const currentArchive = archived?.roundId === room.roundId ? archived : null;
+    const cached = cumulativeRankingCache;
+    if (cached?.history === room.scoreHistory && cached.roundId === room.roundId) {
+      if (currentArchive) return cached.ranking;
+      const unchanged = cached.players.length === room.players.length && room.players.every((p, i) => {
+        const previous = cached.players[i];
+        return p.npc ? previous === null : previous && previous.name === p.name &&
+          previous.score === p.score && previous.key === scoreKey(p, room.roundId);
+      });
+      if (unchanged) return cached.ranking;
+    }
+    const players = currentArchive ? [] : room.players.map(p => p.npc ? null : {
+      key: scoreKey(p, room.roundId), name: p.name, score: p.score
+    });
+    const currentRows = currentArchive ? currentArchive.ranking || [] : players.filter(Boolean);
+    const currentDay = currentArchive?.day || day;
+    const current = new Map();
+    for (const row of currentRows) {
+      const previous = totals.get(row.key);
+      const days = (previous?.daysSet.size || 0) + (currentDay && !previous?.daysSet.has(currentDay) ? 1 : 0);
+      const score = (current.get(row.key)?.score ?? previous?.score ?? 0) + (Number(row.score) || 0);
+      current.set(row.key, { key: row.key, name: row.name, score, days });
+    }
+    const ranked = [...current.values()];
+    for (const [key, row] of totals) {
+      if (!current.has(key)) ranked.push({ key, name: row.name, score: row.score, days: row.daysSet.size });
+    }
+    const ranking = ranked.sort((a, b) => b.score - a.score || a.key.localeCompare(b.key))
+      .map(({ name, score, days }, i) => ({ rank: i + 1, name, score, days }));
+    cumulativeRankingCache = { history: room.scoreHistory, roundId: room.roundId, players, ranking };
+    return ranking;
+  }
+  function publicRules() {
+    return {
+      endRemainingPlayers: rules.endRemainingPlayers,
+      timeLimitMs: rules.timeLimitMs,
+      endsAt: room.startedAt + rules.timeLimitMs,
+      speed: WORLD.SPEED,
+      initialHp: room.initialHp,
+      protectMs: room.protectMs,
+      goodChargeIntervalMs: room.goodChargeIntervalMs,
+      badChargeIntervalMs: room.badChargeIntervalMs,
+      clueIntervalMs: room.clueIntervalMs
+    };
+  }
   function publicSnapshot(viewerId) {
     const t = now();
     checkFinish(t);
@@ -946,13 +995,14 @@ function createRoom(options = {}) {
       finishReason: room.finishReason || null,
       ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
       historicalRanking: Array.isArray(room.historicalRanking) ? room.historicalRanking.map(r => ({ ...r })) : [],
+      cumulativeRanking: cumulativeRanking().map(r => ({ ...r })),
       rankingAchievement: room.rankingAchievement ? room.rankingAchievement.map(r => ({ ...r })) : null,
       // 进行中的成就榜（前 10）：不算私密数据，只暴露名字与点数。
       achievementLeaders: room.players.slice()
         .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
         .slice(0, 10)
         .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, points: (p.achievements && p.achievements.points) || 0, alive: p.alive })),
-      rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs, speed: WORLD.SPEED },
+      rules: publicRules(),
       floorList: WORLD.floorOptions(),
       // 功能开关随快照下发：客户端据此隐藏未开放的入口（服务端仍然会拒绝）。
       features: { ...room.features },
@@ -1112,12 +1162,13 @@ function createRoom(options = {}) {
     const values = {
       ranking: room.ranking ? room.ranking.map(r => ({ ...r })) : null,
       historicalRanking: Array.isArray(room.historicalRanking) ? room.historicalRanking.map(r => ({ ...r })) : [],
+      cumulativeRanking: cumulativeRanking(),
       rankingAchievement: room.rankingAchievement ? room.rankingAchievement.map(r => ({ ...r })) : null,
       achievementLeaders: room.players.slice()
         .sort((a, b) => ((b.achievements && b.achievements.points) || 0) - ((a.achievements && a.achievements.points) || 0) || (a.id - b.id))
         .slice(0, 10)
         .map((p, i) => ({ rank: i + 1, id: p.id, name: p.name, points: (p.achievements && p.achievements.points) || 0, alive: p.alive })),
-      rules: { endRemainingPlayers: rules.endRemainingPlayers, timeLimitMs: rules.timeLimitMs, endsAt: room.startedAt + rules.timeLimitMs, speed: WORLD.SPEED },
+      rules: publicRules(),
       floorList: WORLD.floorOptions(),
       features: { ...room.features },
       badSlots: anonymousBadSlots(),

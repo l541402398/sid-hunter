@@ -1,6 +1,10 @@
 /* 页面骨架：shell / topbar / toolbar / stage / 世界标签 —— 由 styles.css 按序 @import；层叠顺序与原文件一致 */
 /* 全屏游戏化：整个视口就是像素办公室地图，顶栏状态与功能入口作为游戏内胡桃木镶铜 HUD 浮在画面上方。 */
-.availability-banner{position:absolute;top:calc(100% + 6px);left:0;right:0;pointer-events:none;background:linear-gradient(180deg,#4a2a10f5,#331c09f5);color:#ffe29e;padding:7px 14px;border-bottom:2px solid #c88d3c;font-size:12px;line-height:1.5;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.game-status{position:absolute;top:calc(100% + 6px);left:0;right:0;pointer-events:none;text-align:center}
+.availability-banner{background:linear-gradient(180deg,#4a2a10f5,#331c09f5);color:#ffe29e;padding:7px 14px;border-bottom:2px solid #c88d3c;font-size:12px;line-height:1.5;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.connection-status:not(:empty){display:inline-block;padding:5px 12px;border:1px solid #d79b51;background:#392214;color:#ffdfa5;font-size:12px;font-weight:700;line-height:1.5;box-shadow:0 4px 12px #160d08a0}
+.availability-banner:not([hidden])+.connection-status-live .connection-status:not(:empty){margin-top:6px}
+.connection-status[data-state="recovered"]{border-color:#7da36f;background:#213622;color:#e2ffc9}
 ::-webkit-scrollbar{width:7px;height:7px}
 ::-webkit-scrollbar-thumb{background:#9e7646;border-radius:4px;border:1px solid #f4e6c840}
 ::-webkit-scrollbar-thumb:hover{background:#7d582e}
@@ -194,6 +198,7 @@ p{margin:0}
   .intel-countdown{min-width:52px;padding-inline:3px}
   .toolbar .intel-action{gap:2px;padding-inline:4px}
   .intel-status{padding-inline:3px}
+  #clue-next-left:not(.is-counting){font-size:10px}
   #clue-next-left.is-counting{font-size:16px}
 }
 @media(max-width:370px){

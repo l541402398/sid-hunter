@@ -28,11 +28,11 @@ body{min-height:100%}
 .instructions{display:none}
 /* 公共日志：位于顶部 HUD 下方的右侧羊皮卷浮层 */
 .game-layout>.log-sidebar{position:absolute;right:12px;top:50px;bottom:88px;width:clamp(244px,20vw,284px);min-height:0;height:auto;z-index:11;transition:opacity .22s ease}
-.game-hud{transition:opacity .22s ease}
+.game-hud > :not(.game-status),.availability-banner{transition:opacity .22s ease}
 /* 仅本人实际行走时淡化顶部菜单，停止后恢复；功能入口仍可点击。 */
-body.player-walking .game-hud{opacity:.5}
+body.player-walking .game-hud > :not(.game-status),body.player-walking .availability-banner{opacity:.5}
 /* 靠近左右电梯厅时，顶部菜单栏、公告横幅与右侧日志自动柔化避让，确保电梯厅与玩家进出视野 100% 清晰无遮挡 */
-body.near-elevator .game-hud,body.near-elevator .game-layout>.log-sidebar{opacity:.2;pointer-events:none}
+body.near-elevator .game-hud > :not(.game-status),body.near-elevator .availability-banner,body.near-elevator .game-layout>.log-sidebar{opacity:.2;pointer-events:none}
 .log-sidebar ol{overscroll-behavior:contain;overflow-wrap:anywhere;padding-right:4px}
 @media(min-width:851px) and (max-width:1260px){.game-layout>.log-sidebar{top:110px}}
 @media(max-width:850px){
