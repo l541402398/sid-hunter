@@ -34,14 +34,14 @@
   const colors = (hair, top) => ({ hair, top, pants: ['炭灰', '#505d70'], shoes: ['棕色', '#927253'] });
   const ownColors = colors(['栗棕', '#9f6748'], ['草绿', '#75a58a']);
   let room = T.create(null, layout), active = false, bridge = null, elapsed = 0, lastPush = 0, lastStep = -1, lastPublished = false;
-  let input = { x: 0, y: 0 }, combat, searched = [], generation = 0, logs = [], drawCount = 0, spotlightKey = '', mapHealth = null, lastView = {}, completionShown = false;
+  let input = { x: 0, y: 0 }, combat, searched = [], generation = 0, logs = [], drawCount = 0, spotlightKey = '', mapHealth = null, mapTruce = null, lastView = {}, completionShown = false;
   function log(message, type = 'tutorial') {
     logs.unshift({ time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), text: message, type });
     logs = logs.slice(0, 30);
   }
   function publicPlayer(id, name, position, look, hp) {
     const swing = id === 1 ? combat : null;
-    return { ...position, id, name, colors: look, hp, maxHp: 3, alive: true, online: true, score: id === 1 ? room.state.player.score : 0,
+    return { ...position, id, name, colors: look, hp, maxHp: 3, alive: hp > 0, truce: hp === 0, online: true, score: id === 1 ? room.state.player.score : 0,
       floorId: 1, zoneId: scene.id, protected: false, traits: { saying: '***', food: '***', sport: '***' }, sid: '***-***-***',
       spriteFacing: position.facing || 'front', facing: swing?.facing, lastAttackDirection: swing?.lastAttackDirection,
       lastAttackFacing: swing?.lastAttackFacing, lastAttackAt: swing?.lastAttackAt ?? 0 };
@@ -51,23 +51,28 @@
   }
   function me() {
     const s = room.state;
-    return { id: 1, name: '练习角色', faction: 'good', sid: 'PRA-CTI-CE1', hp: s.player.hp, maxHp: 3, alive: true, truce: false, protected: false, protectUntil: 0,
-      score: s.player.score, scoreBreakdown: { participate: s.explored ? 2 : 0, survival: 0, combat: s.npcHp === 2 ? 10 : 0 }, historicalScore: 0,
+    const participate = s.explored ? T.DESK_QUIZ.rewardCoins : 0;
+    const skill = s.player.faction === 'bad' ? 'assassinate' : 'accuse';
+    return { id: 1, name: '练习角色', faction: s.player.faction, sid: 'PRA-CTI-CE1', hp: s.player.hp, maxHp: 3, alive: true, truce: false, protected: false, protectUntil: 0,
+      score: s.player.score, scoreBreakdown: { participate, survival: 0, combat: s.player.score - participate }, historicalScore: 0,
       floorId: 1, floorRevision: 0, floorName: '1F · 晨光迎宾厅', zoneId: scene.id, zoneName: scene.name,
       traits: { saying: '稳住别慌', food: '番茄面', sport: '散步' }, traitPublic: { saying: false, food: false, sport: false }, sidRevealed: [false, false, false],
       exploration: exploration(), npcExchange: { exploredCount: searched.length, used: {}, effects: [] }, flowers: { received: 0, sentPoints: 0, sentTo: [] },
       games: { rpsPending: null, rpsResult: null, rpsUntil: 0, wheelDailySpins: 0, wheelSpins: {} },
       combat: { ...combat },
-      skills: { accuse: { chargesRemaining: 1, maxCharges: 1, cooldownMs: 0, cooldownUntil: 0, chargeIntervalMs: 1800000, nextChargeAt: 0 } },
+      skills: { [skill]: { chargesRemaining: 1, maxCharges: 1, cooldownMs: 0, cooldownUntil: 0, chargeIntervalMs: 1800000, nextChargeAt: 0 } },
       accusedToday: [], skillsFrozenAt: null, pending: [], interactionSummary: null, prize: null };
   }
   function snapshot() {
     const s = room.state;
     const actors = [publicPlayer(1, '练习角色', s.player, ownColors, s.player.hp), ...people.map((p, i) => publicPlayer(i + 2, p.name, p, colors(p.hair, p.top), p.bad ? s.npcHp : 3))];
+    const aliveCount = actors.filter(actor => actor.alive).length;
     return { type: 'snapshot', serverTime: Date.now(), roundId: 'tutorial-' + generation, players: actors, directory: actors, me: me(),
-      logs, aliveCount: 3, outCount: 0, finished: false, config: { tmj: false },
+      logs, aliveCount, outCount: actors.length - aliveCount, finished: false, config: { tmj: false },
       nextClueAt: s.cluesPublished ? Date.now() - 1000 : Date.now() + Math.ceil(s.cluesLeft * 1000),
-      badSlots: [{ key: 'tutorial-bad', label: '坏人01', alive: true, systemClues: { colors: s.cluesPublished ? T.CLUE_COLORS : {}, traits: {} } }],
+      badSlots: s.player.faction === 'good'
+        ? [{ key: 'tutorial-bad', label: '坏人01', alive: true, systemClues: { colors: s.cluesPublished ? T.CLUE_COLORS : {}, traits: {} } }]
+        : [],
       rules: { endsAt: 0 }, historicalRanking: [], ranking: null, glassDoors: [] };
   }
   function push() { if (bridge && active) bridge.applySnapshot(clone(snapshot())); }
@@ -81,15 +86,17 @@
   }
   function spotlightDefinition(view) {
     const phase = room.state.phase;
+    const assassinateTip = '刺杀好人会获得 3 分，刺杀坏人不会获得积分。';
+    const closeTip = '请点击右上角的「×」关闭弹窗。';
     const definitions = {
       'explore-quiz': ['loot-quiz', '回答练习题', '选一个答案，再点「提交答案」或按 K。', '#loot'],
-      'explore-close': ['loot-close', '关闭探索结果', '查看这次探索获得的积分，然后点击关闭，继续下一步。', '#loot-close'],
+      'explore-close': ['loot-reward', '探索奖励', '答对了，你获得了 2 分练习积分。', '#loot-summary', false, [], closeTip],
       'mine-open': ['my-info', '点击「我的信息」', '先了解自己的阵营、外观属性和隐藏属性。', '#my-info'],
       'mine-faction': ['mine-faction', '我的阵营', '调查员（好人）根据线索找出并指认坏人。潜伏者（坏人）隐藏身份，找机会刺杀调查员。这次训练，你是调查员（好人）。去揪出所有坏人吧！', '.mine-identity', true],
       'mine-colors': ['mine-colors', '外观属性', '头发、上衣、裤子和鞋子的颜色默认公开，其他玩家也能看到，可以与系统线索核对。', '#mine-colors', true],
       'mine-traits': ['mine-traits', '隐藏属性', '口头禅、爱吃的食物和喜欢的运动只有自己能直接看到。其他玩家要等属性公开后才能查看或搜索。', '#mine-traits', true],
       'mine-close': ['mine-close', '关闭个人信息', '点击这里关闭面板，接下来查看系统公布的坏人线索。', '#mine-close'],
-      'clues-countdown': ['clue-countdown', '线索公布倒计时', '这里显示距离下次公布坏人线索还有多久。归零时，系统会公开新的线索。训练室的倒计时为 3 秒。', '#clue-next-left', true],
+      'clues-countdown': ['clue-countdown', '线索公布倒计时', '这里显示距离下次公布坏人线索还有多久。归零时，系统会公开新的线索。训练室的倒计时为 3 秒。', '#clue-next-left', room.state.cluesPublished],
       'clues-open': ['bad-toggle', '点击「线索」', '展开坏人线索，观察系统公布的属性。', '#bad-toggle'],
       'clues-card': ['clues-card', '推理坏人身份', '根据系统公布的信息，推理出坏人是谁。', '#bad-slots .bad-slot', true],
       'clues-close': ['clues-close', '关闭线索窗口', '记住砖红上衣、银白头发，接下来去玩家名单中搜索。', '#bad-pool-close'],
@@ -99,8 +106,13 @@
       'target-colors': ['target-colors', '对照系统线索', '头发银白、上衣砖红，与系统线索「坏人01」一致。请对照完整线索卡，确认后点下一步。', '#target [data-color="hair"], #target [data-color="top"]', true],
       'accuse': ['accuse', '使用技能：指认', '成功指认坏人后，将会减少该坏人1格生命。点击「指认」，然后确认。', '#accuse', false, [], '误指好人会扣除自己 1 格生命。'],
       'confirm': ['confirm', '确认指认', '核对目标是练习人物甲。成功指认坏人后，将会减少该坏人1格生命。', '#confirm', false, [], '误指好人会扣除自己 1 格生命。'],
-      'target-close': ['target-close', '关闭人物档案', '指认成功！关闭窗口，看看地图和名单中的血量变化。', '#target-close'],
-      'health': ['health', '生命减少了 1 点', '练习人物甲在地图和玩家名单中的血量都已从 3/3 变为 2/3。', '#roster-items [data-player="2"] .combat-health', true]
+      'target-close': ['target-health', '指认成功，甲剩 2 格生命', '练习人物甲的血条从 3/3 降到了 2/3。', '#target .target-person .combat-health', false, [], closeTip],
+      'health': ['health', '生命减少了 1 点', '练习人物甲在地图和玩家名单中的血量都已从 3/3 变为 2/3。', '#roster-items [data-player="2"] .combat-health', true],
+      'bad-intro': ['bad-identity', '练习坏人的技能', '你现在是潜伏者（坏人）。为练习最后一击，练习人物甲现在是好人，剩 1 格生命。', '.mine-identity', true],
+      'assassinate-target': ['roster-alpha', '再次打开练习人物甲的档案', '点击名单里的练习人物甲，试用潜伏者的刺杀技能。', '#roster-items [data-player="2"]'],
+      'assassinate': ['assassinate', '使用技能：刺杀', '点击「刺杀」，然后确认。命中好人会让对方失去 1 格生命。', '#assassinate', false, [], assassinateTip],
+      'assassinate-confirm': ['confirm', '确认刺杀', '对练习人物甲使用刺杀。甲剩 1 格生命，这次命中后会进入休战。', '#confirm', false, [], assassinateTip],
+      'truce': ['truce-player', '生命归零，进入休战', '练习人物甲变成了幽灵，名牌显示「休战」。休战期间，你无法对其他人使用指认或刺杀，也不会再获得存活积分。你仍可探索地图、答题赚积分。', '#office', true]
     };
     if (phase === 'explore-quiz' && $('loot-take').hidden) return null;
     let def = definitions[phase];
@@ -110,12 +122,18 @@
     if (phase === 'clues-open' && view.cluesOpen) def = ['clues-wait', '等待线索公布', '练习倒计时已经加速，稍等片刻就会公布属性。', '#bad-slots .bad-slot'];
     if (['clues-card','clues-close'].includes(phase) && !view.cluesOpen) def = ['bad-toggle', '重新打开线索', '点击继续阅读坏人信息。', '#bad-toggle'];
     if (phase.startsWith('roster-') && phase !== 'roster-open' && !view.rosterOpen) def = ['roster-toggle', '继续查看名单', '打开玩家名单继续搜索练习人物甲。', '#roster-toggle'];
-    if (['target-colors','accuse','confirm','target-close'].includes(phase) && (!view.targetOpen || view.selectedId !== 2)) {
+    const assassinating = phase.startsWith('assassinate');
+    if ((assassinating || ['target-colors','accuse','confirm'].includes(phase)) && (!view.targetOpen || view.selectedId !== 2)) {
+      const reopenTarget = assassinating ? definitions['assassinate-target']
+        : ['roster-alpha', '打开练习人物甲', '点击名单中的练习人物甲，继续核对线索和使用技能。', '#roster-items [data-player="2"]'];
       def = view.rosterOpen
-        ? ['roster-alpha', '打开练习人物甲', '点击名单中的练习人物甲，继续核对线索和使用技能。', '#roster-items [data-player="2"]']
-        : ['roster-toggle', '继续查看名单', '打开玩家名单，继续核对人物线索。', '#roster-toggle'];
+        ? reopenTarget
+        : ['roster-toggle', '继续查看名单', '打开玩家名单，找到练习人物甲。', '#roster-toggle'];
     }
     return { id: def[0], title: def[1], detail: def[2], selector: def[3], next: !!def[4], emphasis: def[5] || [], tip: def[6] || '' };
+  }
+  function confirmCancel() {
+    return ['confirm', 'assassinate-confirm'].includes(room.state.phase) ? $('cancel') : null;
   }
   function panelCloseButton() {
     return document.querySelector('#rules-view[open] #rules-close, #bad-pool-dialog[open] #bad-pool-close, #exploration[open] #exploration-close')
@@ -139,10 +157,12 @@
     if (!def || !active) { hideSpotlight(); return; }
     $('target').classList.toggle('tutorial-comparing', def.id === 'target-colors');
     const node = document.querySelector(def.selector);
-    if (!node || node.getBoundingClientRect().width === 0) { hideSpotlight(); return; }
+    const truce = def.id === 'truce-player';
+    if (!node || node.getBoundingClientRect().width === 0 || (truce && !mapTruce)) { hideSpotlight(); return; }
     const changed = overlay.dataset.target !== def.id || overlay.hidden;
     const ringChanged = changed || overlay.dataset.phase !== room.state.phase;
     if (changed) {
+      if (def.id === 'target-health') $('target').scrollTop = 0;
       // Scroll only the panel's contents. Scrolling the page can move a centered
       // profile out of the viewport, especially when highlighting two fields.
       for (let parent = node.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
@@ -167,12 +187,15 @@
     overlay.dataset.target = def.id; overlay.dataset.phase = room.state.phase;
     document.body.classList.add('tutorial-spotlighting');
     const nodes = [...document.querySelectorAll(def.selector)];
-    const raw = nodes.map(n => n.getBoundingClientRect());
+    const highlightedClose = $({ 'loot-reward': 'loot-close', 'target-health': 'target-close' }[def.id]);
+    if (highlightedClose) nodes.push(highlightedClose);
+    const raw = truce ? [mapTruce] : nodes.map(n => n.getBoundingClientRect());
     if (room.state.phase === 'health' && mapHealth) raw.push(mapHealth);
     const paddedRect = r => ({ x: Math.max(2, r.x - 5), y: Math.max(2, r.y - 5),
       right: Math.min(innerWidth - 2, r.x + r.width + 5), bottom: Math.min(innerHeight - 2, r.y + r.height + 5) });
     const rects = raw.map(paddedRect);
-    const controls = [panelCloseButton(), room.state.phase === 'confirm' ? $('cancel') : null]
+    const cancel = confirmCancel();
+    const controls = [panelCloseButton(), cancel]
       .filter(n => n && !nodes.some(node => node.contains(n))).map(n => paddedRect(n.getBoundingClientRect()));
     const pathRect = r => `M${r.x} ${r.y}H${r.right}V${r.bottom}H${r.x}Z`;
     $('spotlight-shade').setAttribute('d', `M0 0H${innerWidth}V${innerHeight}H0Z ` + [...rects, ...controls].map(pathRect).join(' '));
@@ -204,7 +227,7 @@
     $('spotlight-tip').hidden = !def.tip;
     if ($('spotlight-tip-text').textContent !== def.tip) $('spotlight-tip-text').textContent = def.tip;
     const next = $('spotlight-next'); next.hidden = !def.next;
-    next.textContent = room.state.phase === 'health' ? '完成训练' : '下一步';
+    next.textContent = room.state.phase === 'truce' ? '完成训练' : room.state.phase === 'health' ? '练习坏人技能' : '下一步';
     next.disabled = room.state.phase === 'roster-search' && !($('search').value.trim() && document.querySelector('#roster-items [data-player="2"]'));
     const reference = $('spotlight-reference');
     reference.hidden = def.id !== 'target-colors';
@@ -213,12 +236,11 @@
       const card = document.querySelector('#bad-slots .bad-slot')?.cloneNode(true);
       if (card) reference.append(card);
     }
-    const placementRects = room.state.phase === 'confirm' && $('cancel')
-      ? [...rects, paddedRect($('cancel').getBoundingClientRect())] : rects;
+    const placementRects = def.id === 'loot-reward' ? [rects[0]] : cancel ? [...rects, paddedRect(cancel.getBoundingClientRect())] : rects;
     const r = { x: Math.min(...placementRects.map(r => r.x)), y: Math.min(...placementRects.map(r => r.y)),
       right: Math.max(...placementRects.map(r => r.right)), bottom: Math.max(...placementRects.map(r => r.bottom)) }, gap = 16;
     const sideSpace = Math.max(r.x - gap - 12, innerWidth - r.right - gap - 12);
-    const fitBesideTarget = def.id === 'target-colors' || def.id === 'loot-quiz';
+    const fitBesideTarget = def.id === 'target-colors' || def.id === 'loot-quiz' || !!highlightedClose;
     const note = $('spotlight-note'), nw = Math.min(270, innerWidth - 24,
       fitBesideTarget && sideSpace >= 200 ? sideSpace : 270);
     note.style.width = nw + 'px';
@@ -246,12 +268,12 @@
     if (room.state.phase === 'health') { x = Math.max(12, (innerWidth-nw)/2); y = Math.max(12, innerHeight-nh-48); }
     y = Math.max(12, Math.min(innerHeight - nh - 12, y));
     note.style.left = x + 'px'; note.style.top = y + 'px';
-    const key = def.id + '|' + room.state.phase;
+    const key = def.id + '|' + room.state.phase + '|' + def.next;
     if (spotlightKey !== key) {
       spotlightKey = key;
       const focus = def.next ? (next.disabled ? node : next)
         : def.id === 'loot-quiz' ? node.querySelector('.quiz-option')
-        : node.matches('button,input') ? node : node.querySelector('button');
+        : highlightedClose || (node.matches('button,input') ? node : node.querySelector('button'));
       focus?.focus({ preventScroll: true });
     }
   }
@@ -267,14 +289,27 @@
     if (phase === 'accuse' && view.confirming) room.event('confirm-open');
     if (phase === 'confirm' && !view.confirming) room.event('cancel');
     if (phase === 'target-close' && !view.targetOpen) room.event('target-close');
+    if (phase === 'bad-intro-open') {
+      if (view.mineOpen) room.event('mine-open');
+      else $('my-info').click();
+    }
+    if (phase === 'bad-intro' && !view.mineOpen) room.event('mine-close');
+    if (phase === 'assassinate-target' && view.selectedId === 2 && view.targetOpen) room.event('alpha-open');
+    if (phase === 'assassinate' && view.confirming) room.event('confirm-open');
+    if (phase === 'assassinate-confirm' && !view.confirming) room.event('cancel');
+    if (phase === 'truce') {
+      if (view.targetOpen) $('target-close').click();
+      if (view.rosterOpen) $('roster-toggle').click();
+    }
     if (room.state.step === 6 && !$('logs').hidden) $('logs-toggle').click();
     if (room.state.step === 6 && !view.rosterOpen) $('roster-toggle').click();
-    if (room.state.step === 7 && !completionShown) {
+    if (phase === 'complete' && !completionShown) {
       completionShown = true; hideSpotlight(); $('training-complete').showModal(); $('training-complete-exit').focus();
     }
   }
   function start(progress) {
     completionShown = false; if ($('training-complete').open) $('training-complete').close(); hideSpotlight(); generation++; input = { x: 0, y: 0 }; elapsed = lastPush = 0; lastStep = -1;
+    mapHealth = mapTruce = null;
     combat = { facing: { x: 1, y: 0 }, attackUntil: 0, lastAttackAt: 0,
       lastAttackFacing: { x: 1, y: 0 }, lastAttackDirection: 'right', stunUntil: 0, freezeUntil: 0 };
     $('spotlight-reference').replaceChildren();
@@ -301,7 +336,7 @@
       return { ok: false, status: 400, error: '请重新打开书桌上的练习题。' };
     }
     const previousScore = room.state.player.score;
-    if (!room.answerDeskQuiz(answer)) return { ok: false, status: 400, error: '回答错误，请回想走近书桌时的按键提示，再选一次。' };
+    if (!room.answerDeskQuiz(answer)) return { ok: false, status: 400, error: '回答错误' };
     searched = [desk.id];
     const score = room.state.player.score, points = score - previousScore;
     log(`探索书桌，获得 ${points} 分练习积分。`);
@@ -314,14 +349,17 @@
       bridge = callbacks;
       document.body.classList.add('practice-game');
       $('stage').insertAdjacentHTML('beforeend', `<div class="tutorial-context"><strong>新手训练室</strong><small>独立练习角色</small><small class="context-copy">正式角色留在原位置，正常受击与计分</small><button id="room-exit" type="button">退出教程</button></div>`);
-      document.body.insertAdjacentHTML('beforeend', `<div id="tutorial-spotlight" popover="manual" hidden aria-label="教程操作引导"><svg id="spotlight-svg" aria-hidden="true"><path id="spotlight-shade" fill-rule="evenodd"/></svg><div id="spotlight-rings"></div><div id="spotlight-note" role="status"><strong id="spotlight-title"></strong><p id="spotlight-detail"></p><p id="spotlight-tip" hidden><span class="tutorial-tip-label">提示</span><strong id="spotlight-tip-text" class="tutorial-emphasis"></strong></p><div id="spotlight-reference" aria-label="系统公布的坏人01线索对照" hidden></div><button id="spotlight-next" type="button" hidden>下一步</button></div><button id="spotlight-exit" type="button">退出教程</button></div><dialog id="training-complete" class="center-dialog" aria-labelledby="training-complete-title"><div class="panel-heading"><h2 id="training-complete-title">恭喜您完成了新手训练营</h2></div><p>你已经学会移动、交互、查看信息、推理线索、搜索名单和使用技能。</p><p>正式角色的最新状态将在返回办公室时显示。</p><button id="training-complete-exit" type="button">返回办公室</button><button id="training-complete-restart" type="button">重新练习</button></dialog>`);
+      document.body.insertAdjacentHTML('beforeend', `<div id="tutorial-spotlight" popover="manual" hidden aria-label="教程操作引导"><svg id="spotlight-svg" aria-hidden="true"><path id="spotlight-shade" fill-rule="evenodd"/></svg><div id="spotlight-rings"></div><div id="spotlight-note" role="status"><strong id="spotlight-title"></strong><p id="spotlight-detail"></p><p id="spotlight-tip" hidden><span class="tutorial-tip-label">提示</span><strong id="spotlight-tip-text" class="tutorial-emphasis"></strong></p><div id="spotlight-reference" aria-label="系统公布的坏人01线索对照" hidden></div><button id="spotlight-next" type="button" hidden>下一步</button></div><button id="spotlight-exit" type="button">退出教程</button></div><dialog id="training-complete" class="center-dialog" aria-labelledby="training-complete-title"><div class="panel-heading"><h2 id="training-complete-title">恭喜您完成了新手训练营</h2></div><p>你已经练习了移动、探索答题、推理线索、指认和刺杀，也了解了休战规则。</p><p>正式角色的最新状态将在返回办公室时显示。</p><button id="training-complete-exit" type="button">返回办公室</button><button id="training-complete-restart" type="button">重新练习</button></dialog>`);
       $('stage').insertAdjacentHTML('beforeend', '<div id="movement-hint" hidden><strong>试着移动</strong><div class="movement-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></div><span>这几个按键可以移动人物</span></div>');
       $('stage').insertAdjacentHTML('beforeend', '<div id="desk-hint" hidden>靠近书桌按 <kbd>K</kbd></div>');
       $('spotlight-exit').onclick = exit; $('training-complete-exit').onclick = exit;
       $('training-complete-restart').onclick = () => start({ step: 0 });
       $('training-complete').addEventListener('cancel', event => { event.preventDefault(); exit(); });
       $('spotlight-next').onclick = () => {
-        if (room.state.phase === 'roster-search') room.event('search'); else room.event('next');
+        const phase = room.state.phase;
+        if (phase === 'bad-intro') $('mine-close')?.click();
+        else if (phase === 'roster-search') room.event('search');
+        else if (room.event('next') && phase === 'health') push();
         reportProgress(); updateSpotlight(lastView);
       };
       window.addEventListener('keydown', event => {
@@ -334,7 +372,7 @@
         const def = spotlightDefinition(lastView), node = def && document.querySelector(def.selector);
         if (event.code === 'Tab') {
           const quizControls = def?.id === 'loot-quiz' ? document.querySelectorAll('#loot .quiz-option, #loot-take') : [];
-          const controls = [...new Set([node, ...quizControls, panelCloseButton(), room.state.phase === 'confirm' ? $('cancel') : null, $('spotlight-next'), $('spotlight-exit')])].filter(n => n && !n.hidden && !n.disabled && n.matches('button,input'));
+          const controls = [...new Set([node, ...quizControls, panelCloseButton(), confirmCancel(), $('spotlight-next'), $('spotlight-exit')])].filter(n => n && !n.hidden && !n.disabled && n.matches('button,input'));
           const i = controls.indexOf(document.activeElement), offset = event.shiftKey ? -1 : 1;
           event.preventDefault(); event.stopImmediatePropagation(); controls[(i+offset+controls.length)%controls.length]?.focus({preventScroll:true}); return;
         }
@@ -361,11 +399,14 @@
       if (path === '/api/search/start') return startDeskQuiz(body.containerId);
       if (path === '/api/search/take') return submitDeskQuiz(body);
       if (path === '/api/skill') {
-        if (body.skill !== 'accuse' || ![2, 3].includes(body.targetId) || room.state.step !== 5 || room.state.phase !== 'confirm') return { status: 400, ok: false, error: '先查看身份与线索，再核对练习人物。' };
-        room.accuse(people[body.targetId - 2].id); log(room.state.result); reportProgress();
+        const skill = { confirm: 'accuse', 'assassinate-confirm': 'assassinate' }[room.state.phase];
+        if (!skill || body.skill !== skill || ![2, 3].includes(body.targetId)) return { status: 400, ok: false, error: '请先确认要对练习人物使用的技能。' };
+        const hit = room[skill](people[body.targetId - 2].id);
+        log(room.state.result);
         // Let the real confirmation UI finish before updating the shared snapshot.
         setTimeout(push, 0);
-        return { ok: true, status: 200, serverTime: Date.now(), resultText: room.state.result, hp: room.state.player.hp, alive: true, score: room.state.player.score, skills: me().skills, accusedToday: [] };
+        return { ok: true, status: 200, serverTime: Date.now(), resultText: room.state.result, hp: room.state.player.hp, alive: true, score: room.state.player.score, skills: me().skills, accusedToday: [],
+          selfDamage: skill === 'accuse' && !hit, noEffect: skill === 'assassinate' && !hit, truce: room.state.npcHp === 0 };
       }
       if (path === '/api/attack') {
         const now = Date.now();
@@ -387,13 +428,18 @@
       elapsed += dt;
       room.move(input.x, input.y, dt);
       room.tick(dt);
-      if (room.state.cluesPublished && !lastPublished) { log('系统公布了坏人线索：上衣砖红、头发银白。', 'systemClue'); lastPublished = true; }
+      if (room.state.cluesPublished && !lastPublished) {
+        lastPublished = true;
+        log('系统公布了坏人线索：上衣砖红、头发银白。', 'systemClue');
+        push();
+      }
       lastView = view; observe(view);
       reportProgress(); updateSpotlight(view);
       if (elapsed - lastPush >= .05) { lastPush = elapsed; push(); }
     },
     drawOverlay(ctx, view) {
       mapHealth = view.healthBars.find(bar => bar.id === 2) || null;
+      mapTruce = view.trucePlayers.find(player => player.id === 2) || null;
       if (!active) return;
       drawCount++;
       const step = room.state.step;
@@ -427,14 +473,14 @@
       // Anchor the room to its initial framing through movement and exploration.
       // Following the player, then switching cameras at step 1, makes the map jump.
       if (room.state.step < 6) return { x: layout.spawn.x - width * .3 / scale, y: layout.spawn.y - height * .62 / scale };
-      if (room.state.step !== 6) return null;
+      if (room.state.npcHp === 0) return { x: people[0].x - width * .5 / scale, y: people[0].y - height * .52 / scale };
       const rosterRight = $('roster').getBoundingClientRect().right;
       const screenX = Math.min(width-40, Math.max(width*.58,rosterRight+42));
       return { x: people[0].x - screenX/scale, y: people[0].y - height*.52/scale };
     },
     isActive: () => active,
     // Read-only diagnostic values for renderer and integration acceptance.
-    inspect: () => ({ step: room.state.step, phase: room.state.phase, mapHealth, position: { x: room.state.player.x, y: room.state.player.y }, sceneId: scene.id, deskId: desk.id, drawCount, active })
+    inspect: () => ({ step: room.state.step, phase: room.state.phase, mapHealth, mapTruce, position: { x: room.state.player.x, y: room.state.player.y }, sceneId: scene.id, deskId: desk.id, drawCount, active })
   };
   window.addEventListener('message', event => {
     if (event.origin !== location.origin || event.source !== parent) return;

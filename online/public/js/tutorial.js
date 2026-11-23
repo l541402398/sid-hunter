@@ -2,6 +2,7 @@
 // Host only: keeps the live connection running while the iframe owns practice input.
 (() => {
   window.SID = window.SID || {};
+  const totalSteps = 8;
   function create({ context, prepare, returned, toast }) {
     const $ = id => document.getElementById(id);
     document.body.insertAdjacentHTML('beforeend', `
@@ -43,7 +44,7 @@
     function loadProgress() {
       try {
         const value = JSON.parse(localStorage.getItem(storageKey) || 'null');
-        progress = { step: Number.isInteger(value?.step) ? Math.max(0, Math.min(7, value.step)) : 0, dismissed: !!value?.dismissed };
+        progress = { step: Number.isInteger(value?.step) ? Math.max(0, Math.min(totalSteps, value.step)) : 0, dismissed: !!value?.dismissed };
       } catch { progress = { step: 0, dismissed: false }; }
     }
     function pauseFrame() { frame.contentWindow?.postMessage({ type: 'sid-tutorial:pause' }, location.origin); }
@@ -58,7 +59,7 @@
       if (c.owner !== scope) {
         discard(); autoAttempted = false; scope = c.owner || ''; storageKey = 'sid-tutorial-v3:' + (c.userKey || scope || 'guest'); loadProgress();
       }
-      if (!c.joined || isBlocking() || autoAttempted || progress.dismissed || progress.step === 7 || c.unavailable || $('rules-view')?.open) return;
+      if (!c.joined || isBlocking() || autoAttempted || progress.dismissed || progress.step === totalSteps || c.unavailable || $('rules-view')?.open) return;
       autoAttempted = true; openOffer(false);
     }
     async function openOffer(manual = true) {
@@ -70,10 +71,14 @@
       try {
         if (!await prepare() || revision !== openingRevision || owner !== context().owner) return;
         lock();
-        $('tutorial-offer-title').textContent = progress.step === 7 ? '随时回来复习基础操作' : progress.step > 0 ? '继续你的训练室练习' : '先到训练室走一圈？';
-        $('tutorial-progress-note').textContent = progress.step === 7 ? '已完成全部 7 步，可重新开始。' : progress.step > 0 ? `已完成 ${progress.step} / 7 步，将从上次的位置继续。` : '大约 3 分钟 · 7 步亲手练习 · 可随时退出';
-        $('tutorial-start').textContent = progress.step === 7 ? '重新练习' : progress.step > 0 ? '继续练习' : '进入训练室';
-        $('tutorial-reset').hidden = progress.step === 0 || progress.step === 7;
+        const completed = progress.step === totalSteps;
+        $('tutorial-offer-title').textContent = completed ? '随时回来复习基础操作' : progress.step > 0 ? '继续你的训练室练习' : '先到训练室走一圈？';
+        $('tutorial-progress-note').textContent = completed
+          ? `已完成全部 ${totalSteps} 步，可重新开始。`
+          : progress.step > 0 ? `已完成 ${progress.step} / ${totalSteps} 步，将从上次的位置继续。`
+          : `大约 3 分钟 · ${totalSteps} 步亲手练习 · 可随时退出`;
+        $('tutorial-start').textContent = completed ? '重新练习' : progress.step > 0 ? '继续练习' : '进入训练室';
+        $('tutorial-reset').hidden = progress.step === 0 || completed;
         $('tutorial-skip').textContent = manual ? '暂不进入' : '跳过，直接玩';
         offer.showModal(); $('tutorial-start').focus();
       } catch { toast('暂时无法确认正式角色已停下，请稍后再试。'); }
@@ -87,7 +92,7 @@
       frame.focus();
     }
     function enter(reset = false) {
-      if (reset || progress.step === 7) progress.step = 0;
+      if (reset || progress.step === totalSteps) progress.step = 0;
       progress.dismissed = true; save();
       entryRecord = context().record; owner = context().owner;
       offer.close(); overlay.showModal(); $('tutorial-loading').hidden = false;
@@ -116,7 +121,7 @@
       if (e.data?.type === 'sid-tutorial:exit') exit();
       if (e.data?.type === 'sid-tutorial:progress') {
         const step = e.data.progress?.step;
-        if (Number.isInteger(step) && step >= 0 && step <= 7) { progress.step = step; save(); }
+        if (Number.isInteger(step) && step >= 0 && step <= totalSteps) { progress.step = step; save(); }
       }
     });
     $('tutorial-start').onclick = () => enter(); $('tutorial-reset').onclick = () => enter(true); $('tutorial-skip').onclick = skip;

@@ -53,7 +53,53 @@ async function capture(name){const shot=await call('Page.captureScreenshot',{for
 async function check(name,fn){current=name;await fn();results.push({name,passed:true});console.log('PASS',name);}
 const phase=name=>waitRoom(`SID_PRACTICE.inspect().phase===${JSON.stringify(name)}&&!document.getElementById('tutorial-spotlight').hidden&&document.getElementById('tutorial-spotlight').dataset.phase===${JSON.stringify(name)}`);
 const initPractice=step=>ev(`document.getElementById('tutorial-frame').contentWindow.postMessage({type:'sid-tutorial:init',progress:{step:${step}}},location.origin)`);
+const nextVisible=()=>waitRoom("!document.getElementById('spotlight-next').hidden");
+async function reachTruce(cancelFirst = false) {
+ await clickRoom('#spotlight-next');await phase('bad-intro');await noteVisible();
+ assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'bad-identity');
+ assert.match(await room("document.getElementById('mine-value-identity').textContent"),/潜伏者/);
+ assert.deepEqual(await room("SID_PRACTICE.request('/api/state').then(s=>[s.me.faction,s.players[1].hp,s.me.score])"),['bad',1,12]);
+ await clickRoom('#spotlight-next');await phase('assassinate-target');
+ await clickRoom('#roster-items [data-player="2"]');await phase('assassinate');await noteVisible();
+ assert.match(await room("document.getElementById('spotlight-tip-text').textContent"),/刺杀好人会获得 3 分，刺杀坏人不会获得积分/);
+ assert.equal(await room("!!document.getElementById('accuse')"),false);
+ await clickRoom('#assassinate');await phase('assassinate-confirm');
+ if(cancelFirst){
+  await clickRoom('#cancel');await phase('assassinate');
+  await clickRoom('#assassinate');await phase('assassinate-confirm');
+ }
+ assert.match(await room("document.getElementById('spotlight-tip-text').textContent"),/刺杀坏人不会获得积分/);
+ await clickRoom('#confirm');await phase('truce');await noteVisible();
+ assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'truce-player');
+ assert.deepEqual(await room("SID_PRACTICE.request('/api/state').then(s=>[s.players[1].hp,s.players[1].truce,s.aliveCount,s.outCount,s.me.score])"),[0,true,2,1,15]);
+ const truce=await room('SID_PRACTICE.inspect().mapTruce');
+ const ring=await room("document.querySelector('.spotlight-ring').getBoundingClientRect().toJSON()");
+ assert.ok(ring.left<truce.x&&ring.right>truce.x+truce.width&&ring.top<truce.y&&ring.bottom>truce.y+truce.height);
+ assert.match(await room("document.getElementById('spotlight-detail').textContent"),/练习人物甲变成了幽灵/);
+ assert.match(await room("document.getElementById('spotlight-detail').textContent"),/无法对其他人使用指认或刺杀，也不会再获得存活积分。你仍可探索地图、答题赚积分/);
+ assert.equal(await room("document.getElementById('training-complete').open"),false);
+}
 async function noteVisible(){const r=await room("({rect:document.getElementById('spotlight-note').getBoundingClientRect().toJSON(),w:innerWidth,h:innerHeight})");assert.ok(r.rect.x>=0&&r.rect.right<=r.w&&r.rect.y>=0&&r.rect.bottom<=r.h,JSON.stringify(r));}
+async function resultHighlightsVisible(resultSelector,closeSelector){
+ await noteVisible();
+ assert.equal(await room("document.getElementById('spotlight-tip').hidden"),false);
+ assert.equal(await room("document.getElementById('spotlight-tip-text').textContent"),'请点击右上角的「×」关闭弹窗。');
+ const {result,close,note,rings,canClose}=await room(`(()=>{
+  const button=document.querySelector(${JSON.stringify(closeSelector)});
+  const close=button.getBoundingClientRect().toJSON();
+  return {result:document.querySelector(${JSON.stringify(resultSelector)}).getBoundingClientRect().toJSON(),
+   close,note:document.getElementById('spotlight-note').getBoundingClientRect().toJSON(),
+   canClose:button.contains(document.elementFromPoint(close.x+close.width/2,close.y+close.height/2)),
+   rings:[...document.querySelectorAll('.spotlight-ring')].map(r=>r.getBoundingClientRect().toJSON())};
+ })()`);
+ assert.equal(canClose,true,'The highlighted close button must be clickable without scrolling');
+ assert.equal(rings.length,2);
+ for(const [i,target] of [result,close].entries()){
+  const ring=rings[i];
+  assert.ok(ring.left<target.left&&ring.right>target.right&&ring.top<target.top&&ring.bottom>target.bottom);
+  assert.ok(note.right<=target.left||note.left>=target.right||note.bottom<=target.top||note.top>=target.bottom);
+ }
+}
 async function comparisonVisible(){
  await noteVisible();
  assert.equal(await room("document.querySelector('#spotlight-reference .bad-slot').outerHTML===document.querySelector('#bad-slots .bad-slot').outerHTML"),true,'Comparison must retain the entire published card, including hidden fields');
@@ -216,9 +262,9 @@ try{
   assert.equal(second.combat.attackUntil-second.combat.lastAttackAt,W.PLAY_CONFIG.attackCooldownMs);
   assert.equal(await room("document.getElementById('log-count').textContent"),logCount);
  });
- await check('探索书桌先答题，答对获得积分后再高亮关闭按钮',async()=>{
+ await check('探索书桌答对后同时高亮积分奖励和右上角关闭按钮',async()=>{
   await room(`window.lootRingAnimations=[];document.addEventListener('animationstart',e=>{
-   if(e.animationName==='spotlight-ring-enter'&&document.getElementById('tutorial-spotlight').dataset.target==='loot-close'){
+   if(e.animationName==='spotlight-ring-enter'&&document.getElementById('tutorial-spotlight').dataset.target==='loot-reward'){
     lootRingAnimations.push(e.target.getAnimations()[0].effect.getKeyframes().map(frame=>frame.transform));
    }
   });`);
@@ -229,17 +275,19 @@ try{
   await key('KeyK');await phase('explore-quiz');
   await capture('02a-desk-quiz.png');
   await clickRoom('#loot [data-option-key="A"]');await clickRoom('#loot-take');
-  await waitRoom("document.getElementById('loot-status').textContent.includes('回答错误')");
+  await waitRoom("document.getElementById('loot-status').textContent==='回答错误'");
   assert.equal(await room("document.getElementById('score-value').textContent"),'0');
   await clickRoom('#loot [data-option-key="B"]');await key('KeyK');
   await phase('explore-close');assert.equal(await step(),1);
   assert.equal(await room("document.getElementById('desk-hint').hidden"),true);
-  assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'loot-close');
+  assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'loot-reward');
   assert.match(await room("document.getElementById('loot-summary').textContent"),/回答正确，获得 2 积分/);
-  await waitRoom('lootRingAnimations.length===1');
-  assert.deepEqual(await room('lootRingAnimations[0]'),['scale(1.45)','scale(1)']);
+  assert.equal(await room("document.querySelector('#loot-summary .loot-sum-chip').textContent"),'+2 积分');
+  await waitRoom('lootRingAnimations.length===2');
+  assert.deepEqual(await room('lootRingAnimations'),[['scale(1.45)','scale(1)'],['scale(1.45)','scale(1)']]);
   await delay(320);
-  assert.equal(await room('lootRingAnimations.length'),1);
+  assert.equal(await room('lootRingAnimations.length'),2);
+  await resultHighlightsVisible('#loot-summary','#loot-close');
   assert.equal(await room("document.getElementById('loot').hidden"),false);
   await capture('02b-desk-result.png');
   await clickRoom('#loot-close');await phase('mine-open');assert.equal(await step(),2);
@@ -257,6 +305,9 @@ try{
    await phase(phaseName);assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),target);await capture(`03-${phaseName}.png`);await clickRoom('#spotlight-next');
   }
   await phase('mine-close');await clickRoom('#mine-close');await phase('clues-countdown');assert.equal(await step(),3);assert.deepEqual(raw(),baseline);
+  assert.equal(await room("document.getElementById('spotlight-next').hidden"),true);
+  await room("document.getElementById('spotlight-next').click()");
+  await phase('clues-countdown');
  });
  await check('正式角色被真实技能命中并进入休战，不切回、不关闭或重置教程',async()=>{
   for(const actor of bads.slice(0,3)){
@@ -273,7 +324,9 @@ try{
   assert.match(await room("document.getElementById('spotlight-detail').textContent"),/归零时，系统会公开新的线索/);
   await clickRoom('#clue-next-left');
   assert.equal(await room("document.getElementById('bad-pool-dialog').open"),false);
-  await capture('04a-clue-countdown.png');await clickRoom('#spotlight-next');await phase('clues-open');
+  await capture('04a-clue-countdown.png');await nextVisible();
+  assert.equal(await room("document.getElementById('clue-next-left').textContent"),'00:00');
+  await clickRoom('#spotlight-next');await phase('clues-open');
   await clickRoom('#bad-toggle');await phase('clues-card');
   assert.equal(await room("document.getElementById('bad-pool-dialog').open"),true);
   assert.equal(await room("document.getElementById('spotlight-detail').textContent"),'根据系统公布的信息，推理出坏人是谁。');
@@ -338,17 +391,43 @@ try{
   await clickRoom('#accuse');await phase('confirm');await clickRoom('#cancel');await assertAccuse();
   assert.deepEqual(await room("SID_PRACTICE.request('/api/state').then(s=>[s.me.hp,s.me.score,s.players[1].hp])"),hp);
  });
- await check('直接指认并关闭档案，地图和名单的实际血条同时高亮为2/3',async()=>{
+ await check('指认后血条高亮为2/3，刺杀后高亮原版幽灵和休战名牌',async()=>{
   await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');
-  await waitRoom("document.getElementById('score-value').textContent==='12'");await capture('06-skill-result.png');
+  await waitRoom("document.getElementById('score-value').textContent==='12'");
+  await resultHighlightsVisible('#target .target-person .combat-health','#target-close');await capture('06-skill-result.png');
+  assert.equal(await room("document.getElementById('tutorial-spotlight').dataset.target"),'target-health');
+  assert.equal(await room("document.querySelector('#target .target-person .health-value').textContent"),'2/3');
   assert.equal(await step(),5);await clickRoom('#target-close');await phase('health');await waitRoom("document.querySelectorAll('.spotlight-ring').length===2");await delay(150);
   assert.equal(await room("document.querySelector('#roster-items [data-player=\"2\"] .health-value').textContent"),'2/3');
   const map=await room('SID_PRACTICE.inspect().mapHealth');assert.ok(map.x>=0&&map.y>=0&&map.x+map.width<=1440&&map.y+map.height<=900,JSON.stringify(map));
   assert.equal(await room("document.getElementById('training-complete').open"),false);await capture('07-health-change.png');
+  await room(`(() => {
+   const drawBody=WORLD.drawCharacterBody, context=document.getElementById('office').getContext('2d');
+   const fillText=context.fillText, fillRect=context.fillRect;
+   let drawingAlpha=false;
+   window.truceDraw={};
+   WORLD.drawCharacterBody=function(ctx,p,...args){
+    drawingAlpha=ctx===context&&p.id===2&&p.alive===false&&p.truce&&p.hp===0;
+    try { return drawBody.call(this,ctx,p,...args); }
+    finally { drawingAlpha=false; }
+   };
+   context.fillRect=function(x,y,width,height){
+    if(drawingAlpha&&width===26&&height===22&&this.fillStyle==='#a8ccf0') truceDraw.ghost=true;
+    return fillRect.call(this,x,y,width,height);
+   };
+   context.fillText=function(text,...args){
+    if(text==='练习人物甲 · 休战') truceDraw.nameplate=true;
+    return fillText.call(this,text,...args);
+   };
+   window.restoreTruceDraw=()=>{WORLD.drawCharacterBody=drawBody;context.fillText=fillText;context.fillRect=fillRect;};
+  })()`);
+  await reachTruce(true);
+  await waitRoom('truceDraw.ghost&&truceDraw.nameplate');
+  await room('restoreTruceDraw()');await capture('07-truce.png');
   assert.equal(self.score,baseline.score);assert.deepEqual(self.skills,baseline.skills);assert.deepEqual(self.exploration,baseline.exploration);
   const requests=await ev('window.gameplayCalls');assert.equal(requests.filter(c=>c.path!=='/api/input').length,0,JSON.stringify(requests));
   for(const request of requests){const v=JSON.parse(request.body);assert.ok(!v.up&&!v.down&&!v.left&&!v.right);}
-  await clickRoom('#spotlight-next');await waitRoom("document.getElementById('training-complete').open");assert.equal(await step(),7);assert.equal(await room("document.getElementById('training-complete-title').textContent"),'恭喜您完成了新手训练营');await capture('08-completed.png');
+  await clickRoom('#spotlight-next');await waitRoom("document.getElementById('training-complete').open");assert.equal(await step(),8);assert.equal(await room("document.getElementById('training-complete-title').textContent"),'恭喜您完成了新手训练营');await capture('08-completed.png');
  });
  await check('返回显示正式休战状态与期间事件，正式坐标未变化',async()=>{
   await clickRoom('#training-complete-exit');await wait("document.getElementById('tutorial-return').open");
@@ -365,7 +444,7 @@ try{
   }
   await room("document.getElementById('office').focus()");await clickRoom('#room-exit');await wait("document.getElementById('tutorial-return').open");await click('#tutorial-return-ok');
  });
- await check('窄屏、矮屏下逐项讲解、搜索和血量提示可点击且不溢出',async()=>{
+ await check('窄屏、矮屏下可完成全部讲解、技能练习和休战教学',async()=>{
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});await manualEntry();
   for(const [width,height] of [[390,844],[853,480]]){
    await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
@@ -376,11 +455,14 @@ try{
    await room("document.getElementById('office').focus()");
    await key('KeyK');await phase('explore-quiz');await noteVisible();
    await capture(`09-quiz-${width}.png`);await clickRoom('#loot [data-option-key="B"]');await clickRoom('#loot-take');
-   await phase('explore-close');await clickRoom('#loot-close');await phase('mine-open');await clickRoom('#my-info');
+   await phase('explore-close');await resultHighlightsVisible('#loot-summary','#loot-close');await capture(`09-reward-${width}.png`);await clickRoom('#loot-close');await phase('mine-open');await clickRoom('#my-info');
    for(const p of ['mine-faction','mine-colors','mine-traits']){await phase(p);await noteVisible();await capture(`09-${p}-${width}.png`);await clickRoom('#spotlight-next');}
-   await phase('mine-close');await clickRoom('#mine-close');await phase('clues-countdown');await noteVisible();await clickRoom('#spotlight-next');await phase('clues-open');await clickRoom('#bad-toggle');await phase('clues-card');await noteVisible();await capture(`09-clues-${width}.png`);await clickRoom('#spotlight-next');await phase('clues-close');await clickRoom('#bad-pool-close');
-   await phase('roster-open');await clickRoom('#roster-toggle');await phase('roster-search');await room("document.getElementById('search').focus()");await call('Input.insertText',{text:'砖红'});await waitRoom("!document.getElementById('spotlight-next').disabled");await clickRoom('#spotlight-next');await phase('roster-alpha');await clickRoom('#roster-items [data-player="2"]');await phase('target-colors');await comparisonVisible();await capture(`09-comparison-${width}.png`);await clickRoom('#spotlight-next');await phase('accuse');await noteVisible();await capture(`09-warning-${width}.png`);await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');await clickRoom('#target-close');await phase('health');await delay(200);
+   await phase('mine-close');await clickRoom('#mine-close');await phase('clues-countdown');await noteVisible();await nextVisible();await clickRoom('#spotlight-next');await phase('clues-open');await clickRoom('#bad-toggle');await phase('clues-card');await noteVisible();await capture(`09-clues-${width}.png`);await clickRoom('#spotlight-next');await phase('clues-close');await clickRoom('#bad-pool-close');
+   await phase('roster-open');await clickRoom('#roster-toggle');await phase('roster-search');await room("document.getElementById('search').focus()");await call('Input.insertText',{text:'砖红'});await waitRoom("!document.getElementById('spotlight-next').disabled");await clickRoom('#spotlight-next');await phase('roster-alpha');await clickRoom('#roster-items [data-player="2"]');await phase('target-colors');await comparisonVisible();await capture(`09-comparison-${width}.png`);await clickRoom('#spotlight-next');await phase('accuse');await noteVisible();await capture(`09-warning-${width}.png`);await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');
+   await resultHighlightsVisible('#target .target-person .combat-health','#target-close');await capture(`09-accuse-result-${width}.png`);
+   await clickRoom('#target-close');await phase('health');await delay(200);
    await noteVisible();const m=await room('SID_PRACTICE.inspect().mapHealth');assert.ok(m.x>=0&&m.y>=0&&m.x+m.width<=width&&m.y+m.height<=height,JSON.stringify(m));await capture(`09-health-${width}.png`);
+   await reachTruce();await capture(`09-truce-${width}.png`);
    await clickRoom('#spotlight-next');await waitRoom("document.getElementById('training-complete').open");
   }
   await clickRoom('#training-complete-exit');await wait("document.getElementById('tutorial-return').open");await click('#tutorial-return-ok');

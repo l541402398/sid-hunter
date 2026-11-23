@@ -13,6 +13,7 @@ function clues(room) {
   assert.equal(room.state.cluesLeft,3);
   for(let i=0;i<29;i++)room.tick(.1);
   assert.equal(room.state.cluesPublished,false);
+  assert.equal(room.event('next'),false);assert.equal(room.state.phase,'clues-countdown');
   room.tick(.1);
   assert.equal(room.state.cluesPublished,true);assert.equal(room.readClues(),false);
   room.event('next');assert.equal(room.state.phase,'clues-open');
@@ -26,7 +27,7 @@ function roster(room) {
   assert.equal(room.accuse('alpha'),false);
   room.event('next');assert.equal(room.state.phase,'accuse');room.event('confirm-open');
 }
-test('七步教程按顺序完成：逐项讲解、搜索指认、确认两处血量后才完成',()=>{
+test('八步教程按顺序完成：答题、搜索指认、确认血量、切换阵营、刺杀和休战',()=>{
   const room=T.create();assert.equal(room.explore(),false);
   for(let i=0;i<18;i++)room.move(1,0,.05);assert.equal(room.state.step,1);
   for(let i=0;i<18;i++)room.move(1,-1,.05);assert.ok(room.nearDesk());
@@ -39,7 +40,18 @@ test('七步教程按顺序完成：逐项讲解、搜索指认、确认两处�
   profile(room);clues(room);roster(room);assert.equal(room.accuse('alpha'),true);
   assert.equal(room.state.npcHp,2);assert.equal(room.state.step,5);assert.equal(room.state.phase,'target-close');assert.equal(room.state.player.score,12);
   assert.equal(room.accuse('alpha'),false);room.event('target-close');assert.equal(room.state.step,6);
-  room.event('next');assert.equal(room.state.step,7);assert.equal(room.state.phase,'complete');
+  assert.equal(room.state.player.faction,'good');
+  room.event('next');assert.equal(room.state.step,7);assert.equal(room.state.phase,'bad-intro-open');
+  assert.equal(room.state.player.faction,'bad');assert.equal(room.state.npcHp,1);
+  assert.equal(room.assassinate('alpha'),false);
+  room.event('mine-open');room.event('mine-close');room.event('alpha-open');
+  room.event('confirm-open');room.event('cancel');
+  assert.equal(room.assassinate('alpha'),false);
+  room.event('confirm-open');
+  assert.equal(room.assassinate('beta'),false);assert.equal(room.state.player.score,12);assert.equal(room.state.npcHp,1);
+  assert.equal(room.assassinate('alpha'),true);assert.equal(room.state.npcHp,0);assert.equal(room.state.player.score,15);
+  assert.equal(room.state.phase,'truce');assert.equal(room.assassinate('alpha'),false);
+  room.event('next');assert.equal(room.state.step,8);assert.equal(room.state.phase,'complete');
 });
 test('阶段不能越过讲解、关闭、搜索和确认，误指认可重试且不提前完成',()=>{
   const room=T.create({step:2});assert.equal(room.event('mine-close'),false);assert.equal(room.event('next'),false);
@@ -52,8 +64,10 @@ test('每个练习角色独立，练习操作不修改外部角色数据',()=>{
   a.event('next');a.event('confirm-open');a.accuse('beta');a.accuse('alpha');assert.equal(live.hp,3);assert.equal(live.score,99);assert.equal(b.state.npcHp,3);assert.equal(b.state.player.score,2);
 });
 test('恢复检查点包含前置线索与正确血量，边界和家具仍有碰撞',()=>{
-  assert.deepEqual(T.normalizeProgress({step:999}),{step:7,completed:true,dismissed:false});assert.equal(T.normalizeProgress({step:'4'}).step,0);
+  assert.deepEqual(T.normalizeProgress({step:999}),{step:8,completed:true,dismissed:false});assert.equal(T.normalizeProgress({step:'4'}).step,0);
   const resume=T.create({step:6});assert.equal(resume.state.npcHp,2);assert.equal(resume.state.player.score,12);assert.equal(resume.state.phase,'health');
+  const badPractice=T.create({step:7});assert.equal(badPractice.state.npcHp,1);assert.equal(badPractice.state.player.score,12);
+  assert.equal(badPractice.state.player.faction,'bad');assert.equal(badPractice.state.phase,'bad-intro-open');
   const room=T.create();for(let i=0;i<1000;i++)room.move(-1,-1,10);assert.ok(room.state.player.x>=46&&room.state.player.y>=175);
 });
 

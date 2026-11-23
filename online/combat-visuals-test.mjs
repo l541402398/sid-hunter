@@ -76,25 +76,25 @@ function body(p, direction, age, renderer) {
   assert.deepEqual(stateOf(g),before);
   return { rects:g.calls.filter(c=>c[0]==='rect'), bodies };
 }
-test('新旧人物休战仍播放四向J挥锤，同样的手臂/锤头几何、轻度透明且ctx恢复', () => {
-  for (const renderer of [null,'male','female']) for (const direction of ['front','left','right','back']) {
-    const active = body(player,direction,90,renderer);
-    const truce = body({...player,alive:false,truce:true},direction,90,renderer);
-    assert.deepEqual(truce.rects.map(c=>c.slice(0,6)),active.rects.map(c=>c.slice(0,6)),'休战不能删除挥锤几何');
-    assert.ok(truce.rects.length>50,'挥锤必须实际画出手臂与木锤');
-    if (renderer) {
-      assert.equal(truce.bodies.length,1); assert.equal(truce.bodies[0].holes,true);
-      assert.equal(truce.bodies[0].alpha,.7); assert.equal(active.bodies[0].alpha,1);
-      const offline = body({...player,alive:false,online:false},direction,null,renderer);
-      assert.equal(offline.bodies[0].alpha,.7*.55);
-    }
+test('休战统一使用原版幽灵，四向挥锤保留，造型独立于服饰与新版素材', () => {
+  const ghost = {...player,alive:false,truce:true,colors:undefined};
+  for (const direction of ['front','left','right','back']) {
+    const idle = body(ghost,direction,null);
+    assert.ok(idle.rects.some(c=>c[3]===26&&c[4]===22&&c[5]==='#a8ccf0'),'原版蓝色灵体主体');
+    const swing = body(ghost,direction,90,'male');
+    assert.deepEqual(swing.rects.slice(0,idle.rects.length),idle.rects);
+    assert.ok(swing.rects.some(c=>c[5]==='#986039'),'显示木锤握柄');
+    assert.deepEqual(swing.bodies,[]);
   }
 });
-test('旧人物休战移动仍有交替抬脚，不会换成幽灵或定格', () => {
-  const a = body({...player,alive:false,walk:0},'front',null);
-  const b = body({...player,alive:false,walk:12},'front',null);
-  assert.notDeepEqual(a.rects.map(c=>c.slice(1,5)),b.rects.map(c=>c.slice(1,5)));
-  assert.equal(a.rects[1].at(-1),.7);
+test('离线对抗玩家保留半透明人形，离线休战玩家显示黯淡的幽灵', () => {
+  const active = body(player,'front',null,'male');
+  const offline = body({...player,online:false},'front',null,'male');
+  assert.deepEqual(active.bodies,[{facing:'front',alpha:1,holes:false}]);
+  assert.deepEqual(offline.bodies,[{facing:'front',alpha:.55,holes:false}]);
+  const offlineGhost = body({...player,truce:true,online:false},'front',null,'male');
+  assert.deepEqual(offlineGhost.bodies,[]);
+  assert.ok(offlineGhost.rects.some(c=>c[3]===26&&c[4]===22&&c[5]==='#9aa2b2'&&c[6]===.52));
 });
 test('浏览器与Node使用同一零依赖绘制API', () => {
   const env = { window: {} };

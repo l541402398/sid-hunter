@@ -251,6 +251,81 @@
     pixel(Math.round(hand.x) - 2, Math.round(hand.y) - 2, 4, 4, colors.skin);
     pixel(Math.round(hand.x) - 2, Math.round(hand.y) + 1, 4, 1, colors.skinLo);
   }
+  // 沿用原版像素幽灵，休战后的挥锤使用同一套互动动画。
+  function drawGhostBody(g, rect, p, clock, attackAgeMs, attackDirection) {
+    const x = Math.round(p.x);
+    const id = p.id ?? 0;
+    const wave = Math.sin(clock * 2.4 + id * 1.3);
+    const bob = Math.round(wave * 2.5);
+    const y = Math.round(p.y) + bob;
+    const offline = p.online === false;
+    const outC = offline ? '#2d3340' : '#1b2440';
+    const shdC = offline ? '#6c7486' : '#6382b8';
+    const midC = offline ? '#9aa2b2' : '#a8ccf0';
+    const hiC = offline ? '#c8ced9' : '#e6f6ff';
+    const eyeGlow = offline ? '#d8dee9' : '#5ef2ff';
+    // 地面灵体虚影光圈（随浮动高度呼吸缩放）
+    g.globalAlpha = offline ? .22 : (.32 - bob * .02);
+    rect(x - 12, Math.round(p.y) + 1, 24, 4, '#1b2440');
+    rect(x - 8, Math.round(p.y) + 2, 16, 2, '#5ef2ff');
+    g.globalAlpha = offline ? .52 : .88;
+    // 头顶漂浮灵魂光环与幽火苗
+    const haloOff = Math.round(Math.cos(clock * 3.2 + id) * 1.5);
+    const hy = y - 48 + haloOff;
+    rect(x - 7, hy, 14, 2, outC);
+    rect(x - 9, hy + 1, 18, 2, eyeGlow);
+    rect(x - 6, hy + 2, 12, 1, '#ffffff');
+    // 灵体深色像素外轮廓（圆顶兜帽 + 两侧飘袖 + 底部动态波浪尾摆）
+    rect(x - 9, y - 41, 18, 2, outC);
+    rect(x - 12, y - 39, 24, 2, outC);
+    rect(x - 14, y - 37, 28, 4, outC);
+    rect(x - 15, y - 33, 30, 24, outC);
+    // 两侧悬浮小手/灵袖
+    const armY = y - 24 + Math.round(Math.sin(clock * 3.6 + id) * 1.5);
+    rect(x - 19, armY, 5, 7, outC);
+    rect(x - 18, armY + 1, 3, 5, midC);
+    rect(x - 18, armY + 1, 2, 2, hiC);
+    rect(x + 14, armY, 5, 7, outC);
+    rect(x + 15, armY + 1, 3, 5, shdC);
+    rect(x + 15, armY + 1, 2, 2, midC);
+    // 灵体主体填充（遵循左上光源：左上高光 hiC → 中间固有色 midC → 右下阴影 shdC）
+    rect(x - 8, y - 39, 16, 2, hiC);
+    rect(x - 11, y - 37, 22, 4, midC);
+    rect(x - 13, y - 33, 26, 22, midC);
+    // 左上受光高光面
+    rect(x - 11, y - 37, 14, 2, hiC);
+    rect(x - 13, y - 35, 9, 16, hiC);
+    rect(x - 10, y - 38, 6, 2, '#ffffff');
+    // 右侧与底部背光体积阴影
+    rect(x + 8, y - 35, 5, 24, shdC);
+    rect(x - 13, y - 14, 26, 4, shdC);
+    // 底部 4 簇像素幽灵波浪尾摆（随相位摆动）
+    const phase = Math.floor((clock * 5 + id) % 3);
+    const tails = [-13, -6, 1, 8];
+    for (let i = 0; i < 4; i++) {
+      const tx = x + tails[i];
+      const th = ((i + phase) % 2 === 0) ? 6 : 3;
+      rect(tx - 1, y - 10, 6, th + 1, outC);
+      rect(tx, y - 10, 4, th, i < 2 ? midC : shdC);
+    }
+    // 脸部暗影面罩与发光像素双眸 + 惊叹小嘴
+    rect(x - 9, y - 29, 18, 9, outC);
+    rect(x - 7, y - 27, 4, 5, eyeGlow);
+    rect(x + 3, y - 27, 4, 5, eyeGlow);
+    rect(x - 7, y - 27, 2, 2, '#ffffff');
+    rect(x + 3, y - 27, 2, 2, '#ffffff');
+    // 腮红与灵体小嘴
+    if (!offline) {
+      rect(x - 10, y - 22, 3, 2, '#7ce8ff');
+      rect(x + 7, y - 22, 3, 2, '#7ce8ff');
+    }
+    rect(x - 2, y - 22, 4, 3, outC);
+    rect(x - 1, y - 21, 2, 1, eyeGlow);
+    if (attackAlphaHard(attackAgeMs)) {
+      drawLegacyAttack(rect, x, y, attackDirection || p.spriteFacing, attackAgeMs,
+        { outline: outC, skin: hiC, skinLo: midC, topLo: shdC, topHi: midC });
+    }
+  }
   // 可选攻击 age 单位为毫秒；固定攻击方向只影响这次挥击，待机/走路仍使用原外观。
   // 跳跃已下线：不再接收 elevation，地面影子透明度固定 0.3。
   function drawCharacterBody(g, p, clock, attackAgeMs = null, attackDirection = null) {
@@ -259,6 +334,11 @@
       g.fillStyle = color;
       g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
     };
+    if (p.alive === false || p.truce) {
+      drawGhostBody(g, rect, p, clock, attackAgeMs, attackDirection);
+      g.restore();
+      return;
+    }
     const shade = characterShade, x = Math.round(p.x), c = p.colors;
     const hi = Math.max(0, PALETTES.hair.findIndex(o => o[0] === c.hair[0]));
     const skin = SKIN[hi], skinLo = shade(skin, -.24);
@@ -271,8 +351,7 @@
     const bob = p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + (p.spriteIndex ?? p.id) * 1.9) * .7);
     const yb = Math.round(p.y) + bob;
     const liftL = Math.max(0, sw) * 2, liftR = Math.max(0, -sw) * 2, arm = Math.round(-sw * 1.6);
-    const a = (p.alive === false || p.truce ? .7 : 1) * (p.online === false ? .55 : 1);
-    // J 是无伤害互动，休战后仍照常播放挥锤，和对抗生命无关。
+    const a = p.online === false ? .55 : 1;
     const attacking = Number.isFinite(attackAgeMs) && attackAgeMs >= 0 && attackAgeMs < ATTACK_ANIMATION_MS;
     const direction = (attacking ? attackDirection : p.spriteFacing) || p.spriteFacing || 'front';
     const drawAttack = () => drawLegacyAttack(rect, x, yb, direction, attackAgeMs,

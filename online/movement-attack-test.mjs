@@ -214,11 +214,12 @@ for (const [direction] of directions) {
       assert.equal(palm.x + 2, 100 + (direction === 'left' ? -x : x)); assert.equal(palm.y + 2, 100 + y);
     }
   });
-  await test(`木锤${direction}动画首末边界、非法age与淘汰不绘武器`, () => {
+  await test(`木锤${direction}动画首末边界、非法age与休战挥锤`, () => {
     const idle = render(direction);
     for (const age of [null, undefined, NaN, Infinity, -1, T, T + 1]) assert.deepEqual(render(direction, age), idle);
     for (const age of [0, T - .001]) assert.ok(wood(render(direction, age)).length > 0);
-    assert.deepEqual(render(direction, 0, { alive: false }), render(direction, null, { alive: false }));
+    assert.ok(wood(render(direction, 0, { alive: false })).length > 0);
+    assert.deepEqual(render(direction, T, { alive: false }), render(direction, null, { alive: false }));
   });
 }
 await test('左右全调用严格镜像、前景/背后深度绘制、四向图形确实不同', () => {

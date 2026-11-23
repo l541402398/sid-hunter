@@ -3723,10 +3723,8 @@
   // 离线者只在渲染层降低不透明度，四种颜色外观数据一律不改。
   function sprite(p) {
     if (SID.juliSprites?.draw(ctx, p, clock)) return;
-    // 休战（alive=false）不再画成幽灵：照常绘制角色，名牌追加「休战」标记。
     const x = Math.round(p.x), meId = selfId();
-    const ph = p.walk * .13;
-    const newShape = window.SID?.characterSprites?.status === 'ready';
+    const newShape = p.alive !== false && !p.truce && SID.characterSprites?.status === 'ready';
     // 新版人物的起伏由渲染层统一下发（走路按步频、站立按呼吸）；旧画法沿用原地呼吸。
     // 头顶特效/选中框跟着同一个偏移，避免身体动了特效留在原处。
     const bob = newShape
@@ -3734,7 +3732,7 @@
       : (p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7));
     const yb = Math.round(p.y) + bob;
     const effectY = yb - (newShape ? 24 : 0);
-    const a = (p.alive ? 1 : .7) * (p.online === false ? .55 : 1); // 休战：轻度半透明标识
+    const a = p.online === false ? .55 : 1;
     const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
     // dev 分支并入：镜头外的互动字段由投影的 visible 字段兜一层（脏值一律不下发）。
     const seen = p.visible !== false;
@@ -3791,15 +3789,22 @@
     }
     ctx.restore();
   }
-  // 命中框（x±21, y-53~y+8）与名牌偏移保持不变，外观升级不影响任何交互判定。
+  function characterBounds(p) {
+    const custom = SID.juliSprites?.bounds(p);
+    const newShape = p.alive !== false && !p.truce && SID.characterSprites?.status === 'ready';
+    const halfWidth = newShape ? 26 : 21, above = newShape ? 79 : 53;
+    const b = custom || { x: -halfWidth, y: -above, w: halfWidth * 2, h: above + 8 };
+    return { x: p.x + b.x, y: p.y + b.y, width: b.w, height: b.h };
+  }
+  // 正常角色与幽灵共用名牌布局，身体点击范围跟随造型。
   let labels = [];
   const nameplateMetrics = new Map();
   function nameplateText(p) {
-    const ghostTag = !p.npc && !p.alive ? ' · 休战' : '';
+    const truceTag = !p.npc && !p.alive ? ' · 休战' : '';
     const selfTag = !p.npc && p.id === selfId() ? ' · 自己' : '';
     const offTag = !p.npc && p.online === false ? ' · 离线' : '';
     return {
-      name: p.name + (p.npc ? ' · NPC' : `${ghostTag}${selfTag}${offTag}`),
+      name: p.name + (p.npc ? ' · NPC' : `${truceTag}${selfTag}${offTag}`),
       detail: p.npc ? '商店' : healthState(p).hp + '/' + healthState(p).maxHp + ' 生命'
     };
   }
@@ -4228,13 +4233,24 @@
       const hitLabel = labels.some(l => Math.abs(badge.cx - (l.x + l.w / 2)) < (21 + l.w / 2 + 4) && badge.cy + 14 > l.y - 2 && badge.cy < l.y + l.h + 2);
       drawInteractPromptBadge(badge.cx, hitLabel ? badge.topY : badge.cy, '按：K');
     }
-    const practiceSelf = practice && renderMap.get(selfId());
-    practice?.drawOverlay(ctx, {
-      player: practiceSelf ? { x: (practiceSelf.x - drawCamX) * scale, y: (practiceSelf.y - drawCamY) * scale } : null,
-      healthBars: labels.filter(l => !l.p.npc).map(l => ({ id: l.p.id,
-        x: (l.x + 9 - drawCamX) * scale, y: (l.y + 17 - drawCamY) * scale,
-        width: (l.w - 18) * scale, height: 6 * scale }))
-    });
+    if (practice) {
+      const canvasRect = canvas.getBoundingClientRect();
+      const screenRect = (x, y, width, height) => ({
+        x: canvasRect.x + (x - drawCamX) * scale, y: canvasRect.y + (y - drawCamY) * scale,
+        width: width * scale, height: height * scale
+      });
+      const practiceSelf = renderMap.get(selfId());
+      const playerLabels = labels.filter(l => !l.p.npc);
+      practice.drawOverlay(ctx, {
+        player: practiceSelf ? { x: (practiceSelf.x - drawCamX) * scale, y: (practiceSelf.y - drawCamY) * scale } : null,
+        healthBars: playerLabels.map(l => ({ id: l.p.id, ...screenRect(l.x + 9, l.y + 17, l.w - 18, 6) })),
+        trucePlayers: playerLabels.filter(l => !l.p.alive).map(l => {
+          const body = characterBounds(l.p);
+          const left = Math.min(l.x, body.x), right = Math.max(l.x + l.w, body.x + body.width);
+          return { id: l.p.id, ...screenRect(left, body.y, right - left, l.y + l.h - body.y) };
+        })
+      });
+    }
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     drawFogOverlay();
@@ -4395,10 +4411,8 @@
     makeLabels(list);
     const atLabel = l => x >= l.x && x <= l.x + l.w && y >= l.y && y <= l.y + l.h;
     const atBody = p => {
-      const b = SID.juliSprites?.bounds(p);
-      const inside = b ? x >= p.x + b.x && x <= p.x + b.x + b.w && y >= p.y + b.y && y <= p.y + b.y + b.h
-        : Math.abs(x - p.x) <= (window.SID?.characterSprites?.status === 'ready' ? 26 : 21) && y >= p.y - (window.SID?.characterSprites?.status === 'ready' ? 79 : 53) && y <= p.y + 8;
-      return inside;
+      const b = characterBounds(p);
+      return x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height;
     };
     const labelHits = labels.filter(l => !l.p.npc && atLabel(l));
     const bodyHits = list.filter(p => !p.npc && atBody(p)).map(p => p.id);
