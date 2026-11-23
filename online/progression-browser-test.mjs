@@ -286,7 +286,7 @@ try {
     return { before, after, expected, clue: cluesAfter > cluesBefore };
   });
 
-  await test('联机 09 排行榜：#ranking 面板可打开、#ranking-rules 含结束条件与剩余时间；20Hz 下按钮身份稳定', async () => {
+  await test('联机 09 排行榜只展示截至昨日的累计排名；20Hz 下转盘按钮身份稳定', async () => {
     await moveTo(520, 340); await openNpcPanel(); await click('#exploration-wheel');
     await waitFor('转盘覆盖层', async () => (await overlays()).wheel);
     const wheelStable = await sampleStable('#wheel-spin', 24);
@@ -297,12 +297,12 @@ try {
     const toggleStable = JSON.parse(legacyToggle);
     await click('#ranking-toggle');
     await waitFor('排行榜打开', async () => (await overlays()).ranking);
-    const rules = await ev(`document.querySelector('#ranking-rules').textContent`);
-    assert.match(rules, /结束方式/); assert.match(rules, /存活淘汰至剩余 100 人/); assert.match(rules, /时间到/);
-    assert.match(rules, /距时间到还有 \d+:\d{2}:\d{2}/, '应显示剩余时间');
-    assert.ok((await ev(`document.querySelectorAll('#ranking-items .ranking-row').length`)) >= 2, '#ranking-items 应有行');
+    const title = await ev(`document.querySelector('#ranking-title').textContent`);
+    assert.match(title, /截至昨日累计排行榜/);
+    assert.equal(await ev(`document.querySelectorAll('#ranking-self-summary, #ranking-tabs, #ranking-items .ranking-row').length`), 0);
+    assert.match(await ev(`document.querySelector('#ranking-items').textContent`), /暂无截至昨日的排名/);
     await click('#ranking-close');
-    return { rules, wheelStable, toggleStable };
+    return { title, wheelStable, toggleStable };
   });
 
   await test('联机 10 结束条件②坏人全灭：accuse 打掉唯一坏人 → badWiped、ranking 降序、#finish-overlay 可见', async () => {

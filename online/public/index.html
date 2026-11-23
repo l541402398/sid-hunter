@@ -67,7 +67,6 @@
   <!-- 标题 / 统计 / 工具栏已移入游戏界面内部顶部（.game-hud）；id、文字、aria 与事件绑定全部保留。 -->
   <div class="game-layout">
   <main class="stage" id="stage">
-    <div id="game-availability" class="availability-banner" role="status" hidden></div>
     <div class="game-hud">
       <div class="topbar" hidden>
         <div class="brand" hidden><span class="brand-mark">S<span>·</span>ID</span><div><h1>S-ID：年终生存战</h1><p>YEAR-END SURVIVAL / 局域网联机试玩</p></div></div>
@@ -134,6 +133,7 @@
         </div>
         <div id="audio-playlist" class="audio-playlist" role="list" aria-label="背景音乐播放列表"></div>
       </div>
+      <div id="game-availability" class="availability-banner" role="status" hidden></div>
     </div>
     <div class="map-view" id="map-view">
       <canvas id="office" width="960" height="640" tabindex="0" aria-label="像素办公室。WASD或方向键移动，J 敲，K 与场景交互（休战中也可 J 敲与互动），点击角色或公开标签选择目标。点击容器或NPC，或按K打开近距离互动；Esc关闭私密面板。"></canvas>
@@ -150,7 +150,6 @@
           <button id="loot-close" class="loot-x" type="button" aria-label="关闭搜索面板">×</button>
         </div>
         <p id="loot-meta" class="loot-meta"></p>
-        <div class="loot-progress"><i id="loot-bar"></i></div>
         <div id="loot-grid" class="loot-grid" role="grid" aria-label="物品格"></div>
         <p id="loot-status" class="loot-status" aria-live="polite" hidden></p>
         <p id="loot-summary" class="loot-summary" hidden></p>
@@ -189,12 +188,9 @@
       <section id="mine" class="panel mine" hidden aria-label="我的信息，阵营与个人属性仅自己可见"></section>
       <section id="games" class="panel games" hidden aria-label="猜拳对战"></section>
       <section id="offline-summary" class="panel offline-summary" hidden aria-label="离线期间事件摘要"></section>
-      <aside id="ranking" class="panel ranking" hidden aria-label="实时排行榜">
-        <div class="panel-heading"><div><small>SCOREBOARD</small><h2>积分与总榜</h2></div><button id="ranking-close" class="icon-button" aria-label="收起排行榜">×</button></div>
-        <p id="ranking-rules" class="panel-note"></p>
-        <p class="panel-note">当前在场存活 <strong id="ranking-alive">0</strong> · 每日活动按时结算</p>
+      <aside id="ranking" class="panel ranking" hidden aria-labelledby="ranking-title">
+        <div class="panel-heading"><h2 id="ranking-title">截至昨日累计排行榜（前 100 名）</h2><button id="ranking-close" class="icon-button" aria-label="收起排行榜">×</button></div>
         <div id="ranking-items" class="ranking-items"></div>
-        <p class="hold-note">局内仅展示本人今日积分明细与截至昨日累计总榜（Top 100） · 每日结束后统一结算入榜。</p>
       </aside>
       <script src="js/markup/overlays.js"></script>
       <div id="elevator-picker" class="elevator-picker" hidden role="dialog" aria-modal="true" aria-label="选择楼层" aria-describedby="elevator-keyboard-help">

@@ -294,19 +294,16 @@ try {
   await key('KeyK', 'k');   // 已在门口，直接退出
   await wait(() => ev("document.querySelector('#zone-banner').hidden"));
 
-  // ---------- 5.5 双榜：筹码榜 / 成就榜 ----------
+  // ---------- 5.5 截至昨日累计排行榜 ----------
   await click('#ranking-toggle');
   await wait(() => ev("!document.querySelector('#ranking').hidden"));
-  await wait(() => ev("!!document.querySelector('#ranking-tabs')"));
-  const tabs = await ev("[...document.querySelectorAll('#ranking-tabs button')].map(b=>b.textContent)");
-  await click('#ranking-tabs button[data-tab="achievement"]');
-  await pause(220);
-  const achievementRows = await ev("document.querySelectorAll('#ranking-items .ranking-row').length");
-  await shot('ranking-achievement.png');
+  const title = await ev("document.querySelector('#ranking-title').textContent");
+  assert.match(title, /截至昨日累计排行榜/);
+  assert.equal(await ev("document.querySelectorAll('#ranking-self-summary, #ranking-tabs, #ranking-items .ranking-row').length"), 0);
+  assert.match(await ev("document.querySelector('#ranking-items').textContent"), /暂无截至昨日的排名/);
+  await shot('ranking-history.png');
   await click('#ranking-close');
-  evidence.push({ tabs, achievementRows });
-  assert.deepEqual(tabs, ['筹码榜', '成就榜'], '排行榜应有双榜切换');
-  assert.ok(achievementRows >= 1, '成就榜应至少有一行');
+  evidence.push({ rankingTitle: title });
   // ---------- 6. 七层主题外观证据 ----------
   for (const floor of [1, 2, 3, 4, 5, 6, 7]) {
     const p = await ev(`WORLD.floorSpawns(${floor})[0]`);

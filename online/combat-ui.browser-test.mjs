@@ -199,7 +199,6 @@ try {
     await health(`#roster-items [data-player="${otherGood.id}"] .combat-health`, 3);
     await click(`#roster-items [data-player="${otherGood.id}"]`);
     await health('#target .combat-health', 3);
-    await click('#private-gate');
     await health('#private-content .combat-health', 3);
     const panels = await evaluate(`['target','roster-items','private-content'].map(id=>({id,text:document.getElementById(id).innerText}))`);
     for (const panel of panels) assert(!/S-ID|身份码|\*{3}-\*{3}-\*{3}/i.test(panel.text), panel.id + ' retained the removed identity-code UI');
@@ -335,9 +334,8 @@ try {
     await api('/api/test/advance', { ms: 61000 });
     assert((await state()).me.exploration.pendingQuizContainerIds.includes(container.id));
     await call('Page.reload', { ignoreCache: true });
-    await waitPage(`document.readyState==='complete'&&document.getElementById('annual-review-overlay').open&&document.getElementById('annual-review-overlay').dataset.ready==='true'`);
-    await key('Escape', 'Escape', 27);
-    await waitPage(`!document.getElementById('annual-review-overlay').open&&document.getElementById('join-page').hidden`);
+    // The annual review opens once per day; reloading resumes the game directly.
+    await waitPage(`document.readyState==='complete'&&!document.getElementById('annual-review-overlay').open&&document.getElementById('join-page').hidden&&!!window.SID?.combatVisuals`);
     await installVisualProbe();
     await waitPage(`__combatQA.frames.length>2`);
     await openWithK();

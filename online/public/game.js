@@ -230,7 +230,7 @@
     for (const p of players) if (!known.has(p.id)) merged.push(p);
     return (everyoneCache = merged);
   }
-  let rulesInfo = null, finishReason = '', rankingList = null, historicalRanking = [], achievementList = null, achievementLeaders = [], rankingTab = 'score', finishShown = false, lastRankingSig = '', lastFinishSig = '';
+  let rulesInfo = null, finishReason = '', rankingList = null, historicalRanking = [], finishShown = false, lastRankingSig = '', lastFinishSig = '';
   // 下一次「系统公布线索」的服务端时间戳（0 = 本场没有下一次）。只用来显示倒计时，
   // 不含任何线索内容，所以放在公共快照里也不构成泄露。
   let nextClueAt = 0;
@@ -571,8 +571,6 @@
     const delta = s.scope === 'floor';
     if (!delta || 'ranking' in s) rankingList = Array.isArray(s.ranking) ? s.ranking : null;
     if (!delta || 'historicalRanking' in s) historicalRanking = Array.isArray(s.historicalRanking) ? s.historicalRanking : [];
-    if (!delta || 'rankingAchievement' in s) achievementList = Array.isArray(s.rankingAchievement) ? s.rankingAchievement : null;
-    if (!delta || 'achievementLeaders' in s) achievementLeaders = Array.isArray(s.achievementLeaders) ? s.achievementLeaders : [];
     if (typeof s.finishReason === 'string') finishReason = s.finishReason;
     if (Array.isArray(s.logs)) logs = s.logs;
     // 全员公开名录（无坐标）：推流只发同层玩家的实时坐标，名单/搜索/目标档案改由名录兜底。
@@ -2009,36 +2007,6 @@
     const daysBadge = entry.days ? `<span class="ranking-days-badge">${entry.days}天</span>` : '';
     return `<div class="ranking-row" ${entry.id != null ? `data-player="${escapeText(entry.id)}"` : ''}><span class="ranking-rank">${rank}</span>${p ? portrait(p) : ''}<span class="ranking-name">${escapeText(name)}</span>${daysBadge}${out}<span class="ranking-score">${Number(entry.score) || 0}</span></div>`;
   }
-  function renderRankingRows(host, list, emptyMsg) {
-    if (!host) return;
-    host.innerHTML = list.length ? list.map(rankingRowHTML).join('') : `<div class="ranking-empty-card"><strong>${emptyMsg || '暂无历史榜，明日展示首日榜'}</strong><p>局内实时隐藏他人今日得分，杜绝通过分数变化反推身份；每日场次结算后计入五日累计总榜（前 100 名获奖）。</p></div>`;
-  }
-  function updateRankingHeader() {
-    const rules = $('ranking-rules'); if (!rules) return;
-    const endsAt = rulesInfo && rulesInfo.endsAt, left = endsAt ? Math.max(0, endsAt - serverNow()) : null;
-    rules.textContent = `5天累计积分赛（前 100 名获奖）· 按每日截止时间或管理员结算`
-      + (left != null && !finished ? ` · 距本场截止还有 ${formatDuration(left)}` : '')
-      + (finished ? ` · 已结算：${finishReasonText(finishReason)}` : '');
-  }
-  // 个人实时积分卡片 + 截至昨日累计总榜（前100名） / 成就榜
-  function ensureRankingTabs() {
-    const anchor = $('ranking-items'); if (!anchor || !anchor.parentNode) return;
-    if (!$('ranking-self-summary')) {
-      const selfCard = document.createElement('div');
-      selfCard.id = 'ranking-self-summary';
-      selfCard.className = 'ranking-self-summary';
-      anchor.parentNode.insertBefore(selfCard, anchor);
-    }
-    if ($('ranking-tabs')) return;
-    const bar = document.createElement('div');
-    bar.id = 'ranking-tabs'; bar.className = 'ranking-tabs'; bar.setAttribute('role', 'tablist');
-    bar.innerHTML = '<button type="button" data-tab="score" role="tab">截至昨日累计总榜（Top 100）</button>'
-      + '<button type="button" data-tab="achievement" role="tab">互动成就榜</button>';
-    bar.querySelectorAll('button').forEach(b => {
-      b.onclick = () => { rankingTab = b.dataset.tab; lastRankingSig = ''; syncRanking(); };
-    });
-    anchor.parentNode.insertBefore(bar, anchor);
-  }
   function formatSettlementReportHTML() {
     if (!finished || !me) return '';
     const rep = me.settlementReport || { eliminatedBy: null };
@@ -2055,35 +2023,12 @@
   }
   function syncRanking() {
     const host = $('ranking'); if (!host || host.hidden) return;
-    updateRankingHeader();
-    ensureRankingTabs();
-    const bd = me?.scoreBreakdown || { participate: 0, survival: 0, combat: selfScore() };
-    const histScore = Number(me?.historicalScore) || 0;
-    const sig = JSON.stringify([finishReason, aliveCount, rankingTab, selfScore(), bd, histScore,
-      me?.firstSearchDone, me?.firstMinigameDone, me?.settlementReport, historicalRanking, rankingList, achievementList, achievementLeaders]);
+    const sig = JSON.stringify(historicalRanking);
     if (sig === lastRankingSig) return;
     lastRankingSig = sig;
-    $('ranking-alive').textContent = aliveCount;
-    const selfBox = $('ranking-self-summary');
-    if (selfBox) {
-      selfBox.innerHTML = `<div class="ranking-self-head"><span class="ranking-self-badge">MY TODAY SCORE · 我的今日实时积分（仅自己可见）</span><span class="ranking-self-state ${me?.alive !== false ? 'is-alive' : 'is-out'}">${me?.alive !== false ? '对抗中 · 计分中' : '休战中 · 积分保留，参与分照常累计'}</span></div><div class="ranking-self-grid"><div class="ranking-self-cell primary"><span>今日总分</span><strong>${selfScore()}</strong><em class="cell-sub">参与+对抗中时长+对抗</em></div><div class="ranking-self-cell hist"><span>截至昨日累计</span><strong>${histScore}</strong><em class="cell-sub">历史已结算场次</em></div><div class="ranking-self-cell"><span>参与分</span><strong>${bd.participate || 0}</strong><em class="cell-sub">探索/答题/J/小游戏/转盘</em></div><div class="ranking-self-cell"><span>对抗时长分</span><strong>${bd.survival || 0}</strong><em class="cell-sub">对抗中每满30分钟 +1</em></div><div class="ranking-self-cell"><span>对抗分</span><strong>${bd.combat || 0}</strong><em class="cell-sub">指认/刺杀命中</em></div></div>${formatSettlementReportHTML()}`;
-    }
-    const tabs = $('ranking-tabs');
-    if (tabs) tabs.querySelectorAll('button').forEach(b => {
-      const on = b.dataset.tab === rankingTab;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-selected', on ? 'true' : 'false');
-    });
-    if (rankingTab === 'achievement') {
-      const list = (achievementList && achievementList.length) ? achievementList
-        : achievementLeaders.map(r => ({ ...r, score: r.points || 0 }));
-      renderRankingRows($('ranking-items'), list, '暂无互动成就记录');
-      return;
-    }
-    const source = (finished && rankingList && rankingList.length)
-      ? rankingList.slice(0, 100)
-      : (historicalRanking && historicalRanking.length ? historicalRanking.slice(0, 100) : []);
-    renderRankingRows($('ranking-items'), source, '暂无历史榜，明日展示首日榜');
+    $('ranking-items').innerHTML = historicalRanking.length
+      ? historicalRanking.slice(0, 100).map(rankingRowHTML).join('')
+      : '<p class="ranking-empty-card">暂无截至昨日的排名</p>';
   }
   function openRanking() {
     const host = $('ranking'); if (!host) return;
@@ -2104,7 +2049,7 @@
     const host = $('finish-ranking');
     const reportHTML = formatSettlementReportHTML();
     if (rankingList && rankingList.length) {
-      renderRankingRows(host, rankingList);
+      host.innerHTML = rankingList.map(rankingRowHTML).join('');
       if (reportHTML) host.insertAdjacentHTML('afterbegin', reportHTML);
       return;
     }

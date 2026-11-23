@@ -8,10 +8,10 @@
     const toggle = document.getElementById('round-tasks-toggle');
     const definitions = [
       { key: 'exploration', label: '探索礼包', icon: '🎁' },
-      { key: 'flowers', label: '献花得分', icon: '🌷' },
-      { key: 'wheel', label: '免费转盘', icon: '🎡' },
-      { key: 'rps', label: '猜拳得分', icon: '✊' },
-      { key: 'hammer', label: '敲击互动', icon: '🔨' },
+      { key: 'flowers', label: '献花得分', icon: '🌷', showProgress: true },
+      { key: 'wheel', label: '免费转盘', icon: '🎡', showProgress: true },
+      { key: 'rps', label: '猜拳得分', icon: '✊', showProgress: true },
+      { key: 'hammer', label: '敲击互动', icon: '🔨', showProgress: true },
       { key: 'containers', label: '开箱得分' },
       { key: 'quiz', label: '答题得分' },
       { key: 'receivedFlowers', label: '收花得分' },
@@ -27,13 +27,13 @@
     let lastRender = '';
     const opened = () => panel.matches(':popover-open');
 
-    for (const { key, label, icon } of definitions) {
+    for (const { key, label, icon, showProgress } of definitions) {
       const row = document.createElement('li');
       row.className = icon ? 'round-task' : 'round-task round-task-compact';
       row.dataset.task = key;
       const badge = icon ? `<span aria-hidden="true">${icon}</span> ` : '';
       row.innerHTML = `<div class="round-task-label"><h3>${badge}${label}</h3><strong></strong></div>
-        ${icon ? `<progress aria-label="${label}进度" max="1" value="0"></progress>` : ''}
+        ${showProgress ? `<progress aria-label="${label}进度" max="1" value="0"></progress>` : ''}
         <p class="round-task-detail" hidden></p>`;
       rows.set(key, {
         row, value: row.querySelector('strong'), meter: row.querySelector('progress'),
@@ -76,7 +76,7 @@
         : unlocked ? (unavailable ? '探索目标已达成 · 礼包未领取' : `可领取 ${exploration.reward} 分`)
         : `探索 ${explored} / ${exploration.goal} · 达成后可领 ${exploration.reward} 分`;
       updateRow('exploration', {
-        points: exploration.points, current: explored, cap: exploration.goal,
+        points: exploration.points,
         detail: !exploration.claimed && !unavailable ? `${claimStatus} · 在楼层 NPC 处领取` : claimStatus,
         state: claimable ? 'ready' : exploration.claimed ? 'complete' : ''
       });

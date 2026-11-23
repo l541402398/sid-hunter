@@ -24,7 +24,6 @@
       title: el('loot-title'),
       grid: el('loot-grid'),
       status: el('loot-status'),
-      bar: el('loot-bar'),
       start: el('loot-start'),
       take: el('loot-take'),
       close: el('loot-close'),
@@ -78,7 +77,6 @@
     els.take.hidden = true;
     els.take.disabled = true;
     els.take.textContent = '提交答案(K)';
-    els.bar.style.width = '0%';
     els.meta.textContent = options.resumeQuiz ? '继续上次未完成的题目 · 本场提交后只结算一次' : '同一容器每场限开启一次 · 未完成题目可随时回来继续';
     setStatus(options.resumeQuiz ? '正在恢复未完成的题目…' : '正在开启容器…');
     if (options.autoStart !== false) {
@@ -216,7 +214,6 @@
       if (r.prize && state.onPrize) state.onPrize(r.prize);
 
       if (state.mode === 'empty') {
-        els.bar.style.width = '100%';
         setStatus(r.resultText || '开启完成：箱子里空空如也，未获得积分。');
         renderSummaryBox('0 积分', '空空如也 · 本次未获得积分');
         SID.audio?.play('lootEmpty');
@@ -225,7 +222,6 @@
       }
       if (state.mode === 'points' || state.mode === 'coins') {
         const chips = gainedPoints(r);
-        els.bar.style.width = '100%';
         setStatus(r.resultText || `开启完成：直接获得 ${chips} 积分！`);
         renderSummaryBox(`+${chips} 积分`, `直接获得 ${chips} 积分`);
         SID.audio?.play('lootPoints');
@@ -236,7 +232,6 @@
         state.sessionId = r.sessionId;
         state.quiz = r.quiz;
         state.selected = [];
-        els.bar.style.width = '50%';
         setStatus(r.resultText || `触发答题：答对可得 ${r.quiz.rewardCoins} 积分！`);
         SID.audio?.play('quizStart');
         buildQuizView(r.quiz);
@@ -285,7 +280,6 @@
         return;
       }
       els.take.hidden = true;
-      els.bar.style.width = '100%';
       state.done = true;
       for (const btn of els.grid.querySelectorAll('button.quiz-option')) {
         btn.disabled = true;

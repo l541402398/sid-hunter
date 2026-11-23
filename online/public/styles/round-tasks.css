@@ -122,8 +122,6 @@
 .round-task progress::-webkit-progress-bar { background: #24170d; }
 .round-task progress::-webkit-progress-value { background: #d5a85c; }
 .round-task progress::-moz-progress-bar { background: #d5a85c; }
-.round-task[data-state="ready"] progress::-webkit-progress-value { background: #ffe36b; }
-.round-task[data-state="ready"] progress::-moz-progress-bar { background: #ffe36b; }
 .round-task[data-state="complete"] progress::-webkit-progress-value { background: #9cbe83; }
 .round-task[data-state="complete"] progress::-moz-progress-bar { background: #9cbe83; }
 .round-task-detail {

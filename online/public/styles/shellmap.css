@@ -32,7 +32,7 @@ body{min-height:100%}
 /* 仅本人实际行走时淡化顶部菜单，停止后恢复；功能入口仍可点击。 */
 body.player-walking .game-hud{opacity:.5}
 /* 靠近左右电梯厅时，顶部菜单栏、公告横幅与右侧日志自动柔化避让，确保电梯厅与玩家进出视野 100% 清晰无遮挡 */
-body.near-elevator .game-hud,body.near-elevator .game-layout>.log-sidebar,body.near-elevator .availability-banner{opacity:.2;pointer-events:none}
+body.near-elevator .game-hud,body.near-elevator .game-layout>.log-sidebar{opacity:.2;pointer-events:none}
 .log-sidebar ol{overscroll-behavior:contain;overflow-wrap:anywhere;padding-right:4px}
 @media(min-width:851px) and (max-width:1260px){.game-layout>.log-sidebar{top:110px}}
 @media(max-width:850px){

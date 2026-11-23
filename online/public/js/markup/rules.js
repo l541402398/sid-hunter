@@ -111,9 +111,8 @@
 
       <section class="rule-section">
         <span class="rule-number">07 / 排行榜与防泄密机制</span>
-        <h3>局内仅展示本人今日明细与截至昨日累计总榜（Top 100）</h3>
-        <p>为防止通过实时涨分反推谁是好人或坏人，<strong>当日对局进行中排行榜不展示其他玩家的今日实时积分</strong>。局内打开【积分与总榜】仅展示<strong>你自己的今日积分明细（总分 / 参与分 / 对抗时长分 / 对抗分）</strong>以及<strong>截至昨日的累计总积分排行榜（前 100 名）</strong>；每场活动结束后统一结算并并入累计总榜。</p>
-        <div class="mini-flow"><span>局内隐藏他人今日分</span><b>→</b><span>仅看本人今日明细</span><b>→</b><span>展示昨日累计Top100</span></div>
+        <h3>截至昨日累计排行榜</h3>
+        <p>打开【排行榜】可查看截至昨日的累计积分前 100 名。点击右上角【总分】可查看自己的本场得分明细。今日已结算的积分将于次日计入排行榜。</p>
       </section>
 
       <section class="rule-section pending-rule">
