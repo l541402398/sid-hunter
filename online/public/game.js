@@ -4184,7 +4184,7 @@
     }
     ctx.restore();
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
-    if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
+    if (vignette && floorId !== 5) ctx.drawImage(vignette, 0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
     if (SCENE && !currentRoom) SCENE.halls(ctx, f, glassDoorStates, frameDt);
     // 需求①：楼层上画出通往各独立房间的门（门牌 + 地面指示灯带），让"哪面墙能进去"一眼可见。
@@ -4330,8 +4330,7 @@
     }
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawFogOverlay();
-    // F1 碰撞调试层：在雾层之后、CSS 像素空间绘制，避免被世界缩放/暗角影响。
+    // F1 碰撞调试层：在 CSS 像素空间绘制，避免被世界缩放影响。
     if (debugEnabled && TMJ_DEBUG?.isVisible()) {
       const selfP = selfPlayer();
       const selfR = selfP ? renderMap.get(selfP.id) : null;
@@ -4348,38 +4347,6 @@
       });
     }
   }
-  // 5F 战争迷雾：只留人物周围一小圈可见，其余压黑。半径与服务端裁剪共用 FLOOR_FOG。
-  // 房间内（zoneId）不盖雾——那是独立空间，有自己的小镜头。
-  function drawFogOverlay() {
-    const cfg = WORLD.FLOOR_FOG && WORLD.FLOOR_FOG[floorId];
-    if (!cfg || zoneId) return;
-    const self = renderMap.get(selfId());
-    if (!self) return;
-    ctx.save();
-    ctx.globalAlpha = 1;
-    const sx = (self.x - drawCamX) * scale;
-    const sy = (self.y - drawCamY) * scale;
-    // 轻微呼吸/火光抖动，避免像一块固定黑色遮罩。
-    const wobble = 1 + Math.sin(clock * 6.3) * 0.012 + Math.sin(clock * 13.7) * 0.006;
-    const radius = Math.max(60, cfg.radius * scale * wobble);
-    // 可见圈里加一点暖色火光（贴地），让"一小圈可见"不是冷冰冰的探照灯。
-    const warm = ctx.createRadialGradient(sx, sy, 4, sx, sy, radius * 0.62);
-    warm.addColorStop(0, 'rgba(255,184,108,0.10)');
-    warm.addColorStop(0.55, 'rgba(255,160,90,0.05)');
-    warm.addColorStop(1, 'rgba(255,150,80,0)');
-    ctx.fillStyle = warm;
-    ctx.fillRect(0, 0, cssW, cssH);
-    const g = ctx.createRadialGradient(sx, sy, Math.max(8, radius * 0.35), sx, sy, radius * 1.15);
-    g.addColorStop(0, 'rgba(62,38,18,0)');
-    g.addColorStop(0.6, 'rgba(62,38,18,0.04)');
-    g.addColorStop(0.82, 'rgba(58,36,18,0.18)');
-    g.addColorStop(0.94, 'rgba(52,32,16,0.30)');
-    g.addColorStop(1, 'rgba(46,28,14,0.38)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, cssW, cssH);
-    ctx.restore();
-  }
-
   // ---------- 插值与镜头 ----------
   function step(dt) {
     clock += dt;
