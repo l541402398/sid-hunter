@@ -1108,10 +1108,6 @@
     const pendingMatch = me.games?.rpsPending;
     const resultMatch = me.games?.rpsResult && me.games.rpsResult.id !== rpsResultDismissId ? me.games.rpsResult : null;
     const coolSec = Math.max(0, Math.ceil(((me.games?.rpsUntil || 0) - rpsNow()) / 1000));
-    const self = selfPlayer();
-    const inRangeAndClear = !!(self && WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE
-      && p.floorId === me.floorId && (p.zoneId || null) === (me.zoneId || null)
-      && WORLD.lineClear(self, p, occluders));
     setText($('target-rps-points'), `本场 ${pts}/${ptCap} 分`);
     setText($('target-rps-pair'), `与TA ${played}/${pairCap} 次`);
     const pairPill = $('target-rps-pair');
@@ -1122,7 +1118,7 @@
       returnBtn.textContent = pendingMatch ? '返回正在进行的猜拳' : '查看上局猜拳结果';
     }
     let btnText = '邀请猜拳', noteText = '';
-    const disabled = finished || !!gameClosed || p.online === false || !!pendingMatch || played >= pairCap || coolSec > 0 || selfDisabled() || !inRangeAndClear || !!gamesFlight;
+    const disabled = !isInviteable(p);
     if (finished) {
       btnText = '本场已结束';
       noteText = '活动已结束，无法发起猜拳。';
@@ -1141,12 +1137,6 @@
     } else if (coolSec > 0) {
       btnText = `冷却 ${coolSec}s`;
       noteText = `猜拳冷却中，${coolSec} 秒后可继续邀请。`;
-    } else if (selfDisabled()) {
-      btnText = '状态受限';
-      noteText = '眩晕或僵直中，暂时无法发起猜拳。';
-    } else if (!inRangeAndClear) {
-      btnText = '需靠近后邀请';
-      noteText = `走近到「${p.name}」64 像素内且无遮挡即可邀请（含休战玩家）。`;
     } else {
       btnText = gamesFlight ? '正在发送…' : '邀请猜拳';
       noteText = pts >= ptCap
@@ -2285,7 +2275,7 @@
       $('games-rematch').onclick = () => {
         const res = me?.games?.rpsResult;
         const oppId = res?.opponentId;
-        if (!oppId) return;
+        if (oppId == null) return;
         const opp = everyone().find(x => x.id === oppId);
         if (!isInviteable(opp)) { showToast('当前暂无法向该玩家发起下一局'); return; }
         rpsResultDismissId = res.id;
@@ -2316,27 +2306,22 @@
     closeGames();
   }
   async function rpsApi(body) {
-    const response = await fetch('/api/play', { method: 'POST', headers: headers(), body: JSON.stringify({ ...body, ...floorFields() }), signal: AbortSignal.timeout(4000) });
+    const response = await fetch('/api/play', { method: 'POST', headers: headers(), body: JSON.stringify({ ...body, roundId }), signal: AbortSignal.timeout(4000) });
     let data = {}; try { data = await response.json(); } catch { }
     return { ...data, status: response.status };
   }
   function isInviteable(p) {
-    // 休战玩家可以发起/接受猜拳（按功能开关、同层同室、距离、视线与同人 2 次上限判断；满 10 分仍可游玩）。
-    if (!p || !me || finished || !rpsFeatureEnabled() || p.id === me.id || p.npc || p.online === false) return false;
-    const self = selfPlayer(); if (!self) return false;
-    if (rpsPairPlayed(p.id) >= rpsPairCap()) return false;
-    return WORLD.distanceToEntity(self, p) <= WORLD.INTERACT_RANGE && p.floorId === me.floorId && (p.zoneId || null) === (me.zoneId || null)
-      && WORLD.lineClear(self, p, occluders)
-      && !me.games?.rpsPending && rpsNow() >= (me.games?.rpsUntil || 0) && !selfDisabled() && !gamesFlight;
+    return !inviteDisabled() && !!p && p.id !== me.id && !p.npc && p.online !== false
+      && rpsPairPlayed(p.id) < rpsPairCap();
   }
   function inviteDisabled() {
-    return !me || finished || !rpsFeatureEnabled() || selfDisabled() || !!gamesFlight
+    return !me || finished || !!gameClosed || !rpsFeatureEnabled() || !!gamesFlight
       || me.games?.rpsPending != null || rpsNow() < (me.games?.rpsUntil || 0);
   }
   // 本地乐观选择 + 合并串行队列：每次点击立即更新 ownChoice，再按修订号递增提交最终最新选择。
   function rpsChoose(choice) {
     const pending = me?.games?.rpsPending;
-    if (!pending || pending.phase !== 'selecting' || rpsNow() >= pending.deadline || finished || selfDisabled() || !['rock', 'paper', 'scissors'].includes(choice)) return;
+    if (!pending || pending.phase !== 'selecting' || rpsNow() >= pending.deadline || finished || gameClosed || !['rock', 'paper', 'scissors'].includes(choice)) return;
     rpsLocalChoice = choice;
     rpsRevision++;
     rpsChoosePending = { revision: rpsRevision, choice };
@@ -2417,7 +2402,7 @@
     renderArena(pending, result);
   }
   function renderArena(pending, result) {
-    const oppId = pending ? (pending.role === 'from' ? pending.toId : pending.fromId) : (result?.opponentId || null);
+    const oppId = pending ? (pending.role === 'from' ? pending.toId : pending.fromId) : (result?.opponentId ?? null);
     const oppName = pending ? (pending.role === 'from' ? pending.toName : pending.fromName) : (result ? result.opponentName : '');
     const oppObj = oppId != null ? everyone().find(x => x.id === oppId) : null;
     $('games-self-name').textContent = me.name || '你';
@@ -2512,7 +2497,7 @@
       const oppInviteable = isInviteable(oppObj);
       const pairExhausted = played >= pairCap;
       const coolSec = Math.max(0, Math.ceil(((me.games?.rpsUntil || 0) - now) / 1000));
-      rematchBtn.hidden = !oppId;
+      rematchBtn.hidden = oppId == null;
       rematchBtn.disabled = !oppInviteable;
       setText(rematchBtn, pairExhausted ? `与TA已满 ${pairCap}/${pairCap} 次 · 去找其他同事吧`
         : coolSec > 0 ? `再来一局（冷却 ${coolSec}s）`
@@ -2550,7 +2535,7 @@
         timerBar.hidden = false;
         timerFill.style.width = `${Math.max(0, Math.min(100, (leftMs / totalRoundMs) * 100)).toFixed(1)}%`;
       }
-      const canChoose = !settled && !finished && !selfDisabled();
+      const canChoose = !settled && !finished && !gameClosed;
       for (const b of choices) { b.disabled = !canChoose; b.setAttribute('aria-pressed', String(rpsLocalChoice === b.dataset.choice)); }
       accept.hidden = reject.hidden = true; cancel.hidden = false;
       unconfirmed.hidden = !rpsUnconfirmed;
@@ -2559,8 +2544,8 @@
     }
   }
   async function sendRps(extra) {
-    if (gamesFlight || !me) return;
-    if (extra.kind === 'rpsInvite' ? inviteDisabled() : (selfDisabled() || finished)) return;
+    if (gamesFlight || !me || finished || gameClosed) return;
+    if (extra.kind === 'rpsInvite' && inviteDisabled()) return;
     const request = { session: sessionGeneration, token: sessionToken, games: JSON.stringify(me.games || {}) };
     // 不依赖面板可见性：关闭后的成功请求不会被丢弃（same 不含 host.hidden）。
     const same = () => request.session === sessionGeneration && request.token === sessionToken && !!me;
@@ -2631,8 +2616,8 @@
       setText(button, cooldown > 0 ? `J · 敲 · 冷却 ${cooldown}s` : 'J · 敲');
     }
     const selfState = $('self-combat-state');
-    setText(selfState, !me ? '' : now < (combat?.freezeUntil || 0) ? '你被冻结中 · 暂时无法移动/互动'
-      : now < (combat?.stunUntil || 0) ? '你被僵直中 · 暂时无法移动/互动' : '');
+    setText(selfState, !me ? '' : now < (combat?.freezeUntil || 0) ? '你被冻结中 · 暂时无法移动'
+      : now < (combat?.stunUntil || 0) ? '你被僵直中 · 暂时无法移动' : '');
     const status = $('combat-status');
     if (status) { setText(status, combatResult); setProp(status, 'hidden', !combatResult); }
   }
@@ -3798,7 +3783,7 @@
     const seen = p.visible !== false;
     ctx.save();
     WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection);
-    SID.combatVisuals.drawShield(ctx, p, clock, newShape ? 77 : 53);
+    SID.combatVisuals.drawProtectionCocoon(ctx, p, clock, newShape ? 77 : 53);
     // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
     if (p.freezeUntil && p.freezeUntil > now) {
       ctx.globalAlpha = .4 * a; rect(x - 13, effectY - 55, 26, newShape ? 86 : 62, '#bfe8ff');
@@ -4950,8 +4935,8 @@
     }
     const protection = config.protectMs;
     setText($('rules-hit-protection'), protection === 0 ? '本场未启用受击保护。'
-      : protection > 0 ? `被有效命中后获得 ${duration(protection)} 受击保护，角色周围显示统一保护罩。`
-        : '受击保护期间，角色周围显示统一保护罩。');
+      : protection > 0 ? `被有效命中后获得 ${duration(protection)} 受击保护，角色会被半透明光茧包裹。`
+        : '受击保护期间，角色会被半透明光茧包裹。');
     setText($('rules-clue-interval'), config.clueIntervalMs > 0 ? `每隔 ${duration(config.clueIntervalMs)} ` : '定时');
   }
   let rulesReturnFocus = null;

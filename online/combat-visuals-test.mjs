@@ -5,7 +5,11 @@ import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const WORLD = require('./shared/world.js');
-const { drawShield, drawHealthBar } = require('./public/js/render/combat.js');
+const { drawHealthBar } = require('./public/js/render/combat.js');
+const motion = { matches: false };
+const browser = { window: { Image: class { complete = true; naturalWidth = 1280; }, matchMedia: () => motion } };
+vm.runInNewContext(readFileSync(new URL('./public/js/render/combat.js', import.meta.url), 'utf8'), browser);
+const { drawProtectionCocoon } = browser.window.SID.combatVisuals;
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('PASS', name); }
 function context() {
@@ -15,6 +19,7 @@ function context() {
     imageSmoothingEnabled: true,
     save() { stack.push([this.globalAlpha, this.fillStyle, this.strokeStyle, this.lineWidth, this.imageSmoothingEnabled]); },
     restore() { assert.ok(stack.length, 'restore must match save'); [this.globalAlpha, this.fillStyle, this.strokeStyle, this.lineWidth, this.imageSmoothingEnabled] = stack.pop(); },
+    drawImage(image, ...coordinates) { calls.push(['image', image.src, ...coordinates, this.globalAlpha, this.imageSmoothingEnabled]); },
     fillRect(x, y, w, h) { assert.ok([x,y,w,h].every(Number.isFinite)); calls.push(['rect',x,y,w,h,this.fillStyle,this.globalAlpha]); },
     beginPath() { calls.push(['begin']); },
     moveTo(x,y) { assert.ok(Number.isFinite(x) && Number.isFinite(y)); calls.push(['move',x,y]); },
@@ -28,25 +33,32 @@ function context() {
 const stateOf = g => [g.globalAlpha,g.fillStyle,g.strokeStyle,g.lineWidth,g.imageSmoothingEnabled,g.depth];
 const colors = Object.fromEntries(Object.entries(WORLD.PALETTES).map(([key,palette]) => [key,palette[0]]));
 const player = { id: 1, x: 80, y: 110, colors, alive: true, protected: true, online: true, moving: true, walk: 20, spriteFacing: 'front' };
-test('保护罩仅在有效保护且对抗中绘制，无保护/休战/非法坐标零绘制', () => {
-  for (const p of [null,{...player,protected:false},{...player,alive:false},{...player,truce:true},{...player,x:NaN}]) {
+test('光茧仅在有效受击保护期间绘制，敲击眩晕和休战不触发', () => {
+  for (const p of [null,{...player,protected:false,stunUntil:9999},{...player,alive:false},{...player,truce:true},{...player,x:NaN}]) {
     const g = context(), before = stateOf(g);
-    assert.equal(drawShield(g,p,1),false); assert.equal(g.calls.length,0); assert.deepEqual(stateOf(g),before);
+    assert.equal(drawProtectionCocoon(g,p,1),false); assert.equal(g.calls.length,0); assert.deepEqual(stateOf(g),before);
   }
   const g = context(), before = stateOf(g);
-  assert.equal(drawShield(g,player,1),true); assert.equal(g.calls.filter(c=>c[0]==='stroke').length,3);
+  assert.equal(drawProtectionCocoon(g,player,1),true);
+  assert.deepEqual(g.calls[0].slice(0,10), ['image','/assets/fx/protection-cocoon-frames.png',480,0,80,100,40,21,80,100]);
+  assert.equal(g.calls.length, 1);
+  assert.equal(g.calls[0].at(-1), false);
   assert.deepEqual(stateOf(g),before);
 });
-test('保护罩不读取阵营，轮廓固定、呼吸仅改透明度，离线仍降低透明度', () => {
+test('光茧播放动画、离线降低透明度且绘制不读阵营，减少动态效果时显示静态首帧', () => {
   const safe = new Proxy(player,{get(p,key){assert.notEqual(key,'faction');return p[key];}});
   const a = context(), b = context(), offline = context();
-  drawShield(a,safe,0); drawShield(b,safe,1); drawShield(offline,{...player,online:false},0);
-  assert.deepEqual(a.calls.filter(c=>['move','line'].includes(c[0])),b.calls.filter(c=>['move','line'].includes(c[0])));
-  const alpha = g => g.calls.filter(c=>c[0]==='stroke')[1].at(-1);
-  assert.notEqual(alpha(a),alpha(b)); assert.ok(alpha(offline)<alpha(a));
-  assert.ok(a.calls.find(c=>c[0]==='fill').at(-1)<.03,'内衬不遮挡角色配色');
-  const old = context(); drawShield(old,player,0,53);
-  assert.ok(old.calls.find(c=>c[0]==='move')[2]>a.calls.find(c=>c[0]==='move')[2]);
+  drawProtectionCocoon(a,safe,0); drawProtectionCocoon(b,safe,.4); drawProtectionCocoon(offline,{...player,online:false},0);
+  assert.deepEqual(a.calls[0].slice(3,10), b.calls[0].slice(3,10));
+  assert.ok(b.calls[0][2] > a.calls[0][2]);
+  const alpha = g => g.calls[0].at(-2);
+  assert.ok(alpha(offline)<alpha(a));
+  const old = context(); drawProtectionCocoon(old,player,0,53);
+  assert.ok(old.calls[0][8] < a.calls[0][8]);
+  motion.matches = true;
+  const still = context(); drawProtectionCocoon(still,player,1);
+  motion.matches = false;
+  assert.equal(still.calls[0][2], 0);
 });
 test('分格生命条覆盖1–20格，0生命/休战空槽，保护颜色不依赖阵营', () => {
   for (const maxHp of [1,3,8,20]) for (const hp of [0,1,maxHp]) {
@@ -99,7 +111,7 @@ test('离线对抗玩家保留半透明人形，离线休战玩家显示黯淡�
 test('浏览器与Node使用同一零依赖绘制API', () => {
   const env = { window: {} };
   vm.runInNewContext(readFileSync(new URL('./public/js/render/combat.js',import.meta.url),'utf8'),env);
-  assert.equal(typeof env.window.SID.combatVisuals.drawShield,'function');
+  assert.equal(typeof env.window.SID.combatVisuals.drawProtectionCocoon,'function');
   assert.equal(typeof env.window.SID.combatVisuals.drawHealthBar,'function');
 });
 console.log(`对抗视觉轻量检查 ${passed} PASS；未启动HTTP或Chrome。`);

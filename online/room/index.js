@@ -1438,9 +1438,13 @@ function createRoom(options = {}) {
     return /^[A-Z0-9]{3}-[A-Z0-9]{3}-[A-Z0-9]{3}$/.test(raw) ? raw : null;
   }
   function reject(reason) { return { ok: false, error: reason }; }
-  // 指令版本校验：拒绝旧楼层 / 旧对局的迟到指令，返回明确错误（字段缺省时按旧客户端兼容放行）。
+  function roundGuard(body) {
+    return body?.roundId === room.roundId ? '' : '对局已更新，请重新同步';
+  }
+  // 地图交互指令还要校验楼层版本，避免换层前的指令影响新位置。
   function floorGuard(p, body) {
-    if (!body || body.roundId !== room.roundId) return '对局已更新，请重新同步';
+    const guard = roundGuard(body);
+    if (guard) return guard;
     if (!Number.isSafeInteger(body.expectedFloorRevision) || body.expectedFloorRevision !== p.floorRevision) return '楼层版本不一致，请重新同步';
     return '';
   }
@@ -2030,7 +2034,6 @@ function createRoom(options = {}) {
     }
   }
   // 截止结算：仅当双方都已选且仍在线才结算；否则取消（未选齐则反馈谁未选）。
-  // 进入选择阶段后锁定双方，不重新限制距离与视线。
   function settleChallenge(challenge, t) {
     const from = find(challenge.fromId), to = find(challenge.toId);
     const fromSel = challenge.selections[challenge.fromId], toSel = challenge.selections[challenge.toId];
@@ -2111,9 +2114,6 @@ function createRoom(options = {}) {
     if (from.npc || to.npc) return '测试 NPC 无法回应猜拳，请邀请真人玩家互动';
     // 休战可参与；不再要求金币押注
     if (!from.online || !to.online) return '参与者不在线';
-    if (!sameZone(from, to)) return from.floorId !== to.floorId ? '双方不在同一楼层' : '双方不在同一房间';
-    if (WORLD.distanceToEntity(from, to) > WORLD.INTERACT_RANGE) return '距离太远，请靠近后再试';
-    if (!WORLD.lineClear(from, to, zoneBlockersOf(from))) return '家具挡住了猜拳双方';
     const pairCap = Number(rpsRuleCfg.maxPlaysPerOpponent) || 2;
     if (rpsPairCount(from, to) >= pairCap) return `本场与该玩家已猜拳满 ${pairCap} 次，去和其他同事互动吧`;
     return '';
@@ -2143,18 +2143,18 @@ function createRoom(options = {}) {
     const fail = reason => mechanicsResponse(actor, false, reason);
     if (!actor) return fail('身份无效，请重新加入');
     if (room.finished) return fail('游戏已结束，小游戏已冻结');
-    // 休战仍可参与小游戏与转盘
-    // 旧：if (!actor.alive) return fail('你已淘汰…');
-    if (movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能参与小游戏');
-    if (!actor.online && (!body || !['rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(body.kind))) return fail('你不在线，不能参与小游戏');
+    const kind = body?.kind;
+    const isRps = ['rpsInvite', 'rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(kind);
+    if (!isRps && movementLocked(actor, t)) return fail('你正在眩晕或僵直，暂时不能参与小游戏');
+    if (!actor.online && (!isRps || kind === 'rpsInvite')) return fail('你不在线，不能参与小游戏');
     if (!body || typeof body !== 'object') return fail('小游戏指令无效');
-    if (['rpsInvite', 'rpsReply', 'rpsAccept', 'rpsReject', 'rpsCancel', 'rpsChoose'].includes(body.kind) && !room.features.rps) {
+    if (isRps && !room.features.rps) {
       return fail('猜拳小游戏暂未开放');
     }
     const commandId = typeof body.commandId === 'string' ? body.commandId : '';
     if (!commandId.trim()) return fail('缺少 commandId');
     if (room.processed.has(commandId)) return fail('该指令已结算过');
-    const guard = floorGuard(actor, body);
+    const guard = isRps ? roundGuard(body) : floorGuard(actor, body);
     if (guard) return fail(guard);
     const validChoice = choice => ['rock', 'paper', 'scissors'].includes(choice);
     let extra = {};
@@ -2232,7 +2232,6 @@ function createRoom(options = {}) {
       if (body.kind === 'rpsReject') {
         cancelChallenge(challenge, t, '对方拒绝');
       } else {
-        // 接受仍需按现有距离/视线/余额校验；校验失败则取消（不扣）。
         const from = find(challenge.fromId), to = find(challenge.toId);
         const reason = rpsValidation(from, to);
         if (reason) {

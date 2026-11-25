@@ -1,4 +1,4 @@
-// Real browser acceptance for public health, shields, private notifications and truce.
+// Real browser acceptance for public health, protection auras, private notifications and truce.
 // Starts an isolated SID_TEST server with in-memory SQLite; no live preview is reused.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -108,27 +108,37 @@ function openSpot() {
 }
 async function installVisualProbe() {
   await evaluate(`(()=>{
-    const qa=window.__combatQA={frames:[],shields:[],bars:[],toast:[],canvasText:[],search:[]};
-    const shield=SID.combatVisuals.drawShield,bar=SID.combatVisuals.drawHealthBar,body=WORLD.drawCharacterBody;
-    qa.originalShield=shield;qa.originalBody=body;
-    SID.combatVisuals.drawShield=function(g,p,clock,height){const result=shield.apply(this,arguments);qa.shields.push({at:performance.now(),id:p.id,hp:p.hp,maxHp:p.maxHp,protected:!!p.protected,alive:p.alive,truce:!!p.truce,drawn:result});if(qa.shields.length>2500)qa.shields.shift();return result;};
+    const qa=window.__combatQA={frames:[],auras:[],bars:[],toast:[],canvasText:[],search:[]};
+    const aura=SID.combatVisuals.drawProtectionCocoon,bar=SID.combatVisuals.drawHealthBar,body=WORLD.drawCharacterBody;
+    SID.combatVisuals.drawProtectionCocoon=function(g,p,clock,height){const result=aura.apply(this,arguments);qa.auras.push({at:performance.now(),id:p.id,hp:p.hp,maxHp:p.maxHp,protected:!!p.protected,alive:p.alive,truce:!!p.truce,drawn:result});if(qa.auras.length>2500)qa.auras.shift();return result;};
     SID.combatVisuals.drawHealthBar=function(g,s){const result=bar.apply(this,arguments);qa.bars.push({...s,at:performance.now()});if(qa.bars.length>2500)qa.bars.shift();return result;};
     WORLD.drawCharacterBody=function(g,p,clock,age,direction){const result=body.apply(this,arguments);if(p.id===${self.id}){const t=g.getTransform();qa.frames.push({at:performance.now(),p:JSON.parse(JSON.stringify(p)),clock,age,direction,transform:{a:t.a,d:t.d,e:t.e,f:t.f}});if(qa.frames.length>1000)qa.frames.shift();}return result;};
     const fillText=CanvasRenderingContext2D.prototype.fillText;
     CanvasRenderingContext2D.prototype.fillText=function(text,...args){if(this.canvas.id==='office'){qa.canvasText.push(String(text));if(qa.canvasText.length>1000)qa.canvasText.shift();}return fillText.call(this,text,...args);};
     const toast=document.getElementById('copy-toast');new MutationObserver(()=>{const text=toast.textContent;if(text)qa.toast.push({text,at:performance.now()});}).observe(toast,{childList:true,characterData:true,subtree:true});
     const fetch=window.fetch;window.fetch=async function(input,...args){const response=await fetch.call(this,input,...args);const path=new URL(typeof input==='string'?input:input.url,location.href).pathname;if(path==='/api/search/start'||path==='/api/search/take'){const data=await response.clone().json();qa.search.push({path,status:response.status,sessionId:data.sessionId,mode:data.mode,quiz:data.quiz,ok:data.ok,correct:data.correct});}return response;};
-    qa.compareShield=()=>{
+    qa.compareAura=()=>{
       const frame=qa.frames.at(-1);if(!frame)throw Error('No real character frame');
       const player={...frame.p,x:64,y:102,moving:false,walk:0,alive:true,truce:false};
-      const render=(protectedValue,withShield)=>{const c=document.createElement('canvas');c.width=128;c.height=128;const g=c.getContext('2d');g.imageSmoothingEnabled=false;const p={...player,protected:protectedValue};if(withShield)shield(g,p,0,77);body(g,p,0,null,p.spriteFacing);return c;};
-      const plain=render(false,false),bodyProtected=render(true,false),shielded=render(true,true),off=render(false,true);
+      const render=(protectedValue,withAura,withBody=true,time=0)=>{const c=document.createElement('canvas');c.width=128;c.height=128;const g=c.getContext('2d');g.imageSmoothingEnabled=false;const p={...player,protected:protectedValue};if(withBody)body(g,p,0,null,p.spriteFacing);if(withAura)aura(g,p,time,77);return c;};
+      const plain=render(false,false),bodyProtected=render(true,false),withAura=render(true,true),off=render(false,true);
       const pixels=c=>c.getContext('2d').getImageData(0,0,128,128).data;
-      const a=pixels(plain),b=pixels(bodyProtected),c=pixels(shielded),d=pixels(off);
-      let bodyDiff=0,shieldDiff=0,offDiff=0,bodyPixels=0,coverPixels=0;
-      for(let i=0;i<a.length;i+=4){if(a[i+3])bodyPixels++;if(a[i]!==b[i]||a[i+1]!==b[i+1]||a[i+2]!==b[i+2]||a[i+3]!==b[i+3])bodyDiff++;if(a[i]!==c[i]||a[i+1]!==c[i+1]||a[i+2]!==c[i+2]||a[i+3]!==c[i+3])shieldDiff++;if(a[i]!==d[i]||a[i+1]!==d[i+1]||a[i+2]!==d[i+2]||a[i+3]!==d[i+3])offDiff++;if(c[i+3])coverPixels++;}
-      const truceCanvas=document.createElement('canvas');truceCanvas.width=128;truceCanvas.height=128;const truceDrawn=shield(truceCanvas.getContext('2d'),{...player,hp:0,alive:false,truce:true,protected:true},0,77);
-      return {bodyDiff,shieldDiff,offDiff,bodyPixels,coverPixels,truceDrawn,plain:plain.toDataURL(),shielded:shielded.toDataURL()};
+      const a=pixels(plain),b=pixels(bodyProtected),c=pixels(withAura),d=pixels(off),effect=pixels(render(true,true,false)),next=pixels(render(true,true,false,.6));
+      const different=(left,right,i)=>left[i]!==right[i]||left[i+1]!==right[i+1]||left[i+2]!==right[i+2]||left[i+3]!==right[i+3];
+      let bodyDiff=0,auraDiff=0,offDiff=0,bodyPixels=0,edgePixels=0,motionPixels=0;
+      for(let i=0;i<a.length;i+=4){
+        if(a[i+3])bodyPixels++;
+        if(different(a,b,i))bodyDiff++;
+        if(different(a,c,i))auraDiff++;
+        if(different(a,d,i))offDiff++;
+        const x=(i/4)%128,y=Math.floor(i/(4*128));
+        if((x<44||x>84)&&y>=30&&y<90&&effect[i+3]>60)edgePixels++;
+        if(different(effect,next,i))motionPixels++;
+      }
+      const faceOverlayMax=Math.max(...Array.from({length:10},(_,y)=>Array.from({length:12},(_,x)=>effect[((32+y)*128+58+x)*4+3])).flat());
+      const transparentOutside=[0,127,128*127,128*128-1].every(pixel=>effect[pixel*4+3]===0);
+      const truceDrawn=aura(document.createElement('canvas').getContext('2d'),{...player,hp:0,alive:false,truce:true,protected:true},0,77);
+      return {bodyDiff,auraDiff,offDiff,bodyPixels,edgePixels,motionPixels,faceOverlayMax,transparentOutside,truceDrawn,plain:plain.toDataURL(),withAura:withAura.toDataURL()};
     };
   })()`);
 }
@@ -213,7 +223,7 @@ try {
     await waitPage(`__combatQA.bars.length>0`);
     assert(!(await evaluate(`__combatQA.canvasText.some(text=>/S-ID|身份码|[*]{3}-[*]{3}-[*]{3}/i.test(text))`)), 'Canvas nameplate retained S-ID');
   });
-  await check('Misidentification reduces own health, shows a specific notice and creates no shield', async () => {
+  await check('Misidentification reduces own health, shows a specific notice and creates no aura', async () => {
     await skill(self, otherGood);
     await waitPage(`__combatQA.toast.some(e=>/生命/.test(e.text)&&/剩余.*2/.test(e.text))`);
     const snapshot = await state();
@@ -222,11 +232,11 @@ try {
     assert(notice && /生命/.test(notice.text) && !/S-ID|新的公开变化/.test(notice.text));
     await click('#my-info'); await health('#mine-health .combat-health', 2);
     await capture('02-self-hit.png'); await click('#mine-close');
-    await waitPage(`__combatQA.shields.some(s=>s.id===${self.id}&&s.hp===2&&!s.protected&&!s.drawn)`);
+    await waitPage(`__combatQA.auras.some(s=>s.id===${self.id}&&s.hp===2&&!s.protected&&!s.drawn)`);
   });
-  await check('A real opposing hit paints a shield without changing body geometry or identity', async () => {
+  await check('A real opposing hit paints a translucent animated cocoon', async () => {
     await skill(bads[0], self);
-    await waitPage(`__combatQA.shields.some(s=>s.id===${self.id}&&s.hp===1&&s.protected&&s.drawn)`);
+    await waitPage(`__combatQA.auras.some(s=>s.id===${self.id}&&s.hp===1&&s.protected&&s.drawn)`);
     await waitPage(`__combatQA.toast.some(e=>/生命/.test(e.text)&&/保护/.test(e.text))`);
     const snapshot = await state();
     assert.equal(snapshot.me.hp, 1); assert.equal(snapshot.me.protected, true);
@@ -238,16 +248,18 @@ try {
     await capture('03-protected-game.png');
     await click('#my-info'); await health('#mine-health .combat-health', 1, true);
     await capture('03-protected-health-panel.png'); await click('#mine-close');
-    const pixels = await evaluate('__combatQA.compareShield()');
+    const pixels = await evaluate('__combatQA.compareAura()');
     assert(pixels.bodyPixels > 100, 'Body sprite was not drawn');
     assert.equal(pixels.bodyDiff, 0, 'Protection changed body geometry or colors');
-    assert.equal(pixels.offDiff, 0, 'Disabled protection still painted shield pixels');
-    assert(pixels.shieldDiff > 100 && pixels.coverPixels > pixels.bodyPixels, 'Enabled shield has no visible pixels');
-    assert.equal(pixels.truceDrawn, false, 'Truce still permits a shield');
-    for (const [name, value] of [['04-protection-off.png', pixels.plain], ['05-protection-on.png', pixels.shielded]]) {
+    assert.equal(pixels.offDiff, 0, 'Disabled protection still painted aura pixels');
+    assert(pixels.auraDiff > 100 && pixels.edgePixels > 150, 'The cocoon should be visible around the body');
+    assert(pixels.motionPixels > 100, 'The light ripples and fragments should animate');
+    assert(pixels.transparentOutside && pixels.faceOverlayMax < 50, 'The surroundings are transparent and the face remains readable');
+    assert.equal(pixels.truceDrawn, false, 'Truce still permits an aura');
+    for (const [name, value] of [['04-protection-off.png', pixels.plain], ['05-protection-on.png', pixels.withAura]]) {
       writeFileSync(join(out, name), Buffer.from(value.split(',')[1], 'base64')); screenshots.push(name);
     }
-    delete pixels.plain; delete pixels.shielded; observations.pixels = pixels;
+    delete pixels.plain; delete pixels.withAura; observations.pixels = pixels;
   });
   await check('Protection expires on server time and notifications are not replayed by repeated snapshots', async () => {
     const notices = await evaluate('__combatQA.toast.length');
@@ -258,18 +270,18 @@ try {
     await api('/api/test/advance', { ms: snapshot.me.protectUntil - snapshot.serverTime + 100 });
     await waitFor('protection expiry snapshot', async () => !(await state()).me.protected);
     const expiry = await evaluate('performance.now()');
-    await waitPage(`__combatQA.shields.some(s=>s.id===${self.id}&&s.at>${expiry}&&!s.protected&&!s.drawn)`);
+    await waitPage(`__combatQA.auras.some(s=>s.id===${self.id}&&s.at>${expiry}&&!s.protected&&!s.drawn)`);
     await click('#my-info'); await health('#mine-health .combat-health', 1);
     await capture('06-protection-expired.png'); await click('#mine-close');
   });
-  await check('Life zero shows a truce notice and empty health, with no protection shield', async () => {
+  await check('Life zero shows a truce notice and empty health, with no protection aura', async () => {
     await skill(bads[1], self);
     await waitPage(`__combatQA.toast.some(e=>/休战/.test(e.text)&&/探索|答题/.test(e.text))`);
     const snapshot = await state();
     assert.equal(snapshot.me.hp, 0); assert.equal(snapshot.me.alive, false); assert.equal(snapshot.me.protected, false);
     assert(snapshot.me.pending.some(event => event.type === 'truce' && /休战/.test(event.text) && /探索/.test(event.text)));
     const since = await evaluate('performance.now()');
-    await waitPage(`__combatQA.shields.some(s=>s.id===${self.id}&&s.at>${since}&&s.alive===false&&!s.drawn)`);
+    await waitPage(`__combatQA.auras.some(s=>s.id===${self.id}&&s.at>${since}&&s.alive===false&&!s.drawn)`);
     await click('#my-info'); await health('#mine-health .combat-health', 0, false, true);
     const copy = await evaluate(`document.getElementById('mine').innerText`);
     assert(/休战/.test(copy) && /探索/.test(copy)); assert(!/S-ID|身份码/.test(copy));
@@ -295,11 +307,11 @@ try {
     await capture('08-truce-movement-j.png');
     assert((await evaluate('__combatQA.frames')).some(f => f.p.moving), 'Actual rendered player never moved');
   });
-  await check('Rules describe random factions, public health, neutral shields and continued truce play', async () => {
+  await check('Rules describe random factions, public health, neutral auras and continued truce play', async () => {
     const config = (await state()).rules;
     await click('#rules-toggle');
     const rules = await evaluate(`document.getElementById('rules-view').innerText`);
-    for (const pattern of [/独立随机分配/, /血条.*公开|公开.*血条/, /阵营与技能仅本人/, /保护罩/, /休战/])
+    for (const pattern of [/独立随机分配/, /血条.*公开|公开.*血条/, /阵营与技能仅本人/, /半透明光茧/, /休战/])
       assert(pattern.test(rules), 'Missing rules contract ' + pattern);
     assert.doesNotMatch(rules, /阅读规则时游戏仍在继续|坏人概率|首位玩家同样随机|以场务配置为准|额外击杀奖励|已取消金币|名单由场务独立维护|休战玩家以轻度半透明|专项测试场/);
     assert(!/对抗生命仅本人|公开身份码|三段身份码|S-ID已公开/.test(rules), 'Rules retained removed identity-code combat');
@@ -438,7 +450,7 @@ try {
   console.error(error.stack);
   process.exitCode = 1;
 } finally {
-  try { if (socket?.readyState === WebSocket.OPEN) observations.visual = await evaluate(`window.__combatQA?{frames:__combatQA.frames.slice(-12),shields:__combatQA.shields.slice(-12),bars:__combatQA.bars.slice(-12),toast:__combatQA.toast}:null`); } catch {}
+  try { if (socket?.readyState === WebSocket.OPEN) observations.visual = await evaluate(`window.__combatQA?{frames:__combatQA.frames.slice(-12),auras:__combatQA.auras.slice(-12),bars:__combatQA.bars.slice(-12),toast:__combatQA.toast}:null`); } catch {}
   writeFileSync(join(out, 'verification.json'), JSON.stringify({ url: base, results, errors, failedResources, screenshots, observations, serverLog }, null, 2));
   for (const task of pending.values()) task.no(Error('Browser closed'));
   socket?.close(); browser?.kill(); server?.kill();

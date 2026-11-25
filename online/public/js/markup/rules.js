@@ -90,8 +90,8 @@
         </div>
         <div class="rule-callout-grid">
           <div class="rule-callout-item">
-            <strong>🛡️ 受击保护罩</strong>
-            <p><span id="rules-hit-protection">受击保护期间，角色周围显示统一保护罩。</span>保护期内不会再被技能命中；保护罩不暴露阵营，误指认自己扣血或被按 <kbd>J</kbd> 敲击不会触发保护。</p>
+            <strong>受击保护</strong>
+            <p><span id="rules-hit-protection">受击保护期间，角色会被半透明光茧包裹。</span>两方阵营使用同样的光茧。保护期内不会再被技能命中，误指认自己扣血或被按 <kbd>J</kbd> 敲击不会触发保护。</p>
           </div>
           <div class="rule-callout-item">
             <strong>🎯 同目标每场限 1 次</strong>
@@ -99,7 +99,7 @@
           </div>
           <div class="rule-callout-item">
             <strong>↺ 无法执行不扣次</strong>
-            <p>若点到自己、对方已休战、正处于保护罩中，或本场已对其用过技能，操作会被拦截——<strong>不扣生命、不耗次数，也不进入冷却</strong>。</p>
+            <p>若点到自己、对方已休战、正处于受击保护期，或本场已对其用过技能，操作会被拦截——<strong>不扣生命、不耗次数，也不进入冷却</strong>。</p>
           </div>
         </div>
       </section>
@@ -220,7 +220,7 @@
               <h5>✊ 猜拳切磋</h5>
               <span class="channel-cap">赢 +2 · 上限 10 分</span>
             </div>
-            <p>靠近任意同事（休战也可）点开档案即可发起猜拳（10 秒内出拳，支持按 <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>）：赢一局 <strong>+2 分</strong>，平局或落败不扣分。本场与同一人最多计 <strong>2 局</strong>（拒绝、取消或超时不算），拿满 10 分后仍可继续切磋（不再加分）。</p>
+            <p>从玩家名单打开在线同事的档案即可邀请猜拳，跨楼层、跨房间都可以。休战、眩晕或僵直时也能参与。对方接受后有 10 秒出拳，支持按 <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>。赢一局 <strong>+2 分</strong>，平局或落败不扣分。本场与同一人最多计 <strong>2 局</strong>（拒绝、取消或超时不算），拿满 10 分后仍可继续切磋（不再加分）。</p>
           </article>
           <article class="channel-card">
             <div class="channel-head">

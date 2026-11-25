@@ -6,9 +6,7 @@
 //     → games.rpsResult 权威揭示(self/opponent choice + win/lose/draw/delta) → 缺选/离线/取消全取消无扣 → 5s 冷却。
 //   - 旧 mechanics-browser-test.mjs 的「原 guess 流程」基于旧协议(choice 写进 invite、即时结算)，与升级后不兼容；
 //     本套件是其替代验收。
-//   - 最终入口决定：联机 games-toggle「互动小游戏」入口与全局玩家列表邀请【已移除】；唯一入口为「靠近角色按 K
-//     弹交互菜单 / 点击 target 角色」出现的「邀请猜拳」项。故本套件断言 #games-toggle 不存在、toolbar 无
-//     『互动小游戏』文案，且不再按保留旧入口测试。其他 NPC 转盘玩法不在本套件范围。
+//   - 从全局玩家名单打开同事档案，可跨楼层邀请猜拳。工具栏仍无独立小游戏按钮。
 //
 // 运行模式：
 //   - PRODUCT_READY=false（默认，产品未完成）：PLAN 模式。仅启动 harness，建立两个隔离 context 并真实加入，
@@ -218,7 +216,7 @@ async function joinReal(ctx, nickname) {
 
 // ============================ PLAN 模式：校验 harness + 输出计划/需求 ============================
 const PLAN = [
-  { id: 'RPS-01', title: '入口：仅近角色 E 交互菜单 / 点击 target 发起；games-toggle 已移除', checks: ['在 64px 内按 K 弹交互菜单或点击目标角色，出现「邀请猜拳」项（唯一入口）', '断言 #games-toggle 不存在且 toolbar 不含『互动小游戏』文案（原入口已移除，不再测试保留旧入口）'], requires: ['rps.inviteEntry'] },
+  { id: 'RPS-01', title: '入口：从玩家名单发起跨楼层邀请', checks: ['打开不同楼层的在线玩家档案，「邀请猜拳」可用', '工具栏无独立小游戏按钮'], requires: ['rps.inviteEntry'] },
   { id: 'RPS-02', title: '邀请：发起后出现邀请确认弹窗，对手端出现同意/拒绝', checks: ['发起方进入等待（invited 30s）', '对手端自动弹出邀请确认弹窗(rpsInvite SSE)', '弹窗含同意/拒绝', '服务端 pending.role 正确(from/to)'], requires: ['rps.invitePopup', 'rps.inviteAccept', 'rps.inviteReject', 'api.play(rpsInvite 无 choice)', 'projection.pendingFields'] },
   { id: 'RPS-03', title: '同意：双方进入 selecting，deadline 相同（实等 10s 验证同步）', checks: ['accept 后双方 startedAt/deadline 一致', '真实等待一次 ~10s，deadline 末段双方仍一致（不伪通过 advance）', 'deadline 文案双方一致'], requires: ['projection.pendingFields(startedAt/deadline)', 'rps.deadlineLabel', 'SELECTING_MS=10000'] },
   { id: 'RPS-04', title: '选择 + 改选：双方可改；自己 SVG data-choice 立即变化；对手 deadline 前不显示', checks: ['点击 rock/paper/scissors 立即更新 ownChoice', '可反复改选且 revision 递增', '对手侧 SVG 在 deadline 前不显示对方 choice', 'rpsChoose{challengeId,choice,revision} 双方可用'], requires: ['rps.choiceRock', 'rps.choicePaper', 'rps.choiceScissors', 'rps.selfHand', 'rps.opponentHand', 'api.play(rpsChoose)'] },
@@ -338,19 +336,18 @@ async function runAcceptance() {
     const streamC = await openApiStream(tokenC);
     openStreams.push(streamC);
 
-    // 把 A/B 放到 2F 空旷无遮挡相邻处（距 28px）
-    await postTest('/api/test/place', { playerId: idA, floorId: 2, x: 500, y: 350, zoneId: null });
+    // A 和 B 分处不同楼层，从全局名单打开远端档案。
+    await postTest('/api/test/place', { playerId: idA, floorId: 3, x: 900, y: 350, zoneId: null });
     await postTest('/api/test/place', { playerId: idB, floorId: 2, x: 528, y: 350, zoneId: null });
-    await waitFor('A/B 同层就近可见', async () => A.ev(`(() => {
-      const b = document.querySelector('#nearby-items button[data-entity="player:${idB}"]:not([hidden])');
-      return !!b;
-    })()`).catch(() => false));
+    await postTest('/api/test/place', { playerId: idC, floorId: 2, x: 500, y: 350, zoneId: null });
+    await waitFor('A 进入 3F', () => A.ev(`document.querySelector('#floor-indicator')?.textContent.trim() === '3F'`).catch(() => false));
 
-    // 2) 就近 HUD 与 target 猜拳卡片 + rps-target.png
-    await check('RPS-02 目标档案猜拳卡 + 就近提示 + 截图', async () => {
-      const nearbyText = await A.ev(`document.querySelector('#nearby-items button[data-entity="player:${idB}"]')?.textContent || ''`);
-      assert.match(nearbyText, /猜拳/, '就近按钮应含猜拳提示');
-      await A.click(`#nearby-items button[data-entity="player:${idB}"]`);
+    // 2) 全局名单与跨楼层档案猜拳卡片 + rps-target.png
+    await check('RPS-02 从名单打开跨楼层玩家档案 + 截图', async () => {
+      await A.click('#roster-toggle');
+      const row = `#roster-items button[data-player="${idB}"]`;
+      await waitFor('全局名单出现 B', () => A.ev(`!!document.querySelector(${JSON.stringify(row)})`).catch(() => false));
+      await A.click(row);
       await waitFor('target-rps 渲染完成', () => A.ev(`(() => {
         const card = document.querySelector('#target-rps');
         const btn = document.querySelector('#target-invite-rps');
@@ -387,24 +384,33 @@ async function runAcceptance() {
       const pendingB = (await B.state(tokenB)).me.games.rpsPending;
       assert.equal(pendingA.role, 'from');
       assert.equal(pendingB.role, 'to');
+      await postTest('/api/test/place', { playerId: idA, floorId: 4, x: 500, y: 350, zoneId: null });
+      await waitFor('发起方换到 4F', () => A.ev(`document.querySelector('#floor-indicator')?.textContent.trim() === '4F'`).catch(() => false));
       return { cid: pendingA.id };
     });
 
     // 4) 接受进入 selecting → 双方选拳 + 改选 + 严格隐私校验 + rps-selection.png
-    await check('RPS-04 selecting 阶段改选与绝对隐私不泄露 + 截图', async () => {
+    await check('RPS-04 改选、受控时出拳与选择保密 + 截图', async () => {
       await B.click(CFG.rps.inviteAccept);
       await waitFor('双方进入 selecting 且选择按钮可用', async () => {
-        const okA = await A.ev(`!document.querySelector('#games-choice-rock')?.disabled`).catch(() => false);
-        const okB = await B.ev(`!document.querySelector('#games-choice-scissors')?.disabled`).catch(() => false);
+        const okA = await A.ev(`document.querySelector('#games-choice-rock:enabled') !== null`).catch(() => false);
+        const okB = await B.ev(`document.querySelector('#games-choice-scissors:enabled') !== null`).catch(() => false);
         return okA && okB;
       });
       await A.click(CFG.rps.choicePaper);
-      await pause(60);
+      await waitFor('服务端确认 A 首次出布', async () => (await A.state(tokenA)).me.games.rpsPending?.ownChoice === 'paper');
       await A.click(CFG.rps.choiceRock); // 改选石头
-      // B 使用快捷键 2（Digit2 -> 剪刀）出拳
-      await B.ev(`window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', bubbles: true }))`).catch(() => false);
-      await B.send('Input.dispatchKeyEvent', { type: 'keyDown', key: '2', code: 'Digit2', windowsVirtualKeyCode: 50 });
-      await B.send('Input.dispatchKeyEvent', { type: 'keyUp', key: '2', code: 'Digit2', windowsVirtualKeyCode: 50 });
+      const stC = await A.state(tokenC);
+      const hit = await A.api('/api/attack', {
+        roundId: stC.roundId, expectedFloorRevision: stC.me.floorRevision, commandId: commandId()
+      }, tokenC);
+      assert.equal(hit.data.hitId, idB, '让 C 的敲击命中 B');
+      await waitFor('B 在僵直中可用快捷键出拳', () => B.ev(`(() => {
+        if (!document.querySelector('#self-combat-state')?.textContent.includes('冻结中')) return false;
+        if (!document.querySelector('#games-choice-scissors:enabled')) throw new Error('冻结时出拳按钮被禁用');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: '2', code: 'Digit2', bubbles: true }));
+        return true;
+      })()`));
 
       await waitFor('服务端确认 A=rock, B=scissors', async () => {
         const pA = (await A.state(tokenA)).me.games.rpsPending;
@@ -461,11 +467,14 @@ async function runAcceptance() {
     // 6) 再来一局平局（双方扣 0 分）后达同人 2/2 上限 → 禁用第 3 次邀请
     await check('RPS-06 再来一局平局 + 同人 2 次上限拦截', async () => {
       await postTest('/api/test/advance', { ms: 5500 });
-      await waitFor('再来一局按钮就绪', () => A.ev(`(() => { const b = document.querySelector('#games-rematch'); return !!b && !b.hidden && !b.disabled; })()`).catch(() => false));
-      await A.click('#games-rematch');
-      await waitFor('B 收到第 2 局邀请', () => B.ev(`!document.querySelector('#games-accept')?.hidden`).catch(() => false));
-      await B.click(CFG.rps.inviteAccept);
-      await waitFor('第 2 局进入 selecting', () => A.ev(`!document.querySelector('#games-choice-paper')?.disabled`).catch(() => false));
+      await waitFor('B 的跨楼层再来一局按钮就绪', () => B.ev(`document.querySelector('#games-rematch:enabled:not([hidden])') !== null`).catch(() => false));
+      await B.click('#games-rematch');
+      await waitFor('A 收到第 2 局邀请', () => A.ev(`document.querySelector('#games-accept:not([hidden])') !== null`).catch(() => false));
+      await A.click(CFG.rps.inviteAccept);
+      await waitFor('第 2 局进入 selecting', async () => {
+        const ready = `document.querySelector('#games-choice-paper:enabled') !== null`;
+        return await A.ev(ready) && await B.ev(ready);
+      });
       await A.click(CFG.rps.choicePaper);
       await B.click(CFG.rps.choicePaper);
       await waitFor('第 2 局选拳落库', async () => {

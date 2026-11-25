@@ -1,44 +1,31 @@
 'use strict';
 // 对抗状态的纯绘制层：只读公开生命/保护状态，不读取阵营或改变角色配色。
 (function(root, factory) {
-  const api = factory();
+  const api = factory(root);
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else { root.SID = root.SID || {}; root.SID.combatVisuals = api; }
-})(typeof window !== 'undefined' ? window : globalThis, function() {
-  // 以 V4 脚底为原点的阶梯轮廓。路径固定，仅透明度缓慢呼吸；无逐帧滤镜/渐变/几何缓存。
-  const SHIELD = Object.freeze([
-    -14,-84, 14,-84, 14,-82, 23,-82, 23,-77, 29,-77, 29,-66,
-    32,-66, 32,-12, 29,-12, 29,-3, 22,-3, 22,3, 12,3, 12,5,
-    -12,5, -12,3, -22,3, -22,-3, -29,-3, -29,-12, -32,-12,
-    -32,-66, -29,-66, -29,-77, -23,-77, -23,-82, -14,-82
-  ]);
-  function shieldPath(g, x, y, scale) {
-    g.beginPath();
-    g.moveTo(x + SHIELD[0] * scale, y + SHIELD[1] * scale);
-    for (let i = 2; i < SHIELD.length; i += 2)
-      g.lineTo(x + SHIELD[i] * scale, y + SHIELD[i + 1] * scale);
-    g.closePath();
-  }
-  // clock 为秒；bodyHeight=77 对应 V4，旧逐块人物传 53，脚底锚点保持不变。
-  function drawShield(g, p, clock, bodyHeight = 77) {
-    if (!p || !p.protected || p.alive === false || p.truce || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return false;
-    const x = Math.round(p.x) + .5, y = Math.round(p.y) + .5;
-    const scale = Math.max(35, Math.min(120, Number(bodyHeight) || 77)) / 77;
-    const breath = .72 + .1 * Math.sin((Number(clock) || 0) * 2.1);
-    const visibility = p.online === false ? .65 : 1;
+})(typeof window !== 'undefined' ? window : globalThis, function(root) {
+  const cocoon = typeof root.Image === 'function' ? new root.Image() : null;
+  if (cocoon) cocoon.src = '/assets/fx/protection-cocoon-frames.png';
+  const reducedMotion = root.matchMedia?.('(prefers-reduced-motion: reduce)');
+
+  // 图集中包含流光和上浮碎片。脚底锚点靠近茧底，使末端露在名牌上方。
+  const frame = { width: 80, height: 100, anchorX: 40, anchorY: 89, count: 16, loopSeconds: 3.2 };
+  function drawProtectionCocoon(g, p, clock, bodyHeight = 77) {
+    if (!p?.protected || p.alive === false || p.truce || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return false;
+    if (!cocoon?.complete || !cocoon.naturalWidth) return false;
+
+    const x = Math.round(p.x), y = Math.round(p.y);
+    const scale = Math.max(.7, Math.min(1.3, (Number(bodyHeight) || 77) / 77));
+    const time = (Number(clock) || 0) + ((Number(p.id) || 0) % 7) * .23;
+    const cycle = time / frame.loopSeconds;
+    const index = reducedMotion?.matches ? 0 : Math.floor((cycle - Math.floor(cycle)) * frame.count);
     g.save();
-    const alpha = g.globalAlpha * visibility;
-    shieldPath(g, x, y, scale);
-    // 极淡内衬保留发色与衣服的辨识度，外沿用暗金托住暖金亮线。
-    g.globalAlpha = alpha * .025; g.fillStyle = '#a9e6df'; g.fill();
-    g.globalAlpha = alpha * .28; g.strokeStyle = '#473923'; g.lineWidth = 4; g.stroke();
-    g.globalAlpha = alpha * breath; g.strokeStyle = '#d8b778'; g.lineWidth = 2; g.stroke();
-    g.globalAlpha = alpha * (.28 + .08 * breath); g.strokeStyle = '#a1e0dc'; g.lineWidth = 1; g.stroke();
-    // 上沿微光与脚边短亮线，不在人物面部或衣服中间绘制高亮。
-    g.globalAlpha = alpha * breath; g.fillStyle = '#f1d598';
-    g.fillRect(Math.round(x - 10 * scale), Math.round(y - 85 * scale), Math.max(2, Math.round(7 * scale)), 1);
-    g.fillRect(Math.round(x + 21 * scale), Math.round(y - 77 * scale), 1, Math.max(2, Math.round(5 * scale)));
-    g.fillRect(Math.round(x - 11 * scale), Math.round(y + 4 * scale), Math.max(2, Math.round(5 * scale)), 1);
+    g.imageSmoothingEnabled = false;
+    g.globalAlpha *= p.online === false ? .57 : .92;
+    g.drawImage(cocoon, index * frame.width, 0, frame.width, frame.height,
+      x - Math.round(frame.anchorX * scale), y - Math.round(frame.anchorY * scale),
+      Math.round(frame.width * scale), Math.round(frame.height * scale));
     g.restore();
     return true;
   }
@@ -67,5 +54,5 @@
     g.restore();
     return true;
   }
-  return { drawShield, drawHealthBar };
+  return { drawProtectionCocoon, drawHealthBar };
 });

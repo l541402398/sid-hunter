@@ -240,43 +240,33 @@ await test('猜拳任一参与者取消、不扣与共享nonce跨API防重', () 
   const other = nonce(); assert.equal(attack(r, 0, { commandId: other }).ok, true);
   assert.equal(play(r, 0, 'wheel', { commandId: other, entityId: npc.id }).ok, false);
 });
-await test('发起距离、LOS、余额、在线、存活校验与精确距离64', () => {
-  for (const mode of ['distance', 'offlineFrom', 'offlineTo', 'wall', 'finished']) {
-    const r = fixture(), a = r.find(0), b = r.find(1);
-    if (mode === 'distance') b.x = a.x + 64.01;
-    if (mode === 'balanceFrom') a.exploration.chips = 0;
-    if (mode === 'balanceTo') b.exploration.chips = 0;
+await test('猜拳限在线玩家和有效场次，距离、遮挡、余额或休战不影响邀请', () => {
+  for (const mode of ['offlineFrom', 'offlineTo', 'finished']) {
+    const r = fixture();
     if (mode === 'offlineFrom') r.setOffline(0); if (mode === 'offlineTo') r.setOffline(1);
-    if (mode === 'deadFrom') a.alive = false; if (mode === 'deadTo') b.alive = false;
     if (mode === 'finished') r.finish();
-    if (mode === 'wall') { a.x = b.x = 200; a.y = 210; b.y = 250; }
     assert.equal(invite(r).ok, false, mode); assert.equal(r.room.challenges.size, 0);
   }
-  // 积分改版：不再校验筹码余额；休战（alive=false）双方仍可猜拳。
-  for (const mode of ['balanceFrom', 'balanceTo', 'deadFrom', 'deadTo']) {
+  for (const mode of ['distance', 'wall', 'balanceFrom', 'balanceTo', 'deadFrom', 'deadTo']) {
     const r = fixture(), a = r.find(0), b = r.find(1);
+    if (mode === 'distance') b.x = a.x + 65;
+    if (mode === 'wall') { a.x = b.x = 200; a.y = 210; b.y = 250; }
     if (mode === 'balanceFrom') a.exploration.chips = 0; if (mode === 'balanceTo') b.exploration.chips = 0;
     if (mode === 'deadFrom') a.alive = false; if (mode === 'deadTo') b.alive = false;
     assert.equal(invite(r).ok, true, mode);
   }
-  const r = fixture(); r.find(1).x = r.find(0).x + 64;
-  assert.equal(invite(r).ok, true);
 });
-await test('回应重检双方距离/LOS/在线/结束并告知两方；余额与休战不再阻止', () => {
-  for (const mode of ['balanceFrom', 'deadTo']) {
+await test('走远、余额与休战不影响回应；离线或结束取消并告知两方', () => {
+  for (const mode of ['distance', 'balanceFrom', 'deadTo']) {
     const r = fixture(), a = r.find(0), b = r.find(1); invite(r); const challengeId = b.games.rpsPending.id;
+    if (mode === 'distance') b.x = a.x + 65;
     if (mode === 'balanceFrom') a.exploration.chips = 0; if (mode === 'deadTo') b.alive = false;
     assert.equal(reply(r, { challengeId }).ok, true, mode);
   }
-  for (const mode of ['distance', 'offlineFrom', 'offlineTo', 'wall', 'finished']) {
+  for (const mode of ['offlineFrom', 'offlineTo', 'finished']) {
     const r = fixture(), a = r.find(0), b = r.find(1); invite(r); const challengeId = b.games.rpsPending.id;
-    if (mode === 'distance') b.x = a.x + 65;
-    if (mode === 'balanceFrom') a.exploration.chips = 0;
-    if (mode === 'balanceTo') b.exploration.chips = 0;
     if (mode === 'offlineFrom') r.setOffline(0); if (mode === 'offlineTo') r.setOffline(1);
-    if (mode === 'deadFrom') a.alive = false; if (mode === 'deadTo') b.alive = false;
     if (mode === 'finished') r.finish();
-    if (mode === 'wall') { a.x = b.x = 200; a.y = 210; b.y = 250; }
     const balance = [a.exploration.chips, b.exploration.chips];
     assert.equal(reply(r, { challengeId }).ok, false, mode);
     assert.deepEqual([a.exploration.chips, b.exploration.chips], balance);
@@ -473,16 +463,14 @@ await test('眩晕800/僵直1000精确边界，step强制不动并清意图，�
     r.finish(); r.setIntent(1, {}); assert.deepEqual(b.input, blank);
   } finally { Date.now = realNow; }
 });
-await test('仅stun或仅freeze均禁止攻击、所有play/search/exchange，失败不消耗nonce或资源', () => {
+await test('仅 stun 或仅 freeze 均禁止攻击、转盘、搜索和兑换，失败不消耗 nonce 或资源', () => {
   for (const field of ['stunUntil', 'freezeUntil']) {
     const r = fixture(), a = r.find(0); a.x = npc.x; a.y = npc.y; a.combat[field] = r.now() + 1000;
     const before = JSON.stringify({ exploration: a.exploration, games: a.games, skills: a.skills, combat: a.combat });
     const id = nonce(); const result = attack(r, 0, { commandId: id });
     assert.equal(result.ok, false); assert.match(result.error, /眩晕或僵直/); assert.equal(r.room.processed.has(id), false);
-    for (const kind of ['wheel', 'rpsInvite', 'rpsReply', 'rpsCancel']) {
-      const rejected = play(r, 0, kind, { entityId: npc.id, targetId: 1, choice: 'rock', challengeId: 'fake' });
-      assert.equal(rejected.ok, false); assert.match(rejected.error, /眩晕或僵直/);
-    }
+    const wheel = play(r, 0, 'wheel', { entityId: npc.id });
+    assert.equal(wheel.ok, false); assert.match(wheel.error, /眩晕或僵直/);
     for (const kind of ['search', 'exchange']) {
       const rejected = r.interact(a.sessionId, { commandId: nonce(), kind, entityId: kind === 'search' ? 'reception-132-173' : npc.id });
       assert.equal(rejected.ok, false); assert.match(rejected.error, /眩晕或僵直/);
@@ -546,17 +534,19 @@ await test('多玩家J跳过已stun/freeze目标不延长，无替代目标空�
     assert.equal(attack(q).hitId, 2); assert.equal(q.find(1).combat.freezeUntil, clock + 1000);
   } finally { Date.now = realNow; }
 });
-await test('受控猜拳回应暂拒不取消，控制到期可回应；reset清空控制', () => {
-  const r = fixture(), a = r.find(0), b = r.find(1); invite(r);
-  const challengeId = b.games.rpsPending.id; assert.equal(attack(r).hitId, 1);
-  const id = nonce();
-  // 眩晕/僵直期间不能参与猜拳，且挑战必须保留（不是取消）。
-  assert.equal(reply(r, { challengeId, commandId: id }).ok, false);
-  assert.equal(r.room.challenges.size, 1, '受控期间挑战不应被取消');
-  assert.ok(r.privateSnapshot(1).me.games.rpsPending, '受控方仍保留邀请');
-  // J 攻击的互动冷却为 attackCooldownMs（1.2 秒），越过控制后才能回应。
-  advance(r, C.attackCooldownMs + 100);
-  assert.equal(reply(r, { challengeId, commandId: id }).ok, true, '控制到期后可回应');
+await test('受控时可邀请、接受与出拳；攻击仍受控制限制，reset 清空控制', () => {
+  const r = fixture(), a = r.find(0), b = r.find(1);
+  b.combat.stunUntil = r.now() + C.stunMs;
+  b.combat.freezeUntil = r.now() + C.freezeMs;
+  assert.equal(attack(r, b.id).ok, false);
+  assert.equal(play(r, b.id, 'rpsInvite', { targetId: a.id }).ok, true);
+  a.stunUntil = r.now() + C.rpsRoundMs + 100;
+  assert.equal(play(r, a.id, 'rpsAccept', { challengeId: a.games.rpsPending.id }).ok, true);
+  assert.equal(choose(r, a.id, 'rock').ok, true);
+  assert.equal(choose(r, b.id, 'scissors').ok, true);
+  settle(r);
+  assert.equal(a.games.rpsResult.outcome, 'win');
+  assert.equal(b.games.rpsResult.outcome, 'lose');
   assert.equal(b.hp, 3); assert.equal(a.hp, 3); assert.equal(r.room.eliminateEvents, 0);
   r.reset(); const fresh = r.join(b.sessionId).player;
   assert.equal(fresh.combat.stunUntil, 0); assert.equal(fresh.combat.freezeUntil, 0);

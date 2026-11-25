@@ -48,7 +48,7 @@ function fixture(count = 5) {
   // random 固定：首位为坏人，其余为好人（确定性阵营夹具）。
   let drawIdx = 0;
   const r = createRoom({ random: () => (drawIdx++ === 0 ? 0.1 : 0.99) });
-  // dev 新增 floorGuard：play 指令须携带当前 roundId 与本人 floorRevision（客户端从快照读取）。
+  // 猜拳只校验 roundId，测试保留旧客户端可能仍传入的楼层版本。
   const rawPlay = r.play;
   r.play = (sid, body) => rawPlay(sid, body && typeof body === 'object'
     ? { roundId: r.room.roundId, expectedFloorRevision: r.playerBySession(sid)?.floorRevision, ...body } : body);
@@ -291,22 +291,29 @@ await test('busy/重复/第三方/角色校验', () => {
   assert.equal(r.play(r.find(0).sessionId, { commandId: dup.commandId || nonce(), kind: 'rpsChoose', challengeId: cid, choice: 'paper', revision: 2 }).ok, true); // 不同 commandId 同 revision 仍幂等
 });
 
-// ===== 10. 邀请接受仍按距离/LOS/余额校验；旧邀请带 choice 不锁定 =====
-await test('接受重校验距离/LOS/余额；旧 choice 不锁定', () => {
+// ===== 10. 远程邀请；旧邀请带 choice 不锁定 =====
+await test('跨楼层和空间邀请，换楼层后仍可接受与出拳，旧场次仍被拒绝', () => {
   const r = fixture(), a = r.find(0), b = r.find(1);
+  b.floorId = 2;
+  b.zoneId = 'different-room';
+  b.x = a.x + 200;
+  assert.match(invite(r, 0, 1, { roundId: 'old-round' }).error, /对局已更新/);
   // 旧协议 style：邀请带 choice，应忽略且不锁定
-  assert.equal(invite(r, 0, 1, { choice: 'rock' }).ok, true);
+  assert.equal(invite(r, 0, 1, { choice: 'rock', expectedFloorRevision: undefined }).ok, true);
   const ap = r.privateSnapshot(0).me.games.rpsPending;
   assert.equal('choice' in ap, false);
   assert.equal(ap.ownChoice, null);
-  assert.equal(accept(r).ok, true);
-  // 把 A 移远，再次邀请后接受应失败并取消
-  const r2 = fixture(), x = r2.find(0), y = r2.find(1);
-  assert.equal(invite(r2).ok, true);
-  x.x = y.x + 200; // 超出 INTERACT_RANGE
-  assert.equal(accept(r2).ok, false);
-  assert.equal(r2.room.challenges.size, 0);
-  assert.match(x.games.rpsResult.reason, /距离|家具|金币|筹码|不在线|已淘汰/);
+  const priorFloorRevision = b.floorRevision;
+  b.floorId = 3;
+  b.zoneId = null;
+  b.floorRevision++;
+  assert.equal(accept(r, 1, { expectedFloorRevision: priorFloorRevision }).ok, true);
+  assert.equal(choose(r, 0, 'rock', 1).ok, true);
+  assert.equal(choose(r, 1, 'scissors', 1, nonce(), { expectedFloorRevision: priorFloorRevision }).ok, true);
+  setClock(pend(r).deadline);
+  r.step(0);
+  assert.equal(a.games.rpsResult.outcome, 'win');
+  assert.equal(b.games.rpsResult.outcome, 'lose');
 });
 
 // ===== 11. 断线 setOffline 立即取消；淘汰/ finish/ reset =====
