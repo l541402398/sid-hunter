@@ -391,7 +391,7 @@ try{
   await clickRoom('#accuse');await phase('confirm');await clickRoom('#cancel');await assertAccuse();
   assert.deepEqual(await room("SID_PRACTICE.request('/api/state').then(s=>[s.me.hp,s.me.score,s.players[1].hp])"),hp);
  });
- await check('指认后血条高亮为2/3，刺杀后高亮原版幽灵和休战名牌',async()=>{
+ await check('指认后血条高亮为2/3，刺杀后高亮学士帽幽灵和休战名牌',async()=>{
   await clickRoom('#accuse');await phase('confirm');await clickRoom('#confirm');await phase('target-close');
   await waitRoom("document.getElementById('score-value').textContent==='12'");
   await resultHighlightsVisible('#target .target-person .combat-health','#target-close');await capture('06-skill-result.png');
@@ -403,23 +403,23 @@ try{
   assert.equal(await room("document.getElementById('training-complete').open"),false);await capture('07-health-change.png');
   await room(`(() => {
    const drawBody=WORLD.drawCharacterBody, context=document.getElementById('office').getContext('2d');
-   const fillText=context.fillText, fillRect=context.fillRect;
-   let drawingAlpha=false;
+   const fillText=context.fillText, drawImage=context.drawImage;
+   let drawingGhost=false;
    window.truceDraw={};
    WORLD.drawCharacterBody=function(ctx,p,...args){
-    drawingAlpha=ctx===context&&p.id===2&&p.alive===false&&p.truce&&p.hp===0;
+    drawingGhost=ctx===context&&p.id===2&&p.alive===false&&p.truce&&p.hp===0;
     try { return drawBody.call(this,ctx,p,...args); }
-    finally { drawingAlpha=false; }
+    finally { drawingGhost=false; }
    };
-   context.fillRect=function(x,y,width,height){
-    if(drawingAlpha&&width===26&&height===22&&this.fillStyle==='#a8ccf0') truceDraw.ghost=true;
-    return fillRect.call(this,x,y,width,height);
+   context.drawImage=function(image,...args){
+    if(drawingGhost&&image.src?.endsWith('/scholar-ghost.png')&&args[2]===56&&args[3]===72) truceDraw.ghost=true;
+    return drawImage.call(this,image,...args);
    };
    context.fillText=function(text,...args){
     if(text==='练习人物甲 · 休战') truceDraw.nameplate=true;
     return fillText.call(this,text,...args);
    };
-   window.restoreTruceDraw=()=>{WORLD.drawCharacterBody=drawBody;context.fillText=fillText;context.fillRect=fillRect;};
+   window.restoreTruceDraw=()=>{WORLD.drawCharacterBody=drawBody;context.fillText=fillText;context.drawImage=drawImage;};
   })()`);
   await reachTruce(true);
   await waitRoom('truceDraw.ghost&&truceDraw.nameplate');

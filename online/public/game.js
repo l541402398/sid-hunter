@@ -3747,7 +3747,7 @@
     ctx.restore();
   }
   // 肿包：只读服务端的 bumps / bumpUntil，到期前 1.5 秒按剩余比例缩小淡出。
-  function drawBumps(p, x, yb, a) {
+  function drawBumps(p, x, headY, a) {
     const n = Math.min(ACTION.maxBumps, Number(p.bumps) || 0);
     if (!n) return;
     const remain = (Number(p.bumpUntil) || 0) - serverNow();
@@ -3757,7 +3757,7 @@
     const offsets = [[-7, -1], [1, -4], [7, -1]];
     for (let i = 0; i < n; i++) {
       const r = Math.max(1, Math.round(4 * k));
-      const cx = x + offsets[i][0], cy = yb - (window.SID?.characterSprites?.status === 'ready' ? 76 : 49) + offsets[i][1] - Math.round(2 * k);
+      const cx = x + offsets[i][0], cy = headY + offsets[i][1] - Math.round(2 * k);
       rect(cx - r - 1, cy - r - 1, r * 2 + 3, r * 2 + 3, '#2a1a1c');
       rect(cx - r, cy - r, r * 2 + 1, r * 2 + 1, '#e08a7a');
       rect(cx - r + 1, cy - r + 1, Math.max(1, r), 1, '#f2b6a8');
@@ -3770,13 +3770,16 @@
     if (SID.juliSprites?.draw(ctx, p, clock)) return;
     const x = Math.round(p.x), meId = selfId();
     const newShape = p.alive !== false && !p.truce && SID.characterSprites?.status === 'ready';
+    const scholarGhost = WORLD.ghostBodyBounds(p);
+    const tallSprite = newShape || !!scholarGhost;
     // 新版人物的起伏由渲染层统一下发（走路按步频、站立按呼吸）；旧画法沿用原地呼吸。
     // 头顶特效/选中框跟着同一个偏移，避免身体动了特效留在原处。
     const bob = newShape
       ? (window.SID.characterSprites.bodyBob?.(p, clock) || 0)
-      : (p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7));
+      : scholarGhost ? WORLD.ghostBodyBob(p, clock)
+        : (p.moving ? 0 : Math.round(Math.sin(clock * 1.5 + p.id * 1.9) * .7));
     const yb = Math.round(p.y) + bob;
-    const effectY = yb - (newShape ? 24 : 0);
+    const effectY = yb - (tallSprite ? 24 : 0);
     const a = p.online === false ? .55 : 1;
     const now = serverNow(), attackAge = p.lastAttackAt ? now - p.lastAttackAt : null;
     // dev 分支并入：镜头外的互动字段由投影的 visible 字段兜一层（脏值一律不下发）。
@@ -3786,9 +3789,9 @@
     SID.combatVisuals.drawProtectionCocoon(ctx, p, clock, newShape ? 77 : 53);
     // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
     if (p.freezeUntil && p.freezeUntil > now) {
-      ctx.globalAlpha = .4 * a; rect(x - 13, effectY - 55, 26, newShape ? 86 : 62, '#bfe8ff');
+      ctx.globalAlpha = .4 * a; rect(x - 13, effectY - 55, 26, tallSprite ? 86 : 62, '#bfe8ff');
       ctx.globalAlpha = .55 * a; ctx.strokeStyle = '#e8f7ff'; ctx.lineWidth = 1;
-      ctx.strokeRect(x - 13.5, effectY - 55.5, 27, newShape ? 87 : 63); ctx.globalAlpha = 1;
+      ctx.strokeRect(x - 13.5, effectY - 55.5, 27, tallSprite ? 87 : 63); ctx.globalAlpha = 1;
     }
     if (p.stunUntil && p.stunUntil > now) {
       for (let i = 0; i < 3; i++) {
@@ -3806,7 +3809,7 @@
     }
     if (!p.npc && !covered && p.id === selectedId) {
       ctx.globalAlpha = (.55 + .3 * Math.sin(clock * 4.2)) * a;
-      ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 2; ctx.strokeRect(x - 20.5, effectY - 52.5, 41, newShape ? 82 : 58);
+      ctx.strokeStyle = '#8fd0ff'; ctx.lineWidth = 2; ctx.strokeRect(x - 20.5, effectY - 52.5, 41, tallSprite ? 82 : 58);
       ctx.globalAlpha = a; ctx.lineWidth = 1;
       const b = '#cfeeff';
       rect(x - 21, effectY - 53, 9, 2, b); rect(x - 21, effectY - 53, 2, 7, b);
@@ -3820,7 +3823,7 @@
       ctx.globalAlpha = 1;
     }
     if (seen) {
-      drawBumps(p, x, yb, a);
+      drawBumps(p, x, yb - (tallSprite ? 76 : 49), a);
       if (p.frightUntil && p.frightUntil > now) {
         ctx.globalAlpha = a; ctx.fillStyle = '#88d6e9';
         for (const dx of [-15, 15]) {
@@ -3835,7 +3838,7 @@
     ctx.restore();
   }
   function characterBounds(p) {
-    const custom = SID.juliSprites?.bounds(p);
+    const custom = SID.juliSprites?.bounds(p) || WORLD.ghostBodyBounds(p);
     const newShape = p.alive !== false && !p.truce && SID.characterSprites?.status === 'ready';
     const halfWidth = newShape ? 26 : 21, above = newShape ? 79 : 53;
     const b = custom || { x: -halfWidth, y: -above, w: halfWidth * 2, h: above + 8 };

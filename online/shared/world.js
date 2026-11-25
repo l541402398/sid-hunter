@@ -49,6 +49,7 @@
     deskIsland, deskBranch,
     facingVector, portalAccess, floorPortal, elevatorLanding,
     PLAY_CONFIG, RPS_RULES, rpsOutcome, lineClear, spriteDirection, drawCharacterBody, ATTACK_ANIMATION_MS,
+    ghostBodyBounds: D.ghostBodyBounds, ghostBodyBob: D.ghostBodyBob,
     RULES, SCORE, EXPLORE, COMBAT, WHEEL, WHEEL_CHIP_COLOR, buildWheelPool, NPC_EXCHANGE_LIST, NPC_EXCHANGE,
     // 七层楼层数据与查询接口（服务端权威、两端同源）。
     FLOOR_BASE_HEIGHT, FLOOR_SCALE,

@@ -3,11 +3,23 @@
 (function (root, factory) {
   const isNode = typeof module !== 'undefined' && module.exports;
   const D = isNode ? Object.assign({}, require('./config.js'), require('./geometry.js'), require('./furniture.js'), require('./floors.js')) : Object.assign({}, root.SID_WORLD_PARTS || {});
-  const api = factory(D);
+  const api = factory(D, root);
   if (isNode) module.exports = api;
   else Object.assign(root.SID_WORLD_PARTS = root.SID_WORLD_PARTS || {}, api);
-})(typeof window !== 'undefined' ? window : globalThis, function (D) {
+})(typeof window !== 'undefined' ? window : globalThis, function (D, root) {
   const { PALETTES } = D;
+  // 从本脚本定位同一张贴图，兼容联机 /shared 路径和本地试玩的 file:// 路径。
+  const spriteUrl = root.document?.currentScript?.src;
+  const scholarGhost = spriteUrl && typeof root.Image === 'function' ? new root.Image() : null;
+  if (scholarGhost) scholarGhost.src = new URL('assets/scholar-ghost.png', spriteUrl).href;
+  const GHOST_SPRITE = { x: -28, y: -78, w: 56, h: 72 };
+  const GHOST_BOUNDS = Object.freeze({ x: GHOST_SPRITE.x, y: GHOST_SPRITE.y - 3, w: GHOST_SPRITE.w, h: GHOST_SPRITE.h + 6 });
+  function ghostBodyBounds(p) {
+    return (p.alive === false || p.truce) && scholarGhost?.complete && scholarGhost.naturalWidth ? GHOST_BOUNDS : null;
+  }
+  function ghostBodyBob(p, clock) {
+    return Math.round(Math.sin(clock * 2.4 + (p.id ?? 0) * 1.3) * 2.5);
+  }
   const SKIN = ['#eabb94', '#d3a58a', '#c08e73', '#e8c3a3', '#cf9d7e'];
   const characterShadeCache = new Map();
   function characterShade(hex, k) {
@@ -251,12 +263,11 @@
     pixel(Math.round(hand.x) - 2, Math.round(hand.y) - 2, 4, 4, colors.skin);
     pixel(Math.round(hand.x) - 2, Math.round(hand.y) + 1, 4, 1, colors.skinLo);
   }
-  // 沿用原版像素幽灵，休战后的挥锤使用同一套互动动画。
+  // 悬浮贴图和旧绘法共用地面锚点，休战后依然沿用原挥锤互动。
   function drawGhostBody(g, rect, p, clock, attackAgeMs, attackDirection) {
     const x = Math.round(p.x);
     const id = p.id ?? 0;
-    const wave = Math.sin(clock * 2.4 + id * 1.3);
-    const bob = Math.round(wave * 2.5);
+    const bob = ghostBodyBob(p, clock);
     const y = Math.round(p.y) + bob;
     const offline = p.online === false;
     const outC = offline ? '#2d3340' : '#1b2440';
@@ -269,6 +280,15 @@
     rect(x - 12, Math.round(p.y) + 1, 24, 4, '#1b2440');
     rect(x - 8, Math.round(p.y) + 2, 16, 2, '#5ef2ff');
     g.globalAlpha = offline ? .52 : .88;
+    if (ghostBodyBounds(p)) {
+      g.imageSmoothingEnabled = false;
+      g.drawImage(scholarGhost, x + GHOST_SPRITE.x, y + GHOST_SPRITE.y, GHOST_SPRITE.w, GHOST_SPRITE.h);
+      if (attackAlphaHard(attackAgeMs)) {
+        drawLegacyAttack(rect, x, y - 7, attackDirection || p.spriteFacing, attackAgeMs,
+          { outline: outC, skin: hiC, skinLo: midC, topLo: shdC, topHi: midC });
+      }
+      return;
+    }
     // 头顶漂浮灵魂光环与幽火苗
     const haloOff = Math.round(Math.cos(clock * 3.2 + id) * 1.5);
     const hy = y - 48 + haloOff;
@@ -471,5 +491,5 @@
     }
     g.restore();
   }
-  return { SKIN, characterShadeCache, characterShade, ATTACK_ANIMATION_MS, ATTACK_POSES, ATTACK_SHOULDERS, ATTACK_ARM_HOLE, attackAlpha, attackAlphaHard, attackColors, drawCharacterAttack, drawCharacterBody };
+  return { SKIN, characterShadeCache, characterShade, ATTACK_ANIMATION_MS, ATTACK_POSES, ATTACK_SHOULDERS, ATTACK_ARM_HOLE, attackAlpha, attackAlphaHard, attackColors, drawCharacterAttack, drawCharacterBody, ghostBodyBounds, ghostBodyBob };
 });

@@ -88,15 +88,42 @@ function body(p, direction, age, renderer) {
   assert.deepEqual(stateOf(g),before);
   return { rects:g.calls.filter(c=>c[0]==='rect'), bodies };
 }
-test('休战统一使用原版幽灵，四向挥锤保留，造型独立于服饰与新版素材', () => {
+test('无图片环境使用像素幽灵后备绘制，四向挥锤保留', () => {
   const ghost = {...player,alive:false,truce:true,colors:undefined};
   for (const direction of ['front','left','right','back']) {
     const idle = body(ghost,direction,null);
-    assert.ok(idle.rects.some(c=>c[3]===26&&c[4]===22&&c[5]==='#a8ccf0'),'原版蓝色灵体主体');
+    assert.ok(idle.rects.some(c=>c[3]===26&&c[4]===22&&c[5]==='#a8ccf0'),'后备蓝色灵体主体');
     const swing = body(ghost,direction,90,'male');
     assert.deepEqual(swing.rects.slice(0,idle.rects.length),idle.rects);
     assert.ok(swing.rects.some(c=>c[5]==='#986039'),'显示木锤握柄');
     assert.deepEqual(swing.bodies,[]);
+  }
+});
+test('休战学士帽贴图围绕地面锚点悬浮，保留挥锤和离线透明度', () => {
+  const source = readFileSync(new URL('./shared/world/sprite.js', import.meta.url), 'utf8');
+  const ghost = {...player, id:0, alive:false, truce:true, colors:undefined};
+  class Image {
+    complete = true;
+    naturalWidth = 56;
+  }
+  for (const base of ['https://game.test/shared/world/', 'file:///game/online/shared/world/']) {
+    const env = { URL, window: { Image, document: { currentScript: { src: base + 'sprite.js' } } } };
+    vm.runInNewContext(source,env);
+    const { drawCharacterBody, ghostBodyBounds, ghostBodyBob } = env.window.SID_WORLD_PARTS;
+    assert.equal(ghostBodyBounds(player),null);
+    assert.deepEqual({...ghostBodyBounds(ghost)}, { x:-28, y:-81, w:56, h:78 });
+    const idle = context(), swing = context(), offline = context(), before = stateOf(idle);
+    drawCharacterBody(idle,ghost,0);
+    drawCharacterBody(swing,ghost,0,90,'front');
+    const clock = Math.PI/4.8;
+    drawCharacterBody(offline,{...ghost,online:false},clock);
+    const imageCall = g => g.calls.find(call => call[0]==='image');
+    assert.deepEqual(imageCall(idle), ['image',base+'assets/scholar-ghost.png',52,32,56,72,.88,false]);
+    assert.equal(ghostBodyBob(ghost,clock),3);
+    assert.equal(imageCall(offline)[3],imageCall(idle)[3]+ghostBodyBob(ghost,clock));
+    assert.equal(imageCall(offline).at(-2),.52);
+    assert.ok(swing.calls.slice(swing.calls.indexOf(imageCall(swing))+1).some(call => call[5]==='#986039'));
+    assert.deepEqual(stateOf(idle),before);
   }
 });
 test('离线对抗玩家保留半透明人形，离线休战玩家显示黯淡的幽灵', () => {
