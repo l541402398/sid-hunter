@@ -196,6 +196,7 @@
   const expandedPendingGroups = new Set(); // 本页独立保存各组折叠态，名单更新不重置。
   const confirmedDigests = new Set(); // 只有服务端 ACK 成功后才登记
   let lastTargetSig = '', lastLogSig = '', lastRosterSig = '', lastOccludersKey = '';
+  let lastUnjoinedRoster = [];
   let prevLogCount = 0, unreadLogCount = 0, logsStickToBottom = true;
   let lastHudSelfX = NaN, lastHudSelfY = NaN;
   const offlineEvents = new Set();
@@ -599,6 +600,7 @@
     serverTime = s.serverTime || Date.now();
     if (s.roundId && s.roundId !== roundId) {
       pendingRequestId++; pendingNextCheck = 0; pendingSignature = ''; pendingInviteUrl = ''; pendingData = null; lastRosterSig = '';
+      lastUnjoinedRoster = [];
       $('pending-count').textContent = '—'; $('pending-items').replaceChildren();
       if ($('roster-unjoined')) $('roster-unjoined').replaceChildren();
       $('pending-summary').textContent = '正在读取本场待加入名单…'; closeInviteDialog();
@@ -810,10 +812,15 @@
     return p?.protected && p.alive !== false ? '<span class="protection-tag">受击保护中</span>' : '';
   }
   function row(p, hits) {
+    const name = escapeText(p.name);
     const tag = !p.alive ? '<span class="out-label">休战</span>'
       : p.id === selfId() ? '<span class="self-label">自己</span>'
         : p.online === false ? '<span class="offline-tag">离线</span>' : '';
-    return `<button class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}<span><strong>${escapeText(p.name)}</strong>${SID.flowers?.rosterHTML(p) || ''}${healthHTML(p, true)}${matchHint(hits)}</span>${tag}</button>`;
+    return `<button type="button" class="roster-row${p.id === selectedId ? ' active' : ''}" data-player="${p.id}">${portrait(p)}
+      <span class="roster-details">
+        <span class="roster-heading"><span class="roster-identity"><strong title="${name}">${name}</strong>${SID.flowers?.flowerCountHTML(p) || ''}</span>${tag}</span>
+        ${healthHTML(p, true)}${SID.flowers?.modelBadgeHTML(p) || ''}${matchHint(hits)}
+      </span></button>`;
   }
   function bindRows(container) { container.querySelectorAll('[data-player]').forEach(b => b.onclick = () => select(Number(b.dataset.player))); }
   function renderRosterUnjoined(query) {
@@ -929,13 +936,18 @@
     // 20Hz position snapshots must not replace a button between pointerdown/pointerup.
     // 签名只取名单行真正会显示/搜索的字段：300 人时不能把每帧都变的战斗/坐标字段拿来序列化比较。
     const all = everyone();
-    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowersReceived, p.annualRoleModel]), pendingData, pendingFlight]);
-    if (sig === lastRosterSig) return;
-    lastRosterSig = sig;
-    const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
-    $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的已登录玩家</p>';
-    bindRows($('roster-items'));
-    renderRosterUnjoined(query);
+    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowersReceived, p.annualRoleModel])]);
+    if (sig !== lastRosterSig) {
+      lastRosterSig = sig;
+      const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
+      $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的已登录玩家</p>';
+      bindRows($('roster-items'));
+    }
+    const unjoined = [query, pendingData, pendingFlight];
+    if (unjoined.some((value, i) => value !== lastUnjoinedRoster[i])) {
+      lastUnjoinedRoster = unjoined;
+      renderRosterUnjoined(query);
+    }
   }
   function logHighlightClass(entry) {
     if (entry.type === 'systemClue') return 'log-system-clue';
@@ -1014,11 +1026,16 @@
     renderRoster(); renderLogs();
   }
   window.addEventListener('sid-character-assets-ready', () => {
-    lastRosterSig = ''; lastTargetSig = '';
-    renderRoster(); if (selected()) renderTarget();
+    // Keep the existing player buttons and their click targets while portraits load.
+    const playersById = new Map(everyone().map(p => [p.id, p]));
+    for (const fallback of $('roster-items').querySelectorAll('.roster-row > svg.portrait')) {
+      const p = playersById.get(Number(fallback.parentElement.dataset.player));
+      if (p) fallback.outerHTML = portrait(p);
+    }
+    const p = selected(), fallback = $('target').querySelector('.target-person > svg.portrait');
+    if (p && fallback) fallback.outerHTML = portrait(p);
   });
   window.addEventListener('sid-rps-art-ready', () => {
-    if ($('target-rps-icon')) SID.rpsArt?.drawSprite($('target-rps-icon'), 'vs-crest', { scale: 1 });
     if (gamesDomReady) {
       paintRpsChoiceButtons();
       SID.rpsArt?.drawSprite($('games-vs-canvas'), 'vs-crest', { scale: 1 });
@@ -1030,13 +1047,10 @@
   function syncTarget() {
     const p = selected();
     const sig = p ? JSON.stringify([
-      (({ x, y, ...profile }) => profile)(p),
-      isInviteable(p),
+      [p.id, p.name, p.npc, p.alive, p.truce, p.hp, p.maxHp, p.protected, p.dept, p.deliveryGroup,
+        p.annualRoleModel, p.flowerRecipient, p.flowersReceived, p.colors, p.traits],
       rpsFeatureEnabled(),
-      rpsPointsEarned(),
-      rpsPairPlayed(p.id),
-      me?.games?.rpsPending?.id || null,
-      me?.games?.rpsResult?.id || null,
+      me?.id, me?.faction, availableSkills(),
       me?.flowers,
       flowerUI?.signature(),
       finished,
@@ -1093,7 +1107,7 @@
     closeExploration(); clearPrivate(true); closeGames(); closeWheel(); selectedId = id;
     $('candidates').hidden = true; $('candidates').replaceChildren();
     keys.clear(); sendIntent(false);
-    lastTargetSig = ''; renderTarget(); renderRoster();
+    syncTarget(); renderRoster();
   }
   // 目标公开档案的组织信息：合约区 + 交付组。显示在原“存活 · 公开档案”的位置；
   // 没有员工档案（昵称试玩/NPC）时退回对抗中/休战文案。
@@ -1101,75 +1115,62 @@
     return [p.dept, p.deliveryGroup].filter(Boolean).map(escapeText).join(' · ');
   }
   function updateTargetRpsStatus() {
-    const p = selected(), card = $('target-rps');
-    if (!p || !card || !me) return;
-    const pts = rpsPointsEarned(), ptCap = rpsPointCap();
-    const played = rpsPairPlayed(p.id), pairCap = rpsPairCap();
+    const p = selected(), invite = $('target-invite-rps');
+    if (!p || !invite || !me) return;
+    const reopen = $('target-return-rps'), resultLink = $('target-rps-result');
     const pendingMatch = me.games?.rpsPending;
     const resultMatch = me.games?.rpsResult && me.games.rpsResult.id !== rpsResultDismissId ? me.games.rpsResult : null;
     const coolSec = Math.max(0, Math.ceil(((me.games?.rpsUntil || 0) - rpsNow()) / 1000));
-    setText($('target-rps-points'), `本场 ${pts}/${ptCap} 分`);
-    setText($('target-rps-pair'), `与TA ${played}/${pairCap} 次`);
-    const pairPill = $('target-rps-pair');
-    if (pairPill) pairPill.dataset.full = String(played >= pairCap);
-    const inviteBtn = $('target-invite-rps'), returnBtn = $('target-return-rps'), noteEl = $('target-rps-note');
-    if (returnBtn) {
-      returnBtn.hidden = !pendingMatch && !resultMatch;
-      returnBtn.textContent = pendingMatch ? '返回正在进行的猜拳' : '查看上局猜拳结果';
-    }
-    let btnText = '邀请猜拳', noteText = '';
-    const disabled = !isInviteable(p);
-    if (finished) {
-      btnText = '本场已结束';
-      noteText = '活动已结束，无法发起猜拳。';
-    } else if (gameClosed) {
-      btnText = '暂不可用';
-      noteText = gameClosed;
-    } else if (p.online === false) {
-      btnText = '对方离线';
-      noteText = '对方当前离线，暂不可邀请猜拳。';
-    } else if (pendingMatch) {
-      btnText = '对局进行中';
-      noteText = '你有未完成的猜拳，点击「返回正在进行的猜拳」继续。';
-    } else if (played >= pairCap) {
-      btnText = `已满 ${pairCap}/${pairCap} 次`;
-      noteText = `本场与「${p.name}」已玩满 ${pairCap}/${pairCap} 次，去找其他玩家互动吧！`;
-    } else if (coolSec > 0) {
-      btnText = `冷却 ${coolSec}s`;
-      noteText = `猜拳冷却中，${coolSec} 秒后可继续邀请。`;
-    } else {
-      btnText = gamesFlight ? '正在发送…' : '邀请猜拳';
-      noteText = pts >= ptCap
-        ? `本场猜拳积分已满 ${ptCap}/${ptCap} 分，仍可继续切磋（赢 +0 分）！`
-        : `10 秒同步出拳 · 赢 +${rpsWinPoints()} 分（本场最多 ${ptCap} 分），平局或猜错不扣分。`;
-    }
-    if (inviteBtn) {
-      inviteBtn.disabled = disabled;
-      setText(inviteBtn, btnText);
-    }
-    setText(noteEl, noteText);
+    let label = '邀请猜拳';
+    if (finished) label = '猜拳 · 本场已结束';
+    else if (gameClosed) label = '猜拳 · 暂不可用';
+    else if (p.online === false) label = '猜拳 · 对方离线';
+    else if (rpsPairPlayed(p.id) >= rpsPairCap()) label = '猜拳 · 已达对局上限';
+    else if (coolSec > 0) label = `猜拳 · 冷却 ${coolSec} 秒`;
+    else if (gamesFlight) label = '正在发送邀请…';
+    setProp(invite, 'disabled', !isInviteable(p));
+    setProp(invite, 'hidden', !!pendingMatch);
+    setProp(invite, 'title', !finished && gameClosed ? gameClosed : '');
+    setText(invite, label);
+    setProp(reopen, 'hidden', !pendingMatch);
+    setProp(resultLink, 'hidden', !!pendingMatch || !resultMatch);
   }
   function renderTarget() {
-    const p = selected();
-    if (!p) { clearPrivate(); $('target').hidden = true; $('target').replaceChildren(); return; }
-    $('target').hidden = false;
+    const p = selected(), host = $('target');
+    if (!p) { clearPrivate(); return; }
+    const sameTarget = !host.hidden && host.dataset.playerId === String(p.id);
+    const scrollTop = sameTarget ? $('target-body')?.scrollTop || 0 : 0;
+    const focusedId = sameTarget && host.contains(document.activeElement) ? document.activeElement.id : '';
+    const skillDetailsOpen = sameTarget && $('target-skill-details')?.open;
+    host.dataset.playerId = String(p.id);
+    host.hidden = false;
     const orgLine = targetOrgLine(p);
     const status = orgLine || (p.alive ? '对抗中 · 公开档案' : '休战中 · 积分保留');
-    const rpsCardHTML = me && p.id !== selfId() && !p.npc && rpsFeatureEnabled()
-      ? `<section id="target-rps" class="rps-target-card" aria-label="猜拳切磋"><div class="rps-target-head"><canvas id="target-rps-icon" class="rps-pixel-badge" width="48" height="48" aria-hidden="true"></canvas><div class="rps-target-meta"><div class="rps-target-title-row"><strong>猜拳切磋</strong><span id="target-rps-points" class="rps-points-pill"></span><span id="target-rps-pair" class="rps-pair-pill"></span></div><p class="rps-target-sub">赢 +${rpsWinPoints()} 分 · 猜错不扣分 · 同人限 ${rpsPairCap()} 次</p></div></div><div class="rps-target-actions"><button type="button" id="target-invite-rps" class="target-invite-rps rps-invite-btn">邀请猜拳</button><button type="button" id="target-return-rps" class="rps-return-btn" hidden>返回正在进行的猜拳</button></div><p id="target-rps-note" class="rps-target-note"></p></section>`
-      : '';
-    $('target').innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div><div class="target-person">${portrait(p)}<div class="target-meta"><div class="target-title-row"><h2>${escapeText(p.name)}</h2><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div><div class="honor-badges">${SID.flowers?.badgesHTML(p) || ''}</div><div class="target-health-row">${healthHTML(p)}${protectionHTML(p)}</div><p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p></div></div>${flowerUI?.panelHTML(p) || ''}${rpsCardHTML}<div class="color-grid">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute" data-color="${k}"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div><div class="traits">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>${p.id !== selfId() ? '<section id="private-content" class="target-skills" aria-label="对该人物使用技能"></section>' : ''}`;
+    privateOpen = !!me && p.id !== selfId();
+    const showRps = privateOpen && !p.npc && rpsFeatureEnabled();
+    host.innerHTML = `<div class="panel-heading"><span class="eyebrow">PUBLIC PROFILE · 角色公开档案</span><button type="button" id="target-close" class="icon-button" aria-label="关闭目标档案">×</button></div>
+      <div id="target-body" class="target-body">
+        <div class="target-person">${portrait(p)}<div class="target-meta">
+          <div class="target-title-row"><div class="target-name"><h2>${escapeText(p.name)}</h2>${SID.flowers?.profileBadgesHTML(p) || ''}</div><span class="target-state-pill ${p.alive ? 'is-alive' : 'is-out'}">${p.alive ? '对抗中' : '休战中'}</span></div>
+          <div class="target-health-row">${healthHTML(p)}${flowerUI?.actionHTML(p) || ''}${protectionHTML(p)}</div>
+          <p class="status">${status}${p.id === selfId() ? ' · 本人角色' : ''}</p>
+        </div></div>
+        ${privateOpen ? '<section id="private-content" class="target-skills" aria-label="玩家操作"></section>' : ''}
+        <div class="color-grid" aria-label="外观属性">${Object.entries(p.colors).map(([k, c]) => `<div class="attribute" data-color="${k}"><span>${fieldNames[k]}</span><i class="swatch" style="background:${c[1]}"></i>${c[0]}</div>`).join('')}</div>
+        <div class="traits" aria-label="隐藏属性">${Object.entries(p.traits).map(([k, v]) => `<div class="trait ${v !== MASK ? 'is-revealed' : ''}"><span>${traitNames[k]}</span><strong>${escapeText(v)}</strong></div>`).join('')}</div>
+      </div>`;
     flowerUI?.bind(p);
-    if ($('target-rps')) {
-      SID.rpsArt?.drawSprite($('target-rps-icon'), 'vs-crest', { scale: 1 });
+    if (privateOpen) renderPrivate(showRps);
+    if (showRps) {
       $('target-invite-rps').onclick = () => sendRps({ kind: 'rpsInvite', targetId: p.id });
       $('target-return-rps').onclick = () => openGames();
+      $('target-rps-result').onclick = () => openGames();
       updateTargetRpsStatus();
     }
-    $('target-close').onclick = () => { clearPrivate(true); selectedId = null; lastTargetSig = ''; renderTarget(); renderRoster(); };
-    privateOpen = !!me && p.id !== selfId();
-    if (privateOpen) renderPrivate();
-
+    $('target-close').onclick = () => { clearPrivate(true); renderRoster(); };
+    if (skillDetailsOpen && $('target-skill-details')) $('target-skill-details').open = true;
+    $('target-body').scrollTop = scrollTop;
+    if (focusedId) $(focusedId)?.focus({ preventScroll: true });
   }
   // ---------- 私密操作（每人 1 技能：好人指认 / 坏人刺杀） ----------
   function holding() { return privateOpen; }
@@ -1211,22 +1212,27 @@
     const state = finished || !me?.alive ? '已冻结' : skill.chargesRemaining > 0 ? '可使用' : '恢复中';
     return `${skillNames[id] || id} ${skill.chargesRemaining}/${skill.maxCharges} · ${state} · ${skill.nextChargeAt ? `${secondsLeft(skill.nextChargeAt)}s 后 +1` : '次数已满'}`;
   }
-  function renderPrivate() {
+  function renderPrivate(showRps = false) {
     const host = $('private-content'), p = selected(); if (!host) return;
     if (!holding() || !p || !me) { host.replaceChildren(); return; }
     const ids = availableSkills();
     const factionLabel = me.faction === 'good' ? '调查员（好人）专属技能' : '潜伏者（坏人）专属技能';
-    const targetHealth = healthHTML(p, true);
-    host.innerHTML = `<div class="private-block"><div class="private-banner-row"><p class="private-title">${factionLabel} · 仅本人可见</p><span id="private-target-health">${targetHealth}</span></div><div class="skill-row">${ids.map(id => `<div class="private-skill" id="skill-card-${id}"><button id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button><p id="${id}-effect" class="skill-effect">${skillEffects[id]}</p></div>`).join('')}</div><div id="confirm-host"></div><div id="result-host"></div><details class="private-resources"><summary>查看技能次数与恢复计时</summary><p id="skill-info" class="skill-info"></p></details></div>`;
+    if (!ids.length && !showRps) { host.replaceChildren(); return; }
+    host.innerHTML = `<div class="target-actions">
+      ${ids.map(id => `<button type="button" id="${id}" data-skill="${id}" aria-describedby="${id}-effect" class="${id === 'accuse' ? 'skill-blue' : 'skill-red'}"><span id="${id}-label" class="skill-button-label">${skillNames[id]}</span><span id="${id}-timer" class="skill-button-timer" hidden></span></button>`).join('')}
+      ${showRps ? `<div id="target-rps" class="target-rps"><button type="button" id="target-invite-rps" class="target-invite-rps">邀请猜拳</button><button type="button" id="target-return-rps" class="target-invite-rps" hidden>返回猜拳</button></div>` : ''}
+    </div>
+    <div id="confirm-host"></div><div id="result-host"></div>
+    <div class="target-action-details">
+      ${ids.length ? `<details id="target-skill-details" class="private-resources"><summary id="target-skill-summary">技能说明与恢复</summary><p class="skill-info">${factionLabel} · 仅本人可见</p>${ids.map(id => `<p id="${id}-effect" class="skill-info">${skillEffects[id]}</p>`).join('')}<p id="skill-info" class="skill-info"></p></details>` : ''}
+      ${showRps ? '<button type="button" id="target-rps-result" class="target-rps-result" hidden>查看猜拳结果</button>' : ''}
+    </div>`;
     for (const id of ids) $(id).onclick = () => { if (!holding() || skillFlight || $(id).disabled) return; AUDIO?.play('skillConfirm'); pending = { kind: id, target: p.id }; renderConfirmation(); };
     updateSkillStatus(); renderConfirmation(); renderResult();
   }
   function updateSkillStatus() {
     if (!holding() || !me) return;
     const p = selected(), info = $('skill-info'); if (!info || !p) return;
-    const targetHealthHost = $('private-target-health');
-    const targetHealth = healthHTML(p, true);
-    if (targetHealthHost && targetHealthHost.innerHTML !== targetHealth) targetHealthHost.innerHTML = targetHealth;
     const ids = availableSkills();
     const unavailable = finished ? '本场已结束，技能已冻结。' : gameClosed
       || (!me.alive ? '你已休战，暂时无法使用对抗技能。' : !canTarget(p) ? '自己或已休战目标不可操作。' : '');
@@ -1238,7 +1244,7 @@
         const allDoneHint = canTarget(p) && !hasUnknown(p, id)
           ? (isAccusedToday(p) ? '本场已操作过' : isProtected(p) ? '目标保护中' : '暂不可用')
           : '';
-        const caption = skillFlight?.kind === id ? '正在提交…' : (recovery || allDoneHint);
+        const caption = skillFlight?.kind === id ? '正在提交…' : (recovery || allDoneHint || (unavailable ? '暂不可用' : ''));
         const nameSlot = $(`${id}-label`), timerSlot = $(`${id}-timer`);
         if (nameSlot && nameSlot.textContent !== label) nameSlot.textContent = label;
         if (timerSlot) { if (timerSlot.textContent !== caption) timerSlot.textContent = caption; timerSlot.hidden = !caption; }
@@ -4576,14 +4582,12 @@
       if (data.roundId !== roundId) { pendingNextCheck = 0; return; }
       pendingInviteUrl = gameInviteUrl(data);
       pendingData = data;
-      lastRosterSig = '';
       renderPendingPlayers(data);
       renderRoster();
     } catch {
       if (requestedRound !== roundId || requestedSession !== sessionToken) return;
       pendingSignature = ''; pendingInviteUrl = ''; $('pending-count').textContent = '—';
       pendingData = { ok: false, error: '暂时无法加载待加入名单，请稍后点击「刷新」重试。', count: 0, total: 0, groups: [] };
-      lastRosterSig = '';
       $('pending-summary').textContent = pendingData.error; $('pending-items').replaceChildren();
       renderRoster();
     } finally {

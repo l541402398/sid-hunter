@@ -30,7 +30,7 @@
 .rps-name{font-size:12px;color:var(--ink);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800}
 .rps-glyph-slot{width:72px;height:72px;display:flex;align-items:center;justify-content:center;background:#efe0c1;border:1.5px solid #c99d68;clip-path:var(--clip-card)}
 .rps-self .rps-glyph-slot{background:#fff8e6;border-color:#d88b3a}
-.games canvas.rps-hand-canvas,.games canvas.rps-btn-canvas,.games canvas.rps-vs-canvas,.games canvas.rps-result-badge,.target canvas.rps-pixel-badge{image-rendering:pixelated;image-rendering:crisp-edges;display:block;flex:none;object-fit:contain}
+.games canvas.rps-hand-canvas,.games canvas.rps-btn-canvas,.games canvas.rps-vs-canvas,.games canvas.rps-result-badge{image-rendering:pixelated;image-rendering:crisp-edges;display:block;flex:none;object-fit:contain}
 .games canvas.rps-hand-canvas{width:64px;height:64px}
 .rps-hand-tag{font-size:10px;font-weight:700;color:#6e3a12;padding:2px 7px;background:#f3e2be;border:1px solid #d1a770;white-space:nowrap}
 .rps-self .rps-hand-tag{background:#ffe9bf;border-color:#c9822e;color:#7a3e00}
@@ -73,21 +73,13 @@
 .rps-rematch:hover:not(:disabled){background:linear-gradient(180deg,#cc6326,#8a390d)}
 .rps-rematch:disabled{opacity:.52;cursor:not-allowed}
 
-/* 目标档案内的猜拳切磋卡 */
-.rps-target-card{margin:10px 0 8px;padding:9px 10px;background:linear-gradient(180deg,#fdf5e4,#f5e7ca);border:1.5px solid #b58852;border-radius:0;clip-path:var(--clip-plaque);box-shadow:inset 0 1px 0 #fff9ea}
-.rps-target-head{display:flex;align-items:center;gap:9px}
-.target canvas.rps-pixel-badge{width:48px;height:48px;flex:none;background:#442915;border:1px solid #b58852;padding:2px}
-.rps-target-meta{min-width:0;flex:1}
-.rps-target-title-row{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
-.rps-target-title-row strong{font-size:12px;color:#4a260a;font-weight:800}
-.rps-target-sub{margin:3px 0 0;font-size:10px;color:#734a24;line-height:1.4}
-.rps-target-actions{display:flex;flex-direction:column;gap:6px;margin-top:8px}
-.target-invite-rps{width:100%;margin:0;padding:8px 10px;background:linear-gradient(180deg,#b8561d,var(--brand-dk));border:1.5px solid #4d1e05;color:#fff8eb;font-size:12px;font-weight:700;border-radius:0;clip-path:var(--clip-banner);box-shadow:inset 0 1px 0 #ffbb8866}
-.target-invite-rps:hover:not(:disabled){background:linear-gradient(180deg,#cc6326,#8a390d)}
-.target-invite-rps:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}
-.rps-return-btn{width:100%;padding:7px 10px;font-size:11px;font-weight:700;background:#fff5dd;border:1px solid #b58852;color:#7a3e00;clip-path:var(--clip-card)}
-.rps-return-btn[hidden]{display:none}
-.rps-target-note{margin:5px 0 0;font-size:10px;color:#6f4a28;line-height:1.45}
+/* 角色档案内的猜拳入口 */
+.target-rps{display:flex;min-width:0}
+.target-invite-rps{background:linear-gradient(#faedcf,#efd7ac);border:1.5px solid #b0824a;color:#643a1a;box-shadow:inset 0 1px #fff9ea}
+.target-invite-rps:hover:not(:disabled){background:#f2d6a3}
+.target-actions .target-invite-rps:focus-visible{outline-color:#91562f}
+.target-invite-rps:disabled{background:#e9ddc4;color:#6e5942;box-shadow:none}
+.target-rps-result{margin-left:auto;padding:2px 0;border:0;background:none;color:var(--brand-dk);font-size:10px;font-weight:700;text-decoration:underline}
 
 /* 战斗与探索 HUD */
 .combat-hud{display:flex;flex-direction:column;gap:6px;margin-top:7px;border-top:1px solid var(--line);padding-top:7px}

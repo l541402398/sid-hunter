@@ -13,4 +13,4 @@
 .protection-tag{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#31656d;background:#e0eeea;border:1px solid #87b0af;padding:2px 6px}
 .protection-tag:before{content:'◇';color:#ae8d46}
 .private-banner-row .combat-health{flex:none;margin-left:auto}
-.roster-row>span:not(.out-label):not(.self-label):not(.offline-tag){min-width:0;flex:1}
+.roster-details .combat-health.compact{margin-top:0}

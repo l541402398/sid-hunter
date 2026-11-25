@@ -208,8 +208,8 @@ try {
     await click('#roster-toggle');
     await health(`#roster-items [data-player="${otherGood.id}"] .combat-health`, 3);
     await click(`#roster-items [data-player="${otherGood.id}"]`);
-    await health('#target .combat-health', 3);
-    await health('#private-content .combat-health', 3);
+    await health('#target .target-health-row .combat-health', 3);
+    assert.equal(await evaluate(`document.querySelectorAll('#target .combat-health').length`), 1);
     const panels = await evaluate(`['target','roster-items','private-content'].map(id=>({id,text:document.getElementById(id).innerText}))`);
     for (const panel of panels) assert(!/S-ID|身份码|\*{3}-\*{3}-\*{3}/i.test(panel.text), panel.id + ' retained the removed identity-code UI');
     await key('Escape', 'Escape', 27);

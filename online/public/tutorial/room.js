@@ -162,7 +162,7 @@
     const changed = overlay.dataset.target !== def.id || overlay.hidden;
     const ringChanged = changed || overlay.dataset.phase !== room.state.phase;
     if (changed) {
-      if (def.id === 'target-health') $('target').scrollTop = 0;
+      if (def.id === 'target-health' && $('target-body')) $('target-body').scrollTop = 0;
       // Scroll only the panel's contents. Scrolling the page can move a centered
       // profile out of the viewport, especially when highlighting two fields.
       for (let parent = node.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
@@ -248,7 +248,7 @@
     if (def.id === 'target-colors' && sideSpace < nw) {
       // Make room below the highlighted colors for the complete card on narrow screens.
       // Scroll the profile's contents while keeping both color fields visible.
-      const panel = $('target'), panelTop = panel.getBoundingClientRect().top + panel.clientTop + 8;
+      const panel = $('target-body'), panelTop = panel.getBoundingClientRect().top + panel.clientTop + 8;
       const desiredBottom = innerHeight - nh - 38;
       const shift = Math.min(r.bottom - desiredBottom, r.y - Math.max(12, panelTop));
       if (shift > 1) {

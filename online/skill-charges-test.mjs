@@ -150,9 +150,10 @@ function ui(faction = 'good') {
   return {env,api:env.uiAPI,e:element};
 }
 
-await test('每个技能按钮下方都有对应简略效果和可访问说明', () => {
+await test('技能按钮关联可展开的技能说明', () => {
   for (const [faction, ids] of [['good',['accuse']],['bad',['assassinate']]]) {
     const {api,e} = ui(faction); api.renderPrivate(); const html=e('private-content').innerHTML;
+    assert.ok(html.includes('<details id="target-skill-details"'));
     for(const id of ids) {
       assert.ok(html.includes(`aria-describedby="${id}-effect"`));
       assert.ok(html.indexOf(`id="${id}"`) < html.indexOf(`id="${id}-effect"`));
@@ -209,19 +210,16 @@ await test('结束/休战不显示恢复倒计时，本场已操作或保护中�
   env.me.accusedToday=[];env.target.protected=true;api.updateSkillStatus();assert.equal(e('accuse').disabled,true);assert.equal(e('accuse-timer').textContent,'目标保护中');
   env.target.protected=false;env.target.alive=false;api.updateSkillStatus();assert.equal(e('accuse').disabled,true,'休战目标不可操作');
 });
-await test('已打开私密面板的生命与保护随快照更新，不重建技能按钮或点击处理器', () => {
+await test('已打开档案的目标保护和休战状态更新技能按钮，不替换点击处理器', () => {
   const {env,api,e}=ui();env.target.hp=3;env.target.maxHp=5;api.renderPrivate();
   const button=e('accuse'),handler=button.onclick;
-  assert.match(e('private-target-health').innerHTML,/aria-valuenow="3"/);
+  assert.equal(button.disabled,false);
   env.target.hp=2;env.target.protected=true;api.updateSkillStatus();
-  assert.match(e('private-target-health').innerHTML,/aria-valuenow="2"/);
-  assert.match(e('private-target-health').innerHTML,/aria-valuemax="5"/);
-  assert.match(e('private-target-health').innerHTML,/data-protected="true"/);
+  assert.equal(e('accuse-timer').textContent,'目标保护中');
   assert.equal(e('accuse'),button);assert.equal(button.onclick,handler);
   assert.equal(button.disabled,true);
   env.target.hp=0;env.target.alive=false;env.target.protected=false;api.updateSkillStatus();
-  assert.match(e('private-target-health').innerHTML,/aria-valuenow="0"/);
-  assert.match(e('private-target-health').innerHTML,/data-truce="true"/);
+  assert.equal(e('accuse-timer').textContent,'暂不可用');
   assert.equal(e('accuse'),button);assert.equal(button.onclick,handler);
 });
 await test('使对方进入休战只提示该操作结果，不误报操作者自己休战', async () => {

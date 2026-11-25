@@ -27,6 +27,7 @@ assert(ROOM.flowers.configure(recipients).ok);
 const all = people.map(p => ROOM.join('browser-' + p.empNo, null, p).player), sender = all[0], target = all[1];
 let ownToken = sender.sessionId;
 const actors = Array.from({ length: 14 }, (_, i) => ROOM.join('recognition-' + i, null, { empNo: 'recognition-' + i, name: '致敬同事' + i }).player);
+const tutorialKeys = [...all, ...actors].map(p => `sid-tutorial-v3:guest:${p.name}`);
 const results = [], errors = [], resourceErrors = [], pending = new Map();
 let browser, socket, sequence = 0, stage = 'startup';
 const call = (method, params = {}) => new Promise((ok, no) => {
@@ -70,8 +71,8 @@ async function openAs(player) {
   await evaluate(`localStorage.setItem('sid_session_token',${JSON.stringify(ownToken)})`);
   await call('Page.navigate', { url: base + '/' });
   await call('Page.bringToFront');
-  await waitPage(`document.readyState==='complete'&&document.getElementById('annual-review-overlay').dataset.ready==='true'`);
-  await key('Escape', 'Escape', 27);
+  await waitPage(`document.readyState==='complete'&&Number(document.getElementById('roster-count').textContent)>0&&(!document.getElementById('annual-review-overlay').open||document.getElementById('annual-review-overlay').dataset.ready==='true')`);
+  if (await evaluate(`document.getElementById('annual-review-overlay').open`)) await key('Escape', 'Escape', 27);
   await waitPage(`!document.getElementById('annual-review-overlay').open&&document.getElementById('join-page').hidden`);
 }
 try {
@@ -92,7 +93,10 @@ try {
   };
   await call('Page.enable'); await call('Runtime.enable'); await call('Network.enable');
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
-  await call('Page.addScriptToEvaluateOnNewDocument', { source: `if(location.origin===${JSON.stringify(base)}&&!localStorage.getItem('sid_session_token'))localStorage.setItem('sid_session_token',${JSON.stringify(ownToken)});` });
+  await call('Page.addScriptToEvaluateOnNewDocument', { source: `if(location.origin===${JSON.stringify(base)}){
+    if(!localStorage.getItem('sid_session_token'))localStorage.setItem('sid_session_token',${JSON.stringify(ownToken)});
+    for(const key of ${JSON.stringify(tutorialKeys)})localStorage.setItem(key,JSON.stringify({step:0,dismissed:true}));
+  }` });
   await call('Page.navigate', { url: base + '/' });
   await call('Page.bringToFront');
   await waitPage(`document.readyState==='complete'&&document.getElementById('annual-review-overlay').dataset.ready==='true'`);
@@ -103,11 +107,32 @@ try {
     assert.equal(await evaluate(`document.querySelectorAll('#roster-items .recipient-badge').length`), 0);
     assert.equal(await evaluate(`document.querySelectorAll('#roster-items .roster-flower-count').length`), 0);
     for (const p of all.slice(2,4)) assert.equal(await evaluate(`document.querySelectorAll('#roster-items [data-player="${p.id}"] .model-badge').length`), 1);
-    assert.equal(await evaluate(`document.querySelectorAll('#target .recipient-badge').length`), 1);
+    assert.equal(await evaluate(`document.querySelector('#target .target-name h2 + .target-flower-count b')?.textContent`), '0');
+    assert.equal(await evaluate(`document.querySelectorAll('#target .recipient-badge,#target .flower-panel').length`), 0);
     assert.equal(await evaluate(`document.querySelectorAll('#target .model-badge').length`), 0);
+    const profile = await evaluate(`(() => {
+      const panel = document.getElementById('target'), button = panel.querySelector('.target-health-row #send-flower');
+      const rect = button?.getBoundingClientRect();
+      return { width: panel.offsetWidth, height: rect?.height, visible: rect && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2) === button };
+    })()`);
+    assert.deepEqual(profile, { width: 448, height: 34, visible: true });
+    await waitPage(`window.SID?.characterSprites?.status === 'ready'`);
+    const portraitRefresh = await evaluate(`(() => {
+      const row = document.querySelector('#roster-items [data-player="${target.id}"]');
+      const panel = document.getElementById('target');
+      const action = panel.querySelector('#send-flower');
+      row.querySelector('.portrait').outerHTML = '<svg class="portrait"></svg>';
+      panel.querySelector('.portrait').outerHTML = '<svg class="portrait"></svg>';
+      window.dispatchEvent(new Event('sid-character-assets-ready'));
+      return {
+        sameRow: row.isConnected, sameAction: action.isConnected,
+        portraitsUpdated: !!row.querySelector('img.portrait') && !!panel.querySelector('img.portrait')
+      };
+    })()`);
+    assert.deepEqual(portraitRefresh, { sameRow: true, sameAction: true, portraitsUpdated: true });
     await capture('01-recipient-desktop.png');
     await selectPlayer(all[2]);
-    assert.equal(await evaluate(`document.querySelectorAll('#target .honor-badge').length`), 2);
+    assert.equal(await evaluate(`document.querySelectorAll('#target .model-badge,#target .target-flower-count').length`), 2);
     await selectPlayer(all[3]);
     assert.equal(await evaluate(`document.querySelectorAll('#target .model-badge').length`), 1);
     assert.equal(await evaluate(`!!document.getElementById('send-flower')`), false);
@@ -126,7 +151,8 @@ try {
     await evaluate(`document.getElementById('send-flower').click();document.getElementById('send-flower').click()`);
     assert.equal(sender.score, 2); assert.equal(target.flowerState.received, 1);
     await waitPage(`document.querySelector('#roster-items [data-player="${target.id}"] .roster-flower-count b')?.textContent==='1'`);
-    await delay(2700);
+    await waitPage(`document.querySelector('#target .target-flower-count b')?.textContent==='1'`);
+    await waitPage(`(() => {const card=document.querySelector('.flower-dedication');const animation=card?.getAnimations()[0];return animation?.currentTime>=2600&&Number(getComputedStyle(card).opacity)>.95;})()`);
     const held = await evaluate(`(()=>{const e=document.querySelector('.flower-dedication');return e?{duration:getComputedStyle(e).animationDuration,opacity:Number(getComputedStyle(e).opacity),text:e.textContent}:null;})()`);
     assert(held && held.opacity > .95); assert.equal(held.duration, '4.5s'); assert(held.text.includes(target.name));
     await capture('02b-dedication-held.png');
@@ -156,7 +182,7 @@ try {
     await call('Emulation.setTouchEmulationEnabled', { enabled: true });
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
     await selectPlayer(target);
-    const button = await evaluate(`(()=>{const b=document.getElementById('send-flower');b.scrollIntoView({block:'center'});const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+    const button = await evaluate(`(()=>{const b=document.getElementById('send-flower');const r=b.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`);
     await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [button] });
     await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await waitPage(`document.querySelector('.flower-celebration')`);
@@ -164,8 +190,17 @@ try {
     const layout = await evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,button:document.getElementById('send-flower').getBoundingClientRect().toJSON(),panel:document.getElementById('target').getBoundingClientRect().toJSON()})`);
     assert(layout.scroll <= layout.width + 1); assert(layout.button.x >= 0 && layout.button.right <= layout.width);
     assert(layout.panel.y >= 0 && layout.panel.bottom <= 844);
-    await capture('04-mobile-390x844.png');
     await waitPage(`!document.querySelector('.flower-celebration')`);
+    await capture('04-mobile-390x844.png');
+    await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 340, deviceScaleFactor: 2, mobile: true });
+    const header = await evaluate(`(() => {
+      const close = document.getElementById('target-close'), body = document.getElementById('target-body');
+      const before = close.getBoundingClientRect();
+      body.scrollTop = body.scrollHeight;
+      const after = close.getBoundingClientRect();
+      return { scrolled: body.scrollTop > 0, fixed: before.top === after.top && document.elementFromPoint(after.x + after.width / 2, after.y + after.height / 2) === close };
+    })()`);
+    assert.deepEqual(header, { scrolled: true, fixed: true });
     await call('Emulation.setEmulatedMedia', { features: [] });
     await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   });
@@ -187,6 +222,22 @@ try {
     await selectPlayer(target); assert.equal(await evaluate(`!!document.getElementById('send-flower')`), false);
     await waitPage(`document.querySelector('#roster-items [data-player="${target.id}"] .roster-flower-count b')?.textContent==='20'`);
     assert.equal(await evaluate(`document.querySelectorAll('#roster-items .recipient-badge').length`), 0);
+    const offline = all[2];
+    ROOM.setOffline(offline.id);
+    await waitPage(`!!document.querySelector('#roster-items [data-player="${offline.id}"] .offline-tag')`);
+    const rowLayout = await evaluate(`(() => {
+      const row = document.querySelector('#roster-items [data-player="${offline.id}"]');
+      const rect = selector => row.querySelector(selector).getBoundingClientRect();
+      const heading = rect('.roster-heading'), name = rect('.roster-identity strong');
+      const flower = rect('.roster-flower-count'), health = rect('.combat-health'), tag = rect('.offline-tag');
+      return {
+        flowerBesideName: flower.left >= name.right && flower.top < name.bottom && flower.bottom > name.top,
+        healthBelowName: health.top >= heading.bottom && health.left === name.left,
+        offlineAtTopRight: tag.top === heading.top && tag.right === heading.right,
+        count: row.querySelector('.roster-flower-count b').textContent
+      };
+    })()`);
+    assert.deepEqual(rowLayout, { flowerBesideName: true, healthBelowName: true, offlineAtTopRight: true, count: '1' });
     await capture('05b-roster-flower-count.png');
     await selectPlayer(all[2]); await click('#send-flower');
     await waitPage(`document.getElementById('send-flower').textContent.includes('已送花')`);

@@ -75,7 +75,7 @@ const CFG = {
     resultSelf: '#games-self-glyph',
     resultOpponent: '#games-opp-glyph',
     resultVerdict: '#games-result',
-    cooldownLabel: '#target-rps-note',
+    cooldownLabel: '#target-invite-rps',
     pending: '#games-phase',
   },
   // API 契约（已对照 online/room.js 当前实现确认复用 /api/play，以 kind 区分）。
@@ -342,7 +342,7 @@ async function runAcceptance() {
     await postTest('/api/test/place', { playerId: idC, floorId: 2, x: 500, y: 350, zoneId: null });
     await waitFor('A 进入 3F', () => A.ev(`document.querySelector('#floor-indicator')?.textContent.trim() === '3F'`).catch(() => false));
 
-    // 2) 全局名单与跨楼层档案猜拳卡片 + rps-target.png
+    // 2) 全局名单与跨楼层档案猜拳入口 + rps-target.png
     await check('RPS-02 从名单打开跨楼层玩家档案 + 截图', async () => {
       await A.click('#roster-toggle');
       const row = `#roster-items button[data-player="${idB}"]`;
@@ -353,21 +353,23 @@ async function runAcceptance() {
         const btn = document.querySelector('#target-invite-rps');
         return !!card && !!btn && !btn.disabled;
       })()`).catch(() => false));
-      const badgeCheck = await A.ev(`(() => {
-        const c = document.querySelector('#target-rps-icon');
-        if (!c) return { ok: false };
-        const ctx = c.getContext('2d');
-        const data = ctx.getImageData(0, 0, c.width, c.height).data;
-        let opaque = 0;
-        for (let i = 3; i < data.length; i += 4) if (data[i] > 0) opaque++;
-        return { ok: opaque > 50, smoothing: ctx.imageSmoothingEnabled, pts: document.querySelector('#target-rps-points')?.textContent, pair: document.querySelector('#target-rps-pair')?.textContent };
+      const layout = await A.ev(`(() => {
+        const invite = document.querySelector('#target-invite-rps');
+        const skill = document.querySelector('#target [data-skill]');
+        const colors = document.querySelector('#target .color-grid');
+        const traits = document.querySelector('#target .traits');
+        const row = invite.getBoundingClientRect();
+        return {
+          label: invite.textContent.trim(),
+          besideSkill: row.top === skill.getBoundingClientRect().top,
+          beforeAttributes: row.bottom <= colors.getBoundingClientRect().top,
+          attributesVisible: [...colors.children, ...traits.children].every(field => field.getBoundingClientRect().height > 0),
+          compact: !document.querySelector('#target-rps-points,#target-rps-pair')
+        };
       })()`);
-      assert.equal(badgeCheck.ok, true, '#target-rps-icon 应绘出非空像素');
-      assert.equal(badgeCheck.smoothing, false, 'imageSmoothingEnabled 必须为 false');
-      assert.match(badgeCheck.pts, /0\/10 分/);
-      assert.match(badgeCheck.pair, /0\/2 次/);
+      assert.deepEqual(layout, { label: '邀请猜拳', besideSkill: true, beforeAttributes: true, attributesVisible: true, compact: true });
       await A.screenshot(shotTarget);
-      return badgeCheck;
+      return layout;
     });
 
     // 3) 发起邀请 → 被邀请方自动弹出邀请弹窗 + rps-invitation.png

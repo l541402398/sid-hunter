@@ -5,17 +5,18 @@
   else { root.SID = root.SID || {}; root.SID.flowers = api; }
 })(typeof window !== 'undefined' ? window : globalThis, function() {
   const DEDICATION_MS = 4500;
+  function flowerCountHTML(p, profile = false) {
+    const count = Number.isSafeInteger(p?.flowersReceived) && p.flowersReceived > 0 ? p.flowersReceived : 0;
+    if (!count && !(profile && p?.flowerRecipient)) return '';
+    return `<span class="${profile ? 'target-flower-count' : 'roster-flower-count'}" title="本场收到鲜花 ${count} 朵" aria-label="本场收到鲜花 ${count} 朵"><span aria-hidden="true">🌷</span><b>${count}</b></span>`;
+  }
+  const modelBadgeHTML = p => p?.annualRoleModel
+    ? '<span class="honor-badge model-badge" title="年度榜样人物">🏅 年度榜样</span>' : '';
   function badgesHTML(p) {
-    return (p?.annualRoleModel ? '<span class="honor-badge model-badge" title="年度回顾榜样人物">🏅 年度榜样</span>' : '') +
+    return modelBadgeHTML(p) +
       (p?.flowerRecipient ? '<span class="honor-badge recipient-badge" title="收花人名单成员">🌷 收花人</span>' : '');
   }
-  function rosterHTML(p) {
-    const model = p?.annualRoleModel
-      ? '<span class="honor-badge model-badge" title="年度榜样人物" aria-label="年度榜样人物">🏅 年度榜样</span>' : '';
-    const count = Number.isSafeInteger(p?.flowersReceived) && p.flowersReceived > 0 ? p.flowersReceived : 0;
-    const flowers = count ? `<span class="roster-flower-count" title="本场收到鲜花 ${count} 朵" aria-label="本场收到鲜花 ${count} 朵"><span aria-hidden="true">🌷</span><b>${count}</b></span>` : '';
-    return model || flowers ? `<span class="honor-badges">${model}${flowers}</span>` : '';
-  }
+  function profileBadgesHTML(p) { return flowerCountHTML(p, true) + modelBadgeHTML(p); }
   // 固定数量的 SVG + CSS transform 动画；仅献花成功时创建，结束后整层销毁。
   const tulip = '<svg viewBox="0 0 40 56" aria-hidden="true"><path d="M20 54V25" fill="none" stroke="#758e52" stroke-width="3"/><path d="M19 48C3 46 4 36 4 36c11 0 16 5 16 12m1-6c14-1 15-11 15-11-10 1-15 5-15 11" fill="#8ca663"/><path d="M20 29C6 29 4 17 7 7l8 6L20 3l5 10 8-6c3 10 1 22-13 22Z" fill="currentColor"/><path d="M20 29C12 25 12 15 15 13l5 7 5-7c3 5 1 13-5 16Z" fill="#fff4dd" opacity=".4"/></svg>';
   function create({ context, api, changed, toast, document: doc = document }) {
@@ -29,19 +30,15 @@
       const c = synchronize();
       return confirmed.has(p.id) || !!c.me?.flowers?.sentTo?.includes(p.id);
     }
-    function panelHTML(p) {
+    function actionHTML(p) {
       const c = synchronize();
-      if (!p?.flowerRecipient && !(p?.flowersReceived > 0)) return '';
-      const count = Number(p.flowersReceived) || 0;
-      const own = p.id === c.me?.id, done = sent(p), busy = flight?.targetId === p.id;
-      const disabled = !c.me || own || done || !!flight || c.finished || !!c.closed;
+      if (!p?.flowerRecipient || !c.me || p.id === c.me.id) return '';
+      const done = sent(p), busy = flight?.targetId === p.id;
+      const disabled = done || !!flight || c.finished || !!c.closed;
       const maxed = (c.me?.flowers?.sentPoints || 0) >= 10;
-      const button = !p.flowerRecipient || own ? '' : `<button type="button" id="send-flower" class="send-flower"${disabled ? ' disabled' : ''}>${busy ? '正在送出…' : done ? '✓ 已送花' : '🌷 为 TA 献花'}</button>`;
-      const note = own ? '每收到 5 朵鲜花 +1 分，不设上限'
-        : done ? '这份心意已送达，本场每人限送一次'
-        : maxed ? '本场献花积分已达 10 分，仍可送出心意'
-        : '每次献花 +2 分 · 本场最多 10 分';
-      return `<div class="flower-panel"><div class="flower-count"><span>本场收到鲜花</span><strong>${count}<small> 朵</small></strong></div>${button}<p class="flower-note">${note}</p></div>`;
+      const note = done ? '本场已向这位同事献花' : c.finished || c.closed ? '当前场次暂不可献花'
+        : maxed ? '本场献花积分已达 10 分，仍可送出心意' : '每次献花 +2 分，本场最多 10 分';
+      return `<button type="button" id="send-flower" class="send-flower" title="${note}"${disabled ? ' disabled' : ''}>${busy ? '送出中…' : done ? '已送花' : '献花'}</button>`;
     }
     function clearEffect() {
       clearTimeout(effectTimer); effectTimer = null;
@@ -85,7 +82,7 @@
       } finally { if (flight === request) { flight = null; changed(); } }
     }
     function bind(p) { const button = doc.getElementById('send-flower'); if (button) button.onclick = () => send(p); }
-    return { panelHTML, bind, sent, synchronize, signature: () => [scope, flight?.targetId ?? null, [...confirmed]], clearEffect };
+    return { actionHTML, bind, sent, synchronize, signature: () => [scope, flight?.targetId ?? null, [...confirmed]], clearEffect };
   }
-  return { badgesHTML, rosterHTML, create };
+  return { badgesHTML, profileBadgesHTML, flowerCountHTML, modelBadgeHTML, create };
 });

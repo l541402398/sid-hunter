@@ -16,12 +16,12 @@ function fixture() {
 }
 test('快速连点只发一笔，成功后按钮已送花，特效文字安全且不改写较新的积分', async () => {
   const f = fixture(), task = f.button.onclick();
-  assert.match(f.ui.panelHTML(f.target), /正在送出/);
+  assert.match(f.ui.actionHTML(f.target), /送出中/);
   await f.button.onclick(); assert.equal(f.requests.length, 1);
   f.context.me.score = 99;
   f.requests[0].resolve({ ok: true, gainedPoints: 2, score: 32 }); await task;
   assert.equal(f.context.me.score, 99);
-  assert.match(f.ui.panelHTML(f.target), /已送花/);
+  assert.match(f.ui.actionHTML(f.target), /已送花/);
   await f.button.onclick(); assert.equal(f.requests.length, 1);
   assert.equal(f.effects.length, 1);
   const dedication = f.effects[0].children.at(-1);
@@ -49,11 +49,11 @@ test('请求失败不记成功、不自动重试；服务端重复响应不再�
 test('自送、关闭场次、未加入和服务端已送记录均禁用；满额仍允许送花', async () => {
   const f = fixture();
   f.context.me.flowers.sentPoints = 10;
-  assert.match(f.ui.panelHTML(f.target), /仍可送出心意/);
-  assert(!/id="send-flower"[^>]* disabled/.test(f.ui.panelHTML(f.target)));
+  assert.match(f.ui.actionHTML(f.target), /仍可送出心意/);
+  assert(!/id="send-flower"[^>]* disabled/.test(f.ui.actionHTML(f.target)));
   for (const state of [{ finished: true }, { closed: 'paused' }, { me: null }]) {
     const x = fixture(); x.context = { ...x.context, ...state }; await x.button.onclick(); assert.equal(x.requests.length, 0);
   }
   f.context.me.flowers.sentTo = [f.target.id]; await f.button.onclick(); assert.equal(f.requests.length, 0);
-  const own = { ...f.target, id: 1 }; assert(!f.ui.panelHTML(own).includes('id="send-flower"'));
+  const own = { ...f.target, id: 1 }; assert.equal(f.ui.actionHTML(own), '');
 });
