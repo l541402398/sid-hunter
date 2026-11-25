@@ -11,7 +11,7 @@
         <p>用一个独立练习角色，学会移动、交互、查看自己、查看线索、搜索名单和使用技能。</p>
         <p class="tutorial-live-note">正式角色仍站在原地图原坐标，正常受击、休战和计分；教程不会被打断。</p>
         <p id="tutorial-progress-note"></p><div class="tutorial-card-actions"><button id="tutorial-start" type="button">进入训练室</button><button id="tutorial-reset" type="button" hidden>从头练习</button><button id="tutorial-skip" type="button">跳过，直接玩</button></div>
-        <small>以后可在「游戏规则 → 新手训练室」随时进入。</small>
+        <small>以后可在「规则 → 新手训练室」随时进入。</small>
       </dialog>
       <dialog id="tutorial-overlay" aria-label="独立新手训练室">
         <iframe id="tutorial-frame" allow="fullscreen" title="新手训练室，独立练习角色"></iframe>
