@@ -932,9 +932,25 @@
     const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowersReceived, p.annualRoleModel]), pendingData, pendingFlight]);
     if (sig === lastRosterSig) return;
     lastRosterSig = sig;
-    const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
-    $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的已登录玩家</p>';
-    bindRows($('roster-items'));
+    const groups = new Map();
+    const ungrouped = [];
+    for (const p of all) {
+      const org = p.deliveryGroup?.trim() || p.dept?.trim() || '';
+      const hits = matchPublic(p, query);
+      if (query && !hits.length && !org.toLowerCase().includes(query)) continue;
+      if (!org) {
+        ungrouped.push(row(p, hits));
+        continue;
+      }
+      if (!groups.has(org)) groups.set(org, []);
+      groups.get(org).push(row(p, hits));
+    }
+    const grouped = [...groups].sort(([a], [b]) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+      .map(([org, rows]) => `<section class="roster-org-group"><h3>${escapeText(org)}</h3>${rows.join('')}</section>`)
+      .join('');
+    const host = $('roster-items');
+    host.innerHTML = (grouped + ungrouped.join('')) || '<p class="panel-note">没有匹配的已登录玩家</p>';
+    bindRows(host);
     renderRosterUnjoined(query);
   }
   function logHighlightClass(entry) {

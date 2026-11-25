@@ -43,14 +43,13 @@ async function handle(ctx) {
       return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, lan: lanAddresses(), port: PORT });
     }
     const user = req.ssoUser;
-    // 组织信息同样来自员工档案库：合约区（dept）与交付组（deliveryGroup）在目标档案里公开显示。
+    // 只有读到员工档案时才更新组织信息。档案中的空交付组用于清除原有分组。
     const employee = PROFILES ? PROFILES.employeeOf(user.emp_no) : null;
     const gender = (employee && employee.gender) || user.gender || null;
-    const dept = (employee && employee.department) || null;
-    const deliveryGroup = (employee && employee.deliveryGroup) || null;
+    const org = employee ? { dept: employee.department, deliveryGroup: employee.deliveryGroup } : {};
     const bound = ROOM.playerByEmpNo(user.emp_no);
     const sid = bound && oldSid && bound.sessionId === oldSid ? oldSid : newSid();
-    const result = ROOM.join(sid, null, { empNo: user.emp_no, name: user.name || user.emp_no, gender, dept, deliveryGroup });
+    const result = ROOM.join(sid, null, { empNo: user.emp_no, name: user.name || user.emp_no, gender, ...org });
     if (result.error) return send(res, 409, { error: result.error });
     setSessionCookie(res, sid);
     return send(res, 200, { ok: true, playerId: result.player.id, name: result.player.name, revived: result.revived, sessionToken: sid, roundId: ROOM.room.roundId, lan: lanAddresses(), port: PORT });

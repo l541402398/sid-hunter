@@ -311,8 +311,8 @@ function createStore(options = {}) {
   function listEmployees() {
     if (!state.enabled) return null;
     try {
-      return db.prepare('SELECT emp_no, name, delivery_group FROM employees').all().map(row => ({
-        empNo: row.emp_no, name: row.name, deliveryGroup: row.delivery_group || null
+      return db.prepare('SELECT emp_no, name, department, delivery_group FROM employees').all().map(row => ({
+        empNo: row.emp_no, name: row.name, department: row.department || null, deliveryGroup: row.delivery_group || null
       }));
     } catch (error) { state.error = String(error && error.message || error); return null; }
   }

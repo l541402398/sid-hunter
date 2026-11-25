@@ -229,6 +229,12 @@ try {
     assert.equal(player.dept, '合约二区');
     assert.equal(player.deliveryGroup, 'TRP二组');
     assert.equal(room.publicSnapshot(player.id).players.find(item => item.id === player.id).deliveryGroup, 'TRP二组');
+
+    room.join('o3', null, { empNo: 'O1', name: '组织员工', dept: '合约二区', deliveryGroup: null });
+    room.join('o4', null, { empNo: 'O1', name: '组织员工' });
+    const regrouped = room.publicSnapshot(player.id).players.find(item => item.id === player.id);
+    assert.equal(regrouped.dept, '合约二区');
+    assert.equal(regrouped.deliveryGroup, null);
   });
 
   await test('回座只纠正发色：保留阵营、其它配色与已正确形象', () => {
@@ -305,31 +311,32 @@ try {
     assert.ok(!css.includes('.org-grid'));
   });
 
-  await test('待加入名单：真实员工库、交付组分组与工号排序、离线淘汰排除及最小字段', () => {
+  await test('待加入名单：优先交付组、按部门回退、工号排序、排除已加入同事及最小字段', () => {
     const store = createStore({ file: path.join(tempDir(), 'pending.sqlite') });
     try {
       store.saveEmployees([
-        { empNo: '010', name: '同名', deliveryGroup: '甲组', email: 'private@example.com', gender: 'male', title: '秘密职位' },
+        { empNo: '010', name: '同名', department: '乙部门', deliveryGroup: '甲组', email: 'private@example.com', gender: 'male', title: '秘密职位' },
         { empNo: '002', name: '同名', deliveryGroup: '甲组' },
         { empNo: '001', name: '已离线', deliveryGroup: '乙组' },
         { empNo: '003', name: '已淘汰', deliveryGroup: '乙组' },
-        { empNo: '004', name: '未分组' }
+        { empNo: '004', name: '未分组' },
+        { empNo: '006', name: '部门同事乙', department: '乙部门' },
+        { empNo: '005', name: '部门同事甲', department: '乙部门', deliveryGroup: '   ' }
       ]);
       const profiles = createProfiles({ store, enabled: false });
       const result = profiles.pendingPlayers([
         { empNo: '001', online: false, alive: true }, { empNo: '003', alive: false },
         { name: '同名' }, { npc: true, empNo: '002' }
       ]);
-      assert.equal(result.count, 3); assert.equal(result.total, 5);
-      assert.deepEqual(result.groups, [
-        { name: '甲组', members: [{ empNo: '002', name: '同名' }, { empNo: '010', name: '同名' }] },
-        { name: '未分配交付组', members: [{ empNo: '004', name: '未分组' }] }
-      ]);
+      assert.equal(result.count, 5); assert.equal(result.total, 7);
+      assert.deepEqual(result.groups.find(g => g.name === '甲组').members, [{ empNo: '002', name: '同名' }, { empNo: '010', name: '同名' }]);
+      assert.deepEqual(result.groups.find(g => g.name === '乙部门').members, [{ empNo: '005', name: '部门同事甲' }, { empNo: '006', name: '部门同事乙' }]);
+      assert.deepEqual(result.groups.at(-1), { name: '未分配交付组', members: [{ empNo: '004', name: '未分组' }] });
       assert.equal(/private@example|gender|秘密职位|email|session|faction|sid/.test(JSON.stringify(result)), false);
       assert.equal(profiles.pendingPlayers(store.listEmployees()).count, 0, '全部加入空态');
-      assert.equal(profiles.pendingPlayers([]).count, 5, '新场不排除上一场参与者');
+      assert.equal(profiles.pendingPlayers([]).count, 7, '新场不排除上一场参与者');
       store.saveEmployees([{ empNo: '004', name: '调组', deliveryGroup: '甲组' }]);
-      assert.equal(profiles.pendingPlayers([]).groups.length, 2);
+      assert.equal(profiles.pendingPlayers([]).groups.length, 3);
     } finally { store.close(); }
     assert.equal(createProfiles({ store: createStore({ enabled: false }), enabled: false }).pendingPlayers([]).ok, false);
     const empty = createStore({ file: path.join(tempDir(), 'empty.sqlite') });

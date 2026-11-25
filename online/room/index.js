@@ -252,7 +252,7 @@ function createRoom(options = {}) {
     const text = [...clean(name)].slice(0, 32).join('');
     return text || [...clean(fallback)].slice(0, 32).join('') || '玩家';
   }
-  // 组织信息来自员工档案，只在目标公开档案里展示；清掉控制字符并限制长度。
+  // 名单与公开档案使用员工组织信息，清掉控制字符并限制长度。
   function cleanOrg(value) {
     const text = String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim();
     return [...text].slice(0, 64).join('') || null;
@@ -529,10 +529,9 @@ function createRoom(options = {}) {
     return player;
   }
   // 回座/重连时同步组织信息；老角色没有这两个字段也能补上。
-  function applyOrg(player, dept, deliveryGroup) {
-    if (dept) player.dept = dept;
-    if (deliveryGroup) player.deliveryGroup = deliveryGroup;
-    return player;
+  function applyOrg(player, identity) {
+    if (identity?.dept !== undefined) player.dept = cleanOrg(identity.dept);
+    if (identity?.deliveryGroup !== undefined) player.deliveryGroup = cleanOrg(identity.deliveryGroup);
   }
   // 每位真人独立以 20% 概率成为坏人；首位及重启后新加入者同样随机。
   // 不用固定五人袋，避免已知前四人身份后可推定第五人；人数比例按活动规模趋近 4:1。
@@ -543,14 +542,12 @@ function createRoom(options = {}) {
   function join(sessionId, nickname, identity) {
     const empNo = identity && identity.empNo ? String(identity.empNo) : '';
     const gender = normalizeGender(identity && identity.gender);
-    const dept = cleanOrg(identity && identity.dept);
-    const deliveryGroup = cleanOrg(identity && identity.deliveryGroup);
     if (empNo) {
       const bound = playerByEmpNo(empNo);
       if (bound) {
         // 同一工号回到原座位：不新开角色，也不改已经发下的阵营；只按员工性别校正形象。
         applyGender(bound, gender);
-        applyOrg(bound, dept, deliveryGroup);
+        applyOrg(bound, identity);
         bindSession(bound, sessionId);
         return { player: bound, revived: true };
       }
@@ -560,7 +557,7 @@ function createRoom(options = {}) {
       if (empNo && existing.empNo && existing.empNo !== empNo) return { error: '身份凭证已绑定其他玩家' };
       // 只恢复身份；online 由流建立时置真，好让重连摘要先固化。
       applyGender(existing, gender);
-      applyOrg(existing, dept, deliveryGroup);
+      applyOrg(existing, identity);
       existing.lastSeen = now();
       return { player: existing, revived: true };
     }
@@ -580,9 +577,8 @@ function createRoom(options = {}) {
       empNo: empNo || null,
       // 仅服务端内部保存，不进入公开/私密快照；公开形象仍只由 colors.hair 决定。
       gender: gender || null,
-      // 组织信息由目标公开档案展示（合约区 / 交付组），来自员工档案库。
-      dept: dept || null,
-      deliveryGroup: deliveryGroup || null,
+      dept: cleanOrg(identity?.dept),
+      deliveryGroup: cleanOrg(identity?.deliveryGroup),
       colors: randomColors(gender),
       traits: randomTraits(),
       traitPublic: { saying: false, food: false, sport: false },

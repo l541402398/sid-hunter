@@ -24,10 +24,12 @@ try{
    {empNo:'010',name:'待邀乙',deliveryGroup:'交付一组',email:'never-send@example.com',title:'never-send'},
    {empNo:'002',name:'待邀甲',deliveryGroup:'交付一组'},
    {empNo:'020',name:'<img src=x onerror=alert(1)>',deliveryGroup:'交付二组'},
-   {empNo:'030',name:'未分组'}
+   {empNo:'030',name:'部门同事',department:'运营部'}
   ]);
   const start=ACTIVITY.startManual({minutes:10,label:'待加入名单自测'});if(!start.ok)throw Error(JSON.stringify(start));
-  ROOM.join('pending-browser-fixture',null,{empNo:'001',name:'已加入'});
+  ROOM.join('pending-browser-fixture',null,{empNo:'001',name:'已加入',dept:'运营部',deliveryGroup:'交付一组'});
+  ROOM.join('department-roster-a',null,{empNo:'040',name:'已加入部门甲',dept:'运营部'});
+  ROOM.join('department-roster-b',null,{empNo:'050',name:'已加入部门乙',dept:'运营部',deliveryGroup:'   '});
   process.on('message',m=>{
    if(m.action==='join')ROOM.join('joined-new-fixture',null,{empNo:'002',name:'待邀甲'});
    if(m.action==='empty'){for(const e of STORE.listEmployees()){if(ROOM.room.players.some(p=>p.empNo===e.empNo))continue;const r=ROOM.join('staff-'+e.empNo,null,{empNo:e.empNo,name:e.name});if(r.error){process.send({ok:false,error:r.error,empNo:e.empNo});return;}}}
@@ -43,7 +45,13 @@ try{
  ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(Error(JSON.stringify(m.error))):p.resolve(m.result);}if(m.method==='Runtime.exceptionThrown')errors.push(m.params);};
  await send('Page.enable');await send('Runtime.enable');
  await send('Browser.grantPermissions',{origin:base,permissions:['clipboardReadWrite','clipboardSanitizedWrite']});
- await send('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('sid_session_token','pending-browser-fixture');window.__alerts=[];window.alert=m=>__alerts.push(m);`});
+ await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+  localStorage.setItem('sid_session_token','pending-browser-fixture');
+  const reviewDay=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+  localStorage.setItem('sid-annual-review-day:guest',reviewDay);
+  localStorage.setItem('sid-tutorial-v3:guest:已加入',JSON.stringify({dismissed:true}));
+  window.__alerts=[];window.alert=m=>__alerts.push(m);
+ `});
  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
  await send('Page.navigate',{url:base+'/?ticket=must-not-share#secret'});
  await wait(()=>ev("document.readyState==='complete'&&document.querySelector('#join-page').hidden"),'joined');
@@ -59,14 +67,21 @@ try{
  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});
  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
  await wait(()=>ev("document.querySelector('.pending-group').open"),'键盘可展开');
- const grouped = await ev("[...document.querySelectorAll('.pending-group')].map(g=>({name:g.querySelector('summary strong').textContent,ids:[...g.querySelectorAll('.pending-person small')].map(e=>e.textContent)}))");
- assert.deepEqual(grouped.find(g=>g.name.startsWith('交付一组')).ids,['工号 002','工号 010']);
- assert.deepEqual(grouped.find(g=>g.name.startsWith('交付二组')).ids,['工号 020']);
- assert.deepEqual(grouped.at(-1).ids,['工号 030']);
+ const grouped = await ev("Object.fromEntries([...document.querySelectorAll('.pending-group')].map(g=>[g.querySelector('summary strong').textContent,[...g.querySelectorAll('.pending-person small')].map(e=>e.textContent)]))");
+ assert.deepEqual(grouped,{'交付一组':['工号 002','工号 010'],'交付二组':['工号 020'],'运营部':['工号 030']});
  assert.equal(await ev("document.querySelectorAll('#pending-items img').length"),0,'姓名文本不可注入HTML');
  assert.deepEqual(await ev('__alerts'),[]);
  assert.equal(await ev("document.querySelector('#pending-items').textContent.includes('已加入')"),false);
  await click('#roster-toggle');assert.equal(await ev("document.querySelector('#pending-players').hidden"),true);
+ await wait(()=>ev("document.querySelectorAll('#roster-items .roster-org-group').length===2"),'joined organization groups');
+ const joinedGroups = await ev("Object.fromEntries([...document.querySelectorAll('#roster-items .roster-org-group')].map(g=>[g.querySelector('h3').textContent,[...g.querySelectorAll('.roster-row strong')].map(e=>e.textContent)]))");
+ assert.deepEqual(joinedGroups,{'交付一组':['已加入'],'运营部':['已加入部门甲','已加入部门乙']});
+ await ev("document.querySelector('#search').value='运营部';document.querySelector('#search').dispatchEvent(new Event('input'))");
+ assert.deepEqual(await ev("[...document.querySelectorAll('#roster-items h3')].map(h=>h.textContent)"),['运营部']);
+ assert.deepEqual(await ev("[...document.querySelectorAll('#roster-unjoined .unjoined-group summary strong')].map(h=>h.textContent)"),['运营部']);
+ await click('#roster-items .roster-row');
+ assert.equal(await ev("document.querySelector('#target .status').textContent"),'运营部');
+ await click('#target-close');
  await click('#pending-toggle');assert.equal(await ev("document.querySelector('#roster').hidden"),true);
  assert.equal(await ev("document.querySelector('.pending-group').open"),true,'面板开关保留分组状态');
  await ev("document.querySelectorAll('.pending-group').forEach(g=>g.open=true)");
@@ -101,10 +116,10 @@ try{
  assert.equal(await ev("document.querySelector('#pending-items').textContent.includes('待邀甲')"),false);
  await command('empty');await click('#pending-refresh');await wait(()=>ev("document.querySelector('#pending-count').textContent==='0'"),'all joined');
  assert.match(await ev("document.querySelector('#pending-items').textContent"),/所有同事都已加入/);
- await command('no-table');await click('#pending-refresh');await wait(()=>ev("document.querySelector('#pending-summary').textContent.includes('尚未同步')"),'no table');
+ await command('no-table');await click('#pending-refresh');await wait(()=>ev("document.querySelector('#pending-summary').textContent.includes('暂时无法加载待加入名单')"),'no table');
  assert.equal(await ev("document.querySelector('#pending-count').textContent"),'—','未同步不能伪报0人');
  assert.deepEqual(errors,[]);
- console.log('PASS 待加入名单真实Chrome：左上入口/互斥名单、交付组/工号排序、XSS、3档宽度、真实剪贴板与LAN地址、权限拒绝/HTTP回退、加入后移除/全部加入/员工表未同步，零浏览器异常。');
+ console.log('PASS 玩家名单 Chrome 验收：交付组与部门分组、组织搜索、公开档案、邀请和名单空态。');
 }finally{
  if(ws)ws.close();
  await Promise.all([server,browser].filter(p=>p&&p.exitCode===null).map(p=>new Promise(resolve=>{p.once('exit',resolve);p.kill();setTimeout(()=>{if(p.exitCode===null)p.kill('SIGKILL');resolve();},2000).unref();})));
