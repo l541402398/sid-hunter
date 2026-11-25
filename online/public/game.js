@@ -797,13 +797,14 @@
   }
   function healthHTML(p, compact = false) {
     const state = healthState(p);
-    const cells = Array.from({ length: state.maxHp }, (_, index) =>
-      '<i class="health-cell' + (index < state.hp ? ' filled' : '') + '"></i>').join('');
+    const filledHp = state.truce ? 0 : state.hp;
+    const fill = filledHp ? `<span class="health-fill" style="flex-grow:${filledHp}"></span>` : '';
+    const empty = '<span class="health-cell"></span>'.repeat(state.maxHp - filledHp);
     const label = '对抗生命 ' + state.hp + '/' + state.maxHp + (state.truce ? '，休战中' : state.protected ? '，受击保护中' : '');
     return '<span class="combat-health' + (compact ? ' compact' : '') + '" role="meter" aria-label="' + label +
       '" aria-valuemin="0" aria-valuenow="' + state.hp + '" aria-valuemax="' + state.maxHp +
       '" data-hp="' + state.hp + '" data-max-hp="' + state.maxHp + '" data-protected="' + state.protected +
-      '" data-truce="' + state.truce + '"><span class="health-cells" aria-hidden="true">' + cells +
+      '" data-truce="' + state.truce + '"><span class="health-cells" aria-hidden="true">' + fill + empty +
       '</span><span class="health-value" aria-hidden="true">' + state.hp + '/' + state.maxHp + '</span></span>';
   }
   function protectionHTML(p) {
