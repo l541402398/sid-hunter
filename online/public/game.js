@@ -799,13 +799,14 @@
   }
   function healthHTML(p, compact = false) {
     const state = healthState(p);
-    const cells = Array.from({ length: state.maxHp }, (_, index) =>
-      '<i class="health-cell' + (index < state.hp ? ' filled' : '') + '"></i>').join('');
+    const filledHp = state.truce ? 0 : state.hp;
+    const fill = filledHp ? `<span class="health-fill" style="flex-grow:${filledHp}"></span>` : '';
+    const empty = '<span class="health-cell"></span>'.repeat(state.maxHp - filledHp);
     const label = '对抗生命 ' + state.hp + '/' + state.maxHp + (state.truce ? '，休战中' : state.protected ? '，受击保护中' : '');
     return '<span class="combat-health' + (compact ? ' compact' : '') + '" role="meter" aria-label="' + label +
       '" aria-valuemin="0" aria-valuenow="' + state.hp + '" aria-valuemax="' + state.maxHp +
       '" data-hp="' + state.hp + '" data-max-hp="' + state.maxHp + '" data-protected="' + state.protected +
-      '" data-truce="' + state.truce + '"><span class="health-cells" aria-hidden="true">' + cells +
+      '" data-truce="' + state.truce + '"><span class="health-cells" aria-hidden="true">' + fill + empty +
       '</span><span class="health-value" aria-hidden="true">' + state.hp + '/' + state.maxHp + '</span></span>';
   }
   function protectionHTML(p) {
@@ -939,9 +940,25 @@
     const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowersReceived, p.annualRoleModel])]);
     if (sig !== lastRosterSig) {
       lastRosterSig = sig;
-      const result = all.map(p => ({ p, hits: matchPublic(p, query) })).filter(r => !query || r.hits.length);
-      $('roster-items').innerHTML = result.length ? result.map(r => row(r.p, r.hits)).join('') : '<p class="panel-note">没有匹配的已登录玩家</p>';
-      bindRows($('roster-items'));
+      const groups = new Map();
+      const ungrouped = [];
+      for (const p of all) {
+        const org = p.deliveryGroup?.trim() || p.dept?.trim() || '';
+        const hits = matchPublic(p, query);
+        if (query && !hits.length && !org.toLowerCase().includes(query)) continue;
+        if (!org) {
+          ungrouped.push(row(p, hits));
+          continue;
+        }
+        if (!groups.has(org)) groups.set(org, []);
+        groups.get(org).push(row(p, hits));
+      }
+      const grouped = [...groups].sort(([a], [b]) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+        .map(([org, rows]) => `<section class="roster-org-group"><h3>${escapeText(org)}</h3>${rows.join('')}</section>`)
+        .join('');
+      const host = $('roster-items');
+      host.innerHTML = (grouped + ungrouped.join('')) || '<p class="panel-note">没有匹配的已登录玩家</p>';
+      bindRows(host);
     }
     const unjoined = [query, pendingData, pendingFlight];
     if (unjoined.some((value, i) => value !== lastUnjoinedRoster[i])) {
@@ -4161,7 +4178,7 @@
     }
     ctx.restore();
     // 暗角在 CSS 像素空间贴一次，位于背景与角色之间，避免随缩放变形或压暗角色。
-    if (vignette) ctx.drawImage(vignette, 0, 0, cssW, cssH);
+    if (vignette && floorId !== 5) ctx.drawImage(vignette, 0, 0, cssW, cssH);
     ctx.save(); ctx.scale(scale, scale); ctx.translate(-camX, -camY);
     if (SCENE && !currentRoom) SCENE.halls(ctx, f, glassDoorStates, frameDt);
     // 需求①：楼层上画出通往各独立房间的门（门牌 + 地面指示灯带），让"哪面墙能进去"一眼可见。
@@ -4307,8 +4324,7 @@
     }
     ctx.restore();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawFogOverlay();
-    // F1 碰撞调试层：在雾层之后、CSS 像素空间绘制，避免被世界缩放/暗角影响。
+    // F1 碰撞调试层：在 CSS 像素空间绘制，避免被世界缩放影响。
     if (debugEnabled && TMJ_DEBUG?.isVisible()) {
       const selfP = selfPlayer();
       const selfR = selfP ? renderMap.get(selfP.id) : null;
@@ -4325,38 +4341,6 @@
       });
     }
   }
-  // 5F 战争迷雾：只留人物周围一小圈可见，其余压黑。半径与服务端裁剪共用 FLOOR_FOG。
-  // 房间内（zoneId）不盖雾——那是独立空间，有自己的小镜头。
-  function drawFogOverlay() {
-    const cfg = WORLD.FLOOR_FOG && WORLD.FLOOR_FOG[floorId];
-    if (!cfg || zoneId) return;
-    const self = renderMap.get(selfId());
-    if (!self) return;
-    ctx.save();
-    ctx.globalAlpha = 1;
-    const sx = (self.x - drawCamX) * scale;
-    const sy = (self.y - drawCamY) * scale;
-    // 轻微呼吸/火光抖动，避免像一块固定黑色遮罩。
-    const wobble = 1 + Math.sin(clock * 6.3) * 0.012 + Math.sin(clock * 13.7) * 0.006;
-    const radius = Math.max(60, cfg.radius * scale * wobble);
-    // 可见圈里加一点暖色火光（贴地），让"一小圈可见"不是冷冰冰的探照灯。
-    const warm = ctx.createRadialGradient(sx, sy, 4, sx, sy, radius * 0.62);
-    warm.addColorStop(0, 'rgba(255,184,108,0.10)');
-    warm.addColorStop(0.55, 'rgba(255,160,90,0.05)');
-    warm.addColorStop(1, 'rgba(255,150,80,0)');
-    ctx.fillStyle = warm;
-    ctx.fillRect(0, 0, cssW, cssH);
-    const g = ctx.createRadialGradient(sx, sy, Math.max(8, radius * 0.35), sx, sy, radius * 1.15);
-    g.addColorStop(0, 'rgba(62,38,18,0)');
-    g.addColorStop(0.6, 'rgba(62,38,18,0.04)');
-    g.addColorStop(0.82, 'rgba(58,36,18,0.18)');
-    g.addColorStop(0.94, 'rgba(52,32,16,0.30)');
-    g.addColorStop(1, 'rgba(46,28,14,0.38)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, cssW, cssH);
-    ctx.restore();
-  }
-
   // ---------- 插值与镜头 ----------
   function step(dt) {
     clock += dt;

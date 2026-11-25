@@ -80,6 +80,21 @@ async function reachTruce(cancelFirst = false) {
  assert.equal(await room("document.getElementById('training-complete').open"),false);
 }
 async function noteVisible(){const r=await room("({rect:document.getElementById('spotlight-note').getBoundingClientRect().toJSON(),w:innerWidth,h:innerHeight})");assert.ok(r.rect.x>=0&&r.rect.right<=r.w&&r.rect.y>=0&&r.rect.bottom<=r.h,JSON.stringify(r));}
+async function filledHealthIsContinuous(selector, hp) {
+ const bar=await ev(`(()=>{
+  const track=document.querySelector(${JSON.stringify(selector)}).querySelector('.health-cells');
+  const fills=[...track.querySelectorAll('.health-fill')];
+  const empty=[...track.querySelectorAll('.health-cell')];
+  const width=element=>element.getBoundingClientRect().width;
+  return {fills:fills.length,empty:empty.length,fillWidth:fills.reduce((n,element)=>n+width(element),0),
+   totalWidth:[...track.children].reduce((n,element)=>n+width(element),0),
+   maxHp:Number(track.closest('.combat-health').dataset.maxHp)};
+ })()`);
+ assert.equal(bar.fills,1,`Green health in ${selector} should be painted as one bar`);
+ assert.equal(bar.empty,bar.maxHp-hp);
+ assert.ok(bar.totalWidth>0);
+ assert.ok(Math.abs(bar.fillWidth-bar.totalWidth*hp/bar.maxHp)<.1,`Fill width in ${selector} should match remaining health`);
+}
 async function resultHighlightsVisible(resultSelector,closeSelector){
  await noteVisible();
  assert.equal(await room("document.getElementById('spotlight-tip').hidden"),false);
@@ -136,11 +151,14 @@ try{
   for(let i=0;i<2;i++){
    await click('#my-info');await wait("!document.getElementById('mine').hidden");
    assert.match(await ev("document.getElementById('mine-value-identity').textContent"),/调查员/);
+   await filledHealthIsContinuous('#mine-health',3);
+   if(i===0)await capture('01a-my-health-continuous.png');
    for(const id of ['saying','food','sport'])assert.equal(await ev(`document.getElementById('mine-value-${id}').textContent`),self.traits[id]);
    assert.equal(await ev("document.querySelectorAll('#mine .eye-toggle').length"),0);await click('#mine-close');
   }
   assert.deepEqual(ROOM.publicSnapshot(self.id).players.map(p=>({id:p.id,traits:p.traits})),publicBefore);
   await click('#roster-toggle');
+  const targetRow = `#roster-items [data-player="${bads[0].id}"]`;
   for(const [width,height] of [[1440,900],[390,844],[853,480]]){
    await call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});
    await wait(`innerWidth===${width}&&innerHeight===${height}`);
@@ -151,13 +169,17 @@ try{
      clickable:[rect.left+2,rect.right-2].every(x=>button.contains(document.elementFromPoint(x,y)))};
    })()`);
    assert.ok(close.width>=30&&close.height>=30&&close.inset>=10&&close.clickable,JSON.stringify({width,height,close}));
+   await filledHealthIsContinuous(targetRow,3);
   }
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
   await click('#roster-close');assert.equal(await ev("document.getElementById('roster').hidden"),true);
-  await click('#roster-toggle');await click(`#roster-items [data-player="${bads[0].id}"]`);
+  await click('#roster-toggle');await click(targetRow);
+  await filledHealthIsContinuous('#target .target-health-row',3);
+  await capture('01b-roster-target-health-continuous.png');
   assert.equal(await ev("!!document.getElementById('private-gate')"),false);assert.equal(await ev("!!document.querySelector('#target #accuse')"),true);
   await click('#accuse');assert.ok(await ev("!!document.querySelector('#target #confirm')"));await click('#cancel');
   await click('#accuse');await click('#confirm');await until('formal skill damage',()=>bads[0].hp===2);await wait("document.querySelector('#target .health-value')?.textContent==='2/3'");
+  await filledHealthIsContinuous('#target .target-health-row',2);
   assert.equal(self.score,10);await click('#target-close');await click('#roster-toggle');
 
  });

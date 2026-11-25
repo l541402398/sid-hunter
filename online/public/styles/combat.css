@@ -1,9 +1,11 @@
 /* Public combat health and protection, shared by profiles and the player list. */
 .target-health-row{display:flex;align-items:center;gap:8px;margin:7px 0;flex-wrap:wrap}
 .combat-health{display:inline-flex;align-items:center;gap:7px;max-width:100%;vertical-align:middle;color:var(--ink);line-height:1.2}
-.health-cells{display:flex;gap:2px;width:128px;max-width:100%;height:9px;padding:1px;background:#e3d6bc;border:1px solid #9c805b;box-shadow:inset 0 1px 1px #5a3b3026}
-.health-cell{flex:1;min-width:1px;background:#b5a991}
-.health-cell.filled{background:linear-gradient(#95bf9e,#4a8565);box-shadow:inset 0 1px #e6f4da8c}
+.health-cells{display:flex;width:128px;max-width:100%;height:9px;padding:1px;background:#e3d6bc;border:1px solid #9c805b;box-shadow:inset 0 1px 1px #5a3b3026}
+.health-cell,.health-fill{flex:1;min-width:0}
+.health-cell{background:#b5a991}
+.health-fill{background:linear-gradient(#95bf9e,#4a8565);box-shadow:inset 0 1px #e6f4da8c}
+.health-cells>span+.health-cell{box-shadow:inset 2px 0 #e3d6bc}
 .health-value{font:800 10px ui-monospace,monospace;white-space:nowrap}
 .combat-health[data-protected='true'] .health-cells{border-color:#6098a1;box-shadow:0 0 0 1px #a9d5ce}
 .combat-health[data-truce='true']{color:var(--ink-3)}
