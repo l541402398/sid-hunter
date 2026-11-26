@@ -359,6 +359,7 @@
       prizeDialog.open || !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
   }
   function sendIntent(force) {
+    if (connectionStatus.dataset.state === 'replaced') return;
     if (operationModalOpen() || elevatorPicker || gameClosed) keys.clear();
     const sig = ['KeyW', 'ArrowUp', 'KeyA', 'ArrowLeft', 'KeyS', 'ArrowDown', 'KeyD', 'ArrowRight'].map(c => keys.has(c) ? 1 : 0).join('');
     if (!force && sig === lastIntent) return;
@@ -372,12 +373,16 @@
     }).catch(() => { });
   }
   // 停止意图也带楼层保护字段；换层期间只发送零移动，绝不携带换层指令。
-  function stopIntent() { return api('/api/input', { up: false, down: false, left: false, right: false, ...floorFields() }); }
+  async function stopIntent() {
+    if (connectionStatus.dataset.state === 'replaced') return { ok: false };
+    return api('/api/input', { up: false, down: false, left: false, right: false, ...floorFields() });
+  }
   const connectionStatus = $('connection-status');
   const connectionMessages = {
     offline: '网络已断开，等待网络恢复…',
     reconnecting: '游戏连接中断，正在重连…',
     disconnected: '游戏连接已断开，请刷新页面重新进入。',
+    replaced: '当前角色已在另一页面连接。请返回该页面，或刷新此页继续。',
     recovered: '连接已恢复'
   };
   function setConnectionStatus(state) {
@@ -421,6 +426,12 @@
     let lastFrameAt = performance.now();
     if (!navigator.onLine) showConnectionLoss();
     stream.addEventListener('reset', () => { if (stream === activeStream) resetToJoin(); });
+    stream.addEventListener('stream-replaced', () => {
+      if (stream !== activeStream) return;
+      closeStream();
+      keys.clear();
+      setConnectionStatus('replaced');
+    });
     stream.onmessage = event => {
       if (stream !== activeStream) return;
       try {

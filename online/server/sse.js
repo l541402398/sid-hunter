@@ -21,8 +21,10 @@ function openStream(req, res, player) {
   const frame = () => (typeof ROOM.streamFrame === 'function'
     ? ROOM.streamFrame(player.id, conn)
     : { ...ROOM.publicSnapshot(player.id), me: ROOM.privateSnapshot(player.id).me });
-  try { const first = frame(); if (first) write(first); } catch { }
   const previousEntry = ROOM.streams.get(player.id);
+  // A key held in the replaced page must not keep moving the character in the new page.
+  if (previousEntry) ROOM.setIntent(player.id, {});
+  try { const first = frame(); if (first) write(first); } catch { }
   const entry = { res, lastAck: Date.now(), close };
   ROOM.streams.set(player.id, entry);
   let closed = false;
@@ -40,7 +42,7 @@ function openStream(req, res, player) {
       res.write(': ping\n\n');
     } catch { close(); }
   }, TICK_MS);
-  function close() {
+  function close(reason) {
     if (closed) return;
     closed = true;
     cancelTick();
@@ -50,9 +52,12 @@ function openStream(req, res, player) {
       ROOM.streams.delete(player.id);
       if (ROOM.find(player.id) === player) ROOM.setOffline(player.id);
     }
-    try { res.end(); } catch { /* already closed */ }
+    try {
+      // A replaced tab must stop retrying or it will evict the new connection in turn.
+      res.end(reason === 'replaced' ? 'event: stream-replaced\ndata: {}\n\n' : undefined);
+    } catch { /* already closed */ }
   }
-  if (previousEntry && previousEntry !== entry) previousEntry.close();
+  if (previousEntry) previousEntry.close('replaced');
   req.on('close', close);
   req.on('error', close);
   res.on('close', close);

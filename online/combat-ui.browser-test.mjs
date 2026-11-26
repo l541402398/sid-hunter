@@ -520,6 +520,41 @@ try {
     await waitPage(`${connectionState} === 'recovered'`);
     await waitPage(`${connectionState} === ''`);
   });
+  await check('A newer stream for the same player stays connected and the replaced page stops retrying', async () => {
+    const position = async () => (await state()).players.find(player => player.id === self.id);
+    await api('/api/test/place', { playerId: self.id, floorId: 1, zoneId: null, ...spot });
+    assert.equal((await api('/api/input', { right: true }, ownToken)).status, 200);
+    await waitFor('movement from the original page', async () => (await position()).x > spot.x + 4);
+    await evaluate(`(() => {
+      const query = new URLSearchParams({ sid_token: localStorage.getItem('sid_session_token') });
+      const source = new EventSource('/api/stream?' + query);
+      const second = window.__secondStream = { source, opens: 0, errors: 0, frames: 0 };
+      source.onopen = () => second.opens++;
+      source.onerror = () => second.errors++;
+      source.onmessage = event => { if (JSON.parse(event.data).type === 'snapshot') second.frames++; };
+    })()`);
+    try {
+      const state = "document.getElementById('connection-status').dataset.state";
+      await waitPage(`${state} === 'replaced' && __secondStream.frames > 0`);
+      assert.match(await evaluate("document.getElementById('connection-status').textContent"), /另一页面/);
+      const stopped = await position();
+      const frames = await evaluate('__secondStream.frames');
+      await evaluate("window.dispatchEvent(new Event('online'))");
+      await delay(3300);
+      assert.equal(await evaluate(state), 'replaced');
+      assert.equal((await position()).x, stopped.x, 'The old page left its movement intent active');
+      const second = await evaluate('({ opens: __secondStream.opens, errors: __secondStream.errors, frames: __secondStream.frames })');
+      assert.equal(second.opens, 1);
+      assert.equal(second.errors, 0);
+      assert(second.frames > frames, 'The new stream stopped receiving snapshots');
+      assert.equal((await api('/api/input', { left: true }, ownToken)).status, 200);
+      await key('ArrowRight', 'ArrowRight', 39);
+      await waitFor('movement after the new page takes over', async () => (await position()).x < stopped.x - 4);
+      assert.equal((await api('/api/input', {}, ownToken)).status, 200);
+    } finally {
+      await evaluate('__secondStream.source.close()');
+    }
+  });
 } catch (error) {
   results.push({ name: activeCheck, passed: false, error: error.stack });
   try { if (socket?.readyState === WebSocket.OPEN) await capture('failure.png'); } catch {}
