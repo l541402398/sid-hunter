@@ -2714,7 +2714,7 @@
     const digestText = digest ? `<li><p>离线期间被敲 ${digest.counts.hammer} 次${digest.counts.scare ? `、其他互动 ${digest.counts.scare} 次` : ''}</p></li>` : '';
     const panel = $('offline-summary');
     panel.hidden = false;
-    panel.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DIGEST</small><h2>${offlineCount ? '离线期间事件' : '涉及你的事件'}</h2></div><button id="summary-close" class="icon-button" aria-label="关闭事件摘要">×</button></div><ul class="summary-list">${digestText}${list.map(e => `<li><time>${new Date(e.occurredAt).toLocaleTimeString('zh-CN', { hour12: false })}</time><p>${escapeText(e.text)}</p></li>`).join('')}</ul><p class="hold-note">摘要只说明你身上发生了什么，不含操作者。关闭后不再重复提示。</p>`;
+    panel.innerHTML = `<div class="panel-heading"><div><small>PRIVATE DIGEST</small><h2>${offlineCount ? '离线期间事件' : '涉及你的事件'}</h2></div><button id="summary-close" class="icon-button" aria-label="关闭事件摘要">×</button></div><ul class="summary-list">${digestText}${list.map(e => `<li><time>${new Date(e.occurredAt).toLocaleTimeString('zh-CN', { hour12: false })}</time><p>${escapeText(e.text)}</p></li>`).join('')}</ul>`;
     $('summary-close').onclick = () => { panel.hidden = true; panel.replaceChildren(); acknowledge(list, digest); };
   }
   async function acknowledge(list, digest) {
@@ -3821,12 +3821,7 @@
     ctx.save();
     WORLD.drawCharacterBody(ctx, p, clock, attackAge, p.lastAttackDirection);
     SID.combatVisuals.drawProtectionCocoon(ctx, p, clock, newShape ? 77 : 53);
-    // 无伤害互动视觉：手持木锤、冰蓝覆盖层与头顶眩晕星，均由权威时间戳推导。
-    if (p.freezeUntil && p.freezeUntil > now) {
-      ctx.globalAlpha = .4 * a; rect(x - 13, effectY - 55, 26, tallSprite ? 86 : 62, '#bfe8ff');
-      ctx.globalAlpha = .55 * a; ctx.strokeStyle = '#e8f7ff'; ctx.lineWidth = 1;
-      ctx.strokeRect(x - 13.5, effectY - 55.5, 27, tallSprite ? 87 : 63); ctx.globalAlpha = 1;
-    }
+    // 敲击眩晕用头顶星星提示。
     if (p.stunUntil && p.stunUntil > now) {
       for (let i = 0; i < 3; i++) {
         const ang = clock * 3 + i * (Math.PI * 2 / 3);

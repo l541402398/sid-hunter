@@ -81,7 +81,7 @@ try{
  const wing=await ev(`(()=>{const {args:a,m,dpr,r}=__juliDraw;return{x:r.x+(m.a*(a[4]+a[6]*.12)+m.e)/dpr,y:r.y+(m.d*(a[5]+a[7]*.28)+m.f)/dpr};})()`);
  for(const type of ['mousePressed','mouseReleased'])await send('Input.dispatchMouseEvent',{type,x:wing.x,y:wing.y,button:'left',clickCount:1});
  await wait(()=>ev("document.querySelector('#exploration').open"),'wing click opens NPC');
- assert.match(await ev("document.querySelector('#exploration').textContent"),/接待员小禾/);
+ assert.match(await ev("document.querySelector('#exploration').textContent"),/数字员工JULI/);
  await key('Escape','Escape');
  await ev("document.querySelector('#office').focus()");
  await key('KeyK','k');
@@ -94,7 +94,7 @@ try{
  const before=await ev('__juliDraws');const archive=await place('archive');
  await wait(()=>ev(`document.querySelector('#coordinate').textContent.startsWith('${archive.floorId}F')&&window.__juliDraws>${before+3}`),'archive Juli');
  await key('KeyK','k');await wait(()=>ev("document.querySelector('#exploration').open"),'archive interaction');
- assert.match(await ev("document.querySelector('#exploration').textContent"),/档案员阿卷/);await key('Escape','Escape');
+ assert.match(await ev("document.querySelector('#exploration').textContent"),/数字员工JULI/);await key('Escape','Escape');
  // 实际执行四向渲染，数据来源不看人物阵营或工号。
  assert.equal(await ev(`(()=>{const c=document.createElement('canvas');c.width=512;c.height=112;const ctx=c.getContext('2d');return ['front','left','right','back'].every(facing=>SID.juliSprites.draw(ctx,{npc:true,entityId:'npc-reception',x:64,y:104,facing},0));})()`),true);
  assert.deepEqual(errors,[]);

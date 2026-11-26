@@ -238,6 +238,17 @@ try {
     await click('#my-info'); await health('#mine-health .combat-health', 2);
     await capture('02-self-hit.png'); await click('#mine-close');
     await waitPage(`__combatQA.auras.some(s=>s.id===${self.id}&&s.hp===2&&!s.protected&&!s.drawn)`);
+    await waitPage(`!document.getElementById('offline-banner').hidden`);
+    await click('#offline-banner');
+    const digest = await evaluate(`(() => {
+      const panel = document.getElementById('offline-summary');
+      return { hidden: panel.hidden, hasTime: !!panel.querySelector('.summary-list time'),
+        text: panel.querySelector('.summary-list p')?.textContent, hasFooter: !!panel.querySelector('.hold-note') };
+    })()`);
+    assert.deepEqual(digest, { hidden: false, hasTime: true, text: notice.text, hasFooter: false });
+    await click('#summary-close');
+    await waitPage(`document.getElementById('offline-summary').hidden&&document.getElementById('offline-banner').hidden`);
+    await waitFor('private event acknowledged', async () => !(await state()).me.pending.some(event => event.eventId === notice.eventId));
   });
   await check('A real opposing hit paints a translucent animated cocoon', async () => {
     await skill(bads[0], self);
@@ -303,10 +314,26 @@ try {
     assert.equal(moved.hp, 0); assert.equal(moved.alive, false);
     await api('/api/test/place', { playerId: otherGood.id, floorId: 1, zoneId: null, x: moved.x + 15, y: moved.y });
     await delay(120);
+    await evaluate(`(() => {
+      const effects = __combatQA.hammerEffects = { stars: 0, boxes: 0 };
+      const canvas = document.getElementById('office').getContext('2d');
+      const fillRect = canvas.fillRect, strokeRect = canvas.strokeRect;
+      canvas.fillRect = function(x, y, w, h) {
+        if (this.fillStyle === '#ffe066' && w === 3 && h === 9) effects.stars++;
+        if (this.fillStyle === '#bfe8ff' && w === 26 && (h === 86 || h === 62)) effects.boxes++;
+        return fillRect.call(this, x, y, w, h);
+      };
+      canvas.strokeRect = function(x, y, w, h) {
+        if (this.strokeStyle === '#e8f7ff' && w === 27 && (h === 87 || h === 63)) effects.boxes++;
+        return strokeRect.call(this, x, y, w, h);
+      };
+    })()`);
     const since = await evaluate('performance.now()');
     await key('j', 'KeyJ', 74);
     await waitPage(`__combatQA.frames.some(f=>f.at>${since}&&Number.isFinite(f.age)&&f.age>=0&&f.age<WORLD.ATTACK_ANIMATION_MS)`);
     await waitFor('real J target reaction', async () => (await state(tokens.get(otherGood.id))).me.combat.stunUntil > (await state()).serverTime);
+    await waitPage('__combatQA.hammerEffects.stars > 0');
+    assert.equal(await evaluate('__combatQA.hammerEffects.boxes'), 0);
     const after = await state();
     assert.equal(after.me.hp, 0); assert.equal(after.me.protected, false);
     await capture('08-truce-movement-j.png');
@@ -519,6 +546,21 @@ try {
     }
     await waitPage(`${connectionState} === 'recovered'`);
     await waitPage(`${connectionState} === ''`);
+  });
+  await check('The third-floor NPC uses the shared name in the nearby entry and opens the benefits panel', async () => {
+    const npcs = Object.values(W.FLOORS).flatMap(floor => W.floorNpcs(floor.id));
+    assert.deepEqual([...new Set(npcs.map(npc => npc.name))], ['数字员工JULI']);
+    const npc = npcs.find(npc => npc.id === 'npc-archive');
+    assert.equal(npc.floorId, 3);
+    assert.equal((await api('/api/test/place', { playerId: self.id, floorId: 3, zoneId: null, x: npc.x, y: npc.y + 16 })).status, 200);
+    const nearby = '#nearby-items [data-entity="npc-archive"]:not([hidden])';
+    await waitPage(`!!document.querySelector(${JSON.stringify(nearby)})`);
+    assert.match(await evaluate(`document.querySelector(${JSON.stringify(nearby)}).textContent`), /数字员工JULI/);
+    await click(nearby);
+    await waitPage(`document.getElementById('exploration').open`);
+    assert.equal(await evaluate(`document.querySelector('#exploration h2').textContent`), npc.name);
+    assert.equal(await evaluate(`!!document.querySelector('#npc-exchange-list')`), true);
+    await click('#exploration-close');
   });
   await check('A newer stream for the same player stays connected and the replaced page stops retrying', async () => {
     const position = async () => (await state()).players.find(player => player.id === self.id);

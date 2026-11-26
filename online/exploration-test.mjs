@@ -62,7 +62,7 @@ await test('01 WORLD 在普通浏览器脚本、globalThis 和 CommonJS 中合�
     assert.equal(w.INTERACT_RANGE, 64);
   }
 });
-await test('02 现有家具坐标不变，稳定独立 id、9 个中性命名容器及两个 NPC', () => {
+await test('02 家具坐标与容器 ID 稳定，七层 NPC 名称一致', () => {
   // 阶段4（需求③）：每层大量新增可搜容器与陈设，因此这里从"精确 29 件"改为
   // "原有经济容器全部仍在 + 数量只增不减 + ID 唯一"，避免把"加内容"误判为回归。
   assert.ok(furniture.length >= 29, `家具数量不应减少：${furniture.length}`);
@@ -91,7 +91,9 @@ await test('02 现有家具坐标不变，稳定独立 id、9 个中性命名容
   }
   const second = WORLD.makeFurniture(); second[0].footprint.y = -1;
   assert.notEqual(furniture[0].footprint.y, -1);
-  assert.deepEqual(WORLD.NPCS.map(n => [n.id, n.name, n.x, n.y, n.cost]), [['npc-reception', '数字员工JULI', 520, 285, 3], ['npc-archive', '档案员阿卷', 3300, 360, 3]]);
+  assert.deepEqual(WORLD.NPCS.map(n => n.floorId).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual([...new Set(WORLD.NPCS.map(n => n.name))], ['数字员工JULI']);
+  assert.deepEqual(WORLD.NPCS.slice(0, 2).map(n => [n.id, n.x, n.y, n.cost]), [['npc-reception', 640, 186, 0], ['npc-archive', 312, 214, 3]]);
   for (const n of WORLD.NPCS) { assert.ok(n.dialogue); assert.ok(!('color' in n)); }
 });
 await test('03 身体/脚可进入视觉上部，底部足迹阻挡且严格接触边界不阻挡', () => {
