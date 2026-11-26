@@ -406,6 +406,9 @@ try {
       assert.equal(anonMe.status, 401);
       assert.equal((await fetch(base + '/api/pending-players')).status, 401);
       assert.equal((await fetch(base + '/api/pending-players', { headers: { 'User-Token': 'token-m' } })).status, 401, '登录但未加入不可获取员工名单');
+      const rosterSearch = base + '/api/roster-search?empNo=HTTP-F';
+      assert.equal((await fetch(rosterSearch)).status, 401);
+      assert.equal((await fetch(rosterSearch, { headers: { 'User-Token': 'token-m' } })).status, 401);
 
       const meM = await fetch(base + '/api/auth/me', { headers: { 'User-Token': 'token-m' } });
       const meMBody = await meM.json();
@@ -438,6 +441,9 @@ try {
       assert.deepEqual(pending.groups, [{ name: '票证预订系维组', members: [{ empNo: 'HTTP-F', name: '接口女' }] }]);
       assert.equal(pending.port, port);
       assert.equal((await fetch(base + '/api/pending-players', { method: 'POST', headers: pendingHeaders })).status, 405);
+      assert.deepEqual(await fetch(rosterSearch, { headers: pendingHeaders }).then(r => r.json()),
+        { ok: true, roundId: stateBody.roundId, playerId: null });
+      assert.equal((await fetch(base + '/api/roster-search', { headers: pendingHeaders })).status, 400);
 
       const joinedF = await fetch(base + '/api/join', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'User-Token': 'token-f' }, body: '{}'
@@ -449,6 +455,11 @@ try {
       const meF = (await stateF.json()).players.find(player => player.id === joinedFBody.playerId);
       assert.equal(WORLD.PALETTES.hair.findIndex(item => item[0] === meF.colors.hair[0]) % 2, 1);
       assert.equal(renderer.style(meF), 'female');
+      const lookup = await fetch(rosterSearch, { headers: pendingHeaders });
+      assert.equal(lookup.status, 200);
+      assert.equal(lookup.headers.get('cache-control'), 'no-store');
+      assert.deepEqual(await lookup.json(), { ok: true, roundId: stateBody.roundId, playerId: joinedFBody.playerId });
+      assert.equal('empNo' in meF, false);
       const afterJoin = await fetch(base + '/api/pending-players', { headers: pendingHeaders }).then(r => r.json());
       assert.equal(afterJoin.count, 0); assert.deepEqual(afterJoin.groups, []);
       assert.equal(log.includes('员工档案同步失败'), false, log);

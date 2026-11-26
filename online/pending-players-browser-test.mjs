@@ -19,6 +19,7 @@ const command=action=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>
 try{
  server=spawn(process.execPath,['-e',`
   const {ROOM,STORE,ACTIVITY}=require(${JSON.stringify(join(root,'server.js'))});
+  const WORLD=require(${JSON.stringify(join(root,'shared/world.js'))});
   STORE.saveEmployees([
    {empNo:'001',name:'已加入',deliveryGroup:'交付一组'},
    {empNo:'010',name:'待邀乙',deliveryGroup:'交付一组',email:'never-send@example.com',title:'never-send'},
@@ -27,8 +28,13 @@ try{
    {empNo:'030',name:'部门同事',department:'运营部'}
   ]);
   const start=ACTIVITY.startManual({minutes:10,label:'待加入名单自测'});if(!start.ok)throw Error(JSON.stringify(start));
-  ROOM.join('pending-browser-fixture',null,{empNo:'001',name:'已加入',dept:'运营部',deliveryGroup:'交付一组'});
-  ROOM.join('department-roster-a',null,{empNo:'040',name:'已加入部门甲',dept:'运营部'});
+  const viewer=ROOM.join('pending-browser-fixture',null,{empNo:'001',name:'已加入',dept:'运营部',deliveryGroup:'交付一组'}).player;
+  const spawn=WORLD.floorSpawns(1).find(({x,y})=>[-36,-18,0,18,36].every(dx=>!WORLD.floorCollides(1,x+dx,y)));
+  if(!spawn)throw Error('Missing clear movement fixture');
+  Object.assign(viewer,{floorId:1,zoneId:null,x:spawn.x,y:spawn.y});
+  const remotePlayer=ROOM.join('department-roster-a',null,{empNo:'040',name:'已加入部门甲',dept:'运营部'}).player;
+  remotePlayer.floorId=4;
+  ROOM.setOffline(remotePlayer.id);
   ROOM.join('department-roster-b',null,{empNo:'050',name:'已加入部门乙',dept:'运营部',deliveryGroup:'   '});
   process.on('message',m=>{
    if(m.action==='join')ROOM.join('joined-new-fixture',null,{empNo:'002',name:'待邀甲'});
@@ -73,15 +79,60 @@ try{
  assert.deepEqual(await ev('__alerts'),[]);
  assert.equal(await ev("document.querySelector('#pending-items').textContent.includes('已加入')"),false);
  await click('#roster-toggle');assert.equal(await ev("document.querySelector('#pending-players').hidden"),true);
+ assert.equal(await ev("document.querySelector('#roster-joined-tab').getAttribute('aria-pressed')"),'true');
+ assert.equal(await ev("document.querySelector('#roster-unjoined').hidden"),true);
  await wait(()=>ev("document.querySelectorAll('#roster-items .roster-org-group').length===2"),'joined organization groups');
  const joinedGroups = await ev("Object.fromEntries([...document.querySelectorAll('#roster-items .roster-org-group')].map(g=>[g.querySelector('h3').textContent,[...g.querySelectorAll('.roster-row strong')].map(e=>e.textContent)]))");
  assert.deepEqual(joinedGroups,{'交付一组':['已加入'],'运营部':['已加入部门甲','已加入部门乙']});
  await ev("document.querySelector('#search').value='运营部';document.querySelector('#search').dispatchEvent(new Event('input'))");
  assert.deepEqual(await ev("[...document.querySelectorAll('#roster-items h3')].map(h=>h.textContent)"),['运营部']);
- assert.deepEqual(await ev("[...document.querySelectorAll('#roster-unjoined .unjoined-group summary strong')].map(h=>h.textContent)"),['运营部']);
  await click('#roster-items .roster-row');
  assert.equal(await ev("document.querySelector('#target .status').textContent"),'运营部');
  await click('#target-close');
+ const search=term=>ev(`(()=>{const input=document.querySelector('#search');input.value=${JSON.stringify(term)};input.dispatchEvent(new Event('input'));})()`);
+ await search(' 040 ');
+ await wait(()=>ev("document.querySelector('#roster-items .roster-row strong')?.textContent==='已加入部门甲'"),'full employee number with leading zero');
+ assert.equal(await ev("document.querySelectorAll('#roster-items .roster-row').length"),1);
+ assert.equal(await ev("document.querySelector('#roster-items .offline-tag').textContent"),'离线');
+ assert.equal(await ev("document.querySelector('#roster-items').textContent.includes('040')"),false,'the roster does not display employee numbers');
+ await search('40');
+ await wait(()=>ev("document.querySelector('#roster-items .panel-note')?.textContent==='没有匹配的已登录玩家'"),'employee number lookup is exact');
+ await search('运营部');
+ await ev("document.querySelector('#roster-joined-tab').focus()");
+ const playerX=async()=> {
+  const snapshot=await fetch(base+'/api/state',{headers:{'X-Sid-Session':'pending-browser-fixture'}}).then(r=>r.json());
+  return snapshot.players.find(p=>p.id===snapshot.me.id).x;
+ };
+ const startX=await playerX();
+ const right={key:'ArrowRight',code:'ArrowRight',windowsVirtualKeyCode:39};
+ try{
+  await send('Input.dispatchKeyEvent',{type:'keyDown',...right});
+  await send('Input.dispatchKeyEvent',{type:'keyDown',...right,autoRepeat:true});
+  await wait(async()=>(await playerX())>startX+4,'movement with the roster switch focused');
+ }finally{
+  await send('Input.dispatchKeyEvent',{type:'keyUp',...right});
+ }
+ assert.equal(await ev("document.activeElement.id"),'roster-joined-tab');
+ assert.equal(await ev("document.querySelector('#roster-joined-tab').getAttribute('aria-pressed')"),'true');
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+ assert.equal(await ev("document.activeElement.id"),'roster-unjoined-tab');
+ assert.equal(await ev("document.querySelector('#roster-unjoined').hidden"),true);
+ await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13,text:'\r'});
+ await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+ assert.equal(await ev("document.querySelector('#roster-unjoined-tab').getAttribute('aria-pressed')"),'true');
+ assert.equal(await ev("document.querySelector('#roster-items').hidden"),true);
+ assert.equal(await ev("document.querySelector('#roster-unjoined').hidden"),false);
+ assert.deepEqual(await ev("[...document.querySelectorAll('#roster-unjoined .unjoined-group summary strong')].map(h=>h.textContent)"),['运营部']);
+ await search('010');
+ assert.deepEqual(await ev("[...document.querySelectorAll('#roster-unjoined .unjoined-person strong')].map(n=>n.textContent)"),['待邀乙']);
+ for(const width of [768,390]){
+  await send('Emulation.setDeviceMetricsOverride',{width,height:844,deviceScaleFactor:1,mobile:false});
+  assert.equal(await ev("(()=>{const p=document.querySelector('#roster-tabs');const r=p.getBoundingClientRect();return p.scrollWidth<=p.clientWidth&&r.left>=0&&r.right<=innerWidth;})()"),true);
+ }
+ await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ await click('#roster-close');await click('#roster-toggle');
+ assert.equal(await ev("document.querySelector('#roster-joined-tab').getAttribute('aria-pressed')"),'true','reopening defaults to joined');
  await click('#pending-toggle');assert.equal(await ev("document.querySelector('#roster').hidden"),true);
  assert.equal(await ev("document.querySelector('.pending-group').open"),true,'面板开关保留分组状态');
  await ev("document.querySelectorAll('.pending-group').forEach(g=>g.open=true)");
@@ -119,7 +170,7 @@ try{
  await command('no-table');await click('#pending-refresh');await wait(()=>ev("document.querySelector('#pending-summary').textContent.includes('暂时无法加载待加入名单')"),'no table');
  assert.equal(await ev("document.querySelector('#pending-count').textContent"),'—','未同步不能伪报0人');
  assert.deepEqual(errors,[]);
- console.log('PASS 玩家名单 Chrome 验收：交付组与部门分组、组织搜索、公开档案、邀请和名单空态。');
+ console.log('PASS 玩家名单 Chrome 验收：默认标签页、工号和组织搜索、公开档案、邀请和名单空态。');
 }finally{
  if(ws)ws.close();
  await Promise.all([server,browser].filter(p=>p&&p.exitCode===null).map(p=>new Promise(resolve=>{p.once('exit',resolve);p.kill();setTimeout(()=>{if(p.exitCode===null)p.kill('SIGKILL');resolve();},2000).unref();})));

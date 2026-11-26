@@ -14,6 +14,15 @@ function guestKey(req, res) {
 
 async function handle(ctx) {
   const { req, res, url, pathname, ROOM, MANAGER, resetTokens, WORLD, openStream, PROFILES } = ctx;
+  if (pathname === '/api/roster-search') {
+    if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'method not allowed' });
+    if (!currentPlayer(req, url)) return send(res, 401, { ok: false, error: '请先加入游戏' });
+    const empNo = url.searchParams.get('empNo')?.trim();
+    if (!empNo || empNo.length > 64) return send(res, 400, { ok: false, error: '请输入完整工号' });
+    // Return only the player ID already part of the roster. Snapshots still omit employee numbers.
+    const player = ROOM.playerByEmpNo(empNo);
+    return send(res, 200, { ok: true, roundId: ROOM.room.roundId, playerId: player?.id ?? null });
+  }
   if (pathname === '/api/pending-players') {
     res.setHeader('Cache-Control', 'no-store');
     if (req.method !== 'GET') return send(res, 405, { ok: false, error: 'method not allowed' });

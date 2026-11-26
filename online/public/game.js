@@ -196,7 +196,7 @@
   const expandedPendingGroups = new Set(); // 本页独立保存各组折叠态，名单更新不重置。
   const confirmedDigests = new Set(); // 只有服务端 ACK 成功后才登记
   let lastTargetSig = '', lastLogSig = '', lastRosterSig = '', lastOccludersKey = '';
-  let lastUnjoinedRoster = [];
+  let lastUnjoinedRoster = [], rosterTab = 'joined', rosterLookup = null, rosterLookupTimer;
   let prevLogCount = 0, unreadLogCount = 0, logsStickToBottom = true;
   let lastHudSelfX = NaN, lastHudSelfY = NaN;
   const offlineEvents = new Set();
@@ -733,7 +733,7 @@
       if (!activePlayerIds.has(id)) renderMap.delete(id);
     }
     if (selectedId !== null && !everyone().some(p => p.id === selectedId)) { clearPrivate(); selectedId = null; }
-    if ((!$('roster').hidden || !$('pending-players').hidden) && me && !pendingFlight && Date.now() >= pendingNextCheck) {
+    if (pendingListVisible() && me && !pendingFlight && Date.now() >= pendingNextCheck) {
       refreshPendingPlayers();
     }
     renderPublic();
@@ -784,7 +784,7 @@
       + `<path fill="${c.shoes[1]}" d="M4 30h7v2H4zM13 30h7v2h-7z"/>`
       + `</svg>`;
   }
-  // 名单搜索只读 public 投影：姓名、四种公开颜色、以及已公开的隐藏属性。
+  // 名单本地搜索只读 public 投影：姓名、四种公开颜色、以及已公开的隐藏属性。
   // 未公开的 *** 永不进入候选，因此搜不到也推不出。
   function searchFields(p) {
     const fields = [{ key: 'name', label: '姓名', text: p.name }];
@@ -837,12 +837,6 @@
   function renderRosterUnjoined(query) {
     const host = $('roster-unjoined');
     if (!host || typeof host.replaceChildren !== 'function') return;
-    if (!query) {
-      for (const old of (host.querySelectorAll ? host.querySelectorAll('details.unjoined-group') : [])) {
-        if (old.open) expandedPendingGroups.add(old.dataset.group);
-        else expandedPendingGroups.delete(old.dataset.group);
-      }
-    }
     const fragment = document.createDocumentFragment();
     const head = document.createElement('div');
     head.className = 'roster-unjoined-head';
@@ -941,13 +935,47 @@
     }
     host.replaceChildren(fragment);
   }
+  function clearRosterLookup() {
+    clearTimeout(rosterLookupTimer);
+    rosterLookup = null;
+  }
+  function lookupRosterPlayer(query, size) {
+    if (!query || query.length > 64 || !me || practice) {
+      clearRosterLookup();
+      return null;
+    }
+    if (rosterLookup?.query === query && rosterLookup.size === size &&
+        rosterLookup.round === roundId && rosterLookup.generation === sessionGeneration) return rosterLookup;
+    clearRosterLookup();
+    const lookup = rosterLookup = { query, size, round: roundId, generation: sessionGeneration, playerId: null, status: 'loading' };
+    rosterLookupTimer = setTimeout(async () => {
+      if (rosterLookup !== lookup || $('roster').hidden || rosterTab !== 'joined') return;
+      const data = await api('/api/roster-search?' + new URLSearchParams({ empNo: query })).catch(() => null);
+      if (rosterLookup !== lookup || lookup.round !== roundId || lookup.generation !== sessionGeneration) return;
+      const found = data?.ok && data.roundId === lookup.round;
+      lookup.playerId = found && Number.isSafeInteger(data.playerId) ? data.playerId : null;
+      lookup.status = found ? 'done' : 'failed';
+      renderRoster();
+    }, 250);
+    return lookup;
+  }
   function renderRoster() {
     if ($('roster').hidden) return;
-    const query = $('search').value.trim().toLowerCase();
+    const rawQuery = $('search').value.trim();
+    const query = rawQuery.toLowerCase();
+    if (rosterTab === 'unjoined') {
+      const unjoined = [query, pendingData];
+      if (unjoined.some((value, i) => value !== lastUnjoinedRoster[i])) {
+        lastUnjoinedRoster = unjoined;
+        renderRosterUnjoined(query);
+      }
+      return;
+    }
     // 20Hz position snapshots must not replace a button between pointerdown/pointerup.
     // 签名只取名单行真正会显示/搜索的字段：300 人时不能把每帧都变的战斗/坐标字段拿来序列化比较。
     const all = everyone();
-    const sig = JSON.stringify([query, selectedId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowersReceived, p.annualRoleModel])]);
+    const lookup = lookupRosterPlayer(rawQuery, all.length);
+    const sig = JSON.stringify([query, selectedId, lookup?.playerId, all.map(p => [p.id, p.name, p.alive, p.online, p.hp, p.maxHp, p.protected, p.traits, p.colors, p.dept, p.deliveryGroup, p.flowersReceived, p.annualRoleModel])]);
     if (sig !== lastRosterSig) {
       lastRosterSig = sig;
       const groups = new Map();
@@ -955,7 +983,7 @@
       for (const p of all) {
         const org = p.deliveryGroup?.trim() || p.dept?.trim() || '';
         const hits = matchPublic(p, query);
-        if (query && !hits.length && !org.toLowerCase().includes(query)) continue;
+        if (query && p.id !== lookup?.playerId && !hits.length && !org.toLowerCase().includes(query)) continue;
         if (!org) {
           ungrouped.push(row(p, hits));
           continue;
@@ -967,14 +995,11 @@
         .map(([org, rows]) => `<section class="roster-org-group"><h3>${escapeText(org)}</h3>${rows.join('')}</section>`)
         .join('');
       const host = $('roster-items');
-      host.innerHTML = (grouped + ungrouped.join('')) || '<p class="panel-note">没有匹配的已登录玩家</p>';
+      host.innerHTML = (grouped + ungrouped.join('')) || '<p id="roster-search-status" class="panel-note" role="status"></p>';
       bindRows(host);
     }
-    const unjoined = [query, pendingData, pendingFlight];
-    if (unjoined.some((value, i) => value !== lastUnjoinedRoster[i])) {
-      lastUnjoinedRoster = unjoined;
-      renderRosterUnjoined(query);
-    }
+    setText($('roster-search-status'), lookup?.status === 'loading' ? '正在查询工号…'
+      : lookup?.status === 'failed' ? '工号查询暂不可用，请重试。' : '没有匹配的已登录玩家');
   }
   function logHighlightClass(entry) {
     if (entry.type === 'systemClue') return 'log-system-clue';
@@ -4501,14 +4526,30 @@
   });
   $('floor-transition-close').onclick = () => dismissFloorNotice();
   $('elevator-close').onclick = () => closeElevatorPicker();
-  function toggle(panel, button) {
-    const visible = $(panel).hidden;
-    $(panel).hidden = !visible;
-    $(button).setAttribute('aria-expanded', String(visible));
-    if (panel === 'roster' && visible) {
-      renderRoster();
-      refreshPendingPlayers();
-    }
+  function setRosterTab(tab) {
+    if (tab === rosterTab) return;
+    rosterTab = tab;
+    clearRosterLookup();
+    const joined = tab === 'joined';
+    $('roster-joined-tab').setAttribute('aria-pressed', String(joined));
+    $('roster-unjoined-tab').setAttribute('aria-pressed', String(!joined));
+    $('roster-items').hidden = !joined;
+    $('roster-unjoined').hidden = joined;
+    setText($('roster-search-label'), joined ? '姓名 / 完整工号 / 部门或交付组 / 颜色 / 已公开属性' : '姓名 / 工号 / 部门或交付组');
+    $('roster-scroll').scrollTop = 0;
+    renderRoster();
+    if (!joined && Date.now() >= pendingNextCheck) refreshPendingPlayers();
+  }
+  function pendingListVisible() {
+    return !$('pending-players').hidden || (rosterTab === 'unjoined' && !$('roster').hidden);
+  }
+  function toggleRoster() {
+    const roster = $('roster'), opening = roster.hidden;
+    clearRosterLookup();
+    if (opening) setRosterTab('joined');
+    roster.hidden = !opening;
+    $('roster-toggle').setAttribute('aria-expanded', String(opening));
+    if (opening) renderRoster();
   }
   function closePendingPlayers() {
     $('pending-players').hidden = true; $('pending-toggle').setAttribute('aria-expanded', 'false');
@@ -4564,7 +4605,7 @@
     pendingFlight = true; const requestId = ++pendingRequestId, requestedRound = roundId, requestedSession = sessionToken;
     $('pending-refresh').disabled = true;
     if ($('roster-unjoined-refresh')) $('roster-unjoined-refresh').disabled = true;
-    pendingNextCheck = Date.now() + (($('pending-players').hidden && $('roster').hidden) ? 30000 : 5000);
+    pendingNextCheck = Date.now() + (pendingListVisible() ? 5000 : 30000);
     try {
       const data = await api('/api/pending-players');
       if (requestId !== pendingRequestId || requestedRound !== roundId || requestedSession !== sessionToken) return;
@@ -4610,13 +4651,20 @@
   $('pending-toggle').onclick = () => {
     if (!$('pending-players').hidden) { closePendingPlayers(); return; }
     $('roster').hidden = true; $('roster-toggle').setAttribute('aria-expanded', 'false');
+    clearRosterLookup();
     $('pending-players').hidden = false; $('pending-toggle').setAttribute('aria-expanded', 'true'); refreshPendingPlayers();
   };
   $('pending-close').onclick = closePendingPlayers;
   $('pending-refresh').onclick = refreshPendingPlayers;
-  $('roster-toggle').onclick = () => { closePendingPlayers(); toggle('roster', 'roster-toggle'); };
-  $('roster-close').onclick = () => toggle('roster', 'roster-toggle');
-  $('search').oninput = renderRoster;
+  $('roster-toggle').onclick = () => { closePendingPlayers(); toggleRoster(); };
+  $('roster-close').onclick = toggleRoster;
+  $('roster-joined-tab').onclick = () => setRosterTab('joined');
+  $('roster-unjoined-tab').onclick = () => setRosterTab('unjoined');
+  $('search').oninput = () => {
+    $('roster-scroll').scrollTop = 0;
+    clearRosterLookup();
+    renderRoster();
+  };
   function toggleLogs(forceOpen) {
     const host = $('logs'), btn = $('logs-toggle');
     if (!host) return;

@@ -29,6 +29,11 @@ h2{font-size:16px;letter-spacing:.5px;font-weight:800;margin:2px 0 0;color:var(-
 .logs>.panel-heading,.logs>.panel-note{flex:none}
 .logs li.log-empty{border:0;margin:0;padding:6px 0;color:var(--ink-3)}
 .logs li.log-empty:before{display:none}
+.roster-tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;flex:none;margin-bottom:8px}
+.roster-tabs button{min-height:34px;padding:4px 8px;border:1.5px solid var(--line-strong);border-radius:0;clip-path:var(--clip-card);background:var(--surface-3);color:var(--ink-2);font-size:12px;font-weight:700}
+.roster-tabs button:hover{background:var(--sun-soft)}
+.roster-tabs button[aria-pressed=true]{border-color:var(--brand);background:var(--sun-soft);color:var(--brand-dk);box-shadow:inset 0 -2px var(--brand)}
+.roster-tabs button:focus-visible{outline-offset:-4px}
 .search-label span{font-size:10px;color:var(--ink-2);font-weight:700}
 /* 输入框：切角内凹羊皮槽 */
 .search-label input{margin-top:5px;width:100%;background:#fbf3e2;border:1.5px solid var(--line-strong);border-radius:0;clip-path:var(--clip-card);padding:8px 10px;color:var(--ink);font-size:12px;box-shadow:inset 0 2px 4px rgba(42,23,8,.14)}
@@ -36,11 +41,10 @@ h2{font-size:16px;letter-spacing:.5px;font-weight:800;margin:2px 0 0;color:var(-
 .search-label input:focus{outline:none;border-color:var(--brand);box-shadow:inset 0 2px 4px rgba(42,23,8,.14),0 0 0 2px #d9770640}
 .panel-note{font-size:10.5px;color:var(--ink-2);line-height:1.65;margin:6px 0 9px}
 .roster-items{overflow:auto;flex:1 1 auto;min-height:0;height:auto;padding-right:3px}
-.roster-scroll{overflow:auto;flex:1 1 auto;min-height:0;height:auto;padding-right:3px;display:flex;flex-direction:column;gap:6px}
+.roster-scroll{overflow:auto;flex:1 1 auto;min-height:0;height:auto;margin-top:8px;padding-right:3px;display:flex;flex-direction:column}
 .roster-scroll>.roster-items{overflow:visible;flex:none;padding-right:0}
 .roster-org-group{margin-bottom:8px}
 .roster-org-group h3{margin:0 0 4px;padding:5px 8px;border:1px solid var(--line-2);background:var(--surface-3);color:var(--ink);font-size:11.5px;overflow-wrap:anywhere}
-.roster-unjoined{border-top:1.5px dashed var(--line-strong);padding-top:8px;margin-top:2px}
 .roster-unjoined-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;font-size:11px;font-weight:800;color:var(--brand-dk)}
 .roster-unjoined-head b{font:800 11.5px ui-monospace,monospace;color:var(--coral-dk)}
 .roster-unjoined-refresh{padding:2px 8px;font-size:10.5px;border:1px solid var(--line-strong);background:var(--surface-3);color:var(--ink);cursor:pointer;clip-path:var(--clip-card)}
