@@ -585,18 +585,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* 侧栏底部 */
 .sidebar-footer {
-  padding: 12px 14px 16px;
+  padding: 10px 12px 14px;
   border-top: 1px solid var(--rail-border);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 9px;
 }
 
 .storage-card {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 9px 10px;
+  gap: 7px;
+  padding: 8px 9px;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid var(--rail-border);
@@ -673,7 +673,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   top: 0;
   z-index: 30;
   min-height: var(--topbar-h);
-  padding: 12px 28px;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -767,9 +767,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* ---------- 工作区容器 ---------- */
 .manager-workspace {
-  width: min(1180px, 100%);
-  margin: 0 auto;
-  padding: 20px 28px 36px;
+  width: 100%;
+  padding: 18px 24px 28px;
 }
 
 .manager-module {
@@ -1956,8 +1955,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 .quiz-table th, .quiz-table td { padding: 9px 10px; font-size: 12px; }
 .quiz-table td.quiz-col-stem,
-.quiz-table td.quiz-col-opt { white-space: normal; min-width: 84px; max-width: 150px; line-height: 1.48; }
-.quiz-table td.quiz-col-stem { min-width: 180px; max-width: 260px; font-weight: 600; }
+.quiz-table td.quiz-col-opt { white-space: normal; min-width: 96px; max-width: 220px; line-height: 1.48; }
+.quiz-table td.quiz-col-stem { min-width: 210px; max-width: 380px; font-weight: 600; }
 
 .quiz-status-btn {
   min-height: 28px;
