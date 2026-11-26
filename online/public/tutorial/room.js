@@ -363,6 +363,7 @@
         reportProgress(); updateSpotlight(lastView);
       };
       window.addEventListener('keydown', event => {
+        if ($('prize-dialog').open) return;
         if (active && event.key === 'Escape') {
           event.preventDefault(); event.stopImmediatePropagation();
           if (!event.repeat) escapePanel();

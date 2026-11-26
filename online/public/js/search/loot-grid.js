@@ -304,7 +304,7 @@
   }
 
   document.addEventListener('keydown', e => {
-    if (e.key !== 'Escape') return;
+    if (e.key !== 'Escape' || e.target.closest?.('dialog[open]')) return;
     if (!isOpen()) return;
     e.preventDefault();
     e.stopPropagation();

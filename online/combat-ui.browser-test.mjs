@@ -24,6 +24,7 @@ const freePort = async () => {
   return port;
 };
 const port = await freePort(), debugPort = await freePort(), base = `http://127.0.0.1:${port}`;
+const testManagerCode = 'combat-ui-prize-test';
 let server, browser, socket, sequence = 0, serverLog = '', activeCheck = 'startup', self, otherGood, bads, ownToken;
 const pending = new Map(), tokens = new Map();
 async function waitFor(label, predicate, timeout = 12000) {
@@ -59,7 +60,11 @@ async function evaluate(expression) {
 const waitPage = expression => waitFor(expression, () => evaluate(expression));
 const click = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
 async function key(key, code, vk, type) {
-  await call('Input.dispatchKeyEvent', { type: type || 'keyDown', key, code, windowsVirtualKeyCode: vk });
+  const eventType = type || 'keyDown';
+  await call('Input.dispatchKeyEvent', {
+    type: eventType, key, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk,
+    ...(key === 'Enter' && eventType === 'keyDown' ? { text: '\r', unmodifiedText: '\r' } : {})
+  });
   if (!type) await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
 }
 async function check(name, fn) {
@@ -146,7 +151,7 @@ async function installVisualProbe() {
 try {
   server = spawn(process.execPath, ['server.js'], {
     cwd: online, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), SID_TEST: '1', SID_DEV: '1', SID_DB: '1', SID_DB_FILE: ':memory:', SID_TEST_AUTO_OPEN: '1' }
+    env: { ...process.env, HOST: '127.0.0.1', PORT: String(port), SID_TEST: '1', SID_DEV: '1', SID_DB: '1', SID_DB_FILE: ':memory:', SID_TEST_AUTO_OPEN: '1', SID_MANAGER_CODE: testManagerCode }
   });
   for (const stream of [server.stdout, server.stderr]) stream.on('data', data => { serverLog += data.toString(); });
   await waitFor('isolated test server', async () => {
@@ -425,6 +430,77 @@ try {
     assert.equal((await state()).me.score, observations.quiz.scoreAfter, 'Opening pending panels changed the settled score');
     observations.responseOrder = { containerA: containerA.id, containerB: containerB.id, questionA: a.quiz.id, questionB: b.quiz.id, lateReleased: true, displayedQuestion: b.quiz.id };
     await capture('11-late-response-isolated.png');
+  });
+  await check('Prize dialog reflects a real award while its toolbar button keeps the same position', async () => {
+    await evaluate(`(() => {
+      const user = document.getElementById('sso-user');
+      user.textContent = '试玩同事（000001）'; user.hidden = false;
+    })()`);
+    const toolbar = `(() => {
+      const selectors = ['#sso-user', '#round-tasks-toggle', '#my-info', '#prize-toggle', '#audio-toggle', '#fullscreen-toggle'];
+      return selectors.map(selector => {
+        const {left, right, top, bottom, width} = document.querySelector(selector).getBoundingClientRect();
+        return {left, right, top, bottom, width};
+      });
+    })()`;
+    const before = await evaluate(toolbar);
+    assert(before[1].right <= before[2].left && before[2].right <= before[3].left);
+    assert.equal(before[3].width, 34);
+    await evaluate("document.getElementById('prize-toggle').focus()");
+    await key('Enter', 'Enter', 13);
+    await waitPage(`document.getElementById('prize-dialog').open`);
+    assert.equal(await evaluate('document.activeElement.id'), 'prize-close');
+    assert.equal(await evaluate(`document.getElementById('prize-name').textContent`), '暂未获得神秘奖品');
+    assert.match(await evaluate(`document.getElementById('prize-note').textContent`), /多探索、多和同事互动/);
+    await capture('12-prize-empty.png');
+    await key('Escape', 'Escape', 27);
+    await waitPage(`!document.getElementById('prize-dialog').open && document.activeElement.id==='prize-toggle'`);
+    assert.equal(await evaluate("document.getElementById('loot').hidden"), false);
+    await click('#loot-close');
+    await evaluate("document.getElementById('prize-toggle').focus()");
+    await click('#prize-toggle');
+
+    const login = await fetch(base + '/api/manager/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: testManagerCode })
+    });
+    assert.equal(login.status, 200);
+    const { csrfToken } = await login.json();
+    const cookie = login.headers.getSetCookie()[0].split(';')[0];
+    const prizeName = '彩蛋纪念保温杯';
+    const configured = await fetch(base + '/api/manager/prizes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie, Origin: base },
+      body: JSON.stringify({ csrfToken, items: [{ name: prizeName, stock: 1 }], chances: { explore: 1, hammer: 0 } })
+    });
+    assert.equal(configured.status, 200);
+    const container = W.floorContainers(1)[3];
+    assert(container);
+    await api('/api/test/place', { playerId: self.id, floorId: 1, zoneId: null, x: container.x, y: container.y });
+    const snapshot = await state();
+    const opened = await api('/api/search/start', {
+      commandId: 'combat-ui-prize', containerId: container.id,
+      roundId: snapshot.roundId, expectedFloorRevision: snapshot.me.floorRevision
+    }, ownToken);
+    assert.equal(opened.data.prize?.name, prizeName, JSON.stringify(opened.data));
+    await waitPage(`document.getElementById('prize-name').textContent===${JSON.stringify(prizeName)}`);
+    assert.equal(await evaluate(`document.getElementById('prize-note').textContent`), '奖品将在活动结束后统一线下发放。');
+    assert.equal(await evaluate(`document.querySelectorAll('#prize-dialog button').length`), 1);
+    await capture('13-prize-awarded.png');
+    await key('Escape', 'Escape', 27);
+    await waitPage(`!document.getElementById('prize-dialog').open && document.activeElement.id==='prize-toggle'`);
+    assert.deepEqual(await evaluate(toolbar), before);
+
+    await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    const mobile = await evaluate(toolbar);
+    assert(mobile[2].right <= mobile[3].left && mobile[2].top < mobile[3].bottom && mobile[3].top < mobile[2].bottom);
+    assert(mobile[3].right <= 390);
+    await click('#prize-toggle');
+    const dialog = await evaluate(`document.getElementById('prize-dialog').getBoundingClientRect().toJSON()`);
+    assert(dialog.left >= 0 && dialog.right <= 390 && dialog.top >= 0 && dialog.bottom <= 844);
+    assert.equal(await evaluate(`document.getElementById('prize-name').textContent`), prizeName);
+    await capture('14-prize-mobile.png');
+    await click('#prize-close');
+    await waitPage(`!document.getElementById('prize-dialog').open`);
+    await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   });
   await check('Health and protection UI load without script or static-resource errors', async () => {
     assert.deepEqual(errors, []); assert.deepEqual(failedResources, []);

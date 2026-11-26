@@ -253,13 +253,19 @@ try {
     await waitPage(`document.readyState==='complete'&&!!document.getElementById('manager-code')`);
     await evaluate(`document.getElementById('manager-code').value='flower-browser-test';document.getElementById('manager-login-form').requestSubmit()`);
     await waitPage(`!document.getElementById('manager-app').hidden&&document.getElementById('flower-recipients').value.includes('f001')`);
+    assert.equal(await evaluate(`document.querySelectorAll('#manager-app .manager-module[open]').length`), 0);
+    await click('#module-flower-recipients > summary');
+    await waitPage(`document.getElementById('module-flower-recipients').open`);
     await evaluate(`window.confirm=()=>true;document.getElementById('flower-recipients').value+=${JSON.stringify('\nfnew,新增收花人')}`);
     await delay(5200);
     assert.match(await evaluate(`document.getElementById('flower-recipients').value`), /fnew/);
+    assert.equal(await evaluate(`document.getElementById('module-flower-recipients').open`), true);
     await click('#flower-recipients-save');
     await waitPage(`document.getElementById('flower-recipients-summary').textContent.includes('8 位')`);
     assert(ROOM.flowers.view().recipients.some(p => p.empNo === 'fnew'));
     await capture('06-manager-roster.png');
+    await click('#module-flower-recipients > summary');
+    await waitPage(`!document.getElementById('module-flower-recipients').open`);
   });
   await check('年度纪念册保留原榜样卡片，不展示勋章或献花入口', async () => {
     await call('Page.navigate', { url: base + '/annual-review/' });

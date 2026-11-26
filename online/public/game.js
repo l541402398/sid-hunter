@@ -249,19 +249,18 @@
 
   function selfId() { return me ? me.id : -1; }
   function selfPlayer() { return players.find(p => p.id === selfId()) || null; }
-  // 实物奖品：服务端已锁定给本人，这里只做掉落动画与顶栏「我的奖品」展示（名称一律走 textContent）。
-  function updatePrizeChip() {
-    const chip = $('prize-chip'), name = me && me.prize ? String(me.prize.name || '') : '';
-    if (!chip) return;
-    if (chip.hidden !== !name) chip.hidden = !name;
-    const node = $('prize-name');
-    if (node && node.textContent !== name) node.textContent = name;
+  const prizeDialog = $('prize-dialog');
+  const prizeToggle = $('prize-toggle');
+  function renderPrize() {
+    const name = me?.prize?.name;
+    setText($('prize-name'), name || '暂未获得神秘奖品');
+    setText($('prize-note'), name ? '奖品将在活动结束后统一线下发放。' : '多探索、多和同事互动，说不定就有惊喜。');
   }
   function showPrizeDrop(prize) {
     if (!prize || !prize.name) return;
     AUDIO?.play('prizeDrop');
     if (me) me = { ...me, prize: { name: prize.name, channel: prize.channel, at: Date.now() } };
-    updatePrizeChip();
+    if (prizeDialog.open) renderPrize();
     const drop = document.createElement('div');
     drop.className = 'prize-drop';
     drop.setAttribute('role', 'status');
@@ -357,7 +356,7 @@
   }
   function operationModalOpen() {
     return !!tutorial?.isBlocking() || !!$('annual-review-overlay')?.open || !!roundTasks?.opened() ||
-      !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
+      prizeDialog.open || !!explorationPanel || privateOpen || !!$('bad-pool-dialog')?.open || !!$('invite-dialog')?.open;
   }
   function sendIntent(force) {
     if (operationModalOpen() || elevatorPicker || gameClosed) keys.clear();
@@ -1399,6 +1398,8 @@
     sessionToken = null; devCsrf = null;
     localStorage.removeItem('sid_session_token'); localStorage.removeItem('sid_lan');
     players = []; directory = []; directoryById = new Map(); everyoneCache = null; logs = []; me = null; selectedId = null; finished = false; aliveCount = outCount = 0;
+    if (prizeDialog.open) prizeDialog.close();
+    renderPrize();
     flowerUI?.synchronize();
     badSlots = []; badPoolAvailable = false; lastBadPoolSig = '';
     $('bad-slots').hidden = true; $('bad-toggle').setAttribute('aria-expanded', 'false');
@@ -2004,7 +2005,7 @@
         ? progress.historyScore + progress.currentScore : selfScore());
       if (node.textContent !== text) node.textContent = text;
     }
-    updatePrizeChip();
+    if (prizeDialog.open) renderPrize();
     roundTasks?.sync();
   }
   function formatDuration(ms) {
@@ -2161,7 +2162,6 @@
   function updateExplorationHUD() {
     const self = selfPlayer(), renderedSelf = self && renderMap.get(self.id);
     setText($('cover-status'), self ? (WORLD.coverFor(renderedSelf || self, occluders) ? '身体已遮挡 · 不免疫技能' : '无遮挡') : '尚未加入');
-    updatePrizeChip();
     const nearby = nearbyEntities();
     const nearP = nearbyRpsPlayer();
     const hudItems = nearP ? [...nearby, { kind: 'player', id: `player:${nearP.id}`, playerId: nearP.id, entity: nearP }] : nearby;
@@ -4737,6 +4737,17 @@
     clearAllInput(); mineOpen = true;
     $('my-info').setAttribute('aria-expanded', 'true'); renderMine();
   };
+  prizeToggle.onclick = () => {
+    if (prizeDialog.open) return;
+    renderPrize();
+    prizeDialog.showModal();
+    prizeToggle.setAttribute('aria-expanded', 'true');
+    if (me) sendIntent(false);
+  };
+  $('prize-close').onclick = () => prizeDialog.close();
+  prizeDialog.addEventListener('close', () => {
+    prizeToggle.setAttribute('aria-expanded', String(prizeDialog.open));
+  });
   document.addEventListener('pointercancel', clearAllInput, true);
   const isTyping = () => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement && document.activeElement.tagName) || (document.activeElement && document.activeElement.isContentEditable);
   // 同一条中文原因只弹一次，避免按住键时刷屏。
@@ -4788,7 +4799,7 @@
     } else showToast(zoneId ? '走到门口按 K 离开房间' : '请靠近角色、容器/NPC、房间门或电梯门（64 像素以内）');
   }
   document.addEventListener('keydown', e => {
-    if ($('annual-review-overlay')?.open || tutorial?.isBlocking() || roundTasks?.opened()) return;
+    if (prizeDialog.open || $('annual-review-overlay')?.open || tutorial?.isBlocking() || roundTasks?.opened()) return;
     // F1 碰撞调试层仅在服务端同时启用开发模式时开放。
     if (e.key === 'F1' && debugEnabled) {
       e.preventDefault();
